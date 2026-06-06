@@ -1,0 +1,17 @@
+jobs/resume/build/
+jobs/resume/exports/
+jobs/resume/.overleaf-resume/
+jobs/resume/*.aux
+jobs/resume/*.fdb_latexmk
+jobs/resume/*.fls
+jobs/resume/*.log
+jobs/resume/*.out
+jobs/resume/*.pdf
+jobs/resume/*.synctex.gz
+jobs/*.aux
+jobs/*.fdb_latexmk
+jobs/*.fls
+jobs/*.log
+jobs/*.out
+jobs/*.pdf
+jobs/*.synctex.gz
