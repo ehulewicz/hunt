@@ -32,3 +32,5 @@ jobs/tracker/pending/
 
 # Claude Code local state
 .claude/worktrees/
+.env.paos
+.env.google
