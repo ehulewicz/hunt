@@ -26,3 +26,9 @@ jobs/*.log
 jobs/*.out
 jobs/*.pdf
 jobs/*.synctex.gz
+jobs/.env.jobs
+jobs/tracker/.scout-seen.json
+jobs/tracker/pending/
+
+# Claude Code local state
+.claude/worktrees/

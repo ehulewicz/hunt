@@ -13,11 +13,15 @@ dependencies = [
     "python-multipart>=0.0.12",
     "google-genai>=2.8.0",
     "pyjwt>=2.13.0",
+    "anthropic>=0.40.0",
+    "playwright>=1.44.0",
+    "instaloader>=4.10.3",
+    "httpx>=0.28.0",
 ]
 
 [project.scripts]
-paos = "paos.cli:main"
-paos-api = "paos.api.app:run"
+os = "paos.cli:main"
+os-api = "paos.api.app:run"
 
 [dependency-groups]
 dev = [
