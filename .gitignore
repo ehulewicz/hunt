@@ -30,6 +30,14 @@ jobs/.env.jobs
 jobs/tracker/.scout-seen.json
 jobs/tracker/pending/
 
+# jobs/web app
+jobs/web/node_modules/
+jobs/web/.next/
+jobs/web/.build/
+jobs/data/jobs.db*
+jobs/exports/
+jobs/.chrome-profile/
+
 # Claude Code local state
 .claude/worktrees/
 .env.paos
