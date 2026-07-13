@@ -10,12 +10,12 @@ __pycache__/
 node_modules/
 .next/
 
-# projects/jobs
-projects/jobs/.env.jobs
-projects/jobs/data/jobs.db*
-projects/jobs/exports/
-projects/jobs/.chrome-profile/
-projects/jobs/web/.build/
+# apps/jobs
+apps/jobs/.env.jobs
+apps/jobs/data/jobs.db*
+apps/jobs/exports/
+apps/jobs/.chrome-profile/
+apps/jobs/web/.build/
 
 # Claude Code local state
 .claude/worktrees/
