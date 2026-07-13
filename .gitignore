@@ -7,38 +7,21 @@ __pycache__/
 *.pyc
 .ruff_cache/
 .coverage
-supabase/.branches/
-supabase/.temp/
-jobs/resume/build/
-jobs/resume/exports/
-jobs/resume/.overleaf-resume/
-jobs/resume/*.aux
-jobs/resume/*.fdb_latexmk
-jobs/resume/*.fls
-jobs/resume/*.log
-jobs/resume/*.out
-jobs/resume/*.pdf
-jobs/resume/*.synctex.gz
-jobs/*.aux
-jobs/*.fdb_latexmk
-jobs/*.fls
-jobs/*.log
-jobs/*.out
-jobs/*.pdf
-jobs/*.synctex.gz
-jobs/.env.jobs
-jobs/tracker/.scout-seen.json
-jobs/tracker/pending/
+node_modules/
+.next/
 
-# jobs/web app
-jobs/web/node_modules/
-jobs/web/.next/
-jobs/web/.build/
-jobs/data/jobs.db*
-jobs/exports/
-jobs/.chrome-profile/
+# projects/jobs
+projects/jobs/.env.jobs
+projects/jobs/data/jobs.db*
+projects/jobs/exports/
+projects/jobs/.chrome-profile/
+projects/jobs/web/.build/
 
 # Claude Code local state
 .claude/worktrees/
 .env.paos
 .env.google
+
+# local Supabase CLI runtime state (archived/supabase/, not actively run)
+archived/supabase/.branches/
+archived/supabase/.temp/
