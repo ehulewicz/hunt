@@ -25,3 +25,7 @@ apps/jobs/web/.build/
 # local Supabase CLI runtime state (archived/supabase/, not actively run)
 archived/supabase/.branches/
 archived/supabase/.temp/
+
+# active local Supabase CLI runtime state
+supabase/.branches/
+supabase/.temp/
