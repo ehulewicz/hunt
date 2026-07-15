@@ -19,7 +19,7 @@ apps/jobs/web/.build/
 
 # Claude Code local state
 .claude/worktrees/
-.env.paos
+.env.personal-os
 .env.google
 
 # local Supabase CLI runtime state (archived/supabase/, not actively run)
