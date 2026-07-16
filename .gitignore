@@ -1,31 +1,34 @@
-brain
+# Secrets / environment
 .env
+.env.*
+!*.example
+
+# AI tools (settings, artifacts, local state)
+.claude/
+.codex
+.cursor/
+
+# Python
 .venv/
 .uv-cache/
+.ruff_cache/
 .pytest_cache/
 __pycache__/
 *.pyc
-.ruff_cache/
 .coverage
+
+# Node / build
 node_modules/
 .next/
 
-# apps/jobs
-apps/jobs/.env.jobs
+# apps/jobs (local-first standalone data)
 apps/jobs/data/jobs.db*
 apps/jobs/exports/
 apps/jobs/.chrome-profile/
 apps/jobs/web/.build/
 
-# Claude Code local state
-.claude/worktrees/
-.env.personal-os
-.env.google
-
-# local Supabase CLI runtime state (archived/supabase/, not actively run)
-archived/supabase/.branches/
-archived/supabase/.temp/
-
-# active local Supabase CLI runtime state
+# Supabase local CLI runtime state
 supabase/.branches/
 supabase/.temp/
+archived/supabase/.branches/
+archived/supabase/.temp/
