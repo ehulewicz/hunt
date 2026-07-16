@@ -18,6 +18,12 @@ node_modules/
 .next/
 *.tsbuildinfo
 
+# Jobs local runtime data
+apps/jobs/data/jobs.db*
+apps/jobs/exports/
+apps/jobs/.chrome-profile/
+apps/jobs/web/.build/
+
 # Supabase local CLI runtime state
 supabase/.branches/
 supabase/.temp/
