@@ -3,11 +3,6 @@
 .env.*
 !*.example
 
-# AI tools (settings, artifacts, local state)
-.claude/
-.codex
-.cursor/
-
 # Python
 .venv/
 .uv-cache/
@@ -20,12 +15,6 @@ __pycache__/
 # Node / build
 node_modules/
 .next/
-
-# apps/jobs (local-first standalone data)
-apps/jobs/data/jobs.db*
-apps/jobs/exports/
-apps/jobs/.chrome-profile/
-apps/jobs/web/.build/
 
 # Supabase local CLI runtime state
 supabase/.branches/
