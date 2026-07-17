@@ -24,6 +24,10 @@ apps/jobs/exports/
 apps/jobs/.chrome-profile/
 apps/jobs/web/.build/
 
+# Nested standalone repo (github.com/ehulewicz/dotfiles) — cloned here, never
+# committed to personal-os
+dotfiles/
+
 # Supabase local CLI runtime state
 supabase/.branches/
 supabase/.temp/
