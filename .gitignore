@@ -23,6 +23,7 @@ apps/jobs/exports/
 apps/jobs/.chrome-profile/
 apps/jobs/web/.build/
 .playwright-mcp/
+.logs/
 
 # Nested standalone repo (github.com/ehulewicz/dotfiles) — cloned here, never
 # committed to personal-os
