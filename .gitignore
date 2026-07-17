@@ -19,7 +19,6 @@ node_modules/
 *.tsbuildinfo
 
 # Jobs local runtime data
-apps/jobs/data/jobs.db*
 apps/jobs/exports/
 apps/jobs/.chrome-profile/
 apps/jobs/web/.build/
