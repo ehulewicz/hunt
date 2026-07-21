@@ -34,3 +34,5 @@ supabase/.branches/
 supabase/.temp/
 archived/supabase/.branches/
 archived/supabase/.temp/
+.vercel
+.env*
