@@ -17,6 +17,8 @@ __pycache__/
 node_modules/
 .next/
 *.tsbuildinfo
+playwright-report/
+test-results/
 
 # Jobs local runtime data
 apps/jobs/exports/
