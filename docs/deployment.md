@@ -1,8 +1,8 @@
 # Deployment — Personal OS
 
-_Last updated: 2026-07-22._
+_Last updated: 2026-07-27._
 
-Production topology (first deployment, 2026-07):
+Production topology:
 
 ```text
 Browser ──▶ Vercel (Next.js dashboard)
@@ -13,7 +13,7 @@ Supabase Auth   FastAPI on Cloud Run ──▶ Supabase Postgres
 (hosted)        (personal-os-api)        (Supavisor session pooler)
 ```
 
-- **Supabase (hosted)** — Postgres 17, Auth, Storage. Same migrations as local.
+- **Supabase (hosted)** — authoritative Postgres 17, Auth, and Storage.
 - **Cloud Run** — the FastAPI service, deployed by GitHub Actions on push to
   `main`. `--allow-unauthenticated` at the IAM layer; application-level
   Supabase JWT verification is the real auth boundary.
@@ -21,25 +21,27 @@ Supabase Auth   FastAPI on Cloud Run ──▶ Supabase Postgres
   (root directory `apps/dashboard`), auto-deploying on push to `main`.
 - **Cloudflare** — not used yet. It has no role in authentication; it becomes
   relevant only for custom-domain DNS, WAF/rate limiting, or tunnels later.
-- **Jobs** (`apps/jobs/`) stays local-only (browser automation, PDF
-  generation). The hosted dashboard's Jobs embed does not work outside the
-  machine running Jobs; that is expected.
+- **Jobs and Learning execution** — their remaining loopback/web-process
+  dependencies are deployment gaps. They are not supported product paths until
+  deployed behind the same hosted boundary.
+
+Production dashboard: `https://personal-os-ten-kappa.vercel.app`
+
+Production API: `https://personal-os-api-dyzemjumta-ue.a.run.app`
 
 ## Secrets: GCP Secret Manager is the origin
 
 Every static app-level secret originates in **GCP Secret Manager** (project
-`example-gcp-project`). Nothing else is a source of truth — Vercel and local
-`.env` files hold **copies** rendered from it. Access needs no extra tool or
-token: your own `gcloud` login reads it locally, the Cloud Run runtime service
-account mounts it at runtime, and CI reads it through Workload Identity
-Federation.
+`example-gcp-project`). Nothing else is a source of truth. Cloud Run mounts
+secrets at runtime, CI reads them through Workload Identity Federation, and
+developer `.env` files—when needed for verification—are disposable copies.
 
 ### What lives where
 
 | Secret (Secret Manager) | Consumed by | As |
 |---|---|---|
-| `personal-os-api-database-url` | Cloud Run, CI, local API | `PERSONAL_OS_API_DATABASE_URL`; CI parses the project ref + DB password out of it |
-| `personal-os-api-oauth-token-encryption-key` | Cloud Run, local API | `PERSONAL_OS_API_OAUTH_TOKEN_ENCRYPTION_KEY` |
+| `personal-os-api-database-url` | Cloud Run, CI | `PERSONAL_OS_API_DATABASE_URL`; CI parses the project ref + DB password out of it |
+| `personal-os-api-oauth-token-encryption-key` | Cloud Run | `PERSONAL_OS_API_OAUTH_TOKEN_ENCRYPTION_KEY` |
 | `personal-os-supabase-access-token` | CI (migrate job) | `SUPABASE_ACCESS_TOKEN` for `supabase link` / `db push` |
 
 Non-secret values are **not** stored as secrets: the Supabase URL and project
@@ -47,9 +49,9 @@ ref derive from the ref `exampleprojectref`; the publishable key is public and
 fetched from the Supabase management API (`supabase projects api-keys`); the
 Cloud Run URL comes from `gcloud run services describe`.
 
-Integrations not yet deployed (calendar OAuth, Gemini, the GitHub App) have no
-secret yet. When you deploy one, add a Secret Manager secret and wire it into
-Cloud Run + `scripts/secrets/sync-local.sh`.
+Calendar OAuth, Gemini, and the GitHub App are the next hosted integrations.
+Each app-level credential must be created in Secret Manager and mounted into
+Cloud Run before its Dashboard control is enabled.
 
 ### Distribution (each target reads from the origin, never the reverse)
 
@@ -58,19 +60,16 @@ Cloud Run + `scripts/secrets/sync-local.sh`.
 | **Cloud Run** | `--set-secrets` mounts Secret Manager versions natively | (provisioning) |
 | **GitHub Actions** | WIF → `gcloud secrets versions access` in the `migrate` job | (in `deploy.yml`) |
 | **Vercel** | `vercel env` set from the origin (public `NEXT_PUBLIC_*` config) | `scripts/secrets/push-vercel.sh` |
-| **Local dev** | rendered gitignored `.env` files from `gcloud` | `scripts/secrets/sync-local.sh` |
-
-Pure-local `npm run dev:stack` needs no secret access at all; it derives
-everything from local Supabase.
+| **Developer verification** | rendered gitignored `.env` files from `gcloud` | `scripts/secrets/sync-local.sh` |
 
 ### OAuth: three categories, handled differently
 
 - **App-level client credentials** (Google/Microsoft calendar client id+secret,
   future providers) — Secret Manager secrets once deployed, distributed like any
   other secret.
-- **Per-user connection tokens** (linking your Outlook / Google Health) — never
-  stored centrally. They live encrypted in Postgres; Secret Manager only holds
-  the `oauth_token_encryption_key` that protects them.
+- **Per-user connection tokens** (linking Google Calendar/Tasks and future
+  providers) — stored encrypted in hosted Postgres. Secret Manager holds the
+  `oauth_token_encryption_key` that protects them.
 - **Site login providers** (Google/GitHub "sign in") — applied in the Supabase
   dashboard (never `supabase config push`), so distribution is manual.
 
@@ -99,8 +98,8 @@ Push to `main` touching `services/api/**`, `modules/**`, or
 1. **migrate** — authenticates to GCP via Workload Identity Federation, reads
    the Supabase access token and database URL from Secret Manager (parsing the
    project ref + DB password out of the URL), then Supabase CLI 2.109.1 links
-   the hosted project and runs `supabase db push` (migrations only; seeds are
-   local-only, idempotent).
+   the hosted project and runs `supabase db push` (migrations only; synthetic
+   seeds are isolated test fixtures and never production data).
 2. **deploy-api** — authenticates to GCP via Workload Identity Federation,
    builds the image from the repo root (`services/api/Dockerfile` — root
    context is required because the API depends on `modules/*` path packages),
@@ -138,7 +137,8 @@ PERSONAL_OS_API_ENVIRONMENT: "production"
 PERSONAL_OS_API_SUPABASE_URL: "https://<ref>.supabase.co"
 PERSONAL_OS_API_JWT_MODE: "jwks"
 PERSONAL_OS_API_JWT_AUDIENCE: "authenticated"
-PERSONAL_OS_API_CORS_ALLOWED_ORIGINS: '["http://localhost:3000","http://127.0.0.1:3000","https://<project>.vercel.app"]'
+PERSONAL_OS_API_CORS_ALLOWED_ORIGINS: '["https://personal-os-ten-kappa.vercel.app"]'
+PERSONAL_OS_API_CALENDAR_OAUTH_REDIRECT_URI: "https://personal-os-ten-kappa.vercel.app/integrations"
 PERSONAL_OS_API_DATABASE_POOL_MIN_SIZE: "1"
 PERSONAL_OS_API_DATABASE_POOL_MAX_SIZE: "4"
 PERSONAL_OS_API_DATABASE_POOL_TIMEOUT_SECONDS: "10"
@@ -176,15 +176,14 @@ sessions.
 
 ## Hosted Supabase settings (dashboard-managed)
 
-`supabase/config.toml` is **local-only**; never `supabase config push` — it
-encodes local values (site URL `127.0.0.1:3000`, confirmations off, low mail
-rate limits). Hosted auth settings live in the Supabase dashboard:
+`supabase/config.toml` configures only the isolated test stack; never
+`supabase config push`. Hosted auth settings live in the Supabase dashboard:
 
 - **JWT signing keys**: asymmetric ES256 key created and promoted to current
   (required by `jwt_mode=jwks`; legacy HS256 tokens are rejected). Promote
   **before** first login.
-- **Site URL**: the Vercel URL. **Redirect URLs**: Vercel origin plus
-  `http://localhost:3000/**` and `http://127.0.0.1:3000/**`.
+- **Site URL**: `https://personal-os-ten-kappa.vercel.app`.
+  **Redirect URLs**: that production origin only.
 - **Email confirmations: off** (the dashboard signup flow expects an
   immediate session; avoids SMTP setup).
 - **Signups: disabled** after the owner account exists (single-user system
@@ -198,31 +197,24 @@ Next.js. Environment variables:
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
-NEXT_PUBLIC_PERSONAL_OS_API_URL=https://<cloud-run-url>
-NEXT_PUBLIC_LEARNING_RUNNER_URL=http://127.0.0.1:3210
+NEXT_PUBLIC_PERSONAL_OS_API_URL=https://personal-os-api-dyzemjumta-ue.a.run.app
 NEXT_PUBLIC_LEETCODE_BRIDGE_EXTENSION_ID=<installed-extension-id>
 ```
 
-`NEXT_PUBLIC_JOBS_URL` stays unset (Jobs is local-only). Learning's runner is
-also loopback-only; the hosted PWA can reach it only from the same personal
-machine. The bridge manifest must include the exact deployed Dashboard origin
-before packaging. The publishable key
-is designed to be public; the database password and access tokens are not and
-never reach the frontend.
+`NEXT_PUBLIC_JOBS_URL` and `NEXT_PUBLIC_LEARNING_RUNNER_URL` remain unset until
+those services have hosted HTTPS endpoints. The Dashboard must not fall back to
+loopback URLs. The bridge manifest permits only the exact deployed Dashboard
+origin. The publishable key is designed to be public; the database password
+and access tokens are not and never reach the frontend.
 
-## Local development against either stack
+## Developer verification
 
-`apps/dashboard` keeps two gitignored env files:
-
-- `.env.stack-local` — local Supabase + local API (values from
-  `.env.local.example`).
-- `.env.stack-hosted` — hosted Supabase + Cloud Run. Generated by
-  `scripts/secrets/sync-local.sh` from GCP Secret Manager; re-run it whenever a
-  secret value changes.
-
-`npm run dev:local` / `npm run dev:hosted` copy the chosen file over
-`.env.local` and start the dev server. The full local stack
-(`npm run dev:stack`) is unchanged.
+`apps/dashboard/.env.stack-hosted` targets hosted Supabase and Cloud Run and is
+generated by `scripts/secrets/sync-local.sh`. `npm run dev:hosted` runs a
+development client against the real product backend. The repository's local
+Supabase and `npm run dev:stack` remain available only for isolated tests and
+migration validation; feature acceptance must be repeated against the hosted
+path.
 
 ## Operations
 
@@ -250,7 +242,7 @@ never reach the frontend.
 - SQL-editor queries on application tables can return zero rows while the API
   works fine — forced RLS applies to ad-hoc sessions that never set the
   request context.
-- `/v1/demo` routes return empty results on hosted — demo seeds are
-  intentionally local-only.
-- The Jobs tile in the hosted dashboard fails to load unless the browser is on
-  the machine running Jobs locally.
+- `/v1/demo` routes return empty results because synthetic test fixtures are
+  not production data.
+- Jobs and Learning execution surfaces stay hidden or unavailable until their
+  HTTPS services are deployed; a loopback fallback is a bug.
