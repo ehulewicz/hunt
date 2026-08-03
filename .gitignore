@@ -20,10 +20,8 @@ node_modules/
 playwright-report/
 test-results/
 
-# Jobs local runtime data
-apps/jobs/exports/
-apps/jobs/.chrome-profile/
-apps/jobs/web/.build/
+# Future worker local runtime data
+workers/.chrome-profile/
 .playwright-mcp/
 .logs/
 
@@ -31,10 +29,8 @@ apps/jobs/web/.build/
 # committed to personal-os
 dotfiles/
 
-# Supabase local CLI runtime state
-supabase/.branches/
-supabase/.temp/
-archived/supabase/.branches/
-archived/supabase/.temp/
+# Supabase CLI link state is deployment tooling, never product state
+database/.branches/
+database/.temp/
 .vercel
 .env*

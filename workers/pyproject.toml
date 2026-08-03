@@ -1,0 +1,34 @@
+[project]
+name = "personal-os-worker"
+version = "0.1.0"
+description = "Portable Personal OS worker scaffold"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+
+[project.scripts]
+personal-os-worker = "personal_os_worker.cli:main"
+
+[dependency-groups]
+dev = ["mypy>=1.17,<2", "pytest>=8.4,<9", "ruff>=0.12,<1"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/personal_os_worker"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+packages = ["personal_os_worker"]

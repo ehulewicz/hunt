@@ -1,16 +1,10 @@
-# Build context is the repo root (see services/api/Dockerfile); keep the
-# context down to modules/ + services/api/.
 .git
 .github
-node_modules
-**/node_modules
-apps
 archived
+database
 docs
-migrations
-projects
-scripts
-supabase
+frontend
+workers
 **/.venv
 **/__pycache__
 **/.pytest_cache
