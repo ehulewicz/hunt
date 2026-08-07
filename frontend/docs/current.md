@@ -17,8 +17,8 @@ Last verified: 2026-08-07
   listings.
 - [ ] Add Calendar and unified Tasks only after Jobs works end to end.
 
-## Active blocker
+## Current acceptance step
 
-The frontend is sending the correct provider and callback, but hosted Supabase
-Auth reports Google disabled. The OAuth client, GCP secrets, and Auth config push
-are tracked in the root and database `docs/current.md` files.
+Hosted Supabase now reports Google enabled and redirects the frontend authorize
+request to Google. Complete the interactive login, API bootstrap, Dashboard
+load, and logout pass with `eahtree@gmail.com`.

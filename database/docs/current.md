@@ -10,24 +10,23 @@ Last verified: 2026-08-07
 - [x] Reconcile hosted migration history to one active baseline.
 - [x] Remove retired application schemas and the old Storage bucket.
 - [x] Verify `anon` and `authenticated` have no application-table grants.
-- [ ] Create the Google OAuth Web client in GCP project `example-gcp-project`.
-- [ ] Add enabled Secret Manager versions for
+- [x] Create the Google OAuth Web client in GCP project `example-gcp-project`.
+- [x] Add enabled Secret Manager versions for
   `personal-os-google-oauth-client-id` and
   `personal-os-google-oauth-client-secret`.
-- [ ] Run the Deploy workflow to apply `database/config.toml` with `supabase
+- [x] Run the Deploy workflow to apply `database/config.toml` with `supabase
   config push`.
-- [ ] Verify hosted Auth reports Google enabled and global signup disabled.
+- [x] Verify hosted Auth reports Google enabled and global signup disabled.
 - [ ] Verify Google identity linking, then revoke legacy password sessions.
 - [ ] Build Jobs operations against the existing tables without adding
   abstractions.
 - [ ] Add document Storage only when upload and versioning are implemented.
 - [ ] Add Calendar and Tasks schema only after Jobs works end to end.
 
-## Verified hosted drift
+## Verified hosted state
 
-On 2026-08-07, `/auth/v1/settings` reported `google: false` and
-`disable_signup: false`. The checked-in config says Google enabled and global
-signup disabled. Both Google OAuth secrets are absent from Secret Manager.
-Deploy run `31194687918` failed while resolving hosted configuration, before
-`supabase config push`, and skipped API deployment. Hosted Auth must not be
-treated as matching `database/config.toml` until the checklist above passes.
+On 2026-08-07, Deploy run `31198525381` successfully applied
+`database/config.toml` and redeployed the API. Hosted Auth reports Google
+enabled, email auth disabled, and global signup disabled. Its Google authorize
+endpoint redirects to Google. Interactive identity-linking acceptance and
+legacy-session revocation remain incomplete.

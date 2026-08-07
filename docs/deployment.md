@@ -50,7 +50,20 @@ printf '%s' "$GOOGLE_OAUTH_CLIENT_SECRET" |
 unset GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET
 ```
 
-7. Run and watch the production workflow:
+7. Grant the GitHub deployer read access to only the two new secrets:
+
+```bash
+gcloud secrets add-iam-policy-binding personal-os-google-oauth-client-id \
+  --project=example-gcp-project \
+  --member=serviceAccount:personal-os-deployer@example-gcp-project.iam.gserviceaccount.com \
+  --role=roles/secretmanager.secretAccessor
+gcloud secrets add-iam-policy-binding personal-os-google-oauth-client-secret \
+  --project=example-gcp-project \
+  --member=serviceAccount:personal-os-deployer@example-gcp-project.iam.gserviceaccount.com \
+  --role=roles/secretmanager.secretAccessor
+```
+
+8. Run and watch the production workflow:
 
 ```bash
 gh workflow run Deploy
