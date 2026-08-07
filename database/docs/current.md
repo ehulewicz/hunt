@@ -27,6 +27,7 @@ Last verified: 2026-08-07
 
 On 2026-08-07, `/auth/v1/settings` reported `google: false` and
 `disable_signup: false`. The checked-in config says Google enabled and global
-signup disabled. Both Google OAuth secrets are absent from Secret Manager, and
-the August 3 minimal-reset commit has no Deploy workflow run. Hosted Auth must not
-be treated as matching `database/config.toml` until the checklist above passes.
+signup disabled. Both Google OAuth secrets are absent from Secret Manager.
+Deploy run `31194687918` failed while resolving hosted configuration, before
+`supabase config push`, and skipped API deployment. Hosted Auth must not be
+treated as matching `database/config.toml` until the checklist above passes.
