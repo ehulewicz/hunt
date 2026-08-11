@@ -1,18 +1,22 @@
 # Backend current state
 
-Last verified: 2026-08-03
+Last verified: 2026-08-10
 
 ## Milestones
 
-- [x] Implement minimal health, identity, and bootstrap endpoints.
-- [x] Enforce JWT signature, issuer, audience, UUID, and email.
-- [x] Archive old domain routers and local/demo behavior.
-- [x] Deploy the minimal API to Cloud Run and pass hosted health and
-  unauthenticated-rejection checks.
-- [ ] Pass the first end-to-end bootstrap using a Google-issued Supabase
-  session.
-- [ ] Add Jobs profile editing after the assisted first profile is approved.
-- [ ] Add GitHub listing ingestion and Jobs CRUD in ordinary internal modules.
-- [ ] Add worker claim/lease endpoints when the foreground worker is
-  implemented.
+- [x] Implement health, identity, bootstrap, and strict single-user JWT checks.
+- [x] Keep FastAPI as the only application database and Storage client.
+- [x] Implement Jobs profile, listings, applications, documents, reusable
+  answers, worker credentials, task leasing, and worker-result endpoints.
+- [x] Ingest every listing from the four SpeedyApply 2027 feeds and preserve both
+  discovery and direct company/ATS URLs.
+- [x] Classify preferred role families without excluding unmatched or adjacent
+  job titles.
+- [x] Seed the canonical approved `main` resume and known profile facts during
+  bootstrap while leaving optional EEO answers explicit and unset.
+- [x] Validate locally with Ruff, mypy, and 9 passing tests.
+- [ ] Deploy the Jobs API and run authenticated hosted acceptance.
+- [ ] Add an explicit approved-document autofill queue after preparation and
+  approval are accepted end to end.
+- [ ] Add zero2sudo ingestion only after SpeedyApply acceptance passes.
 - [ ] Add Google integration OAuth only with the Calendar milestone.

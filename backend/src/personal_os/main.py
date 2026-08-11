@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from personal_os.auth import CurrentPrincipal, JwtValidator
 from personal_os.config import Settings
 from personal_os.database import BootstrapStore, create_pool, database_is_ready, get_bootstrap_store
+from personal_os.jobs_router import router as jobs_router
 from personal_os.models import AccountResponse, HealthResponse
 
 Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None]]
@@ -42,7 +43,7 @@ def create_app(settings: Settings | None = None, *, lifespan: Lifespan | None = 
             CORSMiddleware,
             allow_origins=resolved.cors_allowed_origins,
             allow_credentials=False,
-            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
             allow_headers=["Authorization", "Content-Type"],
         )
 
@@ -63,6 +64,8 @@ def create_app(settings: Settings | None = None, *, lifespan: Lifespan | None = 
     ) -> AccountResponse:
         await store.bootstrap(principal.user_id, principal.email)
         return AccountResponse.from_principal(principal)
+
+    application.include_router(jobs_router)
 
     return application
 

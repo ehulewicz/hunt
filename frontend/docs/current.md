@@ -1,24 +1,24 @@
 # Frontend current state
 
-Last verified: 2026-08-07
+Last verified: 2026-08-10
 
 ## Milestones
 
-- [x] Move the preserved visual shell to `frontend/`.
-- [x] Implement Google-only login and the PKCE callback.
-- [x] Implement the persistent workspace routes and six explicit Jobs
-  placeholders.
-- [x] Remove password signup and the general Profile screen.
-- [x] Point the production Vercel project at `frontend/` and serve the current
-  route structure at `https://personal-os-ten-kappa.vercel.app`.
-- [ ] Complete a hosted Google login and logout acceptance pass.
-- [ ] Complete the one-time assisted Jobs Profile setup.
-- [ ] Replace Jobs placeholders one flow at a time, starting with GitHub
-  listings.
+- [x] Preserve the Vercel-hosted workspace shell and Google-only PKCE login.
+- [x] Replace all six Jobs placeholders with real API-backed flows.
+- [x] Add a structured Jobs profile editor with explicit optional EEO fields and
+  worker pairing/revocation.
+- [x] Add inclusive listings with default internship/daily filters, optional
+  SWE/data engineering/ML engineering/data science/other tags, search, source
+  sync, batch preparation, and direct company application links.
+- [x] Add application tracking, immutable document review/approval/download,
+  and an approved reusable answer library.
+- [x] Keep submitted status manual; neither frontend nor worker infers or records
+  a submission without the user doing it.
+- [x] Pass lint, types, unit tests, UI policy, production build, and all 3
+  Playwright visual tests.
+- [ ] Deploy to Vercel and run authenticated hosted acceptance.
+- [ ] Add an autofill action only after an application has an approved PDF and
+  approved answers; the worker must still stop before Submit.
+- [ ] Add zero2sudo source controls only after SpeedyApply acceptance passes.
 - [ ] Add Calendar and unified Tasks only after Jobs works end to end.
-
-## Current acceptance step
-
-Hosted Supabase now reports Google enabled and redirects the frontend authorize
-request to Google. Complete the interactive login, API bootstrap, Dashboard
-load, and logout pass with `eahtree@gmail.com`.

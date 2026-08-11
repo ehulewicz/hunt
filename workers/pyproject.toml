@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "Portable Personal OS worker scaffold"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
+dependencies = [
+  "httpx>=0.28,<1",
+  "playwright>=1.55,<2",
+]
 
 [project.scripts]
 personal-os-worker = "personal_os_worker.cli:main"

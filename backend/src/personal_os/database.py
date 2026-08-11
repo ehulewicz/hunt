@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from importlib.resources import files
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -33,6 +34,94 @@ class PostgresBootstrapStore:
                 """,
                 (user_id, email),
             )
+            await connection.execute(
+                """
+                update app.jobs_profile set
+                  legal_name = coalesce(legal_name, 'Alex Example'),
+                  preferred_name = coalesce(preferred_name, 'Ethan'),
+                  phone = coalesce(phone, '555-010-0199'),
+                  address_line_1 = coalesce(address_line_1, '100 Example Ave'),
+                  city = coalesce(city, 'Atlanta'),
+                  region = coalesce(region, 'Georgia'),
+                  postal_code = coalesce(postal_code, '00000'),
+                  country = coalesce(country, 'United States'),
+                  linkedin_url = coalesce(
+                    linkedin_url, 'https://www.linkedin.com/in/alex-example'
+                  ),
+                  github_url = coalesce(github_url, 'https://github.com/ehulewicz'),
+                  work_authorization_status = coalesce(work_authorization_status, 'US Citizen'),
+                  visa_status = coalesce(visa_status, 'Citizen'),
+                  sponsorship_required = coalesce(sponsorship_required, false),
+                  school_name = coalesce(school_name, 'Example Institute of Technology'),
+                  degree_type = coalesce(degree_type, 'B.S.'),
+                  field_of_study = coalesce(field_of_study, 'Computer Science'),
+                  graduation_date = coalesce(graduation_date, date '2027-12-01'),
+                  gpa = coalesce(gpa, 3.78),
+                  earliest_start_text = coalesce(
+                    earliest_start_text, 'Two weeks from offer acceptance.'
+                  ),
+                  years_professional_experience = coalesce(
+                    years_professional_experience, 3
+                  ),
+                  willing_to_relocate = coalesce(willing_to_relocate, true),
+                  willing_to_travel = coalesce(willing_to_travel, true),
+                  target_roles = case
+                    when target_roles is null or cardinality(target_roles) = 0 then
+                      array[
+                        'Software Engineering', 'Data Engineering',
+                        'Machine Learning Engineering', 'Data Science'
+                      ]::text[]
+                    else target_roles
+                  end,
+                  target_career_stages = case
+                    when cardinality(target_career_stages) = 0 then array['internship']::text[]
+                    else target_career_stages
+                  end
+                where user_id = %s
+                """,
+                (user_id,),
+            )
+            resume = files("personal_os").joinpath("main_resume.json").read_text(encoding="utf-8")
+            await connection.execute(
+                """
+                insert into app.jobs_documents (
+                  user_id, document_type, title, content_text, mime_type, status, is_current
+                )
+                select %s, 'master_resume', 'Main resume', %s, 'application/json',
+                       'approved', true
+                where not exists (
+                  select 1 from app.jobs_documents
+                  where user_id = %s and document_type = 'master_resume' and is_current
+                )
+                """,
+                (user_id, resume, user_id),
+            )
+            seed_answers = (
+                (
+                    "work_authorization",
+                    "Are you authorized to work in the United States?",
+                    "Yes, I am a US citizen and do not require sponsorship.",
+                ),
+                ("sponsorship", "Do you require visa sponsorship?", "No."),
+                ("years_experience", "How many years of experience do you have?", "3+ years."),
+                ("relocation", "Are you willing to relocate?", "Yes."),
+                ("travel", "Are you willing to travel?", "Yes."),
+                (
+                    "earliest_start",
+                    "What is your earliest available start date?",
+                    "Two weeks from offer acceptance.",
+                ),
+            )
+            for key, question, answer in seed_answers:
+                await connection.execute(
+                    """
+                    insert into app.jobs_answer_library (
+                      user_id, key, normalized_question, answer_text, approved
+                    ) values (%s, %s, %s, %s, true)
+                    on conflict (user_id, key) do nothing
+                    """,
+                    (user_id, key, question, answer),
+                )
 
 
 def create_pool(settings: Settings) -> AsyncConnectionPool[Any]:

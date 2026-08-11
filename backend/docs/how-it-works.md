@@ -1,17 +1,28 @@
 # How the backend works
 
-The Cloud Run service validates every bearer token against the hosted Supabase
-JWKS. Authentication and authorization are separate: an invalid token is `401`,
-while a valid token whose UUID or verified email differs from the configured
-single account is `403`.
+Cloud Run validates browser bearer tokens against hosted Supabase JWKS, then
+enforces the configured single UUID and verified email. Invalid authentication is
+`401`; a valid but unapproved identity is `403`. No request accepts a user ID.
 
-The API opens short PostgreSQL transactions and runs `SET LOCAL ROLE
-personal_os_api` before touching the private `app` schema. `POST /v1/bootstrap`
-creates the authenticated user's Jobs profile row if it is absent. No request
-accepts a user ID.
+FastAPI is the only application database and Storage client. Each PostgreSQL
+transaction assumes the non-login `personal_os_api` role before accessing the
+private `app` schema. Private PDF objects are read and written server-side with a
+Supabase secret key from GCP Secret Manager.
 
-Public surface:
+`POST /v1/bootstrap` seeds the known Jobs profile, approved canonical `main`
+resume, and reusable answer facts idempotently. Unknown or optional EEO values are
+not inferred.
 
-- `GET /health` checks database readiness without returning internals.
-- `GET /v1/me` returns the authenticated Google identity.
-- `POST /v1/bootstrap` idempotently creates the minimal Jobs profile.
+## Jobs boundary
+
+`/v1/jobs/*` owns profile editing, listing sync/filtering, application preparation,
+document review, answer-library management, worker pairing, and task leasing.
+SpeedyApply sync reads all four 2027 feeds and writes every parsed row. Role families
+are non-exclusive tags, not an ingest gate; an unmatched title is stored as
+`other`. The direct company/ATS URL is used for application work while the GitHub
+file remains the discovery URL.
+
+Browser sessions create revocable 30-day worker credentials. A paired worker may
+claim only that user's Jobs tasks, heartbeat its lease, fetch the approved bundle,
+upload a PDF, and report a result. Worker results create draft documents and
+tailoring audit rows. Approval and submitted status remain user actions.

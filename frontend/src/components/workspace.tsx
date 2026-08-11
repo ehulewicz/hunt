@@ -7,17 +7,26 @@ import { AppShell } from "@/components/app-shell";
 import { ApiError, type Account, authenticateAndBootstrap } from "@/lib/api";
 import { getSupabase } from "@/lib/supabase";
 
-const AccountContext = createContext<Account | null>(null);
+type WorkspaceSession = { account: Account; accessToken: string };
+
+const WorkspaceContext = createContext<WorkspaceSession | null>(null);
 
 export function useAccount(): Account {
-  const account = useContext(AccountContext);
-  if (!account) throw new Error("useAccount must be used inside the authenticated workspace");
-  return account;
+  const workspace = useContext(WorkspaceContext);
+  if (!workspace) throw new Error("useAccount must be used inside the authenticated workspace");
+  return workspace.account;
+}
+
+export function useAccessToken(): string {
+  const workspace = useContext(WorkspaceContext);
+  if (!workspace) throw new Error("useAccessToken must be used inside the authenticated workspace");
+  return workspace.accessToken;
 }
 
 export function Workspace({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [account, setAccount] = useState<Account | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -32,7 +41,10 @@ export function Workspace({ children }: { children: ReactNode }) {
       }
       try {
         const verified = await authenticateAndBootstrap(data.session.access_token);
-        if (active) setAccount(verified);
+        if (active) {
+          setAccount(verified);
+          setAccessToken(data.session.access_token);
+        }
       } catch (error) {
         await supabase.auth.signOut({ scope: "local" });
         if (!active) return;
@@ -54,6 +66,6 @@ export function Workspace({ children }: { children: ReactNode }) {
   }
 
   if (failed) return <div className="centered-state"><strong>Personal OS is unavailable.</strong><span>Refresh to try again.</span></div>;
-  if (!account) return <div aria-label="Loading workspace" className="centered-state"><span className="spinner" /></div>;
-  return <AccountContext.Provider value={account}><AppShell account={account} onSignOut={() => void signOut()}>{children}</AppShell></AccountContext.Provider>;
+  if (!account || !accessToken) return <div aria-label="Loading workspace" className="centered-state"><span className="spinner" /></div>;
+  return <WorkspaceContext.Provider value={{ account, accessToken }}><AppShell account={account} onSignOut={() => void signOut()}>{children}</AppShell></WorkspaceContext.Provider>;
 }

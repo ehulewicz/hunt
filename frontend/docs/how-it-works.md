@@ -1,14 +1,17 @@
 # How the frontend works
 
-The Vercel-hosted Next.js app is the only browser UI. `/` redirects to
-`/dashboard`. Dashboard, Jobs, Settings, and Integrations share the persistent
-workspace layout and sidebar; a future standalone app can live outside that route
-group without inheriting the shell.
+The Vercel-hosted Next.js app is the only browser UI. Dashboard, Jobs, Settings,
+and Integrations share the persistent workspace shell. Supabase JS owns the Google
+PKCE browser session; the browser sends its access token to FastAPI and never reads
+or writes application tables or private Storage directly.
 
-Supabase JS owns a persisted browser session and completes Google OAuth with PKCE at
-`/auth/callback`. The browser then sends the access token to FastAPI. A `403` causes
-an immediate Supabase sign-out and a fixed unauthorized-account message. The
-frontend never reads or writes the application database through Supabase.
+Jobs pages call `/v1/jobs/*` for profile facts, inclusive source listings,
+applications, documents, reusable answers, and worker credentials. Listings start
+with internship and daily filters because that is the normal workflow, but neither
+filter affects ingestion. Role-family filters include SWE, data engineering, ML
+engineering, data science, and `other`; adjacent titles such as full-stack remain
+visible. Application links open the direct company or ATS page rather than GitHub.
 
-Jobs navigation is scaffolded, but every Jobs page is an explicit empty state. No
-Jobs workflow is implied by the UI.
+Batch preparation queues worker tasks. Tailored resumes and cover letters remain
+drafts until reviewed and approved. Submitted status is a manual user action. The
+frontend never claims that an application was submitted based on worker activity.

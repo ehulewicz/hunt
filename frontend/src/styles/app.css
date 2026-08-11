@@ -3,6 +3,9 @@
 .button { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: var(--ui-space-2); border: 1px solid transparent; border-radius: var(--ui-radius-control); padding: 8px 12px; font-size: 13px; font-weight: 700; text-decoration: none; }
 .button-primary { color: var(--ui-accent-text); background: var(--ui-accent); }
 .button-primary:hover { background: var(--ui-accent-hover); }
+.button-secondary { border-color: var(--ui-border-strong); color: var(--ui-text); background: var(--ui-surface); }
+.button-secondary:hover { background: var(--ui-surface-subtle); }
+.button:disabled { cursor: not-allowed; opacity: .5; }
 .button-full { width: 100%; }
 .brand-mark { width: 36px; height: 36px; display: grid; place-items: center; color: var(--ui-accent-text); background: var(--ui-accent); border-radius: var(--ui-radius-panel); }
 .brand-mark svg { width: 18px; height: 18px; }
@@ -69,6 +72,58 @@
 .empty-state { min-height: 190px; display: grid; place-content: center; justify-items: center; text-align: center; }
 .empty-state svg { width: 28px; height: 28px; margin-bottom: var(--ui-space-3); color: var(--ui-accent); }
 
+.jobs-page { display: grid; gap: var(--ui-space-4); }
+.jobs-page .page-header { margin-bottom: 0; }
+.jobs-page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--ui-space-6); }
+.jobs-toolbar { display: grid; grid-template-columns: 150px 190px minmax(220px, 1fr) auto; align-items: end; gap: var(--ui-space-3); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-panel); padding: var(--ui-space-4); background: var(--ui-surface); }
+.jobs-toolbar label:not(.check-control), .form-field { display: grid; gap: var(--ui-space-1); }
+.jobs-toolbar label > span, .form-field > span { color: var(--ui-muted); font-size: 11px; font-weight: 700; }
+.jobs-toolbar input, .jobs-toolbar select, .form-field input, .form-field select, .form-field textarea { width: 100%; min-height: 38px; border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-control); padding: 8px 10px; color: var(--ui-text); background: var(--ui-surface); font: inherit; font-size: 13px; }
+.form-field textarea { min-height: 96px; resize: vertical; }
+.jobs-toolbar input:focus, .jobs-toolbar select:focus, .form-field input:focus, .form-field select:focus, .form-field textarea:focus { outline: 3px solid var(--ui-focus); border-color: var(--ui-accent); }
+.check-control { min-height: 38px; display: flex; align-items: center; gap: var(--ui-space-2); color: var(--ui-muted); font-size: 12px; }
+.check-control input, .listing-select input { accent-color: var(--ui-accent); }
+.jobs-feedback:empty { display: none; }
+.notice { margin: 0; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-control); padding: var(--ui-space-3); font-size: 12px; }
+.notice-error { border-color: var(--ui-danger); color: var(--ui-danger); background: var(--ui-danger-soft); }
+.notice-success { border-color: var(--ui-success); color: var(--ui-success); background: var(--ui-success-soft); }
+.jobs-section { border: 1px solid var(--ui-border); border-radius: var(--ui-radius-panel); background: var(--ui-surface); }
+.section-heading { min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-4); border-bottom: 1px solid var(--ui-border); padding: var(--ui-space-4); }
+.section-heading > div { display: grid; gap: 2px; }
+.section-heading h2 { margin: 0; font-size: 16px; }
+.section-heading span { color: var(--ui-muted); font-size: 11px; }
+.jobs-list { display: grid; }
+.listing-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) minmax(140px, auto); gap: var(--ui-space-3); border-bottom: 1px solid var(--ui-border); padding: var(--ui-space-4); }
+.listing-row:last-child { border-bottom: 0; }
+.application-row { grid-template-columns: minmax(0, 1fr) auto; }
+.listing-select { padding-top: 2px; }
+.listing-main { min-width: 0; display: grid; gap: 5px; }
+.listing-title-line { display: flex; align-items: center; flex-wrap: wrap; gap: var(--ui-space-2); }
+.listing-main strong { font-size: 13px; }
+.listing-main p { margin: 0; color: var(--ui-muted); font-size: 12px; }
+.tag-list { display: flex; flex-wrap: wrap; gap: var(--ui-space-1); }
+.tag { border: 1px solid var(--ui-border); border-radius: var(--ui-radius-control); padding: 2px 5px; color: var(--ui-muted); background: var(--ui-surface-subtle); font-size: 10px; }
+.tag-success { border-color: var(--ui-success); color: var(--ui-success); background: var(--ui-success-soft); }
+.listing-actions { display: flex; flex-direction: column; align-items: flex-end; gap: var(--ui-space-2); color: var(--ui-muted); font-size: 11px; text-align: right; }
+.listing-actions a { display: inline-flex; align-items: center; gap: var(--ui-space-1); color: var(--ui-accent); font-size: 12px; font-weight: 700; text-decoration: none; }
+.panel-state { min-height: 180px; display: flex; align-items: center; justify-content: center; gap: var(--ui-space-2); padding: var(--ui-space-6); color: var(--ui-muted); font-size: 13px; text-align: center; }
+.jobs-form { display: grid; gap: var(--ui-space-4); }
+.form-section { border: 1px solid var(--ui-border); border-radius: var(--ui-radius-panel); padding: var(--ui-space-4); background: var(--ui-surface); }
+.form-section h2 { margin: 0 0 var(--ui-space-4); font-size: 16px; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ui-space-3); }
+.form-grid .form-wide { grid-column: 1 / -1; }
+.form-actions { position: sticky; bottom: 0; display: flex; align-items: center; justify-content: flex-end; gap: var(--ui-space-3); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-panel); padding: var(--ui-space-3); background: var(--ui-surface); }
+.section-heading-inline { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--ui-space-4); }
+.section-heading-inline h2 { margin-bottom: var(--ui-space-1); }
+.section-heading-inline p { margin: 0; color: var(--ui-muted); font-size: 12px; }
+.worker-token { display: grid; gap: var(--ui-space-2); border: 1px solid var(--ui-success); border-radius: var(--ui-radius-control); padding: var(--ui-space-3); background: var(--ui-success-soft); }
+.worker-token textarea { min-height: 72px; resize: none; }
+.worker-token code { overflow-wrap: anywhere; font-size: 11px; }
+.worker-token span { color: var(--ui-muted); font-size: 11px; }
+.credential-row { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-3); border-top: 1px solid var(--ui-border); padding: var(--ui-space-3) 0; }
+.credential-row > div { display: grid; gap: 2px; }
+.credential-row span { color: var(--ui-muted); font-size: 11px; }
+
 @media (max-width: 760px) {
   .app-layout { grid-template-columns: 64px minmax(0, 1fr); }
   .sidebar { padding-inline: var(--ui-space-2); }
@@ -79,4 +134,9 @@
   .main-content { padding: var(--ui-space-6) var(--ui-space-4); }
   .status-row { grid-template-columns: 1fr auto; }
   .status-row > span { grid-column: 1 / -1; grid-row: 2; }
+  .jobs-page-header { align-items: stretch; flex-direction: column; }
+  .jobs-toolbar { grid-template-columns: 1fr; }
+  .listing-row { grid-template-columns: 24px minmax(0, 1fr); }
+  .listing-actions { grid-column: 2; align-items: flex-start; text-align: left; }
+  .form-grid { grid-template-columns: 1fr; }
 }

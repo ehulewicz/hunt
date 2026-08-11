@@ -6,8 +6,8 @@ export type Account = {
 };
 
 export class ApiError extends Error {
-  constructor(readonly status: number) {
-    super(`Personal OS API returned ${status}`);
+  constructor(readonly status: number, message?: string) {
+    super(message ?? `Personal OS API returned ${status}`);
   }
 }
 
@@ -24,6 +24,33 @@ async function accountRequest(path: string, method: "GET" | "POST", accessToken:
   });
   if (!response.ok) throw new ApiError(response.status);
   return (await response.json()) as Account;
+}
+
+export async function apiRequest<T>(
+  path: string,
+  accessToken: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const response = await fetch(apiUrl(path), {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...init.headers,
+    },
+  });
+  if (!response.ok) {
+    let message: string | undefined;
+    try {
+      const body = (await response.json()) as { detail?: string };
+      message = body.detail;
+    } catch {
+      message = undefined;
+    }
+    throw new ApiError(response.status, message);
+  }
+  if (response.status === 204) return undefined as T;
+  return (await response.json()) as T;
 }
 
 export async function authenticateAndBootstrap(accessToken: string): Promise<Account> {

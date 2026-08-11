@@ -95,7 +95,11 @@ async def test_me_returns_google_identity(client: httpx.AsyncClient) -> None:
 
 async def test_bootstrap_is_safe_to_repeat(app: FastAPI, client: httpx.AsyncClient) -> None:
     store = FakeStore()
-    app.dependency_overrides[get_bootstrap_store] = lambda: store
+
+    async def override_store() -> FakeStore:
+        return store
+
+    app.dependency_overrides[get_bootstrap_store] = override_store
     headers = {"Authorization": "Bearer approved"}
 
     first = await client.post("/v1/bootstrap", headers=headers)

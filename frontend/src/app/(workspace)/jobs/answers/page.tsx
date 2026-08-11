@@ -1,3 +1,5 @@
-import { FileQuestion } from "lucide-react";
-import { EmptyPage } from "@/components/empty-page";
-export default function Page() { return <EmptyPage title="Answers" icon={FileQuestion} description="Reusable approved application answers will be built with Applications." />; }
+import { AnswersWorkspace } from "@/components/jobs/answers-workspace";
+
+export default function Page() {
+  return <AnswersWorkspace />;
+}
