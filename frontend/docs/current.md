@@ -17,7 +17,8 @@ Last verified: 2026-08-10
   a submission without the user doing it.
 - [x] Pass lint, types, unit tests, UI policy, production build, and all 3
   Playwright visual tests.
-- [ ] Deploy to Vercel and run authenticated hosted acceptance.
+- [x] Deploy the Jobs frontend to Vercel from commit `c2b90a7`.
+- [ ] Run authenticated hosted Jobs acceptance.
 - [ ] Add an autofill action only after an application has an approved PDF and
   approved answers; the worker must still stop before Submit.
 - [ ] Add zero2sudo source controls only after SpeedyApply acceptance passes.

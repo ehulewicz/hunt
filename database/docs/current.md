@@ -15,8 +15,13 @@ Last verified: 2026-08-10
 - [x] Keep approved document content immutable while allowing lifecycle updates.
 - [x] Store the Supabase backend-only key and worker JWT key in GCP Secret Manager
   and grant access to the Cloud Run runtime.
-- [ ] Apply `20260810231802_jobs_vertical_slice.sql` to hosted Supabase.
-- [ ] Verify the hosted table shape, bucket policy, role grants, and Supabase
-  security/performance advisors after deployment.
+- [x] Apply `20260810231802_jobs_vertical_slice.sql` to hosted Supabase.
+- [x] Verify the hosted table shape, private bucket configuration, and absence
+  of `anon`/`authenticated` grants.
+- [x] Revoke public/browser execution of the pre-existing `rls_auto_enable()`
+  helper and confirm that finding clears from the Supabase security advisor.
+- [x] Review post-deploy advisors: new indexes are unused because the tables have
+  not received production traffic; remaining auth warnings concern password/MFA
+  configuration in the Google-only product.
 - [ ] Revoke legacy password sessions after Google acceptance is reconfirmed.
 - [ ] Add Calendar and Tasks schema only after Jobs works end to end.

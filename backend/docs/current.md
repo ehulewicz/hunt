@@ -15,7 +15,9 @@ Last verified: 2026-08-10
 - [x] Seed the canonical approved `main` resume and known profile facts during
   bootstrap while leaving optional EEO answers explicit and unset.
 - [x] Validate locally with Ruff, mypy, and 9 passing tests.
-- [ ] Deploy the Jobs API and run authenticated hosted acceptance.
+- [x] Deploy the Jobs API to Cloud Run revision `personal-os-api-00010-6nm` and
+  verify hosted health plus unauthenticated rejection.
+- [ ] Run authenticated hosted Jobs acceptance.
 - [ ] Add an explicit approved-document autofill queue after preparation and
   approval are accepted end to end.
 - [ ] Add zero2sudo ingestion only after SpeedyApply acceptance passes.
