@@ -1,6 +1,6 @@
 # Database current state
 
-Last verified: 2026-08-10
+Last verified: 2026-08-13
 
 ## Milestones
 
@@ -9,6 +9,8 @@ Last verified: 2026-08-10
 - [x] Keep Google-only Auth configuration in `database/config.toml`.
 - [x] Extend existing Jobs tables for complete profile facts, inclusive source
   metadata, role tags, tailoring diffs, and document lifecycle state.
+- [x] Define source-category and normalized-location columns plus indexes for the
+  simplified internship listing filters.
 - [x] Add revocable, expiring Jobs worker credentials without creating a public
   API or alternate source of truth.
 - [x] Define the private `jobs-documents` PDF bucket with a 5 MiB limit.
@@ -23,5 +25,7 @@ Last verified: 2026-08-10
 - [x] Review post-deploy advisors: new indexes are unused because the tables have
   not received production traffic; remaining auth warnings concern password/MFA
   configuration in the Google-only product.
+- [ ] Apply `20260813223148_simplify_speedyapply_listings.sql` to hosted Supabase
+  and verify the scheduled sync populates both new fields.
 - [ ] Revoke legacy password sessions after Google acceptance is reconfirmed.
 - [ ] Add Calendar and Tasks schema only after Jobs works end to end.

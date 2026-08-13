@@ -9,6 +9,8 @@ from fastapi import FastAPI
 from personal_os.auth import InvalidAccessToken
 from personal_os.config import Settings
 from personal_os.database import BootstrapStore, get_bootstrap_store
+from personal_os.jobs_models import JobListingPage
+from personal_os.jobs_store import get_jobs_store
 from personal_os.main import create_app
 from personal_os.models import Principal
 
@@ -42,6 +44,15 @@ class FakeStore(BootstrapStore):
     async def bootstrap(self, user_id: UUID, email: str) -> None:
         self.calls += 1
         self.rows.add((user_id, email))
+
+
+class FakeJobsStore:
+    def __init__(self) -> None:
+        self.filters: dict[str, object] = {}
+
+    async def list_listings(self, user_id: UUID, **filters: object) -> JobListingPage:
+        self.filters = filters
+        return JobListingPage(items=[], total=0, limit=200, offset=0)
 
 
 @pytest.fixture
@@ -108,3 +119,32 @@ async def test_bootstrap_is_safe_to_repeat(app: FastAPI, client: httpx.AsyncClie
     assert first.status_code == second.status_code == 200
     assert store.rows == {(USER_ID, "eahtree@gmail.com")}
     assert store.calls == 2
+
+
+async def test_listings_accept_category_and_multiple_normalized_locations(
+    app: FastAPI, client: httpx.AsyncClient
+) -> None:
+    store = FakeJobsStore()
+
+    async def override_store() -> FakeJobsStore:
+        return store
+
+    app.dependency_overrides[get_jobs_store] = override_store
+    response = await client.get(
+        "/v1/jobs/listings",
+        params=[
+            ("category", "quant"),
+            ("locations", "Remote"),
+            ("locations", "New York City, NY"),
+            ("limit", "200"),
+        ],
+        headers={"Authorization": "Bearer approved"},
+    )
+
+    assert response.status_code == 200
+    assert store.filters == {
+        "category": "quant",
+        "locations": ["Remote", "New York City, NY"],
+        "limit": 200,
+        "offset": 0,
+    }

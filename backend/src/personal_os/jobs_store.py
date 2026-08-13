@@ -46,10 +46,8 @@ class JobsStore(Protocol):
         self,
         user_id: UUID,
         *,
-        career_stage: str | None,
-        role_family: str | None,
-        fresh_only: bool,
-        query: str | None,
+        category: str | None,
+        locations: Sequence[str],
         limit: int,
         offset: int,
     ) -> JobListingPage: ...
@@ -225,76 +223,114 @@ class PostgresJobsStore:
             connection.transaction(),
         ):
             await connection.execute("set local role personal_os_api")
-            for listing in listings:
+            company_ids: dict[str, UUID] = {}
+            if listings:
+                companies: dict[str, str | None] = {}
+                for listing in listings:
+                    current_url = companies.get(listing.company)
+                    companies[listing.company] = current_url or listing.company_url
+
+                async with connection.cursor() as cursor:
+                    await cursor.executemany(
+                        """
+                        insert into app.jobs_companies (user_id, name, website_url)
+                        values (%s, %s, %s)
+                        on conflict (user_id, name) do update
+                        set website_url = coalesce(
+                          excluded.website_url, app.jobs_companies.website_url
+                        )
+                        """,
+                        [
+                            (user_id, company_name, company_url)
+                            for company_name, company_url in companies.items()
+                        ],
+                    )
                 company_cursor = await connection.execute(
                     """
-                    insert into app.jobs_companies (user_id, name, website_url)
-                    values (%s, %s, %s)
-                    on conflict (user_id, name) do update
-                    set website_url = coalesce(excluded.website_url, app.jobs_companies.website_url)
-                    returning id
+                    select id, name
+                    from app.jobs_companies
+                    where user_id = %s and name = any(%s::text[])
                     """,
-                    (user_id, listing.company, listing.company_url),
+                    (user_id, list(companies)),
                 )
-                company = await company_cursor.fetchone()
-                if company is None:
-                    raise RuntimeError("Company upsert did not return an id")
-                await connection.execute(
-                    """
-                    insert into app.jobs_postings (
-                      user_id, company_id, title, location, employment_type,
-                      source, source_url, external_id, salary_text, status,
-                      discovered_at, application_url, discovery_url, role_families,
-                      career_stage, feed_region, source_posted_at, source_age_days,
-                      last_seen_at
+                company_ids = {
+                    str(row["name"]): UUID(str(row["id"]))
+                    for row in await company_cursor.fetchall()
+                }
+                if company_ids.keys() != companies.keys():
+                    raise RuntimeError("Company upsert did not return every id")
+
+                async with connection.cursor() as cursor:
+                    await cursor.executemany(
+                        """
+                        insert into app.jobs_postings (
+                          user_id, company_id, title, location, employment_type,
+                          source, source_url, external_id, salary_text, status,
+                          discovered_at, application_url, discovery_url, role_families,
+                          source_category, normalized_locations, career_stage,
+                          feed_region, source_posted_at, source_age_days,
+                          last_seen_at
+                        )
+                        values (
+                          %s, %s, %s, %s, %s,
+                          %s, %s, %s, %s, %s,
+                          %s, %s, %s, %s,
+                          %s, %s, %s, %s,
+                          %s, %s,
+                          %s
+                        )
+                        on conflict (user_id, source, external_id)
+                        where source is not null and external_id is not null
+                        do update set
+                          company_id = excluded.company_id,
+                          title = excluded.title,
+                          location = excluded.location,
+                          employment_type = excluded.employment_type,
+                          source_url = excluded.source_url,
+                          salary_text = excluded.salary_text,
+                          status = case
+                            when app.jobs_postings.status in ('saved', 'reviewing', 'closed')
+                              then excluded.status
+                            else app.jobs_postings.status
+                          end,
+                          application_url = excluded.application_url,
+                          discovery_url = excluded.discovery_url,
+                          role_families = excluded.role_families,
+                          source_category = excluded.source_category,
+                          normalized_locations = excluded.normalized_locations,
+                          career_stage = excluded.career_stage,
+                          feed_region = excluded.feed_region,
+                          source_posted_at = excluded.source_posted_at,
+                          source_age_days = excluded.source_age_days,
+                          last_seen_at = excluded.last_seen_at
+                        """,
+                        [
+                            (
+                                user_id,
+                                company_ids[listing.company],
+                                listing.title,
+                                listing.location,
+                                listing.career_stage,
+                                SOURCE_NAME,
+                                listing.application_url,
+                                listing.external_id,
+                                listing.salary_text,
+                                "saved" if listing.application_url else "closed",
+                                sync_started,
+                                listing.application_url,
+                                listing.discovery_url,
+                                list(listing.role_families),
+                                listing.category,
+                                list(listing.normalized_locations),
+                                listing.career_stage,
+                                listing.feed_region,
+                                listing.source_posted_at,
+                                listing.source_age_days,
+                                sync_started,
+                            )
+                            for listing in listings
+                        ],
                     )
-                    values (
-                      %s, %s, %s, %s, %s,
-                      %s, %s, %s, %s, %s,
-                      %s, %s, %s, %s,
-                      %s, %s, %s, %s,
-                      %s
-                    )
-                    on conflict (user_id, source, external_id)
-                    where source is not null and external_id is not null
-                    do update set
-                      company_id = excluded.company_id,
-                      title = excluded.title,
-                      location = excluded.location,
-                      employment_type = excluded.employment_type,
-                      source_url = excluded.source_url,
-                      salary_text = excluded.salary_text,
-                      application_url = excluded.application_url,
-                      discovery_url = excluded.discovery_url,
-                      role_families = excluded.role_families,
-                      career_stage = excluded.career_stage,
-                      feed_region = excluded.feed_region,
-                      source_posted_at = excluded.source_posted_at,
-                      source_age_days = excluded.source_age_days,
-                      last_seen_at = excluded.last_seen_at
-                    """,
-                    (
-                        user_id,
-                        company["id"],
-                        listing.title,
-                        listing.location,
-                        listing.career_stage,
-                        SOURCE_NAME,
-                        listing.application_url,
-                        listing.external_id,
-                        listing.salary_text,
-                        "saved" if listing.application_url else "closed",
-                        sync_started,
-                        listing.application_url,
-                        listing.discovery_url,
-                        list(listing.role_families),
-                        listing.career_stage,
-                        listing.feed_region,
-                        listing.source_posted_at,
-                        listing.source_age_days,
-                        sync_started,
-                    ),
-                )
 
             await connection.execute(
                 """
@@ -332,32 +368,25 @@ class PostgresJobsStore:
         self,
         user_id: UUID,
         *,
-        career_stage: str | None,
-        role_family: str | None,
-        fresh_only: bool,
-        query: str | None,
+        category: str | None,
+        locations: Sequence[str],
         limit: int,
         offset: int,
     ) -> JobListingPage:
-        conditions = [sql.SQL("posting.user_id = %s"), sql.SQL("posting.status <> 'archived'")]
+        conditions = [
+            sql.SQL("posting.user_id = %s"),
+            sql.SQL("posting.status not in ('closed', 'archived')"),
+            sql.SQL("posting.career_stage = 'internship'"),
+        ]
         params: list[Any] = [user_id]
-        if career_stage:
-            conditions.append(sql.SQL("posting.career_stage = %s"))
-            params.append(career_stage)
-        if role_family:
-            conditions.append(sql.SQL("%s = any(posting.role_families)"))
-            params.append(role_family)
-        if fresh_only:
-            conditions.append(sql.SQL("posting.source_age_days between 0 and 1"))
-        if query and query.strip():
-            conditions.append(
-                sql.SQL(
-                    "(posting.title ilike %s or company.name ilike %s "
-                    "or posting.location ilike %s)"
-                )
-            )
-            like = f"%{query.strip()}%"
-            params.extend((like, like, like))
+        if category:
+            conditions.append(sql.SQL("posting.source_category = %s"))
+            params.append(category)
+        facet_conditions = list(conditions)
+        facet_params = list(params)
+        if locations:
+            conditions.append(sql.SQL("posting.normalized_locations && %s::text[]"))
+            params.append(list(locations))
         where = sql.SQL(" and ").join(conditions)
         base = sql.SQL(
             """
@@ -373,6 +402,20 @@ class PostgresJobsStore:
             connection.transaction(),
         ):
             await connection.execute("set local role personal_os_api")
+            location_cursor = await connection.execute(
+                sql.SQL(
+                    """
+                    select distinct normalized.location as location
+                    from app.jobs_postings posting
+                    cross join lateral unnest(posting.normalized_locations)
+                      as normalized(location)
+                    where {}
+                    order by normalized.location
+                    """
+                ).format(sql.SQL(" and ").join(facet_conditions)),
+                facet_params,
+            )
+            location_rows = await location_cursor.fetchall()
             count_cursor = await connection.execute(
                 sql.SQL("select count(*) as total {}").format(base), params
             )
@@ -383,6 +426,7 @@ class PostgresJobsStore:
                     select posting.id, company.name as company_name, posting.title,
                            posting.location, posting.salary_text, posting.application_url,
                            posting.discovery_url, posting.role_families,
+                           posting.source_category, posting.normalized_locations,
                            posting.career_stage, posting.feed_region,
                            posting.source_posted_at, posting.source_age_days,
                            posting.status, application.id as application_id
@@ -401,6 +445,7 @@ class PostgresJobsStore:
             total=int(count["total"] if count else 0),
             limit=limit,
             offset=offset,
+            location_options=[str(row["location"]) for row in location_rows],
         )
 
     async def prepare_applications(

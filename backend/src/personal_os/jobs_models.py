@@ -116,6 +116,8 @@ class JobListing(BaseModel):
     application_url: str | None
     discovery_url: str | None
     role_families: list[RoleFamily]
+    source_category: Literal["faang", "quant", "other"]
+    normalized_locations: list[str]
     career_stage: CareerStage | None
     feed_region: Literal["usa", "international"] | None
     source_posted_at: date | None
@@ -129,6 +131,7 @@ class JobListingPage(BaseModel):
     total: int
     limit: int
     offset: int
+    location_options: list[str] = Field(default_factory=list)
 
 
 class ListingSyncResponse(BaseModel):

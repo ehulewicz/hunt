@@ -7,6 +7,7 @@ export type RoleFamily =
   | "ml_engineering"
   | "data_science"
   | "other";
+export type SourceCategory = "all" | "faang" | "quant";
 
 export type JobListing = {
   id: string;
@@ -21,6 +22,8 @@ export type JobListing = {
   feed_region: "usa" | "international" | null;
   source_posted_at: string | null;
   source_age_days: number | null;
+  source_category: Exclude<SourceCategory, "all"> | "other";
+  normalized_locations: string[];
   status: string;
   application_id: string | null;
 };
@@ -30,6 +33,7 @@ export type ListingPage = {
   total: number;
   limit: number;
   offset: number;
+  location_options: string[];
 };
 
 export type JobApplication = {
@@ -131,28 +135,14 @@ export type WorkerCredentialIssued = WorkerCredential & { token: string };
 export async function getListings(
   accessToken: string,
   filters: {
-    careerStage: CareerStage | "all";
-    roleFamily: RoleFamily | "all";
-    freshOnly: boolean;
-    query: string;
+    category: SourceCategory;
+    locations: string[];
   },
 ): Promise<ListingPage> {
-  const params = new URLSearchParams({
-    fresh_only: String(filters.freshOnly),
-    limit: "200",
-  });
-  if (filters.careerStage !== "all") params.set("career_stage", filters.careerStage);
-  if (filters.roleFamily !== "all") params.set("role_family", filters.roleFamily);
-  if (filters.query.trim()) params.set("query", filters.query.trim());
+  const params = new URLSearchParams({ limit: "200" });
+  if (filters.category !== "all") params.set("category", filters.category);
+  for (const location of filters.locations) params.append("locations", location);
   return apiRequest<ListingPage>(`/v1/jobs/listings?${params}`, accessToken);
-}
-
-export function syncListings(accessToken: string) {
-  return apiRequest<{ source: string; seen: number; open: number; synced_at: string }>(
-    "/v1/jobs/listings/sync",
-    accessToken,
-    { method: "POST" },
-  );
 }
 
 export function batchPrepare(accessToken: string, postingIds: string[]) {

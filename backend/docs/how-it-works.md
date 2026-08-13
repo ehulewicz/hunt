@@ -15,12 +15,20 @@ not inferred.
 
 ## Jobs boundary
 
-`/v1/jobs/*` owns profile editing, listing sync/filtering, application preparation,
+`/v1/jobs/*` owns profile editing, listing filtering, application preparation,
 document review, answer-library management, worker pairing, and task leasing.
-SpeedyApply sync reads all four 2027 feeds and writes every parsed row. Role families
-are non-exclusive tags, not an ingest gate; an unmatched title is stored as
-`other`. The direct company/ATS URL is used for application work while the GitHub
-file remains the discovery URL.
+The scheduled SpeedyApply importer reads the US and international internship files
+from both the 2027 SWE and AI/ML repositories. It runs at 13:00 UTC, one hour after
+the upstream repositories, fetches the four files concurrently, and batches its
+database upserts. The browser cannot trigger a source sync.
+An empty parse fails before database mutation so an upstream format change cannot
+silently close the entire listing set.
+
+Listings retain their FAANG+, Quant, or general source section and normalized
+location facets. The API always limits discovery to internships/co-ops and orders
+them newest-first. Selected locations use match-any semantics. The direct
+company/ATS URL is used for application work while the GitHub file remains the
+discovery URL.
 
 Browser sessions create revocable 30-day worker credentials. A paired worker may
 claim only that user's Jobs tasks, heartbeat its lease, fetch the approved bundle,

@@ -12,7 +12,9 @@ The Jobs tables hold structured profile facts, source listings, applications,
 immutable versioned documents, reusable answers, tailoring audits, and worker task
 leases. `jobs_worker_credentials` stores only SHA-256 token hashes plus scope,
 expiry, use, and revocation timestamps. Listing source metadata keeps discovery and
-direct application URLs separate and supports non-exclusive role-family arrays.
+direct application URLs separate, records FAANG+/Quant/general source sections,
+and stores normalized location arrays for match-any filtering. Partial and GIN
+indexes support newest-first internship/category queries and location overlap.
 
 The private `jobs-documents` Storage bucket accepts PDFs up to 5 MiB. Only FastAPI
 uses its backend secret key; the browser and worker never receive it. Approved

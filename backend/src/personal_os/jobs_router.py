@@ -33,7 +33,6 @@ from personal_os.jobs_models import (
     JobListingPage,
     JobsProfile,
     JobsProfileUpdate,
-    ListingSyncResponse,
     WorkerApplicationBundle,
     WorkerClaimRequest,
     WorkerClaimResponse,
@@ -44,7 +43,6 @@ from personal_os.jobs_models import (
     WorkerTaskFailure,
     WorkerTaskResult,
 )
-from personal_os.jobs_sources import SpeedyApplySource
 from personal_os.jobs_storage import JobsDocumentStorage
 from personal_os.jobs_store import JobsStore, get_jobs_store
 from personal_os.worker_auth import CurrentWorker
@@ -68,43 +66,26 @@ async def update_profile(
     return await store.update_profile(principal.user_id, update)
 
 
-@router.post("/listings/sync", response_model=ListingSyncResponse)
-async def sync_listings(principal: CurrentPrincipal, store: Store) -> ListingSyncResponse:
-    try:
-        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-            listings = await SpeedyApplySource(client).fetch()
-    except httpx.HTTPError:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Listing source is unavailable") from None
-    return await store.sync_listings(principal.user_id, listings)
-
-
 @router.get("/listings", response_model=JobListingPage)
 async def list_listings(
     principal: CurrentPrincipal,
     store: Store,
-    career_stage: Annotated[Literal["internship", "new_grad"] | None, Query()] = None,
-    role_family: Annotated[
-        Literal[
-            "software_engineering",
-            "data_engineering",
-            "ml_engineering",
-            "data_science",
-            "other",
-        ]
-        | None,
-        Query(),
-    ] = None,
-    fresh_only: Annotated[bool, Query()] = True,
-    query: Annotated[str | None, Query(max_length=200)] = None,
+    category: Annotated[Literal["faang", "quant"] | None, Query()] = None,
+    locations: Annotated[list[str] | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> JobListingPage:
+    normalized_locations = list(
+        dict.fromkeys(location.strip() for location in locations or [] if location.strip())
+    )
+    if len(normalized_locations) > 50 or any(
+        len(location) > 200 for location in normalized_locations
+    ):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid location filters")
     return await store.list_listings(
         principal.user_id,
-        career_stage=career_stage,
-        role_family=role_family,
-        fresh_only=fresh_only,
-        query=query,
+        category=category,
+        locations=normalized_locations,
         limit=limit,
         offset=offset,
     )

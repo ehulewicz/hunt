@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import html
 import re
@@ -9,9 +10,9 @@ from urllib.parse import urlparse
 
 import httpx
 
-SOURCE_NAME = "speedyapply/2027-SWE-College-Jobs"
-SOURCE_ROOT = "https://github.com/speedyapply/2027-SWE-College-Jobs/blob/main"
-RAW_ROOT = "https://raw.githubusercontent.com/speedyapply/2027-SWE-College-Jobs/main"
+SOURCE_NAME = "speedyapply/college-jobs"
+GITHUB_ROOT = "https://github.com/speedyapply"
+RAW_ROOT = "https://raw.githubusercontent.com/speedyapply"
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,21 +20,27 @@ class Feed:
     path: str
     career_stage: str
     region: str
+    repository: str = "2027-SWE-College-Jobs"
 
     @property
     def raw_url(self) -> str:
-        return f"{RAW_ROOT}/{self.path}"
+        return f"{RAW_ROOT}/{self.repository}/main/{self.path}"
 
     @property
     def discovery_url(self) -> str:
-        return f"{SOURCE_ROOT}/{self.path}"
+        return f"{GITHUB_ROOT}/{self.repository}/blob/main/{self.path}"
 
 
 FEEDS = (
     Feed("README.md", "internship", "usa"),
-    Feed("NEW_GRAD_USA.md", "new_grad", "usa"),
     Feed("INTERN_INTL.md", "internship", "international"),
-    Feed("NEW_GRAD_INTL.md", "new_grad", "international"),
+    Feed("README.md", "internship", "usa", repository="2027-AI-College-Jobs"),
+    Feed(
+        "INTERN_INTL.md",
+        "internship",
+        "international",
+        repository="2027-AI-College-Jobs",
+    ),
 )
 
 
@@ -48,6 +55,8 @@ class SourceListing:
     discovery_url: str
     external_id: str
     role_families: tuple[str, ...]
+    category: str
+    normalized_locations: tuple[str, ...]
     career_stage: str
     feed_region: str
     source_posted_at: date | None
@@ -59,18 +68,25 @@ class SpeedyApplySource:
         self._client = client
 
     async def fetch(self, *, today: date | None = None) -> list[SourceListing]:
-        fetched: list[SourceListing] = []
         resolved_today = today or date.today()
-        for feed in FEEDS:
+
+        async def fetch_feed(feed: Feed) -> list[SourceListing]:
             response = await self._client.get(feed.raw_url)
             response.raise_for_status()
-            fetched.extend(parse_feed(response.text, feed, today=resolved_today))
-        return deduplicate(fetched)
+            return parse_feed(response.text, feed, today=resolved_today)
+
+        fetched = await asyncio.gather(*(fetch_feed(feed) for feed in FEEDS))
+        return deduplicate([listing for feed_listings in fetched for listing in feed_listings])
 
 
 def parse_feed(markdown: str, feed: Feed, *, today: date) -> list[SourceListing]:
     listings: list[SourceListing] = []
+    category = "other"
     for raw_line in markdown.splitlines():
+        marker_category = category_from_marker(raw_line)
+        if marker_category is not None:
+            category = marker_category
+            continue
         if not raw_line.startswith("|"):
             continue
         cells = [cell.strip() for cell in raw_line.strip().strip("|").split("|")]
@@ -108,6 +124,8 @@ def parse_feed(markdown: str, feed: Feed, *, today: date) -> list[SourceListing]
                 discovery_url=feed.discovery_url,
                 external_id=external_id,
                 role_families=classify_role_families(title),
+                category=category,
+                normalized_locations=normalize_locations(location),
                 career_stage=feed.career_stage,
                 feed_region=feed.region,
                 source_posted_at=source_posted_at,
@@ -115,6 +133,31 @@ def parse_feed(markdown: str, feed: Feed, *, today: date) -> list[SourceListing]
             )
         )
     return listings
+
+
+def category_from_marker(line: str) -> str | None:
+    normalized = line.strip().casefold()
+    if normalized == "<!-- table_faang_start -->":
+        return "faang"
+    if normalized == "<!-- table_quant_start -->":
+        return "quant"
+    if normalized == "<!-- table_start -->":
+        return "other"
+    return None
+
+
+def normalize_locations(location: str | None) -> tuple[str, ...]:
+    if not location:
+        return ()
+    normalized = re.sub(r"\s+\+\d+\s*$", "", location).strip()
+    if not normalized:
+        return ()
+    if normalized.casefold().startswith("remote - "):
+        remainder = normalized[len("remote - ") :].strip()
+        return tuple(part for part in ("Remote", remainder) if part)
+    if normalized.casefold() == "remote":
+        return ("Remote",)
+    return (normalized,)
 
 
 def classify_role_families(title: str) -> tuple[str, ...]:
@@ -171,5 +214,5 @@ def first_href(value: str) -> str | None:
 def deduplicate(listings: list[SourceListing]) -> list[SourceListing]:
     by_external_id: dict[str, SourceListing] = {}
     for listing in listings:
-        by_external_id[listing.external_id] = listing
+        by_external_id.setdefault(listing.external_id, listing)
     return list(by_external_id.values())
