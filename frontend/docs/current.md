@@ -19,6 +19,7 @@ Last verified: 2026-08-13
 - [x] Pass lint, types, all 5 unit tests, UI policy, production build, and all 3
   Playwright visual tests.
 - [x] Deploy the Jobs frontend to Vercel from commit `c2b90a7`.
+- [x] Deploy the simplified listing page to Vercel from commit `1d97fba`.
 - [ ] Run authenticated hosted Jobs acceptance.
 - [ ] Add an autofill action only after an application has an approved PDF and
   approved answers; the worker must still stop before Submit.

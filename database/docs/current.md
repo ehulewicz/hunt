@@ -25,7 +25,7 @@ Last verified: 2026-08-13
 - [x] Review post-deploy advisors: new indexes are unused because the tables have
   not received production traffic; remaining auth warnings concern password/MFA
   configuration in the Google-only product.
-- [ ] Apply `20260813223148_simplify_speedyapply_listings.sql` to hosted Supabase
-  and verify the scheduled sync populates both new fields.
+- [x] Apply `20260813223148_simplify_speedyapply_listings.sql` to hosted Supabase
+  and verify scheduled-sync run `31751692530` populates 1,087 open listings.
 - [ ] Revoke legacy password sessions after Google acceptance is reconfirmed.
 - [ ] Add Calendar and Tasks schema only after Jobs works end to end.

@@ -24,6 +24,9 @@ Last verified: 2026-08-13
   including 247 FAANG+, 104 Quant, and 252 normalized location choices.
 - [x] Deploy the Jobs API to Cloud Run revision `personal-os-api-00010-6nm` and
   verify hosted health plus unauthenticated rejection.
+- [x] Deploy scheduled ingestion and the simplified listing API to Cloud Run
+  revision `personal-os-api-00011-lc5`; verify the first hosted sync writes 1,087
+  open listings in 43 seconds.
 - [ ] Run authenticated hosted Jobs acceptance.
 - [ ] Add an explicit approved-document autofill queue after preparation and
   approval are accepted end to end.
