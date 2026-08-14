@@ -18,6 +18,7 @@ class ResumeValidation:
     candidate: dict[str, Any]
     changed_word_ratio: float
     changed_paths: tuple[str, ...]
+    skipped: tuple[str, ...] = ()
 
 
 def apply_and_validate(
@@ -30,6 +31,7 @@ def apply_and_validate(
 ) -> ResumeValidation:
     candidate = copy.deepcopy(base)
     changed_paths: list[str] = []
+    skipped: list[str] = []
     for patch in patches:
         if patch.get("op") != "replace":
             raise UnsafeResumeChange("Only replacement patches are allowed")
@@ -42,7 +44,13 @@ def apply_and_validate(
         original = parent[key]
         if not isinstance(original, str):
             raise UnsafeResumeChange(f"Patch target is not text: {path}")
-        validate_new_keywords(original, replacement, job_description, fact_context)
+        unsupported = unsupported_new_keywords(
+            original, replacement, job_description, fact_context
+        )
+        if unsupported:
+            # Drop only the inflated patch; the remaining ones still tailor the resume.
+            skipped.append(f"{path}: {', '.join(unsupported[:12])}")
+            continue
         parent[key] = replacement.strip()
         changed_paths.append(path)
 
@@ -56,6 +64,7 @@ def apply_and_validate(
         candidate=candidate,
         changed_word_ratio=ratio,
         changed_paths=tuple(changed_paths),
+        skipped=tuple(skipped),
     )
 
 
@@ -126,20 +135,75 @@ def words(value: str) -> list[str]:
     return re.findall(r"[a-z0-9+#.]+", value.casefold())
 
 
-def validate_new_keywords(
+# Irregular past tenses common in resume bullets, which suffix stripping cannot reach.
+IRREGULAR_STEMS = {
+    "began": "begin",
+    "born": "bear",
+    "bought": "buy",
+    "brought": "bring",
+    "built": "build",
+    "chose": "choose",
+    "drove": "drive",
+    "found": "find",
+    "grew": "grow",
+    "grown": "grow",
+    "held": "hold",
+    "kept": "keep",
+    "led": "lead",
+    "made": "make",
+    "met": "meet",
+    "ran": "run",
+    "sold": "sell",
+    "spoke": "speak",
+    "taught": "teach",
+    "thought": "think",
+    "took": "take",
+    "won": "win",
+    "wrote": "write",
+    "written": "write",
+}
+
+STRIPPABLE_SUFFIXES = ("ing", "ed", "es", "s", "ly", "al", "ion", "ment")
+
+
+def stem(word: str) -> str:
+    """Reduce a word to a crude stem.
+
+    Linguistic accuracy is not the goal; both sides of every comparison are
+    normalized identically, so a consistent stem is what matters.
+    """
+    stemmed = IRREGULAR_STEMS.get(word, word)
+    changed = True
+    while changed:
+        changed = False
+        for suffix in STRIPPABLE_SUFFIXES:
+            if stemmed.endswith(suffix) and len(stemmed) - len(suffix) >= 4:
+                stemmed = stemmed[: -len(suffix)]
+                changed = True
+                break
+    return stemmed[:-1] + "i" if stemmed.endswith("y") else stemmed
+
+
+def stems(value: str) -> set[str]:
+    return {stem(word) for word in words(value)}
+
+
+def unsupported_new_keywords(
     original: str, replacement: str, job_description: str, fact_context: str
-) -> None:
-    original_words = set(words(original))
-    added = set(words(replacement)) - original_words
-    description_words = set(words(job_description))
-    supported_words = set(words(fact_context))
-    unsupported = sorted(
+) -> list[str]:
+    """Return added words that the job description and approved facts do not both support.
+
+    Comparison is by stem, so an inflected form of an existing fact ("build" for
+    "built") is the same claim rather than a new one.
+    """
+    original_stems = stems(original)
+    description_stems = stems(job_description)
+    supported_stems = stems(fact_context)
+    return sorted(
         word
-        for word in added
-        if word not in description_words or word not in supported_words
+        for word in set(words(replacement))
+        if stem(word) not in original_stems
+        and (stem(word) not in description_stems or stem(word) not in supported_stems)
     )
-    if unsupported:
-        raise UnsafeResumeChange(
-            "New resume terms must appear in both the job description and approved facts: "
-            + ", ".join(unsupported[:12])
-        )
+
+

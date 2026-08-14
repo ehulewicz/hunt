@@ -35,6 +35,8 @@ Last verified: 2026-08-13
 - [x] Deploy scheduled ingestion and the simplified listing API to Cloud Run
   revision `personal-os-api-00011-lc5`; verify the first hosted sync writes 1,087
   open listings in 43 seconds.
+- [x] Wrap `jsonb` parameters in `Jsonb` so worker completions stop returning
+  `500`, and cover `complete_task` with a regression test.
 - [ ] Run authenticated hosted Jobs acceptance.
 - [x] Deploy migration `20260814003115_complete_jobs_workflow.sql` and Cloud Run
   revision `personal-os-api-00012-dw2`; verify sync run `31759248462` writes

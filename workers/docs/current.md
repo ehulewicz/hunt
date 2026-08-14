@@ -32,6 +32,9 @@ Last verified: 2026-08-13
   the configuration is missing or unreadable.
 - [x] Pair this machine against Cloud Run revision `personal-os-api-00013-dg6`;
   `doctor` reports the worker credential accepted.
+- [x] Compare tailoring keywords by stem so inflected forms of approved facts are
+  not treated as new claims, and skip only ungrounded patches rather than failing
+  preparation; report them as `skipped_patches`.
 - [ ] Run the first paired worker against a hosted application task.
 - [ ] Complete the first hosted prepare/review/approve/visible-autofill flow.
 

@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 from fastapi import Request
 from psycopg import sql
+from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
 from personal_os.config import Settings
@@ -1362,11 +1363,13 @@ class PostgresJobsStore:
                         source_document["id"] if source_document else None,
                         document_id,
                         changed_ratio if isinstance(changed_ratio, int | float) else None,
-                        {
-                            "patch": result.get("resume_patch"),
-                            "changed_paths": result.get("changed_paths", []),
-                        },
-                        {"approval_required": True, "submitted": False},
+                        Jsonb(
+                            {
+                                "patch": result.get("resume_patch"),
+                                "changed_paths": result.get("changed_paths", []),
+                            }
+                        ),
+                        Jsonb({"approval_required": True, "submitted": False}),
                     ),
                 )
             cursor = await connection.execute(
@@ -1377,7 +1380,7 @@ class PostgresJobsStore:
                 where id = %s and user_id = %s and status = 'running' and claimed_by = %s
                   and lease_expires_at > now()
                 """,
-                (result, task_id, user_id, worker_id),
+                (Jsonb(result), task_id, user_id, worker_id),
             )
         return int(cursor.rowcount) == 1
 

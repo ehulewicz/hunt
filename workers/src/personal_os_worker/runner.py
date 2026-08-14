@@ -169,6 +169,7 @@ def process_task(
                     "resume_patch": claude_result,
                     "changed_word_ratio": validation.changed_word_ratio,
                     "changed_paths": list(validation.changed_paths),
+                    "skipped_patches": list(validation.skipped),
                     "approval_required": True,
                     "submitted": False,
                 }
