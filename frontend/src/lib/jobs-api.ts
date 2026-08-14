@@ -1,4 +1,4 @@
-import { apiRequest } from "@/lib/api";
+import { apiBlobRequest, apiRequest } from "@/lib/api";
 
 export type CareerStage = "internship" | "new_grad";
 export type RoleFamily =
@@ -50,6 +50,11 @@ export type JobApplication = {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  preparation_status: string | null;
+  preparation_error: string | null;
+  autofill_status: string | null;
+  autofill_error: string | null;
+  unanswered_required_questions: string[];
 };
 
 export type JobsProfile = {
@@ -112,12 +117,18 @@ export type JobDocument = {
 
 export type AnswerLibraryItem = {
   id: string;
-  key: string;
-  normalized_question: string | null;
+  question: string;
   answer_text: string;
-  answer_type: string;
   approved: boolean;
   updated_at: string;
+};
+
+export type JobDocumentReview = {
+  document: JobDocument;
+  source_document: JobDocument;
+  resume_patch: Record<string, unknown>[];
+  changed_paths: string[];
+  changed_word_ratio: string | null;
 };
 
 export type WorkerCredential = {
@@ -168,6 +179,20 @@ export function updateApplication(
   });
 }
 
+export function deleteApplication(accessToken: string, applicationId: string) {
+  return apiRequest<void>(`/v1/jobs/applications/${applicationId}`, accessToken, {
+    method: "DELETE",
+  });
+}
+
+export function queueAutofill(accessToken: string, applicationId: string) {
+  return apiRequest<{ task_id: string; status: "queued" }>(
+    `/v1/jobs/applications/${applicationId}/autofill`,
+    accessToken,
+    { method: "POST" },
+  );
+}
+
 export function getJobsProfile(accessToken: string) {
   return apiRequest<JobsProfile>("/v1/jobs/profile", accessToken);
 }
@@ -189,16 +214,39 @@ export function approveDocument(accessToken: string, documentId: string) {
   });
 }
 
+export function getDocumentReview(accessToken: string, documentId: string) {
+  return apiRequest<JobDocumentReview>(
+    `/v1/jobs/documents/${documentId}/review`,
+    accessToken,
+  );
+}
+
+export function getDocumentPdf(accessToken: string, documentId: string) {
+  return apiBlobRequest(`/v1/jobs/documents/${documentId}/file`, accessToken);
+}
+
 export function getAnswers(accessToken: string) {
   return apiRequest<AnswerLibraryItem[]>("/v1/jobs/answers", accessToken);
 }
 
-export function saveAnswer(
+export function createAnswer(
   accessToken: string,
-  item: Omit<AnswerLibraryItem, "id" | "updated_at">,
+  item: Pick<AnswerLibraryItem, "question" | "answer_text" | "approved">,
 ) {
-  return apiRequest<AnswerLibraryItem>(`/v1/jobs/answers/${encodeURIComponent(item.key)}`, accessToken, {
-    method: "PUT",
+  return apiRequest<AnswerLibraryItem>("/v1/jobs/answers", accessToken, {
+    method: "POST",
+    body: JSON.stringify(item),
+  });
+}
+
+
+export function updateAnswer(
+  accessToken: string,
+  answerId: string,
+  item: Partial<Pick<AnswerLibraryItem, "question" | "answer_text" | "approved">>,
+) {
+  return apiRequest<AnswerLibraryItem>(`/v1/jobs/answers/${answerId}`, accessToken, {
+    method: "PATCH",
     body: JSON.stringify(item),
   });
 }

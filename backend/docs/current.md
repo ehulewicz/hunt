@@ -8,8 +8,8 @@ Last verified: 2026-08-13
 - [x] Keep FastAPI as the only application database and Storage client.
 - [x] Implement Jobs profile, listings, applications, documents, reusable
   answers, worker credentials, task leasing, and worker-result endpoints.
-- [x] Ingest every internship/co-op listing from the US and international files
-  in both SpeedyApply 2027 SWE and AI/ML repositories.
+- [x] Ingest only visibly US internship/co-op rows from the US READMEs in both
+  SpeedyApply 2027 SWE and AI/ML repositories.
 - [x] Preserve FAANG+/Quant source categories, normalized location facets, and
   both discovery and direct company/ATS URLs.
 - [x] Schedule hosted ingestion for 13:00 UTC, remove request-time source sync,
@@ -19,7 +19,14 @@ Last verified: 2026-08-13
   job titles.
 - [x] Seed the canonical approved `main` resume and known profile facts during
   bootstrap while leaving optional EEO answers explicit and unset.
-- [x] Validate locally with Ruff, mypy, and 15 passing tests.
+- [x] Implement recoverable application archival/reactivation, task cancellation,
+  automatic/manual autofill queueing, task status/errors, and missing questions.
+- [x] Reserve Answers for create/update-by-ID approved long-form responses and
+  keep deterministic factual values in Profile.
+- [x] Add authenticated resume review and worker-only approved PDF download.
+- [x] Validate locally with Ruff, mypy, and 25 passing tests.
+- [x] Validate the live strict-US source at exactly 440 rows, including 136
+  FAANG+, 51 Quant, and 89 normalized location choices.
 - [x] Validate the live four-file source at 1,087 unique internships/co-ops,
   including 247 FAANG+, 104 Quant, and 252 normalized location choices.
 - [x] Deploy the Jobs API to Cloud Run revision `personal-os-api-00010-6nm` and
@@ -28,7 +35,7 @@ Last verified: 2026-08-13
   revision `personal-os-api-00011-lc5`; verify the first hosted sync writes 1,087
   open listings in 43 seconds.
 - [ ] Run authenticated hosted Jobs acceptance.
-- [ ] Add an explicit approved-document autofill queue after preparation and
-  approval are accepted end to end.
+- [ ] Deploy migration `20260814003115_complete_jobs_workflow.sql`, the API, and
+  the strict-US hosted sync.
 - [ ] Add zero2sudo ingestion only after SpeedyApply acceptance passes.
 - [ ] Add Google integration OAuth only with the Calendar milestone.

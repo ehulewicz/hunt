@@ -12,6 +12,7 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
+    Form,
     HTTPException,
     Query,
     Request,
@@ -23,13 +24,16 @@ from fastapi import (
 from personal_os.auth import CurrentPrincipal
 from personal_os.config import Settings
 from personal_os.jobs_models import (
+    AnswerLibraryCreate,
     AnswerLibraryItem,
-    AnswerLibraryUpsert,
+    AnswerLibraryUpdate,
     ApplicationUpdate,
+    AutofillQueueResponse,
     BatchPrepareRequest,
     BatchPrepareResponse,
     JobApplication,
     JobDocument,
+    JobDocumentReview,
     JobListingPage,
     JobsProfile,
     JobsProfileUpdate,
@@ -106,9 +110,7 @@ async def batch_prepare(
 
 
 @router.get("/applications", response_model=list[JobApplication])
-async def list_applications(
-    principal: CurrentPrincipal, store: Store
-) -> list[JobApplication]:
+async def list_applications(principal: CurrentPrincipal, store: Store) -> list[JobApplication]:
     return await store.list_applications(principal.user_id)
 
 
@@ -123,6 +125,32 @@ async def update_application(
     if application is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
     return application
+
+
+@router.delete("/applications/{application_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def archive_application(
+    application_id: UUID, principal: CurrentPrincipal, store: Store
+) -> Response:
+    if not await store.archive_application(principal.user_id, application_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/applications/{application_id}/autofill",
+    response_model=AutofillQueueResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def queue_application_autofill(
+    application_id: UUID, principal: CurrentPrincipal, store: Store
+) -> AutofillQueueResponse:
+    task_id = await store.queue_autofill(principal.user_id, application_id)
+    if task_id is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Application needs an approved tailored resume before autofill",
+        )
+    return AutofillQueueResponse(task_id=task_id)
 
 
 @router.get("/documents", response_model=list[JobDocument])
@@ -167,21 +195,41 @@ async def download_document(
     )
 
 
+@router.get("/documents/{document_id}/review", response_model=JobDocumentReview)
+async def get_document_review(
+    document_id: UUID, principal: CurrentPrincipal, store: Store
+) -> JobDocumentReview:
+    review = await store.get_document_review(principal.user_id, document_id)
+    if review is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tailored resume review not found")
+    return review
+
+
 @router.get("/answers", response_model=list[AnswerLibraryItem])
 async def list_answers(principal: CurrentPrincipal, store: Store) -> list[AnswerLibraryItem]:
     return await store.list_answers(principal.user_id)
 
 
-@router.put("/answers/{key}", response_model=AnswerLibraryItem)
-async def upsert_answer(
-    key: str,
-    item: AnswerLibraryUpsert,
+@router.post("/answers", response_model=AnswerLibraryItem, status_code=status.HTTP_201_CREATED)
+async def create_answer(
+    item: AnswerLibraryCreate,
     principal: CurrentPrincipal,
     store: Store,
 ) -> AnswerLibraryItem:
-    if key != item.key:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Answer key mismatch")
-    return await store.upsert_answer(principal.user_id, item)
+    return await store.create_answer(principal.user_id, item)
+
+
+@router.patch("/answers/{answer_id}", response_model=AnswerLibraryItem)
+async def update_answer(
+    answer_id: UUID,
+    item: AnswerLibraryUpdate,
+    principal: CurrentPrincipal,
+    store: Store,
+) -> AnswerLibraryItem:
+    answer = await store.update_answer(principal.user_id, answer_id, item)
+    if answer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Answer not found")
+    return answer
 
 
 @router.post(
@@ -266,6 +314,38 @@ async def get_worker_application_bundle(
     return bundle
 
 
+@router.get("/worker/doctor")
+async def worker_doctor(worker: CurrentWorker) -> dict[str, str]:
+    return {"status": "ok", "user_id": str(worker.user_id)}
+
+
+@router.get("/worker/applications/{application_id}/resume")
+async def download_worker_resume(
+    application_id: UUID,
+    request: Request,
+    worker: CurrentWorker,
+    store: Store,
+) -> Response:
+    stored = await store.get_approved_resume_storage_path(worker.user_id, application_id)
+    if stored is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Approved tailored resume not found")
+    path, title = stored
+    try:
+        content = await JobsDocumentStorage(request.app.state.settings).download_pdf(path)
+    except RuntimeError:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Document storage unavailable"
+        ) from None
+    except httpx.HTTPError:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Document download failed") from None
+    filename = re.sub(r"[^A-Za-z0-9._-]+", "_", title).strip("_") or "resume"
+    return Response(
+        content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}.pdf"'},
+    )
+
+
 @router.post("/worker/tasks/{task_id}/pdf")
 async def upload_worker_pdf(
     task_id: UUID,
@@ -273,8 +353,9 @@ async def upload_worker_pdf(
     worker: CurrentWorker,
     store: Store,
     document: Annotated[UploadFile, File()],
+    worker_id: Annotated[str, Form(min_length=1, max_length=120)],
 ) -> dict[str, str]:
-    application_id = await store.get_worker_task_application_id(worker.user_id, task_id)
+    application_id = await store.get_worker_task_application_id(worker.user_id, task_id, worker_id)
     if application_id is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Worker task is no longer active")
     content = await document.read(5 * 1024 * 1024 + 1)
@@ -313,9 +394,7 @@ async def complete_worker_task(
     worker: CurrentWorker,
     store: Store,
 ) -> Response:
-    if not await store.complete_task(
-        worker.user_id, task_id, payload.worker_id, payload.result
-    ):
+    if not await store.complete_task(worker.user_id, task_id, payload.worker_id, payload.result):
         raise HTTPException(status.HTTP_409_CONFLICT, "Worker task is no longer active")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

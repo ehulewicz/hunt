@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from uuid import UUID
 
 import httpx
@@ -9,12 +10,15 @@ from fastapi import FastAPI
 from personal_os.auth import InvalidAccessToken
 from personal_os.config import Settings
 from personal_os.database import BootstrapStore, get_bootstrap_store
-from personal_os.jobs_models import JobListingPage
+from personal_os.jobs_models import AnswerLibraryCreate, AnswerLibraryItem, JobListingPage
 from personal_os.jobs_store import get_jobs_store
 from personal_os.main import create_app
 from personal_os.models import Principal
 
 USER_ID = UUID("c3c8d239-162d-4e5e-a2a1-4ac0d1b3695f")
+APPLICATION_ID = UUID("11111111-1111-4111-8111-111111111111")
+TASK_ID = UUID("22222222-2222-4222-8222-222222222222")
+ANSWER_ID = UUID("33333333-3333-4333-8333-333333333333")
 
 
 @asynccontextmanager
@@ -49,10 +53,46 @@ class FakeStore(BootstrapStore):
 class FakeJobsStore:
     def __init__(self) -> None:
         self.filters: dict[str, object] = {}
+        self.archived_application_id: UUID | None = None
+        self.autofill_application_id: UUID | None = None
+        self.answer_create: AnswerLibraryCreate | None = None
+        self.answer_update: tuple[UUID, object] | None = None
 
     async def list_listings(self, user_id: UUID, **filters: object) -> JobListingPage:
         self.filters = filters
         return JobListingPage(items=[], total=0, limit=200, offset=0)
+
+    async def archive_application(self, user_id: UUID, application_id: UUID) -> bool:
+        self.archived_application_id = application_id
+        return application_id == APPLICATION_ID
+
+    async def queue_autofill(self, user_id: UUID, application_id: UUID) -> UUID | None:
+        self.autofill_application_id = application_id
+        return TASK_ID if application_id == APPLICATION_ID else None
+
+    async def create_answer(self, user_id: UUID, item: AnswerLibraryCreate) -> AnswerLibraryItem:
+        self.answer_create = item
+        return AnswerLibraryItem(
+            id=ANSWER_ID,
+            question="Why this team?",
+            answer_text="I want to build reliable developer tools.",
+            approved=True,
+            updated_at=datetime(2026, 8, 13, tzinfo=UTC),
+        )
+
+    async def update_answer(
+        self, user_id: UUID, answer_id: UUID, item: object
+    ) -> AnswerLibraryItem | None:
+        self.answer_update = (answer_id, item)
+        if answer_id != ANSWER_ID:
+            return None
+        return AnswerLibraryItem(
+            id=ANSWER_ID,
+            question="Why this team?",
+            answer_text="I want to build dependable developer tools.",
+            approved=False,
+            updated_at=datetime(2026, 8, 13, tzinfo=UTC),
+        )
 
 
 @pytest.fixture
@@ -87,9 +127,7 @@ async def test_invalid_token_is_unauthorized(client: httpx.AsyncClient) -> None:
 
 
 async def test_valid_but_unapproved_account_is_forbidden(client: httpx.AsyncClient) -> None:
-    response = await client.get(
-        "/v1/me", headers={"Authorization": "Bearer wrong-account"}
-    )
+    response = await client.get("/v1/me", headers={"Authorization": "Bearer wrong-account"})
     assert response.status_code == 403
 
 
@@ -148,3 +186,149 @@ async def test_listings_accept_category_and_multiple_normalized_locations(
         "limit": 200,
         "offset": 0,
     }
+
+
+async def test_application_delete_archives_through_the_jobs_store(
+    app: FastAPI, client: httpx.AsyncClient
+) -> None:
+    store = FakeJobsStore()
+
+    async def override_store() -> FakeJobsStore:
+        return store
+
+    app.dependency_overrides[get_jobs_store] = override_store
+    response = await client.delete(
+        f"/v1/jobs/applications/{APPLICATION_ID}",
+        headers={"Authorization": "Bearer approved"},
+    )
+
+    assert response.status_code == 204
+    assert store.archived_application_id == APPLICATION_ID
+
+
+async def test_application_patch_cannot_bypass_archival_cleanup(
+    app: FastAPI, client: httpx.AsyncClient
+) -> None:
+    store = FakeJobsStore()
+
+    async def override_store() -> FakeJobsStore:
+        return store
+
+    app.dependency_overrides[get_jobs_store] = override_store
+    response = await client.patch(
+        f"/v1/jobs/applications/{APPLICATION_ID}",
+        json={"status": "archived"},
+        headers={"Authorization": "Bearer approved"},
+    )
+
+    assert response.status_code == 422
+    assert store.archived_application_id is None
+
+
+async def test_application_autofill_retry_returns_the_queued_task(
+    app: FastAPI, client: httpx.AsyncClient
+) -> None:
+    store = FakeJobsStore()
+
+    async def override_store() -> FakeJobsStore:
+        return store
+
+    app.dependency_overrides[get_jobs_store] = override_store
+    response = await client.post(
+        f"/v1/jobs/applications/{APPLICATION_ID}/autofill",
+        headers={"Authorization": "Bearer approved"},
+    )
+
+    assert response.status_code == 202
+    assert response.json() == {"task_id": str(TASK_ID), "status": "queued"}
+    assert store.autofill_application_id == APPLICATION_ID
+
+
+async def test_long_form_answers_are_created_without_a_client_key(
+    app: FastAPI, client: httpx.AsyncClient
+) -> None:
+    store = FakeJobsStore()
+
+    async def override_store() -> FakeJobsStore:
+        return store
+
+    app.dependency_overrides[get_jobs_store] = override_store
+    response = await client.post(
+        "/v1/jobs/answers",
+        json={
+            "question": "Why this team?",
+            "answer_text": "I want to build reliable developer tools.",
+            "approved": True,
+        },
+        headers={"Authorization": "Bearer approved"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["id"] == str(ANSWER_ID)
+    assert "key" not in response.json()
+    assert store.answer_create is not None
+    assert store.answer_create.question == "Why this team?"
+
+
+async def test_long_form_answers_are_updated_by_id(app: FastAPI, client: httpx.AsyncClient) -> None:
+    store = FakeJobsStore()
+
+    async def override_store() -> FakeJobsStore:
+        return store
+
+    app.dependency_overrides[get_jobs_store] = override_store
+    response = await client.patch(
+        f"/v1/jobs/answers/{ANSWER_ID}",
+        json={"answer_text": "I want to build dependable developer tools.", "approved": False},
+        headers={"Authorization": "Bearer approved"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["approved"] is False
+    assert store.answer_update is not None and store.answer_update[0] == ANSWER_ID
+
+
+async def test_long_form_answer_creation_requires_explicit_approval(
+    app: FastAPI, client: httpx.AsyncClient
+) -> None:
+    store = FakeJobsStore()
+
+    async def override_store() -> FakeJobsStore:
+        return store
+
+    app.dependency_overrides[get_jobs_store] = override_store
+    response = await client.post(
+        "/v1/jobs/answers",
+        json={"question": "Why this team?", "answer_text": "A thoughtful response."},
+        headers={"Authorization": "Bearer approved"},
+    )
+
+    assert response.status_code == 422
+    assert store.answer_create is None
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        {"question": None},
+        {"answer_text": None},
+        {"approved": None},
+    ],
+)
+async def test_long_form_answer_updates_reject_explicit_nulls(
+    app: FastAPI, client: httpx.AsyncClient, update: dict[str, object]
+) -> None:
+    store = FakeJobsStore()
+
+    async def override_store() -> FakeJobsStore:
+        return store
+
+    app.dependency_overrides[get_jobs_store] = override_store
+    response = await client.patch(
+        f"/v1/jobs/answers/{ANSWER_ID}",
+        json=update,
+        headers={"Authorization": "Bearer approved"},
+    )
+
+    assert response.status_code == 422
+    assert store.answer_update is None

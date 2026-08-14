@@ -10,4 +10,5 @@ def test_help_describes_foreground_worker(capsys: pytest.CaptureFixture[str]) ->
     output = capsys.readouterr().out
     assert "never submits applications" in output
     assert "pair" in output
+    assert "doctor" in output
     assert "run" in output

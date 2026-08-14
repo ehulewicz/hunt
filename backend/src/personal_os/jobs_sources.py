@@ -33,14 +33,63 @@ class Feed:
 
 FEEDS = (
     Feed("README.md", "internship", "usa"),
-    Feed("INTERN_INTL.md", "internship", "international"),
     Feed("README.md", "internship", "usa", repository="2027-AI-College-Jobs"),
-    Feed(
-        "INTERN_INTL.md",
-        "internship",
-        "international",
-        repository="2027-AI-College-Jobs",
-    ),
+)
+
+US_REGION_CODES = frozenset(
+    {
+        "AL",
+        "AK",
+        "AZ",
+        "AR",
+        "CA",
+        "CO",
+        "CT",
+        "DE",
+        "FL",
+        "GA",
+        "HI",
+        "ID",
+        "IL",
+        "IN",
+        "IA",
+        "KS",
+        "KY",
+        "LA",
+        "ME",
+        "MD",
+        "MA",
+        "MI",
+        "MN",
+        "MS",
+        "MO",
+        "MT",
+        "NE",
+        "NV",
+        "NH",
+        "NJ",
+        "NM",
+        "NY",
+        "NC",
+        "ND",
+        "OH",
+        "OK",
+        "OR",
+        "PA",
+        "RI",
+        "SC",
+        "SD",
+        "TN",
+        "TX",
+        "UT",
+        "VT",
+        "VA",
+        "WA",
+        "WV",
+        "WI",
+        "WY",
+        "DC",
+    }
 )
 
 
@@ -100,7 +149,10 @@ def parse_feed(markdown: str, feed: Feed, *, today: date) -> list[SourceListing]
         if not company or not title:
             continue
 
-        location = clean_cell(cells[2]) or None
+        raw_location = clean_cell(cells[2]) or None
+        location = canonical_us_location(raw_location)
+        if feed.region == "usa" and location is None:
+            continue
         posting_cell = cells[-2]
         age_cell = cells[-1]
         salary_text = clean_cell(cells[-3]) or None if len(cells) >= 6 else None
@@ -152,12 +204,43 @@ def normalize_locations(location: str | None) -> tuple[str, ...]:
     normalized = re.sub(r"\s+\+\d+\s*$", "", location).strip()
     if not normalized:
         return ()
-    if normalized.casefold().startswith("remote - "):
-        remainder = normalized[len("remote - ") :].strip()
+    if normalized.casefold().startswith("remote · "):
+        remainder = normalized[len("remote · ") :].strip()
         return tuple(part for part in ("Remote", remainder) if part)
     if normalized.casefold() == "remote":
         return ("Remote",)
     return (normalized,)
+
+
+def canonical_us_location(location: str | None) -> str | None:
+    if not location:
+        return None
+    visible = re.sub(r"\s+\+\d+\s*$", "", location).strip()
+    if not visible:
+        return None
+    normalized = visible.casefold()
+    if normalized == "remote":
+        return "Remote"
+    if normalized in {"usa", "united states"}:
+        return "United States"
+    if normalized.startswith("remote - "):
+        remainder = visible[len("remote - ") :].strip()
+        if remainder.casefold() in {"usa", "united states"}:
+            return "Remote"
+        city_state = canonical_city_state(remainder)
+        return f"Remote · {city_state}" if city_state else None
+    return canonical_city_state(visible)
+
+
+def canonical_city_state(location: str) -> str | None:
+    match = re.fullmatch(r"(?P<city>[^,]+),\s*(?P<region>[A-Za-z]{2})", location.strip())
+    if match is None:
+        return None
+    region = match.group("region").upper()
+    if region not in US_REGION_CODES:
+        return None
+    city = re.sub(r"\s+", " ", match.group("city")).strip()
+    return f"{city}, {region}" if city else None
 
 
 def classify_role_families(title: str) -> tuple[str, ...]:

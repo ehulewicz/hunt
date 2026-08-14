@@ -8,13 +8,16 @@ FastAPI connects with the managed database credential, opens short transactions,
 and assumes `personal_os_api`. Every user-owned row references `auth.users`; the
 API derives the UUID from a verified JWT and never accepts it in a body.
 
-The Jobs tables hold structured profile facts, source listings, applications,
-immutable versioned documents, reusable answers, tailoring audits, and worker task
-leases. `jobs_worker_credentials` stores only SHA-256 token hashes plus scope,
+The Jobs tables hold structured profile facts, source listings, recoverably
+archived applications, immutable versioned documents, long-form answers,
+tailoring audits, and worker task leases. A partial unique index permits only one
+queued/running autofill task per application. `jobs_worker_credentials` stores
+only SHA-256 token hashes plus scope,
 expiry, use, and revocation timestamps. Listing source metadata keeps discovery and
 direct application URLs separate, records FAANG+/Quant/general source sections,
-and stores normalized location arrays for match-any filtering. Partial and GIN
-indexes support newest-first internship/category queries and location overlap.
+and stores normalized location arrays for match-any filtering. Composite, partial,
+and GIN indexes support newest-first discovery, application task state, unanswered
+questions, and location overlap.
 
 The private `jobs-documents` Storage bucket accepts PDFs up to 5 MiB. Only FastAPI
 uses its backend secret key; the browser and worker never receive it. Approved

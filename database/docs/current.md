@@ -27,5 +27,10 @@ Last verified: 2026-08-13
   configuration in the Google-only product.
 - [x] Apply `20260813223148_simplify_speedyapply_listings.sql` to hosted Supabase
   and verify scheduled-sync run `31751692530` populates 1,087 open listings.
+- [x] Add `20260814003115_complete_jobs_workflow.sql` to delete the six factual
+  Answer rows, enforce one active autofill task per application, and index
+  application task/question state.
+- [ ] Apply the complete-workflow migration and verify the strict-US resync leaves
+  approximately 440 open rows while preserving archived application history.
 - [ ] Revoke legacy password sessions after Google acceptance is reconfirmed.
 - [ ] Add Calendar and Tasks schema only after Jobs works end to end.

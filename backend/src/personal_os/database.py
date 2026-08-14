@@ -96,32 +96,6 @@ class PostgresBootstrapStore:
                 """,
                 (user_id, resume, user_id),
             )
-            seed_answers = (
-                (
-                    "work_authorization",
-                    "Are you authorized to work in the United States?",
-                    "Yes, I am a US citizen and do not require sponsorship.",
-                ),
-                ("sponsorship", "Do you require visa sponsorship?", "No."),
-                ("years_experience", "How many years of experience do you have?", "3+ years."),
-                ("relocation", "Are you willing to relocate?", "Yes."),
-                ("travel", "Are you willing to travel?", "Yes."),
-                (
-                    "earliest_start",
-                    "What is your earliest available start date?",
-                    "Two weeks from offer acceptance.",
-                ),
-            )
-            for key, question, answer in seed_answers:
-                await connection.execute(
-                    """
-                    insert into app.jobs_answer_library (
-                      user_id, key, normalized_question, answer_text, approved
-                    ) values (%s, %s, %s, %s, true)
-                    on conflict (user_id, key) do nothing
-                    """,
-                    (user_id, key, question, answer),
-                )
 
 
 def create_pool(settings: Settings) -> AsyncConnectionPool[Any]:

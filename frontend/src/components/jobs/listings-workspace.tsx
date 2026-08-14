@@ -1,6 +1,6 @@
 "use client";
 
-import { BriefcaseBusiness, ExternalLink } from "lucide-react";
+import { BriefcaseBusiness } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { useAccessToken } from "@/components/workspace";
@@ -222,7 +222,11 @@ export function ListingsWorkspace() {
                 </label>
                 <div className="listing-main">
                   <div className="listing-title-line">
-                    <strong>{listing.title}</strong>
+                    {listing.application_url ? (
+                      <a className="listing-title-link" href={listing.application_url} rel="noreferrer" target="_blank">
+                        {listing.title}
+                      </a>
+                    ) : <strong>{listing.title}</strong>}
                     {listing.application_id ? <span className="tag tag-success">In applications</span> : null}
                   </div>
                   <p>{listing.company_name} · {listing.location ?? "Location not listed"}</p>
@@ -235,11 +239,7 @@ export function ListingsWorkspace() {
                 <div className="listing-actions">
                   {ageLabel(listing.source_age_days) ? <strong>{ageLabel(listing.source_age_days)}</strong> : null}
                   {listing.salary_text ? <span>{listing.salary_text}</span> : null}
-                  {listing.application_url ? (
-                    <a href={listing.application_url} rel="noreferrer" target="_blank">
-                      Company listing <ExternalLink aria-hidden="true" size={13} />
-                    </a>
-                  ) : <span>Listing closed</span>}
+                  {!listing.application_url ? <span>Listing closed</span> : null}
                 </div>
               </article>
             ))}

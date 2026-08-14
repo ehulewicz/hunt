@@ -141,9 +141,16 @@ export function JobProfileEditor() {
         </section>
 
         <section className="form-section">
-          <h2>Education and eligibility</h2>
+          <h2>Education</h2>
           <div className="form-grid">
-            {[["School", "school_name"], ["Degree", "degree_type"], ["Field of study", "field_of_study"], ["Graduation", "graduation_date", "date"], ["GPA", "gpa", "number"], ["Work authorization", "work_authorization_status"], ["Visa status", "visa_status"], ["Earliest start date", "earliest_start_date", "date"], ["Earliest start note", "earliest_start_text"], ["Professional experience (years)", "years_professional_experience", "number"]].map(([label, name, type]) => <Field draft={draft} key={name} label={label} name={name} setDraft={setDraft} type={type} />)}
+            {[["School", "school_name"], ["Degree", "degree_type"], ["Field of study", "field_of_study"], ["Graduation", "graduation_date", "date"], ["GPA", "gpa", "number"]].map(([label, name, type]) => <Field draft={draft} key={name} label={label} name={name} setDraft={setDraft} type={type} />)}
+          </div>
+        </section>
+
+        <section className="form-section">
+          <h2>Application facts</h2>
+          <div className="form-grid">
+            {[["Work authorization", "work_authorization_status"], ["Visa status", "visa_status"], ["Earliest start date", "earliest_start_date", "date"], ["Earliest start note", "earliest_start_text"], ["Professional experience (years)", "years_professional_experience", "number"]].map(([label, name, type]) => <Field draft={draft} key={name} label={label} name={name} setDraft={setDraft} type={type} />)}
             {[["Sponsorship required", "sponsorship_required"], ["Willing to relocate", "willing_to_relocate"], ["Willing to travel", "willing_to_travel"]].map(([label, name]) => (
               <Field draft={draft} key={name} label={label} name={name} setDraft={setDraft}>
                 <select onChange={(event) => setDraft({ ...draft, [name]: event.target.value })} value={draft[name] ?? ""}>

@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 
-import { getListings } from "@/lib/jobs-api";
+import { createAnswer, deleteApplication, getListings, queueAutofill } from "@/lib/jobs-api";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -26,4 +26,52 @@ test("listing requests send one category and every selected normalized location"
     "https://api.test/v1/jobs/listings?limit=200&category=quant&locations=Remote&locations=New+York+City%2C+NY",
     { headers: { Authorization: "Bearer approved" } },
   );
+});
+
+test("application archival and autofill retry use the lifecycle endpoints", async () => {
+  vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+  const fetchSpy = vi.fn()
+    .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ task_id: "task-1", status: "queued" }), {
+      status: 202,
+      headers: { "Content-Type": "application/json" },
+    }));
+  vi.stubGlobal("fetch", fetchSpy);
+
+  await deleteApplication("approved", "application-1");
+  await queueAutofill("approved", "application-1");
+
+  expect(fetchSpy).toHaveBeenNthCalledWith(1, "https://api.test/v1/jobs/applications/application-1", {
+    method: "DELETE",
+    headers: { Authorization: "Bearer approved" },
+  });
+  expect(fetchSpy).toHaveBeenNthCalledWith(2, "https://api.test/v1/jobs/applications/application-1/autofill", {
+    method: "POST",
+    headers: { Authorization: "Bearer approved" },
+  });
+});
+
+test("long-form answer creation sends no client key", async () => {
+  vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+  const fetchSpy = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), {
+    status: 201,
+    headers: { "Content-Type": "application/json" },
+  }));
+  vi.stubGlobal("fetch", fetchSpy);
+
+  await createAnswer("approved", {
+    question: "Why this team?",
+    answer_text: "The work aligns with my experience.",
+    approved: true,
+  });
+
+  const request = fetchSpy.mock.calls[0][1] as RequestInit;
+  expect(fetchSpy.mock.calls[0][0]).toBe("https://api.test/v1/jobs/answers");
+  expect(request.method).toBe("POST");
+  expect(JSON.parse(String(request.body))).toEqual({
+    question: "Why this team?",
+    answer_text: "The work aligns with my experience.",
+    approved: true,
+  });
+  expect(String(request.body)).not.toContain("key");
 });

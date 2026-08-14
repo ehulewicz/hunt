@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 CareerStage = Literal["internship", "new_grad"]
 RoleFamily = Literal[
@@ -150,6 +150,11 @@ class BatchPrepareResponse(BaseModel):
     queued_task_ids: list[UUID]
 
 
+class AutofillQueueResponse(BaseModel):
+    task_id: UUID
+    status: Literal["queued"] = "queued"
+
+
 class JobApplication(BaseModel):
     id: UUID
     posting_id: UUID
@@ -162,21 +167,28 @@ class JobApplication(BaseModel):
     next_action: str | None
     next_action_at: datetime | None
     notes: str | None
+    preparation_status: str | None = None
+    preparation_error: str | None = None
+    autofill_status: str | None = None
+    autofill_error: str | None = None
+    unanswered_required_questions: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
 
 class ApplicationUpdate(BaseModel):
-    status: Literal[
-        "preparing",
-        "ready",
-        "submitted",
-        "interviewing",
-        "offer",
-        "rejected",
-        "withdrawn",
-        "archived",
-    ] | None = None
+    status: (
+        Literal[
+            "preparing",
+            "ready",
+            "submitted",
+            "interviewing",
+            "offer",
+            "rejected",
+            "withdrawn",
+        ]
+        | None
+    ) = None
     next_action: str | None = Field(default=None, max_length=1000)
     next_action_at: datetime | None = None
     notes: str | None = Field(default=None, max_length=10000)
@@ -199,22 +211,71 @@ class JobDocument(BaseModel):
     updated_at: datetime
 
 
+class JobDocumentReview(BaseModel):
+    document: JobDocument
+    source_document: JobDocument
+    resume_patch: list[dict[str, Any]] = Field(default_factory=list)
+    changed_paths: list[str] = Field(default_factory=list)
+    changed_word_ratio: Decimal | None = None
+
+
 class AnswerLibraryItem(BaseModel):
     id: UUID
-    key: str
-    normalized_question: str | None
+    question: str
     answer_text: str
-    answer_type: str
     approved: bool
     updated_at: datetime
 
 
-class AnswerLibraryUpsert(BaseModel):
-    key: str = Field(min_length=1, max_length=160)
-    normalized_question: str | None = Field(default=None, max_length=1000)
+class AnswerLibraryCreate(BaseModel):
+    question: str = Field(min_length=1, max_length=1000)
     answer_text: str = Field(min_length=1, max_length=10000)
-    answer_type: str = Field(default="text", max_length=40)
-    approved: bool = False
+    approved: bool
+
+    @field_validator("question", "answer_text")
+    @classmethod
+    def strip_required_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("must not be blank")
+        return value
+
+
+class AnswerLibraryUpdate(BaseModel):
+    question: str | None = Field(default=None, min_length=1, max_length=1000)
+    answer_text: str | None = Field(default=None, min_length=1, max_length=10000)
+    approved: bool | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_explicit_nulls(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            nullable_fields = {
+                key
+                for key in ("question", "answer_text", "approved")
+                if key in value and value[key] is None
+            }
+            if nullable_fields:
+                raise ValueError(
+                    f"must not be null: {', '.join(sorted(nullable_fields))}"
+                )
+        return value
+
+    @field_validator("question", "answer_text")
+    @classmethod
+    def strip_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("must not be blank")
+        return value
+
+    @model_validator(mode="after")
+    def require_change(self) -> "AnswerLibraryUpdate":
+        if not self.model_fields_set:
+            raise ValueError("at least one field is required")
+        return self
 
 
 class WorkerCredentialCreate(BaseModel):

@@ -53,6 +53,14 @@ export async function apiRequest<T>(
   return (await response.json()) as T;
 }
 
+export async function apiBlobRequest(path: string, accessToken: string): Promise<Blob> {
+  const response = await fetch(apiUrl(path), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) throw new ApiError(response.status);
+  return response.blob();
+}
+
 export async function authenticateAndBootstrap(accessToken: string): Promise<Account> {
   await accountRequest("/v1/me", "GET", accessToken);
   return accountRequest("/v1/bootstrap", "POST", accessToken);

@@ -103,24 +103,37 @@
 .notice-error { border-color: var(--ui-danger); color: var(--ui-danger); background: var(--ui-danger-soft); }
 .notice-success { border-color: var(--ui-success); color: var(--ui-success); background: var(--ui-success-soft); }
 .jobs-section { border: 1px solid var(--ui-border); border-radius: var(--ui-radius-panel); background: var(--ui-surface); }
-.section-heading { min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-4); border-bottom: 1px solid var(--ui-border); padding: var(--ui-space-4); }
+.section-heading { min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-4); border-bottom: 1px solid var(--ui-border); padding: var(--ui-space-3) var(--ui-space-4); }
 .section-heading > div { display: grid; gap: 2px; }
 .section-heading h2 { margin: 0; font-size: 16px; }
 .section-heading span { color: var(--ui-muted); font-size: 11px; }
 .jobs-list { display: grid; }
-.listing-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) minmax(140px, auto); gap: var(--ui-space-3); border-bottom: 1px solid var(--ui-border); padding: var(--ui-space-4); }
+.listing-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) minmax(120px, auto); align-items: start; gap: var(--ui-space-2); border-bottom: 1px solid var(--ui-border); padding: 9px var(--ui-space-4); }
 .listing-row:last-child { border-bottom: 0; }
 .application-row { grid-template-columns: minmax(0, 1fr) auto; }
 .listing-select { padding-top: 2px; }
-.listing-main { min-width: 0; display: grid; gap: 5px; }
+.listing-main { min-width: 0; display: grid; gap: 3px; }
 .listing-title-line { display: flex; align-items: center; flex-wrap: wrap; gap: var(--ui-space-2); }
 .listing-main strong { font-size: 13px; }
+.listing-title-link { width: fit-content; color: var(--ui-text); font-size: 13px; font-weight: 700; text-decoration: none; }
+.listing-title-link:hover { color: var(--ui-accent); text-decoration: underline; text-underline-offset: 2px; }
+.listing-title-link:focus-visible { border-radius: 2px; outline: 3px solid var(--ui-focus); }
 .listing-main p { margin: 0; color: var(--ui-muted); font-size: 12px; }
 .tag-list { display: flex; flex-wrap: wrap; gap: var(--ui-space-1); }
 .tag { border: 1px solid var(--ui-border); border-radius: var(--ui-radius-control); padding: 2px 5px; color: var(--ui-muted); background: var(--ui-surface-subtle); font-size: 10px; }
 .tag-success { border-color: var(--ui-success); color: var(--ui-success); background: var(--ui-success-soft); }
-.listing-actions { display: flex; flex-direction: column; align-items: flex-end; gap: var(--ui-space-2); color: var(--ui-muted); font-size: 11px; text-align: right; }
+.listing-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; color: var(--ui-muted); font-size: 11px; text-align: right; }
 .listing-actions a { display: inline-flex; align-items: center; gap: var(--ui-space-1); color: var(--ui-accent); font-size: 12px; font-weight: 700; text-decoration: none; }
+.listing-actions .text-button { display: inline-flex; align-items: center; gap: 4px; }
+.danger-action { color: var(--ui-danger); }
+.task-error { color: var(--ui-danger) !important; }
+.task-warning { color: var(--ui-text) !important; }
+.review-panel { display: grid; gap: var(--ui-space-4); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-panel); padding: var(--ui-space-4); background: var(--ui-surface); }
+.review-panel h2, .review-panel h3 { margin: 0; }
+.document-preview { width: 100%; min-height: 720px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-control); background: white; }
+.review-details { display: grid; gap: var(--ui-space-3); }
+.review-details ul { margin: 0; padding-left: var(--ui-space-6); }
+.review-details pre { overflow: auto; max-height: 320px; border: 1px solid var(--ui-border); padding: var(--ui-space-3); background: var(--ui-surface-subtle); font-size: 11px; }
 .panel-state { min-height: 180px; display: flex; align-items: center; justify-content: center; gap: var(--ui-space-2); padding: var(--ui-space-6); color: var(--ui-muted); font-size: 13px; text-align: center; }
 .jobs-form { display: grid; gap: var(--ui-space-4); }
 .form-section { border: 1px solid var(--ui-border); border-radius: var(--ui-radius-panel); padding: var(--ui-space-4); background: var(--ui-surface); }

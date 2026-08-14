@@ -12,16 +12,22 @@ Last verified: 2026-08-13
   and multi-select normalized-location filters.
 - [x] Remove search, role-family, career-stage, freshness, and browser source-sync
   controls while retaining batch preparation and direct company application links.
-- [x] Add application tracking, immutable document review/approval/download,
-  and an approved reusable answer library.
+- [x] Make titles the direct ATS link and compress listing/application rows while
+  retaining explicit company and normalized location.
+- [x] Add confirmation-gated recoverable application deletion, task states,
+  actionable errors, missing questions, and explicit autofill retry.
+- [x] Add authenticated PDF/patch review and approval that queues autofill.
+- [x] Group application facts under Profile and reserve Answers for keyless
+  create/update-by-ID long-form responses.
 - [x] Keep submitted status manual; neither frontend nor worker infers or records
   a submission without the user doing it.
-- [x] Pass lint, types, all 5 unit tests, UI policy, production build, and all 3
+- [x] Pass lint, types, all 11 unit tests, UI policy, production build, and all 3
   Playwright visual tests.
 - [x] Deploy the Jobs frontend to Vercel from commit `c2b90a7`.
 - [x] Deploy the simplified listing page to Vercel from commit `1d97fba`.
 - [ ] Run authenticated hosted Jobs acceptance.
-- [ ] Add an autofill action only after an application has an approved PDF and
-  approved answers; the worker must still stop before Submit.
+- [x] Add automatic and manual-retry autofill controls while keeping submitted
+  state manual.
+- [ ] Deploy the complete Jobs frontend and run authenticated hosted acceptance.
 - [ ] Add zero2sudo source controls only after SpeedyApply acceptance passes.
 - [ ] Add Calendar and unified Tasks only after Jobs works end to end.

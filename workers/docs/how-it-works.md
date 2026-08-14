@@ -1,8 +1,9 @@
 # How workers work
 
 The Jobs worker is a foreground Python 3.13 process for the user's own Windows/WSL
-machine. `run.ps1` launches a dedicated visible Windows Chrome profile with a CDP
-port, then starts the WSL worker. Pairing stores an expiring, revocable API token in
+machine. `run.ps1` delegates to `run.sh`, which launches installed Linux Chrome
+through WSLg with a dedicated profile and loopback CDP, runs doctor checks, then
+starts the WSL worker. Pairing stores an expiring, revocable API token in
 the local user's configuration with mode `0600`; the worker never connects to
 PostgreSQL or Supabase directly.
 
@@ -18,5 +19,10 @@ and requires added keywords to be grounded in both the listing and known facts.
 The worker compiles a one-page PDF, uploads it through FastAPI, and reports an
 approval-required draft with a diff audit.
 
-There is deliberately no submit action. Generic form autofill is a later step and
-must use only approved answers/documents, remain visible, and stop before Submit.
+Approving the draft queues autofill. The worker downloads the approved PDF and
+fills only deterministic Profile facts, that resume, and approved long-form
+answers whose normalized question exactly matches a visible form label. Answers
+never substitute for missing Profile facts, and duplicate exact answers are left
+empty as ambiguous. Unknown,
+EEO, consent, attestation, and submit controls are untouched; missing required
+questions are reported to the application, and the visible page remains open.

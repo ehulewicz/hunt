@@ -1,15 +1,24 @@
 "use client";
 
-import { Check } from "lucide-react";
+import { Check, FileSearch } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { useAccessToken } from "@/components/workspace";
-import { approveDocument, getDocuments, type JobDocument } from "@/lib/jobs-api";
+import {
+  approveDocument,
+  getDocumentPdf,
+  getDocumentReview,
+  getDocuments,
+  type JobDocument,
+  type JobDocumentReview,
+} from "@/lib/jobs-api";
 
 export function DocumentsWorkspace({ documentType }: { documentType: "resume" | "cover_letter" }) {
   const accessToken = useAccessToken();
   const [documents, setDocuments] = useState<JobDocument[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [review, setReview] = useState<JobDocumentReview | null>(null);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -35,6 +44,9 @@ export function DocumentsWorkspace({ documentType }: { documentType: "resume" | 
     });
     return () => { active = false; };
   }, [accessToken, documentType]);
+  useEffect(() => () => {
+    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+  }, [pdfUrl]);
 
   async function approve(document: JobDocument) {
     try {
@@ -42,6 +54,20 @@ export function DocumentsWorkspace({ documentType }: { documentType: "resume" | 
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Document could not be approved.");
+    }
+  }
+
+  async function inspect(document: JobDocument) {
+    try {
+      const [loadedReview, pdf] = await Promise.all([
+        getDocumentReview(accessToken, document.id),
+        getDocumentPdf(accessToken, document.id),
+      ]);
+      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+      setReview(loadedReview);
+      setPdfUrl(URL.createObjectURL(pdf));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Resume review could not be loaded.");
     }
   }
 
@@ -60,11 +86,12 @@ export function DocumentsWorkspace({ documentType }: { documentType: "resume" | 
           {documents.map((document) => (
             <article className="listing-row application-row" key={document.id}>
               <div className="listing-main"><strong>{document.title}</strong><p>Version {document.version} · {document.document_type.replaceAll("_", " ")}</p><div className="tag-list"><span className={document.status === "approved" ? "tag tag-success" : "tag"}>{document.status}</span>{document.is_current ? <span className="tag">Current</span> : null}</div></div>
-              <div className="listing-actions">{document.status === "draft" ? <button className="button button-primary" onClick={() => void approve(document)}><Check aria-hidden="true" size={14} /> Approve exact version</button> : null}</div>
+              <div className="listing-actions">{document.document_type === "tailored_resume" ? <button className="button button-secondary" onClick={() => void inspect(document)}><FileSearch aria-hidden="true" size={14} />Review PDF &amp; changes</button> : null}{document.status === "draft" ? <button className="button button-primary" onClick={() => void approve(document)}><Check aria-hidden="true" size={14} /> {document.document_type === "tailored_resume" ? "Approve & queue autofill" : "Approve exact version"}</button> : null}</div>
             </article>
           ))}
         </div>
       </section>
+      {review ? <section className="review-panel"><div className="section-heading-inline"><div><h2>Tailored resume review</h2><p>Source v{review.source_document.version} → tailored v{review.document.version} · {review.changed_word_ratio ? `${(Number(review.changed_word_ratio) * 100).toFixed(1)}% changed` : "Change ratio unavailable"}</p></div><button className="text-button" onClick={() => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); setPdfUrl(null); setReview(null); }} type="button">Close</button></div>{pdfUrl ? <iframe className="document-preview" src={pdfUrl} title={`${review.document.title} PDF`} /> : null}<div className="review-details"><h3>Changed paths</h3><ul>{review.changed_paths.map((path) => <li key={path}><code>{path}</code></li>)}</ul><details><summary>JSON Patch</summary><pre>{JSON.stringify(review.resume_patch, null, 2)}</pre></details></div></section> : null}
     </div>
   );
 }
