@@ -36,6 +36,9 @@ Last verified: 2026-08-13
   report production success and `/jobs/listings` returns `200`.
 - [x] Show the canonical resume JSON and add raw-JSON editing, draft saving,
   worker preview, PDF viewing, and approval on the Resumes page.
+- [x] Edit the resume side by side with its compiled PDF, saving and recompiling
+  on Ctrl+S, updating one working draft rather than stacking versions, and
+  keeping the previous PDF visible while it recompiles.
 - [ ] Run authenticated hosted acceptance after creating a Local runner
   credential in Profile.
 - [x] Deploy the simplified listing controls from commit `659324f`; the

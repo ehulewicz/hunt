@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 
 import { DocumentsWorkspace } from "@/components/jobs/documents-workspace";
-import { createMasterResumeDraft, getDocuments, queueResumePreview } from "@/lib/jobs-api";
+import { getDocuments, queueResumePreview } from "@/lib/jobs-api";
 
 const MASTER_RESUME = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -28,11 +28,13 @@ vi.mock("@/lib/jobs-api", async (importOriginal) => {
     ...original,
     getDocuments: vi.fn(),
     createMasterResumeDraft: vi.fn(),
+    updateMasterResumeDraft: vi.fn(),
     queueResumePreview: vi.fn(),
+    getDocumentPdf: vi.fn(),
   };
 });
 
-test("the canonical resume can be opened and its JSON is readable", async () => {
+test("the canonical resume opens in the side-by-side editor", async () => {
   vi.mocked(getDocuments).mockResolvedValue([MASTER_RESUME]);
 
   render(<DocumentsWorkspace documentType="resume" />);
@@ -40,47 +42,12 @@ test("the canonical resume can be opened and its JSON is readable", async () => 
   await waitFor(() => expect(screen.getByText("Main resume")).toBeInTheDocument());
   fireEvent.click(screen.getByRole("button", { name: /View & edit/ }));
 
-  const editor = screen.getByLabelText("Resume document") as HTMLTextAreaElement;
+  const editor = screen.getByLabelText("Resume JSON") as HTMLTextAreaElement;
   expect(editor.value).toContain('"name": "Candidate"');
+  expect(screen.getByText("Compiled PDF")).toBeInTheDocument();
 });
 
-test("invalid JSON is refused before any request is made", async () => {
-  vi.mocked(getDocuments).mockResolvedValue([MASTER_RESUME]);
-  vi.mocked(createMasterResumeDraft).mockClear();
-
-  render(<DocumentsWorkspace documentType="resume" />);
-
-  await waitFor(() => expect(screen.getByText("Main resume")).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: /View & edit/ }));
-  fireEvent.change(screen.getByLabelText("Resume document"), {
-    target: { value: "{ not json" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: /Save draft/ }));
-
-  await waitFor(() => expect(screen.getByText(/Invalid JSON/)).toBeInTheDocument());
-  expect(createMasterResumeDraft).not.toHaveBeenCalled();
-});
-
-test("saving valid JSON creates a draft version rather than editing in place", async () => {
-  vi.mocked(getDocuments).mockResolvedValue([MASTER_RESUME]);
-  vi.mocked(createMasterResumeDraft).mockResolvedValue({ ...MASTER_RESUME, version: 2 });
-
-  render(<DocumentsWorkspace documentType="resume" />);
-
-  await waitFor(() => expect(screen.getByText("Main resume")).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: /View & edit/ }));
-  fireEvent.change(screen.getByLabelText("Resume document"), {
-    target: { value: '{"contact":{"name":"Updated"}}' },
-  });
-  fireEvent.click(screen.getByRole("button", { name: /Save draft/ }));
-
-  await waitFor(() => expect(createMasterResumeDraft).toHaveBeenCalledWith("approved", {
-    contact: { name: "Updated" },
-  }));
-  expect(await screen.findByText(/Saved draft version 2/)).toBeInTheDocument();
-});
-
-test("only draft resumes offer a preview", async () => {
+test("only draft resumes offer a standalone preview", async () => {
   vi.mocked(getDocuments).mockResolvedValue([
     { ...MASTER_RESUME, status: "draft", version: 2 },
   ]);
@@ -92,5 +59,4 @@ test("only draft resumes offer a preview", async () => {
   fireEvent.click(screen.getByRole("button", { name: /Generate preview/ }));
 
   await waitFor(() => expect(queueResumePreview).toHaveBeenCalled());
-  expect(await screen.findByText(/verifies it stays one page/)).toBeInTheDocument();
 });

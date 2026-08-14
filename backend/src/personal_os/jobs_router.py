@@ -174,6 +174,19 @@ async def create_master_resume_draft(
     return document
 
 
+@router.put("/documents/{document_id}/master-resume", response_model=JobDocument)
+async def update_master_resume_draft(
+    document_id: UUID,
+    content: MasterResumeContent,
+    principal: CurrentPrincipal,
+    store: Store,
+) -> JobDocument:
+    document = await store.update_master_resume_draft(principal.user_id, document_id, content)
+    if document is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Draft main resume not found")
+    return document
+
+
 @router.post("/documents/{document_id}/preview", response_model=ResumePreviewResponse)
 async def queue_resume_preview(
     document_id: UUID, principal: CurrentPrincipal, store: Store

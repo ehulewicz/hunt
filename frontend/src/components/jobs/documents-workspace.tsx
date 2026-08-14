@@ -3,10 +3,10 @@
 import { Check, FileSearch, FileText, Pencil } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { ResumeEditor } from "@/components/jobs/resume-editor";
 import { useAccessToken } from "@/components/workspace";
 import {
   approveDocument,
-  createMasterResumeDraft,
   getDocumentPdf,
   getDocumentReview,
   getDocuments,
@@ -22,7 +22,6 @@ export function DocumentsWorkspace({ documentType }: { documentType: "resume" | 
   const [review, setReview] = useState<JobDocumentReview | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [editing, setEditing] = useState<JobDocument | null>(null);
-  const [draftText, setDraftText] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -65,33 +64,7 @@ export function DocumentsWorkspace({ documentType }: { documentType: "resume" | 
   function edit(document: JobDocument) {
     setNotice(null);
     setError(null);
-    let formatted = document.content_text ?? "";
-    try {
-      formatted = JSON.stringify(JSON.parse(formatted), null, 2);
-    } catch {
-      // Show the stored text as-is when it is not parseable rather than hiding it.
-    }
-    setDraftText(formatted);
     setEditing(document);
-  }
-
-  async function saveDraft() {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(draftText);
-    } catch (caught) {
-      setError(caught instanceof Error ? `Invalid JSON: ${caught.message}` : "Invalid JSON.");
-      return;
-    }
-    try {
-      const created = await createMasterResumeDraft(accessToken, parsed);
-      setEditing(null);
-      setNotice(`Saved draft version ${created.version}. Generate a preview before approving.`);
-      setError(null);
-      await load();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Draft could not be saved.");
-    }
   }
 
   async function preview(document: JobDocument) {
@@ -139,29 +112,12 @@ export function DocumentsWorkspace({ documentType }: { documentType: "resume" | 
       {error ? <p className="notice notice-error">{error}</p> : null}
       {notice ? <p className="notice">{notice}</p> : null}
       {editing ? (
-        <section className="review-panel">
-          <div className="section-heading-inline">
-            <div>
-              <h2>Main resume JSON</h2>
-              <p>Editing version {editing.version}. Saving creates a new draft; the current approved version stays canonical until you approve.</p>
-            </div>
-            <button className="text-button" onClick={() => { setEditing(null); setError(null); }} type="button">Cancel</button>
-          </div>
-          <label className="field-label" htmlFor="master-resume-json">Resume document</label>
-          <textarea
-            className="json-editor"
-            id="master-resume-json"
-            onChange={(event) => setDraftText(event.target.value)}
-            rows={24}
-            spellCheck={false}
-            value={draftText}
-          />
-          <div className="listing-actions">
-            <button className="button button-primary" onClick={() => void saveDraft()} type="button">
-              <Check aria-hidden="true" size={14} />Save draft
-            </button>
-          </div>
-        </section>
+        <ResumeEditor
+          accessToken={accessToken}
+          onClose={() => { setEditing(null); setError(null); }}
+          onSaved={() => void load()}
+          source={editing}
+        />
       ) : null}
       <section className="jobs-section">
         <div className="section-heading"><div><h2>Document versions</h2><span>{documents.length} {title.toLowerCase()}</span></div></div>

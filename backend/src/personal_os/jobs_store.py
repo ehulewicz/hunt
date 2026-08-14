@@ -74,6 +74,10 @@ class JobsStore(Protocol):
         self, user_id: UUID, content: MasterResumeContent
     ) -> JobDocument | None: ...
 
+    async def update_master_resume_draft(
+        self, user_id: UUID, document_id: UUID, content: MasterResumeContent
+    ) -> JobDocument | None: ...
+
     async def queue_resume_preview(
         self, user_id: UUID, document_id: UUID
     ) -> UUID | None: ...
@@ -771,6 +775,30 @@ class PostgresJobsStore:
                     int(family["version"]) + 1,
                     content.model_dump_json(),
                 ),
+            )
+            row = await cursor.fetchone()
+        return JobDocument.model_validate(row) if row is not None else None
+
+    async def update_master_resume_draft(
+        self, user_id: UUID, document_id: UUID, content: MasterResumeContent
+    ) -> JobDocument | None:
+        """Drafts stay mutable; only approved documents are frozen by the trigger."""
+        async with (
+            self._pool.connection(timeout=self._timeout) as connection,
+            connection.transaction(),
+        ):
+            await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                """
+                update app.jobs_documents
+                set content_text = %s, storage_path = null, updated_at = now()
+                where id = %s and user_id = %s
+                  and document_type = 'master_resume' and status = 'draft'
+                returning id, application_id, document_type, title, family_id, version,
+                          source_document_id, content_text, storage_path, mime_type,
+                          status, is_current, created_at, updated_at
+                """,
+                (content.model_dump_json(), document_id, user_id),
             )
             row = await cursor.fetchone()
         return JobDocument.model_validate(row) if row is not None else None

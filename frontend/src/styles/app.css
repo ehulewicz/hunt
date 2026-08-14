@@ -130,6 +130,13 @@
 .review-panel { display: grid; gap: var(--ui-space-4); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-panel); padding: var(--ui-space-4); background: var(--ui-surface); }
 .review-panel h2, .review-panel h3 { margin: 0; }
 .document-preview { width: 100%; min-height: 720px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-control); background: white; }
+.resume-editor { display: grid; gap: var(--ui-space-4); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-panel); padding: var(--ui-space-4); background: var(--ui-surface); }
+.resume-editor h2 { margin: 0; }
+.resume-editor-panes { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ui-space-4); align-items: start; }
+.resume-editor-pane { display: grid; gap: var(--ui-space-2); min-width: 0; }
+.pane-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-2); }
+.document-preview-stale { opacity: 0.55; }
+@media (max-width: 900px) { .resume-editor-panes { grid-template-columns: 1fr; } }
 .field-label { font-size: 12px; font-weight: 600; color: var(--ui-muted); }
 .json-editor { width: 100%; border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-control); padding: 10px; color: var(--ui-text); background: var(--ui-surface); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; resize: vertical; }
 .json-editor:focus { outline: 3px solid var(--ui-focus); border-color: var(--ui-accent); }

@@ -232,6 +232,18 @@ export function createMasterResumeDraft(accessToken: string, content: unknown) {
   });
 }
 
+export function updateMasterResumeDraft(
+  accessToken: string,
+  documentId: string,
+  content: unknown,
+) {
+  return apiRequest<JobDocument>(
+    `/v1/jobs/documents/${documentId}/master-resume`,
+    accessToken,
+    { method: "PUT", body: JSON.stringify(content) },
+  );
+}
+
 export function queueResumePreview(accessToken: string, documentId: string) {
   return apiRequest<{ task_id: string }>(
     `/v1/jobs/documents/${documentId}/preview`,

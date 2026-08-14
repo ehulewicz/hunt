@@ -40,6 +40,8 @@ Last verified: 2026-08-13
 - [x] Serve base resume viewing and editing: validated master-resume draft
   creation, worker-only draft fetch, preview queueing, and preview PDF storage,
   with no migration because `task_type` is unconstrained.
+- [x] Allow in-place updates to main resume drafts and return CORS-visible
+  errors so failures surface as a status instead of `Failed to fetch`.
 - [ ] Run authenticated hosted Jobs acceptance.
 - [x] Deploy migration `20260814003115_complete_jobs_workflow.sql` and Cloud Run
   revision `personal-os-api-00012-dw2`; verify sync run `31759248462` writes
