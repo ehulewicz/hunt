@@ -39,6 +39,7 @@ Last verified: 2026-08-13
 - [x] Deploy migration `20260814003115_complete_jobs_workflow.sql` and Cloud Run
   revision `personal-os-api-00012-dw2`; verify sync run `31759248462` writes
   exactly 440 open strict-US rows.
-- [ ] Deploy the PhD exclusion and record the new strict-US hosted row count.
+- [x] Deploy the PhD exclusion in Cloud Run revision `personal-os-api-00013-dg6`;
+  sync run `31762555087` records 380 open strict-US rows, 60 fewer than before.
 - [ ] Add zero2sudo ingestion only after SpeedyApply acceptance passes.
 - [ ] Add Google integration OAuth only with the Calendar milestone.

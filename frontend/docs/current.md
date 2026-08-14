@@ -24,9 +24,9 @@ Last verified: 2026-08-13
 - [x] Keep submitted status manual; neither frontend nor worker infers or records
   a submission without the user doing it.
 - [x] Pass lint, types, all 13 unit tests, UI policy, and production build.
-- [ ] Re-run all 3 Playwright visual tests, including the new 800 px toolbar
-  overflow and Axe checks; local elevation is blocked by the environment usage
-  limit.
+- [x] Re-run all 3 Playwright visual tests, including the new 800 px toolbar
+  overflow and Axe checks, through frontend run `31762444914`, which executes
+  `npm run test:visual` in CI.
 - [x] Deploy the Jobs frontend to Vercel from commit `c2b90a7`.
 - [x] Deploy the simplified listing page to Vercel from commit `1d97fba`.
 - [ ] Run authenticated hosted Jobs acceptance.
@@ -36,6 +36,7 @@ Last verified: 2026-08-13
   report production success and `/jobs/listings` returns `200`.
 - [ ] Run authenticated hosted acceptance after creating a Local runner
   credential in Profile.
-- [ ] Deploy the simplified listing controls.
+- [x] Deploy the simplified listing controls from commit `659324f`; the
+  production `/jobs/listings` route returns `200`.
 - [ ] Add zero2sudo source controls only after SpeedyApply acceptance passes.
 - [ ] Add Calendar and unified Tasks only after Jobs works end to end.

@@ -32,6 +32,8 @@ Last verified: 2026-08-13
   application task/question state.
 - [x] Apply the complete-workflow migration in deploy run `31759129535` and
   verify strict-US sync run `31759248462` leaves exactly 440 open rows.
+- [x] Confirm the PhD exclusion needs no migration; sync run `31762555087` leaves
+  exactly 380 open listing rows under the existing schema.
 - [ ] Verify application/history preservation through the authenticated deletion
   and reactivation acceptance flow after this machine is paired.
 - [ ] Revoke legacy password sessions after Google acceptance is reconfirmed.

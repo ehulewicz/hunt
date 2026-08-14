@@ -28,10 +28,16 @@ Last verified: 2026-08-13
   approved long-form answers while leaving EEO, consent, unknown, and Submit empty.
 - [x] Pass Ruff, mypy, and all 18 tests; the existing canonical PDF smoke path is
   unchanged.
+- [x] Exit with a single-line message and status 1, rather than a traceback, when
+  the configuration is missing or unreadable.
+- [x] Pair this machine against Cloud Run revision `personal-os-api-00013-dg6`;
+  `doctor` reports the worker credential accepted.
 - [ ] Run the first paired worker against a hosted application task.
-- [ ] Pair this machine after deployment and complete the first hosted
-  prepare/review/approve/visible-autofill flow.
+- [ ] Complete the first hosted prepare/review/approve/visible-autofill flow.
 
 Chrome, Claude, `uv`, `latexmk`, and `pdfinfo` are installed and locally
-verified. The pairing file is absent, so an authenticated user must create the
-one-time Local runner credential before the hosted worker flow can begin.
+verified, and pairing is complete. A standalone `doctor` run reports `Chrome CDP`
+as failed whenever Chrome is not already listening on `127.0.0.1:9222`; `run.sh`
+launches that Chrome first, so the check passes under the normal launcher. Doctor
+failures are advisory: `run.sh` warns and still starts the worker so hosted
+outages can recover on their own.

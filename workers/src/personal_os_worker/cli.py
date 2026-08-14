@@ -43,12 +43,15 @@ def main(arguments: Sequence[str] | None = None) -> int:
         )
         print(f"Worker paired. Configuration stored at {path}")
         return 0
-    if args.command == "run":
-        return run_worker(load_config(), once=args.once)
-    if args.command == "doctor":
-        checks = run_doctor(load_config())
-        for check in checks:
-            marker = "OK" if check.ok else "FAIL"
-            print(f"[{marker}] {check.name}: {check.detail}")
-        return 0 if all(check.ok for check in checks) else 1
+    try:
+        if args.command == "run":
+            return run_worker(load_config(), once=args.once)
+        if args.command == "doctor":
+            checks = run_doctor(load_config())
+            for check in checks:
+                marker = "OK" if check.ok else "FAIL"
+                print(f"[{marker}] {check.name}: {check.detail}")
+            return 0 if all(check.ok for check in checks) else 1
+    except RuntimeError as error:
+        raise SystemExit(str(error)) from None
     return 2
