@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Annotated
@@ -5,6 +6,7 @@ from typing import Annotated
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from personal_os.auth import CurrentPrincipal, JwtValidator
 from personal_os.config import Settings
@@ -46,6 +48,20 @@ def create_app(settings: Settings | None = None, *, lifespan: Lifespan | None = 
             allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
             allow_headers=["Authorization", "Content-Type"],
         )
+
+    @application.exception_handler(Exception)
+    async def handle_unexpected_error(request: Request, error: Exception) -> JSONResponse:
+        """Return a CORS-visible 500.
+
+        Starlette's outermost error handler sits above CORSMiddleware, so an
+        unhandled exception reaches the browser without CORS headers and appears
+        as "Failed to fetch" instead of a status. Handling it here keeps the
+        response inside the middleware stack.
+        """
+        logging.getLogger(__name__).exception(
+            "Unhandled error for %s %s", request.method, request.url.path
+        )
+        return JSONResponse({"detail": "Internal server error"}, status_code=500)
 
     @application.get("/health", response_model=HealthResponse)
     async def health(request: Request) -> HealthResponse:

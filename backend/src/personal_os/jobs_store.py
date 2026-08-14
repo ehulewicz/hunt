@@ -746,7 +746,6 @@ class PostgresJobsStore:
                 from app.jobs_documents
                 where user_id = %s and document_type = 'master_resume'
                 group by family_id order by max(version) desc limit 1
-                for update
                 """,
                 (user_id,),
             )
@@ -946,7 +945,14 @@ class PostgresJobsStore:
                 select to_jsonb(document) - 'user_id' as document,
                        to_jsonb(source) - 'user_id' as source_document,
                        run.changed_word_ratio,
-                       coalesce(run.diff_json->'patch', '[]'::jsonb) as resume_patch,
+                       coalesce(
+                         case
+                           when jsonb_typeof(run.diff_json->'patch') = 'array'
+                             then run.diff_json->'patch'
+                           else run.diff_json->'patch'->'patches'
+                         end,
+                         '[]'::jsonb
+                       ) as resume_patch,
                        coalesce(run.diff_json->'changed_paths', '[]'::jsonb) as changed_paths
                 from app.jobs_documents document
                 join app.jobs_documents source on source.id = document.source_document_id

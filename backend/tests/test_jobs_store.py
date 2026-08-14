@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -145,6 +146,31 @@ async def test_preview_completion_requires_a_storage_path() -> None:
     completed = await store.complete_task(USER_ID, TASK_ID, "worker-1", {})
 
     assert completed is False
+
+
+def test_review_query_unwraps_claude_patch_objects() -> None:
+    """The worker stores Claude's object; the review model needs the patch list.
+
+    Verified against PostgreSQL 16: the extraction yields a jsonb array for both
+    the stored object shape and a bare array.
+    """
+    source = (Path(__file__).resolve().parents[1] / "src/personal_os/jobs_store.py").read_text()
+    review_query = source.split("async def get_document_review", 1)[1]
+
+    assert "jsonb_typeof(run.diff_json->'patch') = 'array'" in review_query
+    assert "run.diff_json->'patch'->'patches'" in review_query
+
+
+def test_no_query_locks_a_grouped_select() -> None:
+    """PostgreSQL rejects FOR UPDATE combined with GROUP BY."""
+    source = (Path(__file__).resolve().parents[1] / "src/personal_os/jobs_store.py").read_text()
+    offending = [
+        " ".join(statement.split())
+        for statement in source.split('"""')
+        if "group by" in statement.lower() and "for update" in statement.lower()
+    ]
+
+    assert offending == [], f"these queries would raise at runtime: {offending}"
 
 
 def test_master_resume_content_rejects_blank_bullets() -> None:
