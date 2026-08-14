@@ -332,3 +332,38 @@ async def test_long_form_answer_updates_reject_explicit_nulls(
 
     assert response.status_code == 422
     assert store.answer_update is None
+
+
+async def test_unhandled_errors_stay_visible_to_the_browser() -> None:
+    """A 500 without CORS headers reaches the browser as "Failed to fetch".
+
+    Starlette hands an `Exception` handler to ServerErrorMiddleware, which sits
+    above CORSMiddleware, so the catch must live in middleware added before it.
+    """
+    settings = Settings(
+        database_url="postgresql://postgres:password@localhost:5432/postgres",
+        supabase_url="https://exampleprojectref.supabase.co",
+        allowed_user_id=USER_ID,
+        allowed_email="eahtree@gmail.com",
+        cors_allowed_origins=["https://personal-os-ten-kappa.vercel.app"],
+    )
+    application = create_app(settings, lifespan=no_lifespan)
+
+    @application.get("/boom-for-test")
+    async def boom() -> None:
+        raise RuntimeError("kaboom")
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=application), base_url="http://test"
+    ) as api_client:
+        response = await api_client.get(
+            "/boom-for-test",
+            headers={"Origin": "https://personal-os-ten-kappa.vercel.app"},
+        )
+
+    assert response.status_code == 500
+    assert (
+        response.headers.get("access-control-allow-origin")
+        == "https://personal-os-ten-kappa.vercel.app"
+    )
+    assert response.json() == {"detail": "Internal server error"}
