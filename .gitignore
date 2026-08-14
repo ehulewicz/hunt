@@ -34,3 +34,6 @@ database/.branches/
 database/.temp/
 .vercel
 .env*
+
+# Scratch clones used for local exploration, never product state
+testing/
