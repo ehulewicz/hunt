@@ -55,9 +55,14 @@ test("authenticated shell persists across Jobs navigation and logs out", async (
   await page.goto("/dashboard");
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
   await page.getByRole("link", { name: "Jobs" }).click();
-  await expect(
-    page.getByRole("heading", { level: 1, name: "Internships & co-ops" }),
-  ).toBeVisible();
+  await page.setViewportSize({ width: 800, height: 900 });
+  await expect(page.getByRole("heading", { name: "Job listings" })).toBeAttached();
+  await expect(page.getByRole("region", { name: "Listing filters" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Prepare selected (0)" })).toBeVisible();
+  expect(await page.getByRole("region", { name: "Listing filters" }).evaluate(
+    (toolbar) => toolbar.scrollWidth <= toolbar.clientWidth,
+  )).toBe(true);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.getByRole("link", { name: "Cover Letters" }).click();
   await expect(page.getByRole("heading", { name: "Cover Letters" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Dashboard", exact: true })).toBeVisible();

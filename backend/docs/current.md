@@ -10,6 +10,7 @@ Last verified: 2026-08-13
   answers, worker credentials, task leasing, and worker-result endpoints.
 - [x] Ingest only visibly US internship/co-op rows from the US READMEs in both
   SpeedyApply 2027 SWE and AI/ML repositories.
+- [x] Exclude source titles containing `PhD` or `Ph.D.` before ingestion.
 - [x] Preserve FAANG+/Quant source categories, normalized location facets, and
   both discovery and direct company/ATS URLs.
 - [x] Schedule hosted ingestion for 13:00 UTC, remove request-time source sync,
@@ -24,7 +25,7 @@ Last verified: 2026-08-13
 - [x] Reserve Answers for create/update-by-ID approved long-form responses and
   keep deterministic factual values in Profile.
 - [x] Add authenticated resume review and worker-only approved PDF download.
-- [x] Validate locally with Ruff, mypy, and 25 passing tests.
+- [x] Validate locally with Ruff, mypy, and 26 passing tests.
 - [x] Validate the live strict-US source at exactly 440 rows, including 136
   FAANG+, 51 Quant, and 89 normalized location choices.
 - [x] Validate the live four-file source at 1,087 unique internships/co-ops,
@@ -38,5 +39,6 @@ Last verified: 2026-08-13
 - [x] Deploy migration `20260814003115_complete_jobs_workflow.sql` and Cloud Run
   revision `personal-os-api-00012-dw2`; verify sync run `31759248462` writes
   exactly 440 open strict-US rows.
+- [ ] Deploy the PhD exclusion and record the new strict-US hosted row count.
 - [ ] Add zero2sudo ingestion only after SpeedyApply acceptance passes.
 - [ ] Add Google integration OAuth only with the Calendar milestone.

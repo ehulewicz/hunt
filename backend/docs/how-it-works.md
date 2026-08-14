@@ -19,7 +19,8 @@ user-created long-form responses. Unknown or optional EEO values are not inferre
 document review, answer-library management, worker pairing, and task leasing.
 The scheduled SpeedyApply importer reads only the US `README.md` internship files
 from the 2027 SWE and AI/ML repositories. It accepts visible `City, ST`, US-wide,
-and US remote forms, rejects visibly international primary locations, runs at
+and US remote forms, rejects visibly international primary locations and titles
+containing `PhD` or `Ph.D.`, runs at
 13:00 UTC, fetches both files concurrently, and batches its database upserts. The
 browser cannot trigger a source sync.
 An empty parse fails before database mutation so an upstream format change cannot

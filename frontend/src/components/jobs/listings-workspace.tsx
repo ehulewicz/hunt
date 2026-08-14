@@ -26,7 +26,6 @@ function ageLabel(days: number | null) {
 export function ListingsWorkspace() {
   const accessToken = useAccessToken();
   const [items, setItems] = useState<JobListing[]>([]);
-  const [total, setTotal] = useState(0);
   const [category, setCategory] = useState<SourceCategory>("all");
   const [locationOptions, setLocationOptions] = useState<string[]>([]);
   const [selectedLocations, setSelectedLocations] = useState<Set<string>>(new Set());
@@ -45,7 +44,6 @@ export function ListingsWorkspace() {
         locations: [...selectedLocations].sort(),
       });
       setItems(Array.isArray(page.items) ? page.items : []);
-      setTotal(typeof page.total === "number" ? page.total : 0);
       setLocationOptions(Array.isArray(page.location_options) ? page.location_options : []);
       setSelected(new Set());
     } catch (caught) {
@@ -64,7 +62,6 @@ export function ListingsWorkspace() {
       .then((page) => {
         if (!active) return;
         setItems(Array.isArray(page.items) ? page.items : []);
-        setTotal(typeof page.total === "number" ? page.total : 0);
         setLocationOptions(Array.isArray(page.location_options) ? page.location_options : []);
         setSelected(new Set());
         setError(null);
@@ -116,37 +113,26 @@ export function ListingsWorkspace() {
 
   return (
     <div className="jobs-page">
-      <header className="page-header jobs-page-header">
-        <div>
-          <p className="eyebrow">Jobs</p>
-          <h1>Internships &amp; co-ops</h1>
-          <p>
-            SpeedyApply&apos;s SWE and AI/ML college lists, updated daily and always sorted newest first.
-          </p>
-        </div>
-      </header>
-
       <section aria-label="Listing filters" className="jobs-toolbar">
-        <fieldset className="jobs-filter-group">
-          <legend>Category</legend>
-          <div className="jobs-filter-options">
-            {categoryOptions.map((option) => (
-              <label className="jobs-filter-choice" key={option.value}>
-                <input
-                  checked={category === option.value}
-                  name="listing-category"
-                  onChange={() => {
-                    setLoading(true);
-                    setCategory(option.value);
-                  }}
-                  type="radio"
-                  value={option.value}
-                />
-                <span>{option.label}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <h1 className="sr-only">Job listings</h1>
+        <div aria-label="Category" className="jobs-filter-options" role="radiogroup">
+          {categoryOptions.map((option) => (
+            <label className="jobs-filter-choice" key={option.value}>
+              <input
+                checked={category === option.value}
+                disabled={preparing}
+                name="listing-category"
+                onChange={() => {
+                  setLoading(true);
+                  setCategory(option.value);
+                }}
+                type="radio"
+                value={option.value}
+              />
+              <span>{option.label}</span>
+            </label>
+          ))}
+        </div>
 
         <details className="location-filter">
           <summary>
@@ -159,6 +145,7 @@ export function ListingsWorkspace() {
               {selectedLocations.size ? (
                 <button
                   className="text-button"
+                  disabled={preparing}
                   onClick={() => {
                     setLoading(true);
                     setSelectedLocations(new Set());
@@ -174,6 +161,7 @@ export function ListingsWorkspace() {
                 <label className="jobs-filter-choice" key={location}>
                   <input
                     checked={selectedLocations.has(location)}
+                    disabled={preparing}
                     onChange={() => toggleLocation(location)}
                     type="checkbox"
                   />
@@ -183,6 +171,14 @@ export function ListingsWorkspace() {
             </div>
           </div>
         </details>
+        <button
+          className="button button-primary jobs-prepare-button"
+          disabled={!selected.size || preparing}
+          onClick={handlePrepare}
+        >
+          <BriefcaseBusiness aria-hidden="true" size={15} />
+          {preparing ? "Queueing…" : `Prepare selected (${selected.size})`}
+        </button>
       </section>
 
       <div aria-live="polite" className="jobs-feedback">
@@ -191,18 +187,6 @@ export function ListingsWorkspace() {
       </div>
 
       <section className="jobs-section">
-        <div className="section-heading">
-          <div><h2>Internships &amp; co-ops</h2><span>{total} matches</span></div>
-          <button
-            className="button button-primary"
-            disabled={!selected.size || preparing}
-            onClick={handlePrepare}
-          >
-            <BriefcaseBusiness aria-hidden="true" size={15} />
-            {preparing ? "Queueing…" : `Prepare selected (${selected.size})`}
-          </button>
-        </div>
-
         {loading ? <div className="panel-state"><span className="spinner" /> Loading listings…</div> : null}
         {!loading && !items.length ? (
           <div className="panel-state">No internship or co-op listings match.</div>

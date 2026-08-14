@@ -148,6 +148,8 @@ def parse_feed(markdown: str, feed: Feed, *, today: date) -> list[SourceListing]
         title = clean_cell(cells[1])
         if not company or not title:
             continue
+        if re.search(r"ph\.?d", title, re.IGNORECASE):
+            continue
 
         raw_location = clean_cell(cells[2]) or None
         location = canonical_us_location(raw_location)

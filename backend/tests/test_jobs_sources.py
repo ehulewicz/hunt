@@ -115,6 +115,38 @@ def test_us_feed_accepts_only_visible_us_locations_and_uses_canonical_display() 
     ]
 
 
+def test_speedyapply_excludes_phd_listings_case_insensitively_and_with_punctuation() -> None:
+    markdown = "\n".join(
+        (
+            "<!-- TABLE_START -->",
+            "| Company | Position | Location | Posting | Age |",
+            "|---|---|---|---|---|",
+            "| Keep Co | Software Engineering Intern | Austin, TX "
+            "| [Apply](https://example.com/keep) | 0d |",
+            "| Research Co | pHdstudent Machine Learning Intern | Boston, MA "
+            "| [Apply](https://example.com/phd) | 1d |",
+            "| Lab Co | Research Intern, Ph.D. | Seattle, WA "
+            "| [Apply](https://example.com/ph-dot-d) | 2d |",
+            "| Degree Co | PhDs in AI Intern | Chicago, IL "
+            "| [Apply](https://example.com/phds) | 3d |",
+            "| Initial Co | P H D Research Intern | Denver, CO "
+            "| [Apply](https://example.com/spaced) | 4d |",
+            "<!-- TABLE_END -->",
+        )
+    )
+
+    listings = parse_feed(
+        markdown,
+        Feed("README.md", "internship", "usa"),
+        today=date(2026, 8, 13),
+    )
+
+    assert [listing.title for listing in listings] == [
+        "Software Engineering Intern",
+        "P H D Research Intern",
+    ]
+
+
 async def test_speedyapply_fetches_only_internship_feeds_from_both_repositories() -> None:
     requested_urls: list[str] = []
 
