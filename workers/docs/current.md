@@ -31,3 +31,7 @@ Last verified: 2026-08-13
 - [ ] Run the first paired worker against a hosted application task.
 - [ ] Pair this machine after deployment and complete the first hosted
   prepare/review/approve/visible-autofill flow.
+
+Chrome, Claude, `uv`, `latexmk`, and `pdfinfo` are installed and locally
+verified. The pairing file is absent, so an authenticated user must create the
+one-time Local runner credential before the hosted worker flow can begin.

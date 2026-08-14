@@ -30,7 +30,9 @@ Last verified: 2026-08-13
 - [x] Add `20260814003115_complete_jobs_workflow.sql` to delete the six factual
   Answer rows, enforce one active autofill task per application, and index
   application task/question state.
-- [ ] Apply the complete-workflow migration and verify the strict-US resync leaves
-  approximately 440 open rows while preserving archived application history.
+- [x] Apply the complete-workflow migration in deploy run `31759129535` and
+  verify strict-US sync run `31759248462` leaves exactly 440 open rows.
+- [ ] Verify application/history preservation through the authenticated deletion
+  and reactivation acceptance flow after this machine is paired.
 - [ ] Revoke legacy password sessions after Google acceptance is reconfirmed.
 - [ ] Add Calendar and Tasks schema only after Jobs works end to end.

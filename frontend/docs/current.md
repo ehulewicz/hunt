@@ -28,6 +28,9 @@ Last verified: 2026-08-13
 - [ ] Run authenticated hosted Jobs acceptance.
 - [x] Add automatic and manual-retry autofill controls while keeping submitted
   state manual.
-- [ ] Deploy the complete Jobs frontend and run authenticated hosted acceptance.
+- [x] Deploy the complete Jobs frontend from commit `204ab00`; GitHub/Vercel
+  report production success and `/jobs/listings` returns `200`.
+- [ ] Run authenticated hosted acceptance after creating a Local runner
+  credential in Profile.
 - [ ] Add zero2sudo source controls only after SpeedyApply acceptance passes.
 - [ ] Add Calendar and unified Tasks only after Jobs works end to end.

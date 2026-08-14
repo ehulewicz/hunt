@@ -35,7 +35,8 @@ Last verified: 2026-08-13
   revision `personal-os-api-00011-lc5`; verify the first hosted sync writes 1,087
   open listings in 43 seconds.
 - [ ] Run authenticated hosted Jobs acceptance.
-- [ ] Deploy migration `20260814003115_complete_jobs_workflow.sql`, the API, and
-  the strict-US hosted sync.
+- [x] Deploy migration `20260814003115_complete_jobs_workflow.sql` and Cloud Run
+  revision `personal-os-api-00012-dw2`; verify sync run `31759248462` writes
+  exactly 440 open strict-US rows.
 - [ ] Add zero2sudo ingestion only after SpeedyApply acceptance passes.
 - [ ] Add Google integration OAuth only with the Calendar milestone.
