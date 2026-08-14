@@ -27,6 +27,7 @@ from personal_os.jobs_models import (
     JobsProfile,
     JobsProfileUpdate,
     ListingSyncResponse,
+    MasterResumeContent,
     WorkerApplicationBundle,
     WorkerCredential,
     WorkerTask,
@@ -68,6 +69,18 @@ class JobsStore(Protocol):
     async def queue_autofill(self, user_id: UUID, application_id: UUID) -> UUID | None: ...
 
     async def list_documents(self, user_id: UUID) -> list[JobDocument]: ...
+
+    async def create_master_resume_draft(
+        self, user_id: UUID, content: MasterResumeContent
+    ) -> JobDocument | None: ...
+
+    async def queue_resume_preview(
+        self, user_id: UUID, document_id: UUID
+    ) -> UUID | None: ...
+
+    async def get_master_resume_draft_content(
+        self, user_id: UUID, document_id: UUID
+    ) -> str | None: ...
 
     async def approve_document(self, user_id: UUID, document_id: UUID) -> JobDocument | None: ...
 
@@ -118,6 +131,10 @@ class JobsStore(Protocol):
     ) -> WorkerApplicationBundle | None: ...
 
     async def get_worker_task_application_id(
+        self, user_id: UUID, task_id: UUID, worker_id: str
+    ) -> UUID | None: ...
+
+    async def get_worker_task_document_id(
         self, user_id: UUID, task_id: UUID, worker_id: str
     ) -> UUID | None: ...
 
@@ -715,6 +732,112 @@ class PostgresJobsStore:
             rows = await cursor.fetchall()
         return [JobDocument.model_validate(row) for row in rows]
 
+    async def create_master_resume_draft(
+        self, user_id: UUID, content: MasterResumeContent
+    ) -> JobDocument | None:
+        async with (
+            self._pool.connection(timeout=self._timeout) as connection,
+            connection.transaction(),
+        ):
+            await connection.execute("set local role personal_os_api")
+            family_cursor = await connection.execute(
+                """
+                select family_id, max(version) as version
+                from app.jobs_documents
+                where user_id = %s and document_type = 'master_resume'
+                group by family_id order by max(version) desc limit 1
+                for update
+                """,
+                (user_id,),
+            )
+            family = await family_cursor.fetchone()
+            if family is None:
+                return None
+            cursor = await connection.execute(
+                """
+                insert into app.jobs_documents (
+                  user_id, document_type, title, family_id, version,
+                  content_text, mime_type, status, is_current
+                ) values (
+                  %s, 'master_resume', 'Main resume', %s, %s,
+                  %s, 'application/json', 'draft', false
+                )
+                returning id, application_id, document_type, title, family_id, version,
+                          source_document_id, content_text, storage_path, mime_type,
+                          status, is_current, created_at, updated_at
+                """,
+                (
+                    user_id,
+                    family["family_id"],
+                    int(family["version"]) + 1,
+                    content.model_dump_json(),
+                ),
+            )
+            row = await cursor.fetchone()
+        return JobDocument.model_validate(row) if row is not None else None
+
+    async def queue_resume_preview(self, user_id: UUID, document_id: UUID) -> UUID | None:
+        async with (
+            self._pool.connection(timeout=self._timeout) as connection,
+            connection.transaction(),
+        ):
+            await connection.execute("set local role personal_os_api")
+            document_cursor = await connection.execute(
+                """
+                select id from app.jobs_documents
+                where id = %s and user_id = %s
+                  and document_type = 'master_resume' and status = 'draft'
+                for update
+                """,
+                (document_id, user_id),
+            )
+            if await document_cursor.fetchone() is None:
+                return None
+            existing_cursor = await connection.execute(
+                """
+                select id from app.worker_tasks
+                where user_id = %s and domain = 'jobs' and task_type = 'preview_resume'
+                  and status in ('queued', 'running')
+                  and payload->>'document_id' = %s
+                """,
+                (user_id, str(document_id)),
+            )
+            existing = await existing_cursor.fetchone()
+            if existing is not None:
+                return UUID(str(existing["id"]))
+            task_id = uuid4()
+            await connection.execute(
+                """
+                insert into app.worker_tasks (id, user_id, domain, task_type, payload)
+                values (
+                  %s, %s, 'jobs', 'preview_resume',
+                  jsonb_build_object('document_id', %s::text)
+                )
+                """,
+                (task_id, user_id, document_id),
+            )
+        return task_id
+
+    async def get_master_resume_draft_content(
+        self, user_id: UUID, document_id: UUID
+    ) -> str | None:
+        async with (
+            self._pool.connection(timeout=self._timeout) as connection,
+            connection.transaction(),
+        ):
+            await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                """
+                select content_text from app.jobs_documents
+                where id = %s and user_id = %s and document_type = 'master_resume'
+                """,
+                (document_id, user_id),
+            )
+            row = await cursor.fetchone()
+        if row is None or not row["content_text"]:
+            return None
+        return str(row["content_text"])
+
     async def approve_document(self, user_id: UUID, document_id: UUID) -> JobDocument | None:
         async with (
             self._pool.connection(timeout=self._timeout) as connection,
@@ -1141,6 +1264,31 @@ class PostgresJobsStore:
         except (TypeError, ValueError):
             return None
 
+    async def get_worker_task_document_id(
+        self, user_id: UUID, task_id: UUID, worker_id: str
+    ) -> UUID | None:
+        async with (
+            self._pool.connection(timeout=self._timeout) as connection,
+            connection.transaction(),
+        ):
+            await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                """
+                select payload->>'document_id' as document_id
+                from app.worker_tasks
+                where id = %s and user_id = %s and domain = 'jobs' and status = 'running'
+                  and claimed_by = %s and lease_expires_at > now()
+                """,
+                (task_id, user_id, worker_id),
+            )
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        try:
+            return UUID(str(row["document_id"]))
+        except (TypeError, ValueError):
+            return None
+
     async def heartbeat_task(self, user_id: UUID, task_id: UUID, worker_id: str) -> bool:
         async with (
             self._pool.connection(timeout=self._timeout) as connection,
@@ -1178,6 +1326,38 @@ class PostgresJobsStore:
             task_row = await task_cursor.fetchone()
             if task_row is None:
                 return False
+
+            # Preview tasks carry a document_id instead of an application_id.
+            if task_row["task_type"] == "preview_resume":
+                storage_path = result.get("storage_path")
+                document_id_text = task_row["payload"].get("document_id")
+                if not isinstance(storage_path, str) or not storage_path.strip():
+                    return False
+                try:
+                    document_id = UUID(str(document_id_text))
+                except (TypeError, ValueError):
+                    return False
+                await connection.execute(
+                    """
+                    update app.jobs_documents
+                    set storage_path = %s, updated_at = now()
+                    where id = %s and user_id = %s
+                      and document_type = 'master_resume' and status = 'draft'
+                    """,
+                    (storage_path, document_id, user_id),
+                )
+                preview_cursor = await connection.execute(
+                    """
+                    update app.worker_tasks
+                    set status = 'completed', result = %s, completed_at = now(),
+                        lease_expires_at = null, heartbeat_at = now()
+                    where id = %s and user_id = %s and status = 'running'
+                      and claimed_by = %s and lease_expires_at > now()
+                    """,
+                    (Jsonb(result), task_id, user_id, worker_id),
+                )
+                return int(preview_cursor.rowcount) == 1
+
             application_id_text = task_row["payload"].get("application_id")
             try:
                 application_id = UUID(str(application_id_text))

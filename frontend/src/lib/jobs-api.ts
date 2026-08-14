@@ -225,6 +225,21 @@ export function getDocumentPdf(accessToken: string, documentId: string) {
   return apiBlobRequest(`/v1/jobs/documents/${documentId}/file`, accessToken);
 }
 
+export function createMasterResumeDraft(accessToken: string, content: unknown) {
+  return apiRequest<JobDocument>("/v1/jobs/documents/master-resume", accessToken, {
+    method: "POST",
+    body: JSON.stringify(content),
+  });
+}
+
+export function queueResumePreview(accessToken: string, documentId: string) {
+  return apiRequest<{ task_id: string }>(
+    `/v1/jobs/documents/${documentId}/preview`,
+    accessToken,
+    { method: "POST" },
+  );
+}
+
 export function getAnswers(accessToken: string) {
   return apiRequest<AnswerLibraryItem[]>("/v1/jobs/answers", accessToken);
 }

@@ -35,6 +35,8 @@ Last verified: 2026-08-13
 - [x] Compare tailoring keywords by stem so inflected forms of approved facts are
   not treated as new claims, and skip only ungrounded patches rather than failing
   preparation; report them as `skipped_patches`.
+- [x] Compile a draft main resume as a `preview_resume` task, reusing the
+  one-page verification, without a browser or an application.
 - [ ] Run the first paired worker against a hosted application task.
 - [ ] Complete the first hosted prepare/review/approve/visible-autofill flow.
 

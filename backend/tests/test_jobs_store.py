@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 from psycopg.types.json import Jsonb
 
+from personal_os.jobs_models import MasterResumeContent
 from personal_os.jobs_store import PostgresJobsStore
 
 USER_ID = uuid4()
@@ -33,8 +34,15 @@ class FakeTransaction:
 class FakeConnection:
     """Records every parameter the store sends to PostgreSQL."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        task_type: str = "prepare_application",
+        task_payload: dict[str, Any] | None = None,
+    ) -> None:
         self.parameters: list[Any] = []
+        self.queries: list[str] = []
+        self.task_type = task_type
+        self.task_payload = task_payload or {"application_id": str(APPLICATION_ID)}
 
     def transaction(self) -> FakeTransaction:
         return FakeTransaction()
@@ -45,11 +53,12 @@ class FakeConnection:
         if parameters is not None:
             self.parameters.extend(parameters)
         normalized = " ".join(query.split())
+        self.queries.append(normalized)
         if "select task_type, payload" in normalized:
             return FakeCursor(
                 {
-                    "task_type": "prepare_application",
-                    "payload": {"application_id": str(APPLICATION_ID)},
+                    "task_type": self.task_type,
+                    "payload": self.task_payload,
                 },
                 1,
             )
@@ -102,3 +111,72 @@ async def test_complete_task_sends_adaptable_json_parameters() -> None:
         f"{bare_dicts}"
     )
     assert any(isinstance(value, Jsonb) for value in connection.parameters)
+
+
+@pytest.mark.anyio
+async def test_preview_completion_stores_the_pdf_on_the_draft() -> None:
+    """A preview task carries a document_id, never an application_id."""
+    document_id = uuid4()
+    connection = FakeConnection(
+        task_type="preview_resume", task_payload={"document_id": str(document_id)}
+    )
+    store = PostgresJobsStore(FakePool(connection), 5.0)
+
+    completed = await store.complete_task(
+        USER_ID,
+        TASK_ID,
+        "worker-1",
+        {"document_id": str(document_id), "storage_path": "resumes/preview.pdf"},
+    )
+
+    assert completed is True
+    assert any("update app.jobs_documents" in query for query in connection.queries)
+    assert "resumes/preview.pdf" in connection.parameters
+    assert [value for value in connection.parameters if type(value) is dict] == []
+
+
+@pytest.mark.anyio
+async def test_preview_completion_requires_a_storage_path() -> None:
+    connection = FakeConnection(
+        task_type="preview_resume", task_payload={"document_id": str(uuid4())}
+    )
+    store = PostgresJobsStore(FakePool(connection), 5.0)
+
+    completed = await store.complete_task(USER_ID, TASK_ID, "worker-1", {})
+
+    assert completed is False
+
+
+def test_master_resume_content_rejects_blank_bullets() -> None:
+    with pytest.raises(ValueError, match="blank"):
+        MasterResumeContent.model_validate(
+            {
+                "contact": {"name": "Candidate"},
+                "education": {"school": "School"},
+                "experience": [{"title": "Engineer", "bullets": ["   "]}],
+            }
+        )
+
+
+def test_master_resume_content_requires_a_contact_name() -> None:
+    with pytest.raises(ValueError):
+        MasterResumeContent.model_validate(
+            {"contact": {}, "education": {"school": "School"}}
+        )
+
+
+def test_master_resume_content_accepts_the_canonical_shape() -> None:
+    content = MasterResumeContent.model_validate(
+        {
+            "meta": {"slug": "main"},
+            "contact": {"name": "Candidate", "email": "candidate@example.com"},
+            "education": {"school": "School", "degree": "B.S."},
+            "experience": [{"title": "Engineer", "org": "Company", "bullets": ["Built it"]}],
+            "projects": [],
+            "skills": [{"category": "Languages", "items": "Python"}],
+        }
+    )
+
+    assert content.experience[0].bullets == ["Built it"]
+    # Unknown keys such as meta survive so the worker template keeps its extras.
+    assert "meta" in content.model_dump()

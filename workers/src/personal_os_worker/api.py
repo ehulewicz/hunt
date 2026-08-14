@@ -65,6 +65,14 @@ class WorkerApi:
         destination.write_bytes(response.content)
         return destination
 
+    def document(self, document_id: UUID) -> dict[str, Any]:
+        response = self._client.get(f"/v1/jobs/worker/documents/{document_id}")
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Main resume draft response was invalid")
+        return payload
+
     def doctor(self) -> None:
         response = self._client.get("/v1/jobs/worker/doctor")
         response.raise_for_status()

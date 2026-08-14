@@ -1,5 +1,6 @@
 import subprocess
 import time
+from pathlib import Path
 from uuid import UUID
 
 import httpx
@@ -11,9 +12,11 @@ from personal_os_worker.runner import (
     LeaseLost,
     claim_with_backoff,
     is_retryable,
+    process_resume_preview,
 )
 
 TASK_ID = UUID("22222222-2222-4222-8222-222222222222")
+DOCUMENT_ID = UUID("33333333-3333-4333-8333-333333333333")
 
 
 class HeartbeatApi:
@@ -84,3 +87,49 @@ def test_claim_waits_through_temporary_api_outage() -> None:
 
     assert api.calls == 3
     assert delays == [1.0, 2.0]
+
+
+class PreviewApi(HeartbeatApi):
+    """Records the preview round trip without touching the network or LaTeX."""
+
+    def __init__(self, resume: dict[str, object]) -> None:
+        super().__init__()
+        self.resume = resume
+        self.completed: dict[str, object] | None = None
+        self.uploaded: Path | None = None
+
+    def document(self, document_id: UUID) -> dict[str, object]:
+        return self.resume
+
+    def upload_pdf(self, task_id: UUID, worker_id: str, path: Path) -> str:
+        self.uploaded = path
+        return "user/resumes/document/task.pdf"
+
+    def complete(self, task_id: UUID, worker_id: str, result: dict[str, object]) -> None:
+        self.completed = result
+
+
+def test_resume_preview_compiles_and_uploads_without_an_application(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    api = PreviewApi({"contact": {"name": "Candidate"}})
+    generated = tmp_path / "resume.pdf"
+    generated.write_bytes(b"%PDF-1.4")
+    monkeypatch.setattr(
+        "personal_os_worker.runner.compile_resume",
+        lambda resume, directory: generated,
+    )
+
+    process_resume_preview(api, "worker-1", TASK_ID, {"document_id": str(DOCUMENT_ID)})
+
+    assert api.uploaded == generated
+    assert api.completed == {
+        "document_id": str(DOCUMENT_ID),
+        "storage_path": "user/resumes/document/task.pdf",
+    }
+
+
+def test_resume_preview_rejects_a_payload_without_a_document() -> None:
+    api = PreviewApi({})
+    with pytest.raises(RuntimeError, match="payload is invalid"):
+        process_resume_preview(api, "worker-1", TASK_ID, {"application_id": "x"})

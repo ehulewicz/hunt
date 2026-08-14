@@ -37,6 +37,9 @@ Last verified: 2026-08-13
   open listings in 43 seconds.
 - [x] Wrap `jsonb` parameters in `Jsonb` so worker completions stop returning
   `500`, and cover `complete_task` with a regression test.
+- [x] Serve base resume viewing and editing: validated master-resume draft
+  creation, worker-only draft fetch, preview queueing, and preview PDF storage,
+  with no migration because `task_type` is unconstrained.
 - [ ] Run authenticated hosted Jobs acceptance.
 - [x] Deploy migration `20260814003115_complete_jobs_workflow.sql` and Cloud Run
   revision `personal-os-api-00012-dw2`; verify sync run `31759248462` writes

@@ -42,8 +42,19 @@ export async function apiRequest<T>(
   if (!response.ok) {
     let message: string | undefined;
     try {
-      const body = (await response.json()) as { detail?: string };
-      message = body.detail;
+      const body = (await response.json()) as { detail?: unknown };
+      // FastAPI returns a list of field errors for 422 validation failures.
+      message = typeof body.detail === "string"
+        ? body.detail
+        : Array.isArray(body.detail)
+          ? body.detail
+              .map((item) => {
+                const issue = item as { loc?: unknown[]; msg?: string };
+                const field = Array.isArray(issue.loc) ? issue.loc.slice(1).join(".") : "";
+                return field ? `${field}: ${issue.msg ?? "invalid"}` : issue.msg ?? "invalid";
+              })
+              .join("; ")
+          : undefined;
     } catch {
       message = undefined;
     }

@@ -34,6 +34,8 @@ Last verified: 2026-08-13
   state manual.
 - [x] Deploy the complete Jobs frontend from commit `204ab00`; GitHub/Vercel
   report production success and `/jobs/listings` returns `200`.
+- [x] Show the canonical resume JSON and add raw-JSON editing, draft saving,
+  worker preview, PDF viewing, and approval on the Resumes page.
 - [ ] Run authenticated hosted acceptance after creating a Local runner
   credential in Profile.
 - [x] Deploy the simplified listing controls from commit `659324f`; the

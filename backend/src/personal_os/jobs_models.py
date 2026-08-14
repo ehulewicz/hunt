@@ -3,7 +3,14 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    field_validator,
+    model_validator,
+)
 
 CareerStage = Literal["internship", "new_grad"]
 RoleFamily = Literal[
@@ -209,6 +216,58 @@ class JobDocument(BaseModel):
     is_current: bool
     created_at: datetime
     updated_at: datetime
+
+
+class ResumeContact(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    phone: str = Field(default="", max_length=100)
+    email: str = Field(default="", max_length=200)
+    linkedin: str = Field(default="", max_length=300)
+    citizenship: str = Field(default="", max_length=200)
+
+
+class ResumeEducation(BaseModel):
+    school: str = Field(min_length=1, max_length=300)
+    degree: str = Field(default="", max_length=300)
+    graduation: str = Field(default="", max_length=100)
+    gpa: str = Field(default="", max_length=20)
+
+
+class ResumeEntry(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    org: str = Field(default="", max_length=300)
+    date: str = Field(default="", max_length=100)
+    bullets: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("bullets")
+    @classmethod
+    def reject_blank_bullets(cls, value: list[str]) -> list[str]:
+        if any(not bullet.strip() for bullet in value):
+            raise ValueError("Resume bullets cannot be blank")
+        if any(len(bullet) > 1000 for bullet in value):
+            raise ValueError("Resume bullets cannot exceed 1000 characters")
+        return value
+
+
+class ResumeSkill(BaseModel):
+    category: str = Field(min_length=1, max_length=200)
+    items: str = Field(min_length=1, max_length=1000)
+
+
+class MasterResumeContent(BaseModel):
+    """Mirrors what the worker's LaTeX template reads when compiling the PDF."""
+
+    model_config = ConfigDict(extra="allow")
+
+    contact: ResumeContact
+    education: ResumeEducation
+    experience: list[ResumeEntry] = Field(default_factory=list, max_length=20)
+    projects: list[ResumeEntry] = Field(default_factory=list, max_length=20)
+    skills: list[ResumeSkill] = Field(default_factory=list, max_length=20)
+
+
+class ResumePreviewResponse(BaseModel):
+    task_id: UUID
 
 
 class JobDocumentReview(BaseModel):

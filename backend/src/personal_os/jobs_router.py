@@ -37,6 +37,8 @@ from personal_os.jobs_models import (
     JobListingPage,
     JobsProfile,
     JobsProfileUpdate,
+    MasterResumeContent,
+    ResumePreviewResponse,
     WorkerApplicationBundle,
     WorkerClaimRequest,
     WorkerClaimResponse,
@@ -156,6 +158,30 @@ async def queue_application_autofill(
 @router.get("/documents", response_model=list[JobDocument])
 async def list_documents(principal: CurrentPrincipal, store: Store) -> list[JobDocument]:
     return await store.list_documents(principal.user_id)
+
+
+@router.post(
+    "/documents/master-resume",
+    response_model=JobDocument,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_master_resume_draft(
+    content: MasterResumeContent, principal: CurrentPrincipal, store: Store
+) -> JobDocument:
+    document = await store.create_master_resume_draft(principal.user_id, content)
+    if document is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Main resume not found")
+    return document
+
+
+@router.post("/documents/{document_id}/preview", response_model=ResumePreviewResponse)
+async def queue_resume_preview(
+    document_id: UUID, principal: CurrentPrincipal, store: Store
+) -> ResumePreviewResponse:
+    task_id = await store.queue_resume_preview(principal.user_id, document_id)
+    if task_id is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Draft main resume not found")
+    return ResumePreviewResponse(task_id=task_id)
 
 
 @router.post("/documents/{document_id}/approve", response_model=JobDocument)
@@ -346,6 +372,16 @@ async def download_worker_resume(
     )
 
 
+@router.get("/worker/documents/{document_id}")
+async def get_worker_document(
+    document_id: UUID, worker: CurrentWorker, store: Store
+) -> Response:
+    content = await store.get_master_resume_draft_content(worker.user_id, document_id)
+    if content is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Main resume draft not found")
+    return Response(content, media_type="application/json")
+
+
 @router.post("/worker/tasks/{task_id}/pdf")
 async def upload_worker_pdf(
     task_id: UUID,
@@ -356,14 +392,23 @@ async def upload_worker_pdf(
     worker_id: Annotated[str, Form(min_length=1, max_length=120)],
 ) -> dict[str, str]:
     application_id = await store.get_worker_task_application_id(worker.user_id, task_id, worker_id)
-    if application_id is None:
+    preview_document_id = (
+        None
+        if application_id is not None
+        else await store.get_worker_task_document_id(worker.user_id, task_id, worker_id)
+    )
+    if application_id is None and preview_document_id is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Worker task is no longer active")
     content = await document.read(5 * 1024 * 1024 + 1)
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "PDF exceeds 5 MiB")
     if document.content_type != "application/pdf" or not content.startswith(b"%PDF-"):
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "Only PDF files are accepted")
-    path = f"{worker.user_id}/applications/{application_id}/{task_id}.pdf"
+    path = (
+        f"{worker.user_id}/applications/{application_id}/{task_id}.pdf"
+        if application_id is not None
+        else f"{worker.user_id}/resumes/{preview_document_id}/{task_id}.pdf"
+    )
     try:
         await JobsDocumentStorage(request.app.state.settings).upload_pdf(path, content)
     except RuntimeError:

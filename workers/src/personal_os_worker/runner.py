@@ -123,12 +123,47 @@ def run_worker(config: WorkerConfig, *, once: bool = False) -> int:
         api.close()
 
 
+def process_resume_preview(
+    api: WorkerApi, worker_id: str, task_id: UUID, payload: Any
+) -> None:
+    """Compile a draft main resume so it can be reviewed before it becomes canonical."""
+    if not isinstance(payload, dict) or "document_id" not in payload:
+        raise RuntimeError("Resume preview task payload is invalid")
+    document_id = UUID(str(payload["document_id"]))
+    resume = api.document(document_id)
+    output_directory = (
+        Path.home()
+        / ".local"
+        / "share"
+        / "personal-os"
+        / "documents"
+        / "resumes"
+        / str(document_id)
+        / str(task_id)
+    )
+    with LeaseHeartbeat(api, task_id, worker_id) as lease:
+        lease.assert_active()
+        # compile_resume enforces the one-page limit before anything is approved.
+        pdf = compile_resume(resume, output_directory)
+        lease.assert_active()
+        storage_path = api.upload_pdf(task_id, worker_id, pdf)
+        lease.assert_active()
+        api.complete(
+            task_id,
+            worker_id,
+            {"document_id": str(document_id), "storage_path": storage_path},
+        )
+
+
 def process_task(
     api: WorkerApi, config: WorkerConfig, worker_id: str, task: dict[str, Any]
 ) -> None:
     task_id = UUID(str(task["id"]))
     try:
         payload = task.get("payload")
+        if task.get("task_type") == "preview_resume":
+            process_resume_preview(api, worker_id, task_id, payload)
+            return
         if not isinstance(payload, dict) or "application_id" not in payload:
             raise RuntimeError("Application task payload is invalid")
         application_id = UUID(str(payload["application_id"]))
