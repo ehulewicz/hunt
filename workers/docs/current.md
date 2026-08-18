@@ -1,6 +1,6 @@
 # Worker current state
 
-Last verified: 2026-08-13
+Last verified: 2026-08-18
 
 ## Milestones
 
@@ -39,6 +39,10 @@ Last verified: 2026-08-13
   one-page verification, without a browser or an application.
 - [ ] Run the first paired worker against a hosted application task.
 - [ ] Complete the first hosted prepare/review/approve/visible-autofill flow.
+- [x] Generate the resume from the real canonical LaTeX template rather than a
+  generic one, verified by matching page geometry exactly.
+- [ ] Drive Windows Chrome instead of WSLg Chrome (files staged; needs
+  `wsl --shutdown` to activate mirrored networking).
 
 Chrome, Claude, `uv`, `latexmk`, and `pdfinfo` are installed and locally
 verified, and pairing is complete. A standalone `doctor` run reports `Chrome CDP`
@@ -46,3 +50,43 @@ as failed whenever Chrome is not already listening on `127.0.0.1:9222`; `run.sh`
 launches that Chrome first, so the check passes under the normal launcher. Doctor
 failures are advisory: `run.sh` warns and still starts the worker so hosted
 outages can recover on their own.
+
+
+## Local CLI migration, 2026-08-18
+
+Jobs is moving to a local CLI-first shape. The design is recorded in
+`~/.claude/plans/alright-great-lets-finalize-greedy-bumblebee.md`. Phase 1 files
+and Phase 5's template work are done; the rest is blocked on a WSL restart.
+
+Windows Chrome, staged but not yet active:
+
+- `C:\Users\eahtr\.wslconfig` now sets `networkingMode=mirrored`. This does not
+  take effect until `wsl --shutdown` is run from Windows.
+- `run.sh` launches `/mnt/c/Program Files/Google/Chrome/Application/chrome.exe`
+  with the Windows profile `C:\Users\eahtr\personal-os-chrome`, and fails with a
+  pointed message if CDP is unreachable.
+- Verified during design against Chrome 151: a dedicated `--user-data-dir` serves
+  CDP correctly, while the default profile returns 404 on `/json/*` because
+  Chrome 136+ blocks remote debugging there. The dedicated profile is required.
+- Not yet verified: whether `set_input_files` wants the WSL or the Windows path
+  for resume upload. `wslpath -w` is the conversion tool, as in the legacy
+  `archived/jobs-legacy/build-resume.sh`.
+
+Resume template, done and verified:
+
+- `build_latex` now emits the canonical template recovered from commit `3fe5db1`
+  (`jobs/resume/Resume.tex`), with the margin and spacing values from
+  `archived/jobs-legacy/web/tests/fixtures/resume-base.tex`, which is what the
+  real resume was actually built with.
+- Verified objectively: the generated PDF matches the reference geometry to the
+  decimal (`xMin` 14.400000, `xMax` 597.604560, top 14.996431) and is one page.
+  The previous generic template rendered 540pt wide and spilled to two pages.
+- `bin/Resume.pdf` is a stale generated artifact, not the current resume. Do not
+  treat it as the source of truth.
+- `main_resume.json` now matches the current resume: 17 bullets, four skill
+  categories, `Example Nuclear Group (iFAN) Laboratory`, and
+  `Personal Agent OS`. The degree stays `Bachelor of Science in Computer Science`
+  by explicit decision, and graduation is `May 2028`.
+- The resume contact email is `ehulewicz3@gatech.edu`, matching the sent resume,
+  not the Google account address used for authentication.
+- Worker Ruff, mypy, and all 22 tests pass.

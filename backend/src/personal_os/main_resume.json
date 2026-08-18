@@ -9,14 +9,14 @@
   "contact": {
     "name": "Alex Example",
     "phone": "555-010-0199",
-    "email": "eahtree@gmail.com",
+    "email": "ehulewicz3@gatech.edu",
     "linkedin": "https://www.linkedin.com/in/alex-example",
     "citizenship": "US Citizen"
   },
   "education": {
     "school": "Example Institute of Technology",
-    "degree": "B.S. Computer Science",
-    "graduation": "December 2027",
+    "degree": "Bachelor of Science in Computer Science",
+    "graduation": "May 2028",
     "gpa": "3.78"
   },
   "experience": [
@@ -25,7 +25,7 @@
       "org": "Northwind",
       "date": "May 2025 – Present",
       "bullets": [
-        "Middleware lead on 4 customer Statements of Work, partnering directly with customers to scope requirements, break work into engineering deliverables, and coordinate execution across frontend, database, and middleware teams.",
+        "Led 4 customer Statements of Work, partnering directly with customers to scope requirements, break work into engineering deliverables, and coordinate execution across frontend, database, and middleware teams.",
         "For 2 of those engagements, independently designed and built the complete solution—from database changes and REST APIs to business logic, frontend functionality, and customer-specific configuration—through production deployment.",
         "Shipped 120+ full-stack production tickets (PHP/PostgreSQL backend, JavaScript/Handlebars frontend), owning application-layer business logic for customer-facing enterprise workflows.",
         "Refactored legacy AJAX frontend into internal REST APIs to centralize business rules; worked directly with customers and product architects to translate requirements into shipped features and resolve reported production issues."
@@ -37,13 +37,13 @@
       "date": "October 2025 – May 2026",
       "bullets": [
         "Founded Northhealth AI, a clinician-first rehab platform that turns continuous patient data into provider insight at visits and personalized recovery support between visits.",
-        "Led the engineering team and shipped the first-release platform to its v1 release, the version the company used to begin clinical trials.",
+        "Led engineering and shipped the platform to its v1 release, the version the company used to begin clinical trials.",
         "Accepted to present at the American Academy of Neurology (AAN) in 2026; validated direction with 22 healthcare organizations and professionals, incorporating clinician feedback into MVP scope, safety constraints, and workflow design."
       ]
     },
     {
       "title": "Undergraduate Researcher",
-      "org": "Example Laboratory, Example University",
+      "org": "Example Nuclear Group (iFAN) Laboratory",
       "date": "May 2024 – December 2024",
       "bullets": [
         "Developed and refined machine learning models in PyTorch for real-time cybersecurity threat detection in simulated nuclear systems, improving anomaly detection accuracy and real-time responsiveness under operational constraints.",
@@ -67,16 +67,17 @@
       "date": "June 2026",
       "bullets": [
         "Built a cloud-orchestrated recursive multi-agent research platform where agents recursively spawn specialized sub-agents for parallel hypothesis generation, experimentation, and distributed computation, enabling scalable research across 1000+ agents.",
-        "Distributed runtime: Google Cloud Run orchestrator, isolated Modal sandboxes per agent with a shared compute budget, Redis state and event bus, GCS artifact storage, FastAPI + SSE API, and a Next.js live agent-tree dashboard."
+        "Built the distributed runtime: a Google Cloud Run orchestrator, isolated Modal sandboxes per agent with a shared compute budget, Redis state and event bus, GCS artifact storage, FastAPI + SSE API, and a Next.js live agent-tree dashboard.",
+        "Tested the distributed runtime for parallel CPU-only experimentation, reaching 500,000+ MiniGrid training steps/sec using Modal sandboxes, Redis state coordination, GCS artifacts, and FastAPI orchestration."
       ]
     },
     {
-      "title": "Personal OS",
+      "title": "Personal Agent OS",
       "org": "",
       "date": "2026 – Present",
       "bullets": [
-        "Architecting an AI-native personal data and operations platform that unifies identity, projects, calendars, finances, health, and human-generated artifacts behind one API.",
-        "Designing a multi-user FastAPI and Supabase/Postgres architecture with tenant isolation, offline-capable sync, RAG/search, and approval-gated agent workflows."
+        "Architecting Personal Agent OS as a layered AI operating system spanning a personal brain, agent brain, life-management layer, execution/automation layer, and cognitive dynamics engine for long-term self-modeling.",
+        "Building the CLI/backend-first platform with a DB + Markdown hybrid architecture, FastAPI APIs, Supabase/Postgres runtime state, offline/live RAG, Supabase auth/RLS, and approval-gated workflows for notes, tasks, calendar, and job applications."
       ]
     },
     {
@@ -84,7 +85,7 @@
       "org": "",
       "date": "August – December 2024",
       "bullets": [
-        "Extended MKDNet in PyTorch on a large-scale tiny-object tracking dataset, then adapted it to a novel small-object domain for up to 39% accuracy increase over the base model."
+        "Extended MKDNet in PyTorch on a large-scale tiny-object tracking dataset, then adapted it to a novel small-object domain for up to 39% accuracy increase over the base MKDNet model."
       ]
     }
   ],
@@ -94,12 +95,16 @@
       "items": "Python, Java, JavaScript, PHP, SQL, Bash, C, C++"
     },
     {
-      "category": "Tools & Platforms",
-      "items": "PostgreSQL, Supabase, Git, Docker, Google Cloud, Azure, AWS, Linux, Modal, Redis"
+      "category": "AI & Agents",
+      "items": "Claude Agent SDK, multi-agent orchestration, LLM tooling, RAG"
     },
     {
-      "category": "Frameworks & Libraries",
-      "items": "FastAPI, PyTorch, REST APIs, Claude Agent SDK, multi-agent orchestration, LLM tooling, RAG"
+      "category": "Cloud",
+      "items": "Google Cloud, Modal, Azure, AWS"
+    },
+    {
+      "category": "Frameworks & Tools",
+      "items": "FastAPI, Next.js, PyTorch, PostgreSQL, Redis, Docker, Git, Linux, REST APIs, SSH"
     }
   ]
 }
