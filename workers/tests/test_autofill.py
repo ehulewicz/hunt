@@ -375,3 +375,19 @@ def test_autofill_leaves_duplicate_exact_answers_empty_as_ambiguous() -> None:
 
     assert plan.fills == ()
     assert plan.unanswered_required_questions == ("Why this role?",)
+
+
+def test_ashby_style_labels_map_to_profile() -> None:
+    """Bestow's Ashby form labels these exactly 'Name' and 'Address Line 1'."""
+    from personal_os_worker.autofill import PROFILE_LABELS
+
+    assert PROFILE_LABELS["name"] == "legal_name"
+    assert PROFILE_LABELS["address line 1"] == "address_line_1"
+
+
+def test_exact_matching_still_refuses_to_guess() -> None:
+    """Matching is exact, so a qualified label must not borrow the bare mapping."""
+    from personal_os_worker.autofill import PROFILE_LABELS
+
+    for label in ("company name", "reference name", "name of school"):
+        assert label not in PROFILE_LABELS

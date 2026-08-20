@@ -74,3 +74,95 @@ def run_doctor_command() -> int:
     for check in checks:
         console.print(f"[{'OK' if check.ok else 'FAIL'}] {check.name}: {check.detail}")
     return 0 if all(check.ok for check in checks) else 1
+
+
+def run_autofill(
+    *,
+    url: str | None,
+    dry_run: bool,
+    resume: str | None,
+) -> int:
+    """Autofill in isolation, against a page you chose.
+
+    The task path always opens its own tab from a stored URL, which makes the
+    filling logic impossible to exercise on a form you navigated to by hand.
+    """
+    from pathlib import Path
+
+    from rich.table import Table
+
+    from personal_os_worker.browser import (
+        VisibleBrowser,
+        apply_autofill,
+        looks_like_application_form,
+        plan_autofill,
+    )
+
+    config, token = connected()
+    ensure_chrome(config.cdp_url)
+    api = WorkerApi(config, token)
+    try:
+        profile = api.profile()
+        approved_answers = [
+            answer for answer in api.answers() if answer.get("status") == "approved"
+        ]
+    finally:
+        api.close()
+
+    resume_path = Path(resume).expanduser() if resume else None
+    if resume_path is not None and not resume_path.is_file():
+        console.print(f"[red]Resume not found:[/red] {resume_path}")
+        return 1
+
+    with VisibleBrowser(config.cdp_url) as browser:
+        page = browser.open_page(url) if url else browser.active_page()
+        console.print(f"Target: [cyan]{page.url}[/cyan]")
+        fields, plan = plan_autofill(
+            page, profile=profile, approved_answers=approved_answers
+        )
+        if not looks_like_application_form(fields):
+            console.print(
+                f"[red]No application form here[/red] ({len(fields)} control(s) found). "
+                "The posting may keep the form behind a step this could not reach. "
+                "The page is left open; navigate to the form and rerun without --url."
+            )
+            return 1
+        console.print(
+            f"Found {len(fields)} control(s); {len(plan.fills)} would be filled, "
+            f"{len(plan.unanswered_required_questions)} required question(s) unanswered."
+        )
+
+        table = Table(box=None, padding=(0, 2), expand=True)
+        table.add_column("#", justify="right", style="dim")
+        table.add_column("field", no_wrap=True, overflow="ellipsis")
+        table.add_column("kind", no_wrap=True)
+        table.add_column("value", overflow="fold", ratio=1)
+        for fill in plan.fills:
+            field = fields[fill.index]
+            label = str(field.get("label") or field.get("name") or "")
+            value = "<resume file>" if fill.kind == "resume" else (fill.value or "")
+            table.add_row(str(fill.index), label, fill.kind, value)
+        if plan.fills:
+            console.print(table)
+
+        for question in plan.unanswered_required_questions:
+            console.print(f"  [yellow]unanswered required:[/yellow] {question}")
+
+        if dry_run:
+            console.print("\n[dim]Dry run: the page was not modified.[/dim]")
+            return 0
+
+        result = apply_autofill(
+            page,
+            fields,
+            plan,
+            resume_path=resume_path,
+            assert_active=lambda: None,
+        )
+
+    console.print(f"\nFilled {len(result['filled_fields'])} field(s). Nothing was submitted.")
+    for skipped in result["skipped_fields"]:
+        console.print(f"  [dim]skipped:[/dim] {skipped}")
+    for question in result["unanswered_required_questions"]:
+        console.print(f"  [yellow]left for you:[/yellow] {question}")
+    return 0

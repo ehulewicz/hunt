@@ -265,3 +265,39 @@ allowed to do on a company site, so it needs its own brainstorm before any code.
 
 Also fixed: tables set `expand=True` with a flexible title column. Fixed
 `max_width` values truncated titles even on a wide terminal.
+
+## Autofill isolated and tested, 2026-08-19
+
+`os hunt autofill [--url URL] [--dry-run] [--resume PDF]` exercises filling on its
+own. With no `--url` it uses the tab already in the foreground, so a form reached
+by hand can be tested. `--dry-run` prints the plan without touching the page.
+
+Autofill never used the active tab, contrary to expectation: it always called
+`new_page()` and navigated to a stored URL, so it could not be pointed at
+anything. `autofill_application` is now split into `plan_autofill`, which only
+inspects, and `apply_autofill`, which mutates. The task path composes the two, so
+both paths share one implementation.
+
+Three defects surfaced immediately, all invisible before isolation:
+
+- **Autofill had no form guard.** The Bestow application read
+  `autofill_status=completed`, but the Ashby posting exposes zero controls, so it
+  filled nothing and reported success. Same silent-success class as the Zipline
+  preparation bug, in the path that guard did not cover.
+- **Ashby renders the posting and the application as separate views.** The job
+  page has no controls after 13 seconds; waiting never helps. The form is behind
+  an Apply step, and the same page yields 46 controls once it is requested.
+  `reveal_application_form` now clicks an Apply link or button and waits for
+  controls, and runs in both capture and autofill.
+- **Two profile labels were unmapped.** Ashby labels the fields exactly `Name` and
+  `Address Line 1`; `PROFILE_LABELS` had `full name` and `address` but neither of
+  those. Both were reported as unanswered required questions. Matching is an exact
+  lookup on the normalized label, so adding them cannot make `Company Name` match.
+
+The Bestow form now plans 7 fills with 0 unanswered required questions, up from 5
+fills with 2 unanswered. Applying to a real form has not been run yet; only the
+dry run has.
+
+`www.zipline.com/open-roles?gh_jid=7886501003` remains unresolvable. The
+equivalent Greenhouse URL redirects to `?error=true`, so the stored link is dead
+rather than merely indirect.

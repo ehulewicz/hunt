@@ -46,6 +46,20 @@ class WorkerApi:
             raise RuntimeError("Listing response was invalid")
         return payload
 
+    def profile(self) -> dict[str, Any]:
+        response = self._client.get("/v1/jobs/profile")
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Profile response was invalid")
+        return payload
+
+    def answers(self) -> list[dict[str, Any]]:
+        response = self._client.get("/v1/jobs/answers")
+        response.raise_for_status()
+        payload = response.json()
+        return payload if isinstance(payload, list) else []
+
     def applications(self) -> list[dict[str, Any]]:
         response = self._client.get("/v1/jobs/applications")
         response.raise_for_status()

@@ -64,6 +64,21 @@ def build_parser() -> argparse.ArgumentParser:
     prep = jobs_commands.add_parser("prep", help="Queue preparation for listings")
     prep.add_argument("refs", nargs="+", help="Row numbers from the last listing, or id prefixes")
 
+    autofill = jobs_commands.add_parser(
+        "autofill",
+        help="Autofill the active tab, or a URL, without submitting",
+    )
+    autofill.add_argument(
+        "--url",
+        help="Open this URL instead of using the tab already in the foreground",
+    )
+    autofill.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be filled without touching the page",
+    )
+    autofill.add_argument("--resume", help="PDF to attach to a resume upload field")
+
     run = jobs_commands.add_parser(
         "run", help="Run every queued task, then exit"
     )
@@ -123,6 +138,10 @@ def _dispatch(args: argparse.Namespace) -> int:
             return hunt.run_apps()
         if args.hunt_command == "prep":
             return hunt.run_prep(args.refs)
+        if args.hunt_command == "autofill":
+            return hunt.run_autofill(
+                url=args.url, dry_run=args.dry_run, resume=args.resume
+            )
         if args.hunt_command == "run":
             return hunt.run_tasks(once=args.once, watch=args.watch)
     return 2
