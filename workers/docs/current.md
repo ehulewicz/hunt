@@ -207,5 +207,22 @@ Read commands, verified against real data:
 Worker Ruff, mypy, and all 62 tests pass, including reference resolution and the
 Chrome stop path faked against a Windows process query.
 
+`os hunt run` drains the queue and exits, 2026-08-19:
+
+- The old loop polled every five seconds forever, because the producer used to be
+  a hosted UI this process could not see. The producer is now `os hunt prep` in
+  the same terminal, so finishing the queue and returning the prompt is the
+  useful default. This is the same reasoning that removed the leases.
+- `--once` stops after a single task and, in `claim_with_backoff`, also declines
+  to retry transient API errors. `--watch` restores the long-running poller.
+  The two are mutually exclusive.
+- `process_task` now returns `done`, `failed`, or `lost` instead of `None`. It
+  reports failures to the API rather than raising, so without a return value a
+  drain summary would have been guesswork.
+- Progress prints per task and ends with a count; a drain with any failure exits
+  non-zero so it composes in a shell.
+- Verified live: `os hunt run` against an empty queue prints `Queue is empty` and
+  exits 0 instead of hanging.
+
 Still to do: `os hunt prep` has not been run against live data, so no new
 application has been created through the CLI yet.

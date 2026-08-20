@@ -64,8 +64,14 @@ def build_parser() -> argparse.ArgumentParser:
     prep = jobs_commands.add_parser("prep", help="Queue preparation for listings")
     prep.add_argument("refs", nargs="+", help="Row numbers from the last listing, or id prefixes")
 
-    run = jobs_commands.add_parser("run", help="Execute queued tasks in the foreground")
-    run.add_argument("--once", action="store_true", help="Exit after one task or empty poll")
+    run = jobs_commands.add_parser(
+        "run", help="Run every queued task, then exit"
+    )
+    run_mode = run.add_mutually_exclusive_group()
+    run_mode.add_argument("--once", action="store_true", help="Stop after a single task")
+    run_mode.add_argument(
+        "--watch", action="store_true", help="Keep polling for new tasks instead of exiting"
+    )
     return parser
 
 
@@ -118,7 +124,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         if args.hunt_command == "prep":
             return hunt.run_prep(args.refs)
         if args.hunt_command == "run":
-            return hunt.run_tasks(once=args.once)
+            return hunt.run_tasks(once=args.once, watch=args.watch)
     return 2
 
 

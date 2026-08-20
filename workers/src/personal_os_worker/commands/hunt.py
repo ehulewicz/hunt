@@ -61,11 +61,11 @@ def run_prep(references: list[str]) -> int:
     return 0
 
 
-def run_tasks(*, once: bool) -> int:
+def run_tasks(*, once: bool, watch: bool = False) -> int:
     config, token = connected()
     # Tasks drive the visible browser, so Chrome is a dependency too.
     ensure_chrome(config.cdp_url)
-    return run_worker(config, token, once=once)
+    return run_worker(config, token, once=once, watch=watch)
 
 
 def run_doctor_command() -> int:

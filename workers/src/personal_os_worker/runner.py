@@ -83,6 +83,9 @@ class ClaimClient(Protocol):
     def claim(self, worker_id: str) -> dict[str, Any] | None: ...
 
 
+POLL_SECONDS = 5.0
+
+
 def claim_with_backoff(
     api: ClaimClient,
     worker_id: str,
@@ -105,22 +108,54 @@ def claim_with_backoff(
             delay_seconds = min(delay_seconds * 2, 30.0)
 
 
-def run_worker(config: CliConfig, access_token: str, *, once: bool = False) -> int:
+def run_worker(
+    config: CliConfig,
+    access_token: str,
+    *,
+    once: bool = False,
+    watch: bool = False,
+) -> int:
+    """Drain the queue and stop.
+
+    The old behaviour polled forever because the producer was a hosted UI this
+    process could not see. The producer is now `os hunt prep` in the same
+    terminal, so finishing the queue and returning the prompt is the useful
+    default; --watch keeps a long-running poller for when that is wanted.
+    """
     worker_id = f"{socket.gethostname()}-{os.getpid()}"
     api = WorkerApi(config, access_token)
+    counts = {"done": 0, "failed": 0, "lost": 0}
     try:
         while True:
             task = claim_with_backoff(api, worker_id, once=once)
             if task is None:
                 if once:
                     return 0
-                time.sleep(5)
+                if not watch:
+                    break
+                time.sleep(POLL_SECONDS)
                 continue
-            process_task(api, config, worker_id, task)
+
+            position = sum(counts.values()) + 1
+            label = f"[{position}] {task.get('task_type')} {str(task['id'])[:8]}"
+            print(f"{label} ...", flush=True)
+            outcome = process_task(api, config, worker_id, task)
+            counts[outcome] = counts.get(outcome, 0) + 1
+            print(f"{label} {outcome}", flush=True)
             if once:
                 return 0
     finally:
         api.close()
+
+    total = sum(counts.values())
+    if total == 0:
+        print("Queue is empty; nothing to do.")
+    else:
+        summary = f"{counts['done']} done, {counts['failed']} failed"
+        if counts["lost"]:
+            summary += f", {counts['lost']} lost"
+        print(f"Queue drained. {summary}.")
+    return 1 if counts["failed"] else 0
 
 
 def process_resume_preview(
@@ -157,13 +192,18 @@ def process_resume_preview(
 
 def process_task(
     api: WorkerApi, config: CliConfig, worker_id: str, task: dict[str, Any]
-) -> None:
+) -> str:
+    """Run one task and report its outcome as done, failed, or lost.
+
+    Failures are reported to the API rather than raised, so the outcome has to
+    come back as a value for the caller to summarise a drain honestly.
+    """
     task_id = UUID(str(task["id"]))
     try:
         payload = task.get("payload")
         if task.get("task_type") == "preview_resume":
             process_resume_preview(api, worker_id, task_id, payload)
-            return
+            return "done"
         if not isinstance(payload, dict) or "application_id" not in payload:
             raise RuntimeError("Application task payload is invalid")
         application_id = UUID(str(payload["application_id"]))
@@ -225,7 +265,7 @@ def process_task(
                 raise RuntimeError(f"Unsupported task type: {task.get('task_type')}")
             api.complete(task_id, worker_id, result)
     except LeaseLost:
-        return
+        return "lost"
     except (
         httpx.HTTPError,
         OSError,
@@ -235,7 +275,10 @@ def process_task(
         UnsafeResumeChange,
         ValueError,
     ) as error:
+        print(f"  failed: {error}", flush=True)
         try:
             api.fail(task_id, worker_id, str(error), retry=is_retryable(error))
         except httpx.HTTPError:
-            return
+            return "failed"
+        return "failed"
+    return "done"
