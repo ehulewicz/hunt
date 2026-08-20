@@ -6,10 +6,15 @@ commands that need it start it on demand and leave it running for the next one.
 
 from __future__ import annotations
 
+import contextlib
+import json
 import os
+import re
 import shutil
+import signal
 import subprocess
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
@@ -17,6 +22,8 @@ import httpx
 API_EXECUTABLE = "personal-os-api"
 STARTUP_TIMEOUT_SECONDS = 45.0
 _POLL_SECONDS = 0.25
+POWERSHELL = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+TASKKILL = "/mnt/c/Windows/System32/taskkill.exe"
 
 # Jobs drives the Windows Chrome build rather than the WSLg one: it renders
 # properly and keeps the real profile, including the Google session. Reaching its
@@ -35,10 +42,53 @@ class ChromeUnavailable(RuntimeError):
     """Raised when the automation browser is neither running nor startable."""
 
 
-def log_path() -> Path:
+def state_dir() -> Path:
     root = os.environ.get("XDG_STATE_HOME")
     base = Path(root).expanduser() if root else Path.home() / ".local" / "state"
-    return base / "personal-os" / "api.log"
+    return base / "personal-os"
+
+
+def log_path() -> Path:
+    return state_dir() / "api.log"
+
+
+def registry_path(name: str) -> Path:
+    return state_dir() / "services" / f"{name}.json"
+
+
+@dataclass(frozen=True, slots=True)
+class ServiceRecord:
+    name: str
+    pid: int
+    port: str
+    started_at: float
+
+
+def record_service(name: str, pid: int, port: str) -> None:
+    """Track a service we started, so stopping it never has to guess."""
+    path = registry_path(name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"name": name, "pid": pid, "port": port, "started_at": time.time()}, indent=2)
+        + "\n"
+    )
+
+
+def read_service(name: str) -> ServiceRecord | None:
+    try:
+        data = json.loads(registry_path(name).read_text())
+        return ServiceRecord(
+            name=str(data["name"]),
+            pid=int(data["pid"]),
+            port=str(data["port"]),
+            started_at=float(data["started_at"]),
+        )
+    except (FileNotFoundError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def forget_service(name: str) -> None:
+    registry_path(name).unlink(missing_ok=True)
 
 
 def is_running(api_url: str, *, timeout: float = 2.0) -> bool:
@@ -68,10 +118,11 @@ def ensure_running(api_url: str, *, quiet: bool = False) -> bool:
 
     destination = log_path()
     destination.parent.mkdir(parents=True, exist_ok=True)
+    port = _port_of(api_url)
     handle = destination.open("a")
     try:
-        subprocess.Popen(
-            [executable, "--port", _port_of(api_url)],
+        process = subprocess.Popen(
+            [executable, "--port", port],
             stdout=handle,
             stderr=handle,
             stdin=subprocess.DEVNULL,
@@ -80,6 +131,7 @@ def ensure_running(api_url: str, *, quiet: bool = False) -> bool:
         )
     finally:
         handle.close()
+    record_service("api", process.pid, port)
 
     if not quiet:
         print(f"Starting the local API ... (log: {destination})")
@@ -141,3 +193,104 @@ def ensure_chrome(cdp_url: str, *, quiet: bool = False) -> bool:
         "Confirm networkingMode=mirrored is set in .wslconfig and that "
         "'wsl --shutdown' has been run since."
     )
+
+
+def _pid_on_port(port: str) -> int | None:
+    """Find whatever currently holds a local port, for stale-registry recovery."""
+    listing = shutil.which("ss")
+    if listing is None:
+        return None
+    result = subprocess.run(
+        [listing, "-ltnp"], check=False, capture_output=True, text=True, timeout=10
+    )
+    for line in result.stdout.splitlines():
+        if f":{port} " not in line:
+            continue
+        match = re.search(r"pid=(\d+)", line)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def stop_api(api_url: str, *, force: bool = False) -> bool:
+    """Stop the API we started. With force, also stop whatever holds the port."""
+    record = read_service("api")
+    pid = record.pid if record else None
+    if pid is None and force:
+        pid = _pid_on_port(_port_of(api_url))
+    if pid is None:
+        forget_service("api")
+        return False
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        forget_service("api")
+        return False
+    except PermissionError:
+        forget_service("api")
+        return False
+
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        if not is_running(api_url, timeout=1.0):
+            break
+        time.sleep(_POLL_SECONDS)
+    else:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.kill(pid, signal.SIGKILL)
+
+    forget_service("api")
+    return True
+
+
+def windows_chrome_pids() -> list[int]:
+    """PIDs of Windows chrome.exe processes using our dedicated profile.
+
+    Matching on the profile path is what keeps the user's own Chrome windows
+    alive; taskkill /IM chrome.exe would close every one of them.
+    """
+    if not Path(POWERSHELL).exists():
+        return []
+    script = (
+        "Get-CimInstance Win32_Process -Filter \"name='chrome.exe'\" | "
+        f"Where-Object {{ $_.CommandLine -like '*{Path(CHROME_PROFILE).name}*' }} | "
+        "Select-Object -ExpandProperty ProcessId"
+    )
+    result = subprocess.run(
+        [POWERSHELL, "-NoProfile", "-Command", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return [int(line) for line in result.stdout.split() if line.strip().isdigit()]
+
+
+def stop_chrome(cdp_url: str) -> bool:
+    """Stop the automation browser.
+
+    Chrome runs as a Windows process, so the PID from Popen belongs to the WSL
+    interop stub rather than to chrome.exe, and a Linux signal leaves the browser
+    running. Kill the real Windows processes by PID instead.
+    """
+    pids = windows_chrome_pids()
+    if not pids:
+        forget_service("chrome")
+        return False
+    if Path(TASKKILL).exists():
+        for pid in pids:
+            subprocess.run(
+                [TASKKILL, "/PID", str(pid), "/T", "/F"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        if not chrome_is_running(cdp_url, timeout=1.0):
+            break
+        time.sleep(_POLL_SECONDS)
+    forget_service("chrome")
+    return True

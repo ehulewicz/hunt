@@ -25,6 +25,7 @@ def test_missing_executable_explains_how_to_install(monkeypatch: pytest.MonkeyPa
 def test_start_waits_for_health_then_reports_it_started(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(service, "state_dir", lambda: tmp_path)
     monkeypatch.setattr(service, "log_path", lambda: tmp_path / "api.log")
     monkeypatch.setattr(service.shutil, "which", lambda _: "/usr/bin/personal-os-api")
     spawned: list[list[str]] = []
@@ -33,7 +34,7 @@ def test_start_waits_for_health_then_reports_it_started(
         spawned.append(command)
         # Detaching matters: the API must outlive this CLI invocation.
         assert kwargs["start_new_session"] is True
-        return object()
+        return type("P", (), {"pid": 4242})()
 
     monkeypatch.setattr(service.subprocess, "Popen", fake_popen)
     health = iter([False, False, True])
@@ -48,9 +49,12 @@ def test_start_gives_up_and_points_at_the_log(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:  # type: ignore[no-untyped-def]
     log = tmp_path / "api.log"
+    monkeypatch.setattr(service, "state_dir", lambda: tmp_path)
     monkeypatch.setattr(service, "log_path", lambda: log)
     monkeypatch.setattr(service.shutil, "which", lambda _: "/usr/bin/personal-os-api")
-    monkeypatch.setattr(service.subprocess, "Popen", lambda *a, **k: object())
+    monkeypatch.setattr(
+        service.subprocess, "Popen", lambda *a, **k: type("P", (), {"pid": 4242})()
+    )
     monkeypatch.setattr(service, "is_running", lambda *a, **k: False)
     monkeypatch.setattr(service.time, "sleep", lambda _: None)
     monkeypatch.setattr(service, "STARTUP_TIMEOUT_SECONDS", 0.0)
@@ -102,3 +106,75 @@ def test_missing_chrome_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(service.Path, "exists", lambda _: False)
     with pytest.raises(service.ChromeUnavailable, match="not found"):
         service.ensure_chrome("http://127.0.0.1:9333")
+
+
+def test_registry_round_trips_and_forgets(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(service, "state_dir", lambda: tmp_path)
+    service.record_service("api", 4242, "8000")
+    record = service.read_service("api")
+    assert record is not None
+    assert (record.name, record.pid, record.port) == ("api", 4242, "8000")
+    service.forget_service("api")
+    assert service.read_service("api") is None
+
+
+def test_unreadable_registry_reads_as_absent(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(service, "state_dir", lambda: tmp_path)
+    path = service.registry_path("api")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{not json")
+    assert service.read_service("api") is None
+
+
+def test_stop_api_signals_the_recorded_pid(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(service, "state_dir", lambda: tmp_path)
+    service.record_service("api", 4242, "8000")
+    signalled: list[int] = []
+    monkeypatch.setattr(service.os, "kill", lambda pid, sig: signalled.append(pid))
+    monkeypatch.setattr(service, "is_running", lambda *a, **k: False)
+    assert service.stop_api("http://127.0.0.1:8000") is True
+    assert signalled == [4242]
+    # The record must not survive, or a later stop would signal a dead pid.
+    assert service.read_service("api") is None
+
+
+def test_stop_api_without_a_record_does_nothing_unless_forced(
+    tmp_path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(service, "state_dir", lambda: tmp_path)
+    monkeypatch.setattr(service, "_pid_on_port", lambda _: None)
+    assert service.stop_api("http://127.0.0.1:8000") is False
+
+    monkeypatch.setattr(service, "_pid_on_port", lambda _: 777)
+    monkeypatch.setattr(service.os, "kill", lambda *a: None)
+    monkeypatch.setattr(service, "is_running", lambda *a, **k: False)
+    assert service.stop_api("http://127.0.0.1:8000", force=True) is True
+
+
+def test_stop_chrome_kills_windows_pids_not_linux_ones(
+    tmp_path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    """Chrome is a Windows process; a Linux signal would leave it running."""
+    monkeypatch.setattr(service, "state_dir", lambda: tmp_path)
+    monkeypatch.setattr(service, "windows_chrome_pids", lambda: [1234, 5678])
+    monkeypatch.setattr(service.Path, "exists", lambda _: True)
+    monkeypatch.setattr(service, "chrome_is_running", lambda *a, **k: False)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        service.subprocess,
+        "run",
+        lambda cmd, **k: calls.append(cmd) or type("R", (), {"stdout": "", "returncode": 0})(),
+    )
+    assert service.stop_chrome("http://127.0.0.1:9333") is True
+    killed = [c[c.index("/PID") + 1] for c in calls if "/PID" in c]
+    assert killed == ["1234", "5678"]
+    # /IM chrome.exe would close the user's own browser windows too.
+    assert not any("/IM" in c for c in calls)
+
+
+def test_stop_chrome_with_nothing_running_is_a_no_op(
+    tmp_path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(service, "state_dir", lambda: tmp_path)
+    monkeypatch.setattr(service, "windows_chrome_pids", lambda: [])
+    assert service.stop_chrome("http://127.0.0.1:9333") is False

@@ -165,4 +165,47 @@ the whole workflow is `hunt` and nothing else.
   all six checks green, including `Local API: accepted the session`, which is the
   proof that the collapsed worker endpoints take the Google token.
 
-Still to do: the read commands (`listings`, `apps`) are not built yet.
+## The `os` entry point and read commands, 2026-08-19
+
+The CLI is now `os`, a single entry point for every local domain, with Jobs under
+`os hunt`. `hunt` as a standalone binary is gone.
+
+- `os` was verified free before adopting it: not POSIX, not coreutils, no shell
+  builtin, no `/usr/bin/os`, and absent on macOS. Python's `os` is a module, not
+  an executable.
+- Surface: `status`, `stop [api|chrome|all] [--force]`, `api`, `chrome`, `login`,
+  `whoami`, `doctor`, and `hunt {listings,apps,prep,run}`. Domains live in
+  `commands/`, so `learning` and `life` can be added without claiming more names
+  on PATH.
+- Services are tracked in `~/.local/state/personal-os/services/*.json` with pid
+  and port, so stopping never has to guess. `--force` additionally resolves
+  whatever holds the port, which is what recovers a stale or missing record.
+- **Chrome cannot be stopped with a Linux signal.** The pid from `Popen` belongs
+  to the WSL interop stub, not to `chrome.exe`, so signalling it leaves the
+  browser running. `stop_chrome` asks Windows for `chrome.exe` processes whose
+  command line contains the dedicated profile and runs `taskkill /PID /T /F` on
+  those. Matching on the profile is what protects the user's own windows;
+  `taskkill /IM chrome.exe` would close all of them.
+- Verified live: automation Chrome went from 12 processes to 0 while the user's
+  own 11 Chrome processes were untouched, and both ports were released.
+- Verified live: a cold `os hunt listings` started the API, recorded pid 49212,
+  and `os stop api` then released the port with no `--force`.
+
+Read commands, verified against real data:
+
+- `os hunt listings` renders 392 open listings; `--faang` narrows to 105 and
+  `--quant` to 39. `--location` is repeatable and maps to the existing query
+  parameters, so no backend change was needed.
+- `os hunt apps` renders applications with preparation and autofill status.
+- Columns are `no_wrap` with ellipsis overflow. Without that, titles wrapped over
+  five lines each and the table stopped being scannable.
+- Rows are referenced by number or id prefix, cached in
+  `~/.local/state/personal-os/last-{listings,apps}.json`. Ambiguous prefixes are
+  refused rather than guessed, and every failure prints a sentence rather than a
+  traceback.
+
+Worker Ruff, mypy, and all 62 tests pass, including reference resolution and the
+Chrome stop path faked against a Windows process query.
+
+Still to do: `os hunt prep` has not been run against live data, so no new
+application has been created through the CLI yet.

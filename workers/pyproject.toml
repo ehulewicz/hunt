@@ -1,16 +1,17 @@
 [project]
 name = "personal-os-worker"
 version = "0.1.0"
-description = "Portable Personal OS worker scaffold"
+description = "Personal OS local command line"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
   "httpx>=0.28,<1",
   "playwright>=1.55,<2",
+  "rich>=14,<15",
 ]
 
 [project.scripts]
-hunt = "personal_os_worker.cli:main"
+os = "personal_os_worker.cli:main"
 
 [dependency-groups]
 dev = ["mypy>=1.17,<2", "pytest>=8.4,<9", "ruff>=0.12,<1"]

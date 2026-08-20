@@ -23,6 +23,47 @@ class WorkerApi:
     def close(self) -> None:
         self._client.close()
 
+    def listings(
+        self,
+        *,
+        category: str | None = None,
+        locations: list[str] | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        params: list[tuple[str, str | int | float | bool | None]] = [
+            ("limit", limit),
+            ("offset", offset),
+        ]
+        if category:
+            params.append(("category", category))
+        for location in locations or []:
+            params.append(("locations", location))
+        response = self._client.get("/v1/jobs/listings", params=params)
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Listing response was invalid")
+        return payload
+
+    def applications(self) -> list[dict[str, Any]]:
+        response = self._client.get("/v1/jobs/applications")
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, list):
+            raise RuntimeError("Application response was invalid")
+        return payload
+
+    def batch_prepare(self, posting_ids: list[str]) -> dict[str, Any]:
+        response = self._client.post(
+            "/v1/jobs/applications/batch-prepare", json={"posting_ids": posting_ids}
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Batch prepare response was invalid")
+        return payload
+
     def claim(self, worker_id: str) -> dict[str, Any] | None:
         response = self._client.post("/v1/jobs/worker/tasks/claim", json={"worker_id": worker_id})
         response.raise_for_status()
