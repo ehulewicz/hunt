@@ -98,3 +98,32 @@ Resume template, done and verified:
 - The resume contact email is `ehulewicz3@gatech.edu`, matching the sent resume,
   not the Google account address used for authentication.
 - Worker Ruff, mypy, and all 22 tests pass.
+
+
+## CLI sign-in, verified 2026-08-19
+
+`login` and `whoami` work. The CLI now holds a real Google session instead of a
+second credential system, so the backend accepts exactly the token it already
+accepted from the browser and `auth.py` needed no change.
+
+- `auth.py` implements the RFC 8252 pattern: a loopback listener on
+  `127.0.0.1:54321`, a PKCE `s256` challenge, and a code exchange against
+  `/auth/v1/token?grant_type=pkce`. An intercepted code is useless without the
+  verifier, which never leaves the process.
+- The fixed callback port is deliberate. Supabase documents redirect globbing for
+  paths, not for ports, so a wildcard port may silently fail to match.
+- Sign-in opens the dedicated Windows Chrome profile, which already holds the
+  Google session, so the flow completes without a prompt.
+- `session.json` is mode 600 and stores the refresh token. Access tokens last one
+  hour, matching the project's `jwt_exp`, and `active_session` refreshes with a
+  two-minute margin so a request never races the expiry.
+- `cli.json` holds `api_url`, `supabase_url`, and the publishable key. The key is
+  public by design and ships in browser bundles, but it stays machine-local
+  rather than in the repository.
+- Verified: `whoami` prints the account, and an authenticated listings call
+  returned 392 rows through the local API.
+- Worker Ruff, mypy, and all 30 tests pass, including 8 new auth tests covering
+  the PKCE challenge, expiry margin, session round-trip, and failure paths.
+
+Still to do: the CLI is still named `personal-os-worker`, and the read commands
+(`listings`, `apps`) are not built yet.

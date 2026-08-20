@@ -76,5 +76,11 @@ Supabase auth configuration, read through the Management API using
 - Google is enabled, email/password is disabled, refresh token rotation is on,
   and `jwt_exp` is 3600. The one-hour access token is why the CLI must store and
   rotate a refresh token rather than a single pasted token.
-- `uri_allow_list` still contains only the Vercel callback. The loopback callback
-  the CLI needs is not yet allowlisted, which blocks `jobs login`.
+- `uri_allow_list` now contains the Vercel callback plus
+  `http://127.0.0.1:54321/callback` and `http://localhost:54321/callback`. Both
+  loopback entries use `http` deliberately: no certificate authority issues
+  certificates for `127.0.0.1`, and RFC 8252 requires plain `http` there.
+- End to end on 2026-08-19: the CLI signed in through Google, the local API
+  verified the resulting `ES256` Supabase JWT against JWKS, the allowed-account
+  check passed, and `GET /v1/jobs/listings` returned 392 open listings from
+  hosted Postgres. Nothing about database access changed.
