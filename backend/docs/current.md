@@ -50,3 +50,31 @@ Last verified: 2026-08-13
   sync run `31762555087` records 380 open strict-US rows, 60 fewer than before.
 - [ ] Add zero2sudo ingestion only after SpeedyApply acceptance passes.
 - [ ] Add Google integration OAuth only with the Calendar milestone.
+
+## Local run, verified 2026-08-19
+
+The Jobs CLI migration runs FastAPI locally against hosted Supabase. Verified on
+this machine:
+
+- `backend/.env` holds the `PERSONAL_OS_API_` settings. Non-secret values mirror
+  the Cloud Run service; `DATABASE_URL`, `WORKER_JWT_SECRET`, and
+  `SUPABASE_SECRET_KEY` are read from GCP Secret Manager project
+  `example-gcp-project`. The file is mode 600 and matches `.gitignore:36`, so it
+  is not tracked.
+- `CORS_ALLOWED_ORIGINS` is `[]` locally. The CLI is not a browser and sends no
+  Origin, and the Vercel origin is being retired.
+- `uv run uvicorn personal_os.main:app --host 127.0.0.1 --port 8000` serves
+  `/health` as `200`. `/health` calls `database_is_ready` and returns `503` when
+  the pool is down, so a `200` proves the local process reaches hosted Postgres.
+- Unauthenticated `/v1/jobs/listings` returns `401`, so authorization behaves the
+  same locally as hosted.
+- Cloud Run revision `personal-os-api-00017-qkg` is untouched and still serving.
+
+Supabase auth configuration, read through the Management API using
+`personal-os-supabase-access-token`:
+
+- Google is enabled, email/password is disabled, refresh token rotation is on,
+  and `jwt_exp` is 3600. The one-hour access token is why the CLI must store and
+  rotate a refresh token rather than a single pasted token.
+- `uri_allow_list` still contains only the Vercel callback. The loopback callback
+  the CLI needs is not yet allowlisted, which blocks `jobs login`.
