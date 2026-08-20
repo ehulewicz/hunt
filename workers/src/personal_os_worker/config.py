@@ -10,7 +10,7 @@ from pathlib import Path
 class WorkerConfig:
     api_url: str
     token: str
-    cdp_url: str = "http://127.0.0.1:9222"
+    cdp_url: str = "http://127.0.0.1:9333"
 
 
 def config_path() -> Path:
@@ -44,7 +44,7 @@ def load_config() -> WorkerConfig:
         return WorkerConfig(
             api_url=str(data["api_url"]).rstrip("/"),
             token=str(data["token"]),
-            cdp_url=str(data.get("cdp_url", "http://127.0.0.1:9222")),
+            cdp_url=str(data.get("cdp_url", "http://127.0.0.1:9333")),
         )
     except (FileNotFoundError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
         raise RuntimeError("Worker is not paired. Run personal-os-worker pair first.") from error

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 worker_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cdp_url="http://127.0.0.1:9222"
+cdp_url="http://127.0.0.1:9333"
 
 # Jobs drives the Windows Chrome build, not the WSLg one: it renders properly and
 # keeps a real persistent profile. Reaching its CDP port from WSL requires
@@ -21,7 +21,7 @@ if ! curl --silent --fail "$cdp_url/json/version" >/dev/null 2>&1; then
   # A dedicated profile is required: Chrome 136+ serves 404 on /json/* when
   # remote debugging is pointed at the default user data directory.
   "$chrome_exe" \
-    --remote-debugging-port=9222 \
+    --remote-debugging-port=9333 \
     --user-data-dir="$chrome_profile_windows" \
     --no-first-run \
     --no-default-browser-check \

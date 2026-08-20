@@ -20,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     pair = commands.add_parser("pair", help="Store a revocable worker token locally")
     pair.add_argument("--api-url", required=True)
-    pair.add_argument("--cdp-url", default="http://127.0.0.1:9222")
+    pair.add_argument("--cdp-url", default="http://127.0.0.1:9333")
 
     run = commands.add_parser("run", help="Claim and execute Jobs tasks in the foreground")
     run.add_argument("--once", action="store_true", help="Exit after one task or empty poll")

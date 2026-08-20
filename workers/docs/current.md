@@ -41,8 +41,7 @@ Last verified: 2026-08-18
 - [ ] Complete the first hosted prepare/review/approve/visible-autofill flow.
 - [x] Generate the resume from the real canonical LaTeX template rather than a
   generic one, verified by matching page geometry exactly.
-- [ ] Drive Windows Chrome instead of WSLg Chrome (files staged; needs
-  `wsl --shutdown` to activate mirrored networking).
+- [x] Drive Windows Chrome instead of WSLg Chrome, verified over CDP from WSL.
 
 Chrome, Claude, `uv`, `latexmk`, and `pdfinfo` are installed and locally
 verified, and pairing is complete. A standalone `doctor` run reports `Chrome CDP`
@@ -68,9 +67,18 @@ Windows Chrome, staged but not yet active:
 - Verified during design against Chrome 151: a dedicated `--user-data-dir` serves
   CDP correctly, while the default profile returns 404 on `/json/*` because
   Chrome 136+ blocks remote debugging there. The dedicated profile is required.
-- Not yet verified: whether `set_input_files` wants the WSL or the Windows path
-  for resume upload. `wslpath -w` is the conversion tool, as in the legacy
-  `archived/jobs-legacy/build-resume.sh`.
+- Verified 2026-08-19: mirrored networking is active (`loopback0` present, `eth0`
+  carries the real LAN address), and `curl http://127.0.0.1:9333/json/version`
+  from WSL returns Chrome 151's CDP payload.
+- The CDP port moved from 9222 to 9333. Chrome's default port is routinely taken
+  by an already-running default-profile browser, which both 404s on `/json/*`
+  and forces our dedicated-profile instance onto `[::1]`, where mirrored mode
+  does not reach it. A dedicated port avoids that collision permanently.
+- `set_input_files` is resolved: Playwright reads the file on the WSL side and
+  streams its bytes over CDP, so it wants the **WSL path**. A Windows path raises
+  `FileNotFoundError`. Verified by uploading the 114,364-byte resume into a file
+  input and reading back the exact name and size. `browser.py` needs no change
+  and artifacts do not need staging under `/mnt/c`.
 
 Resume template, done and verified:
 
