@@ -1,14 +1,21 @@
+from pathlib import Path
 from typing import Self
 from uuid import UUID
 
 from pydantic import AnyHttpUrl, Field, PostgresDsn, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Resolve the development .env from the package rather than the process working
+# directory, so the API starts the same way from any directory. The relative
+# entry is kept first so an explicitly placed .env still wins, and a missing file
+# is simply ignored, which is how the container runs.
+_PACKAGE_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="PERSONAL_OS_API_",
-        env_file=".env",
+        env_file=(".env", _PACKAGE_ENV_FILE),
         extra="forbid",
     )
 

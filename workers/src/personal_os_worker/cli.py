@@ -19,7 +19,7 @@ from personal_os_worker.runner import run_worker
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="personal-os-worker",
+        prog="hunt",
         description="Foreground Personal OS Jobs worker. It never submits applications.",
     )
     parser.add_argument("--version", action="version", version=__version__)

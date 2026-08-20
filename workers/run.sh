@@ -40,7 +40,7 @@ if ! curl --silent --fail "$cdp_url/json/version" >/dev/null 2>&1; then
 fi
 
 cd "$worker_dir"
-if ! UV_CACHE_DIR=.uv-cache uv run personal-os-worker doctor; then
+if ! UV_CACHE_DIR=.uv-cache uv run hunt doctor; then
   echo "Runner preflight has failures; continuing so hosted outages can recover automatically." >&2
 fi
-exec env UV_CACHE_DIR=.uv-cache uv run personal-os-worker run
+exec env UV_CACHE_DIR=.uv-cache uv run hunt run

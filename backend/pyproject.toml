@@ -15,6 +15,9 @@ dependencies = [
   "uvicorn[standard]>=0.35,<1",
 ]
 
+[project.scripts]
+personal-os-api = "personal_os.__main__:main"
+
 [dependency-groups]
 dev = [
   "mypy>=1.17,<2",

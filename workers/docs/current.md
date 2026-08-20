@@ -125,5 +125,22 @@ accepted from the browser and `auth.py` needed no change.
 - Worker Ruff, mypy, and all 30 tests pass, including 8 new auth tests covering
   the PKCE challenge, expiry margin, session round-trip, and failure paths.
 
-Still to do: the CLI is still named `personal-os-worker`, and the read commands
-(`listings`, `apps`) are not built yet.
+Installed on PATH, 2026-08-19:
+
+- The console script is `hunt`, installed with `uv tool install --editable
+  ./workers` into `~/.local/bin`, which is already on PATH and is also uv's tool
+  bin directory. Editable means source changes take effect without reinstalling.
+- The name is not `jobs`. `jobs` is a POSIX shell builtin and builtins are
+  resolved before PATH, so the executable was installed correctly and still
+  unreachable from any interactive shell. `hunt` has no builtin or coreutils
+  collision, and `~/.local/bin` precedes `/usr/games`, where the only similarly
+  named program lives.
+- The API installs the same way from `./backend` and exposes `personal-os-api`,
+  which defaults to `127.0.0.1:8000` and accepts `--reload`.
+- `Settings` previously read `.env` relative to the process working directory, so
+  the API only started from `backend/`. It now also resolves the file from the
+  package directory, and a missing file is ignored, which is how the container
+  runs. Verified by starting the API from `/tmp` and running `hunt whoami` from
+  the home directory.
+
+Still to do: the read commands (`listings`, `apps`) are not built yet.

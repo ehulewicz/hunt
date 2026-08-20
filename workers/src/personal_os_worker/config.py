@@ -47,7 +47,7 @@ def load_config() -> WorkerConfig:
             cdp_url=str(data.get("cdp_url", "http://127.0.0.1:9333")),
         )
     except (FileNotFoundError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-        raise RuntimeError("Worker is not paired. Run personal-os-worker pair first.") from error
+        raise RuntimeError("Worker is not paired. Run hunt pair first.") from error
 
 
 @dataclass(frozen=True, slots=True)

@@ -242,7 +242,7 @@ def active_session(auth: SupabaseAuth) -> Session:
     """Return a usable session, refreshing and re-saving it when it has aged out."""
     session = load_session()
     if session is None:
-        raise LoginError("Not signed in. Run 'jobs login' first.")
+        raise LoginError("Not signed in. Run 'hunt login' first.")
     if not session.expired:
         return session
     refreshed = refresh(auth, session)

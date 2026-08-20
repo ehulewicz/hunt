@@ -10,7 +10,7 @@ dependencies = [
 ]
 
 [project.scripts]
-personal-os-worker = "personal_os_worker.cli:main"
+hunt = "personal_os_worker.cli:main"
 
 [dependency-groups]
 dev = ["mypy>=1.17,<2", "pytest>=8.4,<9", "ruff>=0.12,<1"]
