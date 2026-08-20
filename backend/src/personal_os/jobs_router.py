@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import hashlib
 import re
-from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import httpx
-import jwt
 from fastapi import (
     APIRouter,
     Depends,
@@ -22,7 +19,6 @@ from fastapi import (
 )
 
 from personal_os.auth import CurrentPrincipal
-from personal_os.config import Settings
 from personal_os.jobs_models import (
     AnswerLibraryCreate,
     AnswerLibraryItem,
@@ -42,16 +38,12 @@ from personal_os.jobs_models import (
     WorkerApplicationBundle,
     WorkerClaimRequest,
     WorkerClaimResponse,
-    WorkerCredential,
-    WorkerCredentialCreate,
-    WorkerCredentialIssued,
     WorkerHeartbeatRequest,
     WorkerTaskFailure,
     WorkerTaskResult,
 )
 from personal_os.jobs_storage import JobsDocumentStorage
 from personal_os.jobs_store import JobsStore, get_jobs_store
-from personal_os.worker_auth import CurrentWorker
 
 router = APIRouter(prefix="/v1/jobs", tags=["jobs"])
 Store = Annotated[JobsStore, Depends(get_jobs_store)]
@@ -271,70 +263,11 @@ async def update_answer(
     return answer
 
 
-@router.post(
-    "/worker-credentials",
-    response_model=WorkerCredentialIssued,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_worker_credential(
-    payload: WorkerCredentialCreate,
-    request: Request,
-    principal: CurrentPrincipal,
-    store: Store,
-) -> WorkerCredentialIssued:
-    settings: Settings = request.app.state.settings
-    secret = settings.worker_jwt_secret
-    if secret is None:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Worker pairing is unavailable")
-    credential_id = uuid4()
-    issued_at = datetime.now(UTC)
-    expires_at = issued_at + timedelta(days=settings.worker_token_lifetime_days)
-    token = jwt.encode(
-        {
-            "sub": str(principal.user_id),
-            "email": principal.email,
-            "jti": str(credential_id),
-            "scope": "jobs:worker",
-            "iss": settings.worker_jwt_issuer,
-            "aud": settings.worker_jwt_audience,
-            "iat": issued_at,
-            "exp": expires_at,
-        },
-        secret.get_secret_value(),
-        algorithm="HS256",
-    )
-    token_text = token.decode() if isinstance(token, bytes) else token
-    credential = await store.create_worker_credential(
-        principal.user_id,
-        credential_id=credential_id,
-        name=payload.name,
-        token_hash=hashlib.sha256(token_text.encode()).hexdigest(),
-        expires_at=expires_at,
-    )
-    return WorkerCredentialIssued(**credential.model_dump(), token=token_text)
-
-
-@router.get("/worker-credentials", response_model=list[WorkerCredential])
-async def list_worker_credentials(
-    principal: CurrentPrincipal, store: Store
-) -> list[WorkerCredential]:
-    return await store.list_worker_credentials(principal.user_id)
-
-
-@router.delete("/worker-credentials/{credential_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def revoke_worker_credential(
-    credential_id: UUID, principal: CurrentPrincipal, store: Store
-) -> Response:
-    if not await store.revoke_worker_credential(principal.user_id, credential_id):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Worker credential not found")
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
 @router.post("/worker/tasks/claim", response_model=WorkerClaimResponse)
 async def claim_worker_task(
-    payload: WorkerClaimRequest, worker: CurrentWorker, store: Store
+    payload: WorkerClaimRequest, principal: CurrentPrincipal, store: Store
 ) -> WorkerClaimResponse:
-    return WorkerClaimResponse(task=await store.claim_task(worker.user_id, payload.worker_id))
+    return WorkerClaimResponse(task=await store.claim_task(principal.user_id, payload.worker_id))
 
 
 @router.get(
@@ -342,9 +275,9 @@ async def claim_worker_task(
     response_model=WorkerApplicationBundle,
 )
 async def get_worker_application_bundle(
-    application_id: UUID, worker: CurrentWorker, store: Store
+    application_id: UUID, principal: CurrentPrincipal, store: Store
 ) -> WorkerApplicationBundle:
-    bundle = await store.get_worker_application_bundle(worker.user_id, application_id)
+    bundle = await store.get_worker_application_bundle(principal.user_id, application_id)
     if bundle is None:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -354,18 +287,18 @@ async def get_worker_application_bundle(
 
 
 @router.get("/worker/doctor")
-async def worker_doctor(worker: CurrentWorker) -> dict[str, str]:
-    return {"status": "ok", "user_id": str(worker.user_id)}
+async def worker_doctor(principal: CurrentPrincipal) -> dict[str, str]:
+    return {"status": "ok", "user_id": str(principal.user_id)}
 
 
 @router.get("/worker/applications/{application_id}/resume")
 async def download_worker_resume(
     application_id: UUID,
     request: Request,
-    worker: CurrentWorker,
+    principal: CurrentPrincipal,
     store: Store,
 ) -> Response:
-    stored = await store.get_approved_resume_storage_path(worker.user_id, application_id)
+    stored = await store.get_approved_resume_storage_path(principal.user_id, application_id)
     if stored is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Approved tailored resume not found")
     path, title = stored
@@ -387,9 +320,9 @@ async def download_worker_resume(
 
 @router.get("/worker/documents/{document_id}")
 async def get_worker_document(
-    document_id: UUID, worker: CurrentWorker, store: Store
+    document_id: UUID, principal: CurrentPrincipal, store: Store
 ) -> Response:
-    content = await store.get_master_resume_draft_content(worker.user_id, document_id)
+    content = await store.get_master_resume_draft_content(principal.user_id, document_id)
     if content is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Main resume draft not found")
     return Response(content, media_type="application/json")
@@ -399,16 +332,18 @@ async def get_worker_document(
 async def upload_worker_pdf(
     task_id: UUID,
     request: Request,
-    worker: CurrentWorker,
+    principal: CurrentPrincipal,
     store: Store,
     document: Annotated[UploadFile, File()],
     worker_id: Annotated[str, Form(min_length=1, max_length=120)],
 ) -> dict[str, str]:
-    application_id = await store.get_worker_task_application_id(worker.user_id, task_id, worker_id)
+    application_id = await store.get_worker_task_application_id(
+        principal.user_id, task_id, worker_id
+    )
     preview_document_id = (
         None
         if application_id is not None
-        else await store.get_worker_task_document_id(worker.user_id, task_id, worker_id)
+        else await store.get_worker_task_document_id(principal.user_id, task_id, worker_id)
     )
     if application_id is None and preview_document_id is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Worker task is no longer active")
@@ -418,9 +353,9 @@ async def upload_worker_pdf(
     if document.content_type != "application/pdf" or not content.startswith(b"%PDF-"):
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "Only PDF files are accepted")
     path = (
-        f"{worker.user_id}/applications/{application_id}/{task_id}.pdf"
+        f"{principal.user_id}/applications/{application_id}/{task_id}.pdf"
         if application_id is not None
-        else f"{worker.user_id}/resumes/{preview_document_id}/{task_id}.pdf"
+        else f"{principal.user_id}/resumes/{preview_document_id}/{task_id}.pdf"
     )
     try:
         await JobsDocumentStorage(request.app.state.settings).upload_pdf(path, content)
@@ -437,10 +372,10 @@ async def upload_worker_pdf(
 async def heartbeat_worker_task(
     task_id: UUID,
     payload: WorkerHeartbeatRequest,
-    worker: CurrentWorker,
+    principal: CurrentPrincipal,
     store: Store,
 ) -> Response:
-    if not await store.heartbeat_task(worker.user_id, task_id, payload.worker_id):
+    if not await store.heartbeat_task(principal.user_id, task_id, payload.worker_id):
         raise HTTPException(status.HTTP_409_CONFLICT, "Worker task lease is no longer active")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -449,10 +384,10 @@ async def heartbeat_worker_task(
 async def complete_worker_task(
     task_id: UUID,
     payload: WorkerTaskResult,
-    worker: CurrentWorker,
+    principal: CurrentPrincipal,
     store: Store,
 ) -> Response:
-    if not await store.complete_task(worker.user_id, task_id, payload.worker_id, payload.result):
+    if not await store.complete_task(principal.user_id, task_id, payload.worker_id, payload.result):
         raise HTTPException(status.HTTP_409_CONFLICT, "Worker task is no longer active")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -461,11 +396,11 @@ async def complete_worker_task(
 async def fail_worker_task(
     task_id: UUID,
     payload: WorkerTaskFailure,
-    worker: CurrentWorker,
+    principal: CurrentPrincipal,
     store: Store,
 ) -> Response:
     if not await store.fail_task(
-        worker.user_id,
+        principal.user_id,
         task_id,
         payload.worker_id,
         payload.error_message,

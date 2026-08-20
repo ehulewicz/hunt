@@ -29,8 +29,6 @@ class Settings(BaseSettings):
     database_pool_max_size: int = Field(default=4, ge=1)
     database_pool_timeout_seconds: float = Field(default=10.0, gt=0)
     cors_allowed_origins: list[str] = Field(default_factory=list)
-    worker_jwt_secret: SecretStr | None = None
-    worker_token_lifetime_days: int = Field(default=30, ge=1, le=365)
     supabase_secret_key: SecretStr | None = None
 
     @field_validator("allowed_email")
@@ -54,11 +52,3 @@ class Settings(BaseSettings):
     @property
     def jwks_url(self) -> str:
         return f"{self.jwt_issuer}/.well-known/jwks.json"
-
-    @property
-    def worker_jwt_issuer(self) -> str:
-        return "personal-os-api"
-
-    @property
-    def worker_jwt_audience(self) -> str:
-        return "personal-os-jobs-worker"

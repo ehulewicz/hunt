@@ -6,14 +6,16 @@ from uuid import UUID
 
 import httpx
 
-from personal_os_worker.config import WorkerConfig
+from personal_os_worker.config import CliConfig
 
 
 class WorkerApi:
-    def __init__(self, config: WorkerConfig) -> None:
+    """Client for the local API, authenticated with the signed-in Google session."""
+
+    def __init__(self, config: CliConfig, access_token: str) -> None:
         self._client = httpx.Client(
             base_url=config.api_url,
-            headers={"Authorization": f"Bearer {config.token}"},
+            headers={"Authorization": f"Bearer {access_token}"},
             timeout=30.0,
             follow_redirects=True,
         )

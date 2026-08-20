@@ -337,24 +337,6 @@ class AnswerLibraryUpdate(BaseModel):
         return self
 
 
-class WorkerCredentialCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=80)
-
-
-class WorkerCredential(BaseModel):
-    id: UUID
-    name: str
-    scopes: list[str]
-    expires_at: datetime
-    last_used_at: datetime | None
-    revoked_at: datetime | None
-    created_at: datetime
-
-
-class WorkerCredentialIssued(WorkerCredential):
-    token: str
-
-
 class WorkerTask(BaseModel):
     id: UUID
     task_type: str

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -29,7 +28,6 @@ from personal_os.jobs_models import (
     ListingSyncResponse,
     MasterResumeContent,
     WorkerApplicationBundle,
-    WorkerCredential,
     WorkerTask,
 )
 from personal_os.jobs_sources import SOURCE_NAME, SourceListing
@@ -109,24 +107,6 @@ class JobsStore(Protocol):
     async def update_answer(
         self, user_id: UUID, answer_id: UUID, item: AnswerLibraryUpdate
     ) -> AnswerLibraryItem | None: ...
-
-    async def create_worker_credential(
-        self,
-        user_id: UUID,
-        *,
-        credential_id: UUID,
-        name: str,
-        token_hash: str,
-        expires_at: datetime,
-    ) -> WorkerCredential: ...
-
-    async def list_worker_credentials(self, user_id: UUID) -> list[WorkerCredential]: ...
-
-    async def revoke_worker_credential(self, user_id: UUID, credential_id: UUID) -> bool: ...
-
-    async def validate_worker_credential(
-        self, user_id: UUID, credential_id: UUID, token: str
-    ) -> bool: ...
 
     async def claim_task(self, user_id: UUID, worker_id: str) -> WorkerTask | None: ...
 
@@ -1091,87 +1071,6 @@ class PostgresJobsStore:
             )
             row = await cursor.fetchone()
         return AnswerLibraryItem.model_validate(row) if row else None
-
-    async def create_worker_credential(
-        self,
-        user_id: UUID,
-        *,
-        credential_id: UUID,
-        name: str,
-        token_hash: str,
-        expires_at: datetime,
-    ) -> WorkerCredential:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                """
-                insert into app.jobs_worker_credentials (
-                  id, user_id, name, token_hash, expires_at
-                ) values (%s, %s, %s, %s, %s)
-                returning id, name, scopes, expires_at, last_used_at, revoked_at, created_at
-                """,
-                (credential_id, user_id, name, token_hash, expires_at),
-            )
-            row = await cursor.fetchone()
-        if row is None:
-            raise RuntimeError("Credential insert did not return a row")
-        return WorkerCredential.model_validate(row)
-
-    async def list_worker_credentials(self, user_id: UUID) -> list[WorkerCredential]:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                """
-                select id, name, scopes, expires_at, last_used_at, revoked_at, created_at
-                from app.jobs_worker_credentials
-                where user_id = %s
-                order by created_at desc
-                """,
-                (user_id,),
-            )
-            rows = await cursor.fetchall()
-        return [WorkerCredential.model_validate(row) for row in rows]
-
-    async def revoke_worker_credential(self, user_id: UUID, credential_id: UUID) -> bool:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                """
-                update app.jobs_worker_credentials set revoked_at = now()
-                where id = %s and user_id = %s and revoked_at is null
-                """,
-                (credential_id, user_id),
-            )
-        return int(cursor.rowcount) == 1
-
-    async def validate_worker_credential(
-        self, user_id: UUID, credential_id: UUID, token: str
-    ) -> bool:
-        token_hash = hashlib.sha256(token.encode()).hexdigest()
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                """
-                update app.jobs_worker_credentials
-                set last_used_at = now()
-                where id = %s and user_id = %s and token_hash = %s
-                  and revoked_at is null and expires_at > now()
-                """,
-                (credential_id, user_id, token_hash),
-            )
-        return int(cursor.rowcount) == 1
 
     async def claim_task(self, user_id: UUID, worker_id: str) -> WorkerTask | None:
         async with (

@@ -84,3 +84,21 @@ Supabase auth configuration, read through the Management API using
   verified the resulting `ES256` Supabase JWT against JWKS, the allowed-account
   check passed, and `GET /v1/jobs/listings` returned 392 open listings from
   hosted Postgres. Nothing about database access changed.
+
+
+## Worker authentication collapsed, 2026-08-19
+
+The CLI, the runner, and the browser are one process tree on one machine
+authenticated as the account owner, so the second credential system had nothing
+left to separate.
+
+- `worker_auth.py` is deleted. Every `/v1/jobs/worker/*` endpoint now takes
+  `CurrentPrincipal`, so it verifies a Supabase Google JWT against JWKS and
+  applies the same allowed-account check as the rest of the API.
+- The worker-credential endpoints, models, and store methods are removed, along
+  with the now-unused `worker_jwt_secret` and `worker_token_lifetime_days`
+  settings and the heartbeat-adjacent credential validation.
+- `app.jobs_worker_credentials` is now unused. Dropping it is a separate
+  migration, not yet applied, and is tracked with the leasing removal.
+- Backend Ruff, mypy, and all 35 tests pass. Verified live: `hunt doctor` reports
+  `Local API accepted the session`, which exercises `/v1/jobs/worker/doctor`.

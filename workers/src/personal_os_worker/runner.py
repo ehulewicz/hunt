@@ -15,7 +15,7 @@ from playwright.sync_api import Error as PlaywrightError
 from personal_os_worker.api import WorkerApi
 from personal_os_worker.browser import VisibleBrowser
 from personal_os_worker.claude_tailor import tailor_resume
-from personal_os_worker.config import WorkerConfig
+from personal_os_worker.config import CliConfig
 from personal_os_worker.resume_guard import UnsafeResumeChange
 from personal_os_worker.resume_pdf import compile_resume
 
@@ -105,9 +105,9 @@ def claim_with_backoff(
             delay_seconds = min(delay_seconds * 2, 30.0)
 
 
-def run_worker(config: WorkerConfig, *, once: bool = False) -> int:
+def run_worker(config: CliConfig, access_token: str, *, once: bool = False) -> int:
     worker_id = f"{socket.gethostname()}-{os.getpid()}"
-    api = WorkerApi(config)
+    api = WorkerApi(config, access_token)
     try:
         while True:
             task = claim_with_backoff(api, worker_id, once=once)
@@ -156,7 +156,7 @@ def process_resume_preview(
 
 
 def process_task(
-    api: WorkerApi, config: WorkerConfig, worker_id: str, task: dict[str, Any]
+    api: WorkerApi, config: CliConfig, worker_id: str, task: dict[str, Any]
 ) -> None:
     task_id = UUID(str(task["id"]))
     try:

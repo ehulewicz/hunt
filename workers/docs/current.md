@@ -143,4 +143,26 @@ Installed on PATH, 2026-08-19:
   runs. Verified by starting the API from `/tmp` and running `hunt whoami` from
   the home directory.
 
+## Legacy pairing removed and services self-start, 2026-08-19
+
+The second credential system is gone and the CLI manages its own dependencies, so
+the whole workflow is `hunt` and nothing else.
+
+- `pair`, `WorkerConfig`, and the token file are deleted. `run` and `doctor` use
+  the Google session, so the command surface is `login`, `whoami`, `run`, `doctor`.
+- Every command that talks to the API goes through `cli.connected()`, which loads
+  configuration, guarantees the API is up, and returns a fresh access token.
+- `service.ensure_running` starts `personal-os-api` detached with
+  `start_new_session=True`, so it outlives the CLI invocation and the next command
+  reuses it. Logs go to `~/.local/state/personal-os/api.log`.
+- `service.ensure_chrome` does the same for the automation browser, so `run` no
+  longer depends on `run.sh`. `run.sh` is now a one-line wrapper kept only for the
+  PowerShell entry point.
+- Measured: cold start is about 4 seconds and prints what it is starting; a warm
+  call is about 0.4 seconds and prints nothing.
+- Verified from the home directory with nothing running: one `hunt run --once`
+  started the API and Chrome and exited cleanly, and `hunt doctor` then reported
+  all six checks green, including `Local API: accepted the session`, which is the
+  proof that the collapsed worker endpoints take the Google token.
+
 Still to do: the read commands (`listings`, `apps`) are not built yet.

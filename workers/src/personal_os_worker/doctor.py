@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import httpx
 
 from personal_os_worker.api import WorkerApi
-from personal_os_worker.config import WorkerConfig
+from personal_os_worker.config import CliConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,15 +17,15 @@ class DoctorCheck:
     detail: str
 
 
-def run_doctor(config: WorkerConfig) -> list[DoctorCheck]:
-    checks = [DoctorCheck("Pairing", True, "Worker configuration loaded")]
-    api = WorkerApi(config)
+def run_doctor(config: CliConfig, access_token: str) -> list[DoctorCheck]:
+    checks = [DoctorCheck("Sign-in", True, "Google session loaded")]
+    api = WorkerApi(config, access_token)
     try:
         try:
             api.doctor()
-            checks.append(DoctorCheck("Hosted API", True, "Worker credential accepted"))
+            checks.append(DoctorCheck("Local API", True, f"{config.api_url} accepted the session"))
         except httpx.HTTPError as error:
-            checks.append(DoctorCheck("Hosted API", False, _safe_http_error(error)))
+            checks.append(DoctorCheck("Local API", False, _safe_http_error(error)))
     finally:
         api.close()
 

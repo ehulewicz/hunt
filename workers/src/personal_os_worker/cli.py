@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import getpass
 from collections.abc import Sequence
+
+import httpx
 
 from personal_os_worker import __version__
 from personal_os_worker.auth import (
@@ -12,61 +13,63 @@ from personal_os_worker.auth import (
     login,
     save_session,
 )
-from personal_os_worker.config import WorkerConfig, load_cli_config, load_config, save_config
+from personal_os_worker.config import CliConfig, load_cli_config
 from personal_os_worker.doctor import run_doctor
 from personal_os_worker.runner import run_worker
+from personal_os_worker.service import (
+    ApiUnavailable,
+    ChromeUnavailable,
+    ensure_chrome,
+    ensure_running,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hunt",
-        description="Foreground Personal OS Jobs worker. It never submits applications.",
+        description="Local Jobs CLI. It never submits applications.",
     )
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)
 
-    pair = commands.add_parser("pair", help="Store a revocable worker token locally")
-    pair.add_argument("--api-url", required=True)
-    pair.add_argument("--cdp-url", default="http://127.0.0.1:9333")
-
     commands.add_parser("login", help="Sign in with Google through Supabase")
     commands.add_parser("whoami", help="Show the signed-in account")
 
-    run = commands.add_parser("run", help="Claim and execute Jobs tasks in the foreground")
+    run = commands.add_parser("run", help="Execute queued Jobs tasks in the foreground")
     run.add_argument("--once", action="store_true", help="Exit after one task or empty poll")
-    commands.add_parser("doctor", help="Check pairing, Chrome, Claude, and PDF tools")
+    commands.add_parser("doctor", help="Check sign-in, the API, Chrome, Claude, and PDF tools")
     return parser
 
 
-def supabase_auth() -> SupabaseAuth:
+def supabase_auth(config: CliConfig) -> SupabaseAuth:
+    return SupabaseAuth(url=config.supabase_url, publishable_key=config.supabase_publishable_key)
+
+
+def connected() -> tuple[CliConfig, str]:
+    """Load configuration, guarantee the API is up, and return a fresh access token.
+
+    Every command that talks to the API goes through here, so the API is a
+    dependency the CLI manages rather than a second process to remember.
+    """
     config = load_cli_config()
-    return SupabaseAuth(
-        url=config.supabase_url,
-        publishable_key=config.supabase_publishable_key,
-    )
+    ensure_running(config.api_url)
+    session = active_session(supabase_auth(config))
+    return config, session.access_token
 
 
 def run_login() -> int:
-    try:
-        session = login(supabase_auth())
-    except (LoginError, RuntimeError) as error:
-        raise SystemExit(str(error)) from None
+    config = load_cli_config()
+    session = login(supabase_auth(config))
     path = save_session(session)
     print(f"Signed in. Session stored at {path}")
     return 0
 
 
 def run_whoami() -> int:
-    import httpx
-
-    try:
-        config = load_cli_config()
-        session = active_session(supabase_auth())
-    except (LoginError, RuntimeError) as error:
-        raise SystemExit(str(error)) from None
+    config, access_token = connected()
     response = httpx.get(
         f"{config.api_url}/v1/me",
-        headers={"Authorization": f"Bearer {session.access_token}"},
+        headers={"Authorization": f"Bearer {access_token}"},
         timeout=30.0,
     )
     if response.status_code != 200:
@@ -78,34 +81,28 @@ def run_whoami() -> int:
     return 0
 
 
+def run_doctor_command() -> int:
+    config, access_token = connected()
+    checks = run_doctor(config, access_token)
+    for check in checks:
+        print(f"[{'OK' if check.ok else 'FAIL'}] {check.name}: {check.detail}")
+    return 0 if all(check.ok for check in checks) else 1
+
+
 def main(arguments: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(arguments)
-    if args.command == "pair":
-        token = getpass.getpass("Worker token (input hidden): ").strip()
-        if not token:
-            raise SystemExit("Worker token is required")
-        path = save_config(
-            WorkerConfig(
-                api_url=args.api_url.rstrip("/"),
-                token=token,
-                cdp_url=args.cdp_url,
-            )
-        )
-        print(f"Worker paired. Configuration stored at {path}")
-        return 0
-    if args.command == "login":
-        return run_login()
-    if args.command == "whoami":
-        return run_whoami()
     try:
-        if args.command == "run":
-            return run_worker(load_config(), once=args.once)
+        if args.command == "login":
+            return run_login()
+        if args.command == "whoami":
+            return run_whoami()
         if args.command == "doctor":
-            checks = run_doctor(load_config())
-            for check in checks:
-                marker = "OK" if check.ok else "FAIL"
-                print(f"[{marker}] {check.name}: {check.detail}")
-            return 0 if all(check.ok for check in checks) else 1
-    except RuntimeError as error:
+            return run_doctor_command()
+        if args.command == "run":
+            config, access_token = connected()
+            # Tasks drive the visible browser, so Chrome is a dependency too.
+            ensure_chrome(config.cdp_url)
+            return run_worker(config, access_token, once=args.once)
+    except (LoginError, ApiUnavailable, ChromeUnavailable, RuntimeError) as error:
         raise SystemExit(str(error)) from None
     return 2
