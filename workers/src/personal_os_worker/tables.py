@@ -96,12 +96,13 @@ def render_listings(items: list[dict[str, Any]], total: int) -> None:
         header_style="bold",
         box=box.SIMPLE_HEAD,
         padding=(0, 1),
+        expand=True,
     )
     table.add_column("#", justify="right", style="dim")
     table.add_column("id", style="dim", no_wrap=True)
-    table.add_column("company", no_wrap=True, overflow="ellipsis", max_width=20)
-    table.add_column("title", no_wrap=True, overflow="ellipsis", max_width=44)
-    table.add_column("location", no_wrap=True, overflow="ellipsis", max_width=18)
+    table.add_column("company", no_wrap=True, overflow="ellipsis")
+    table.add_column("title", no_wrap=True, overflow="ellipsis", ratio=1)
+    table.add_column("location", no_wrap=True, overflow="ellipsis")
     table.add_column("age", justify="right", no_wrap=True)
     table.add_column("cat", no_wrap=True)
     table.add_column("app", no_wrap=True)
@@ -128,11 +129,12 @@ def render_applications(items: list[dict[str, Any]]) -> None:
         header_style="bold",
         box=box.SIMPLE_HEAD,
         padding=(0, 1),
+        expand=True,
     )
     table.add_column("#", justify="right", style="dim")
     table.add_column("id", style="dim", no_wrap=True)
-    table.add_column("company", no_wrap=True, overflow="ellipsis", max_width=20)
-    table.add_column("title", no_wrap=True, overflow="ellipsis", max_width=38)
+    table.add_column("company", no_wrap=True, overflow="ellipsis")
+    table.add_column("title", no_wrap=True, overflow="ellipsis", ratio=1)
     table.add_column("status", no_wrap=True)
     table.add_column("prep", no_wrap=True)
     table.add_column("autofill", no_wrap=True)

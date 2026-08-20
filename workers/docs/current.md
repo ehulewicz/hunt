@@ -226,3 +226,42 @@ Chrome stop path faked against a Windows process query.
 
 Still to do: `os hunt prep` has not been run against live data, so no new
 application has been created through the CLI yet.
+
+
+## Silent preparation failure, found 2026-08-19
+
+The first live `os hunt prep` plus `os hunt run` reported `1 done, 0 failed`
+while accomplishing nothing. Chrome had landed on Zipline's `open-roles` index
+rather than the posting, so there was no application to fill in.
+
+Root cause: `capture_application` returned whatever page it reached and nothing
+checked it. A careers index answers 200 and yields plenty of body text, so it is
+indistinguishable from a real posting. Tailoring then ran against the roles list
+as if it were a job description, the resume compiled, the PDF uploaded, and the
+task completed. Every step succeeded; the outcome was worthless.
+
+Fixed now: `looks_like_application_form` requires either a file input or at least
+three identifying contact inputs, and preparation raises
+`ApplicationFormNotFound` otherwise. A wrong link now fails loudly, records
+`preparation_error`, and leaves the page open in Chrome. The stored URL for that
+listing was `zipline.com/open-roles?gh_jid=7886501003`; the `gh_jid` deep link did
+not resolve to the posting even though both matching roles are visible on the
+page.
+
+Still to design, in the user's order of preference:
+
+1. When no form is found, search the careers page for the role title before
+   giving up. Zipline's own search finds both `Enterprise Systems Software
+   Engineer Intern` postings for Spring and Summer 2027.
+2. When the search returns several plausible postings, ask which to apply to
+   rather than guessing. Two variants of one role is the normal case, not an edge
+   case.
+3. When the search finds nothing, stop and hand the task back with the page open,
+   rather than reporting success or failing silently.
+
+An agentic fallback that drives the page directly was raised as the mechanism for
+step 1. That is a design decision, not a detail: it widens what the runner is
+allowed to do on a company site, so it needs its own brainstorm before any code.
+
+Also fixed: tables set `expand=True` with a flexible title column. Fixed
+`max_width` values truncated titles even on a wide terminal.

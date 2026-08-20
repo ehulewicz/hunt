@@ -96,6 +96,30 @@ class VisibleBrowser:
         }
 
 
+def looks_like_application_form(fields: list[dict[str, str | bool | None]]) -> bool:
+    """Whether a captured page actually offers an application to fill in.
+
+    A company careers index answers HTTP 200 and yields plenty of text, so
+    without this check a listing page is indistinguishable from a real form and
+    preparation reports success having accomplished nothing.
+    """
+    if not fields:
+        return False
+    if any(str(field.get("type") or "").casefold() == "file" for field in fields):
+        return True
+    identifying = {"name", "first", "last", "email", "phone", "resume", "cv"}
+    entries = 0
+    for field in fields:
+        if str(field.get("tag") or "") != "input":
+            continue
+        if str(field.get("type") or "text").casefold() not in {"text", "email", "tel"}:
+            continue
+        haystack = f"{field.get('label') or ''} {field.get('name') or ''}".casefold()
+        if any(token in haystack for token in identifying):
+            entries += 1
+    return entries >= 3
+
+
 def inspect_fields(page: Page) -> list[dict[str, str | bool | None]]:
     result = page.locator("input, textarea, select").evaluate_all(
         """
