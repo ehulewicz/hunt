@@ -1,4 +1,5 @@
 from personal_os_worker.autofill import build_autofill_plan
+from personal_os_worker.browser import audit_filled_form
 
 
 def test_autofill_uses_profile_resume_and_exact_approved_long_form_answers() -> None:
@@ -51,6 +52,32 @@ def test_autofill_uses_profile_resume_and_exact_approved_long_form_answers() -> 
         (2, "resume", None),
         (3, "text", "Because the work matters."),
     ]
+
+
+def test_autofill_matches_the_api_answer_shape_and_harmless_punctuation() -> None:
+    fields = [
+        {
+            "index": 0,
+            "tag": "textarea",
+            "type": None,
+            "name": "goals",
+            "label": "What are your career goals",
+            "required": True,
+        }
+    ]
+    plan = build_autofill_plan(
+        fields,
+        profile={},
+        approved_answers=[
+            {
+                "question": "What are your career goals?",
+                "answer_text": "Build useful systems.",
+                "approved": True,
+            }
+        ],
+    )
+
+    assert [(item.index, item.value) for item in plan.fills] == [(0, "Build useful systems.")]
     assert plan.unanswered_required_questions == ()
 
 
@@ -94,7 +121,10 @@ def test_autofill_leaves_unknown_eeo_consent_and_non_exact_answers_empty() -> No
         fields,
         profile={"eeo_gender_identity": "Man"},
         approved_answers=[
-            {"normalized_question": "Why do you want this role", "answer_text": "Near match only."}
+            {
+                "normalized_question": "Why do you want this company?",
+                "answer_text": "Related category, but not an exact question.",
+            }
         ],
     )
 
@@ -351,6 +381,47 @@ def test_autofill_does_not_upload_resume_inside_sensitive_group() -> None:
 
     assert plan.fills == ()
     assert plan.unanswered_required_questions == ("Resume",)
+
+
+def test_extension_audit_reports_presence_without_copying_values() -> None:
+    audit = audit_filled_form(
+        [
+            {
+                "index": 0,
+                "type": "text",
+                "label": "Email",
+                "required": True,
+                "filled": True,
+            },
+            {
+                "index": 1,
+                "type": "text",
+                "label": "Portfolio",
+                "required": True,
+                "filled": False,
+            },
+            {
+                "index": 2,
+                "type": "radio",
+                "label": "Veteran status",
+                "required": False,
+                "filled": True,
+            },
+            {
+                "index": 3,
+                "type": "submit",
+                "label": "Submit application",
+                "required": False,
+                "filled": True,
+            },
+        ]
+    )
+
+    assert audit == {
+        "filled_fields": ["Email", "Veteran status"],
+        "required_unfilled": ["Portfolio"],
+        "sensitive_filled": ["Veteran status"],
+    }
 
 
 def test_autofill_leaves_duplicate_exact_answers_empty_as_ambiguous() -> None:

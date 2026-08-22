@@ -33,8 +33,10 @@ from personal_os.jobs_models import (
     JobListingPage,
     JobsProfile,
     JobsProfileUpdate,
+    ListingSyncResponse,
     MasterResumeContent,
     ResumePreviewResponse,
+    RoleFamily,
     WorkerApplicationBundle,
     WorkerClaimRequest,
     WorkerClaimResponse,
@@ -42,8 +44,10 @@ from personal_os.jobs_models import (
     WorkerTaskFailure,
     WorkerTaskResult,
 )
+from personal_os.jobs_sources import SpeedyApplySource
 from personal_os.jobs_storage import JobsDocumentStorage
 from personal_os.jobs_store import JobsStore, get_jobs_store
+from personal_os.jobs_sync import run_sync
 
 router = APIRouter(prefix="/v1/jobs", tags=["jobs"])
 Store = Annotated[JobsStore, Depends(get_jobs_store)]
@@ -70,12 +74,14 @@ async def list_listings(
     store: Store,
     category: Annotated[Literal["faang", "quant"] | None, Query()] = None,
     locations: Annotated[list[str] | None, Query()] = None,
+    role_families: Annotated[list[RoleFamily] | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> JobListingPage:
     normalized_locations = list(
         dict.fromkeys(location.strip() for location in locations or [] if location.strip())
     )
+    normalized_role_families = list(dict.fromkeys(role_families or []))
     if len(normalized_locations) > 50 or any(
         len(location) > 200 for location in normalized_locations
     ):
@@ -84,9 +90,23 @@ async def list_listings(
         principal.user_id,
         category=category,
         locations=normalized_locations,
+        role_families=normalized_role_families,
         limit=limit,
         offset=offset,
     )
+
+
+@router.post("/listings/sync", response_model=ListingSyncResponse)
+async def sync_listings(principal: CurrentPrincipal, store: Store) -> ListingSyncResponse:
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            return await run_sync(principal.user_id, SpeedyApplySource(client), store)
+    except httpx.HTTPError as error:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, "Listing source could not be fetched"
+        ) from error
+    except RuntimeError as error:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(error)) from error
 
 
 @router.post(
@@ -97,7 +117,9 @@ async def list_listings(
 async def batch_prepare(
     request: BatchPrepareRequest, principal: CurrentPrincipal, store: Store
 ) -> BatchPrepareResponse:
-    response = await store.prepare_applications(principal.user_id, request.posting_ids)
+    response = await store.prepare_applications(
+        principal.user_id, request.posting_ids, tailor=request.tailor
+    )
     if not response.application_ids:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No eligible listings were selected")
     return response

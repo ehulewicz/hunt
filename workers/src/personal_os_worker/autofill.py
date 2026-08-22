@@ -105,6 +105,11 @@ def normalize_question(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip().casefold()
 
 
+def normalize_answer_question(value: str) -> str:
+    """Normalize harmless punctuation differences for exact answer reuse."""
+    return re.sub(r"[^a-z0-9+#]+", " ", value.casefold()).strip()
+
+
 def is_sensitive_field(field: dict[str, Any]) -> bool:
     context = normalize_question(
         " ".join(str(field.get(key) or "") for key in ("label", "name", "group"))
@@ -123,7 +128,9 @@ def build_autofill_plan(
 ) -> AutofillPlan:
     answer_candidates: dict[str, list[str]] = {}
     for item in approved_answers:
-        question = normalize_question(str(item.get("normalized_question", "")))
+        question = normalize_answer_question(
+            str(item.get("normalized_question") or item.get("question") or "")
+        )
         answer = str(item.get("answer_text", "")).strip()
         if question and answer:
             answer_candidates.setdefault(question, []).append(answer)
@@ -148,6 +155,7 @@ def build_autofill_plan(
     for field in fields:
         label = str(field.get("label") or "").strip()
         normalized = normalize_question(label)
+        answer_question = normalize_answer_question(label)
         field_type = str(field.get("type") or "").casefold()
         tag = str(field.get("tag") or "").casefold()
         sensitive = is_sensitive_field(field)
@@ -170,8 +178,8 @@ def build_autofill_plan(
                 value = "Yes" if profile_value else "No"
             elif profile_value is not None and str(profile_value).strip():
                 value = str(profile_value).strip()
-            elif profile_key is None and normalized in answers:
-                value = answers[normalized]
+            elif profile_key is None and answer_question in answers:
+                value = answers[answer_question]
 
         if kind == "resume" or value is not None:
             fills.append(FormFill(index=index, kind=kind, value=value))

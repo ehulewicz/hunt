@@ -48,12 +48,13 @@ class JobsStore(Protocol):
         *,
         category: str | None,
         locations: Sequence[str],
+        role_families: Sequence[str],
         limit: int,
         offset: int,
     ) -> JobListingPage: ...
 
     async def prepare_applications(
-        self, user_id: UUID, posting_ids: Sequence[UUID]
+        self, user_id: UUID, posting_ids: Sequence[UUID], *, tailor: bool
     ) -> BatchPrepareResponse: ...
 
     async def list_applications(self, user_id: UUID) -> list[JobApplication]: ...
@@ -380,6 +381,7 @@ class PostgresJobsStore:
         *,
         category: str | None,
         locations: Sequence[str],
+        role_families: Sequence[str],
         limit: int,
         offset: int,
     ) -> JobListingPage:
@@ -393,6 +395,9 @@ class PostgresJobsStore:
         if category:
             conditions.append(sql.SQL("posting.source_category = %s"))
             params.append(category)
+        if role_families:
+            conditions.append(sql.SQL("posting.role_families && %s::text[]"))
+            params.append(list(role_families))
         facet_conditions = list(conditions)
         facet_params = list(params)
         if locations:
@@ -461,7 +466,7 @@ class PostgresJobsStore:
         )
 
     async def prepare_applications(
-        self, user_id: UUID, posting_ids: Sequence[UUID]
+        self, user_id: UUID, posting_ids: Sequence[UUID], *, tailor: bool
     ) -> BatchPrepareResponse:
         application_ids: list[UUID] = []
         task_ids: list[UUID] = []
@@ -509,10 +514,13 @@ class PostgresJobsStore:
                     insert into app.worker_tasks (id, user_id, domain, task_type, payload)
                     values (
                       %s, %s, 'jobs', 'prepare_application',
-                      jsonb_build_object('application_id', %s::text)
+                      jsonb_build_object(
+                        'application_id', %s::text,
+                        'tailor', %s::boolean
+                      )
                     )
                     """,
-                    (task_id, user_id, application_id),
+                    (task_id, user_id, application_id, tailor),
                 )
                 task_ids.append(task_id)
         return BatchPrepareResponse(

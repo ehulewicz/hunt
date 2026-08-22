@@ -7,7 +7,7 @@ from typing import Any, cast
 
 from playwright.sync_api import Browser, Error, Page, Playwright, sync_playwright
 
-from personal_os_worker.autofill import AutofillPlan, build_autofill_plan
+from personal_os_worker.autofill import AutofillPlan, build_autofill_plan, is_sensitive_field
 
 
 class VisibleBrowser:
@@ -235,8 +235,38 @@ def inspect_fields(page: Page) -> list[dict[str, str | bool | None]]:
               || ''
             ).trim(),
             required: element.required === true,
+            filled: element.type === 'file'
+              ? (element.files?.length || 0) > 0
+              : ['checkbox', 'radio'].includes(element.type)
+                ? element.checked === true
+                : String(element.value || '').trim().length > 0,
           };
         })
         """
     )
     return cast(list[dict[str, str | bool | None]], result)
+
+
+def audit_filled_form(
+    fields: list[dict[str, str | bool | None]],
+) -> dict[str, list[str]]:
+    """Summarize a filled form without copying values into logs."""
+    filled: list[str] = []
+    required_unfilled: list[str] = []
+    sensitive_filled: list[str] = []
+    for field in fields:
+        field_type = str(field.get("type") or "").casefold()
+        if field_type in {"submit", "button", "reset", "hidden"}:
+            continue
+        label = str(field.get("label") or field.get("name") or field.get("index") or "field")
+        if field.get("filled") is True:
+            filled.append(label)
+            if is_sensitive_field(field):
+                sensitive_filled.append(label)
+        elif field.get("required") is True:
+            required_unfilled.append(label)
+    return {
+        "filled_fields": filled,
+        "required_unfilled": required_unfilled,
+        "sensitive_filled": sensitive_filled,
+    }

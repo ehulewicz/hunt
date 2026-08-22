@@ -28,6 +28,7 @@ class WorkerApi:
         *,
         category: str | None = None,
         locations: list[str] | None = None,
+        role_families: list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> dict[str, Any]:
@@ -39,11 +40,21 @@ class WorkerApi:
             params.append(("category", category))
         for location in locations or []:
             params.append(("locations", location))
+        for family in role_families or []:
+            params.append(("role_families", family))
         response = self._client.get("/v1/jobs/listings", params=params)
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict):
             raise RuntimeError("Listing response was invalid")
+        return payload
+
+    def sync_listings(self) -> dict[str, Any]:
+        response = self._client.post("/v1/jobs/listings/sync")
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Listing sync response was invalid")
         return payload
 
     def profile(self) -> dict[str, Any]:
@@ -60,6 +71,27 @@ class WorkerApi:
         payload = response.json()
         return payload if isinstance(payload, list) else []
 
+    def create_answer(
+        self, *, question: str, answer_text: str, approved: bool
+    ) -> dict[str, Any]:
+        response = self._client.post(
+            "/v1/jobs/answers",
+            json={"question": question, "answer_text": answer_text, "approved": approved},
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Created answer response was invalid")
+        return payload
+
+    def update_answer(self, answer_id: str, changes: dict[str, Any]) -> dict[str, Any]:
+        response = self._client.patch(f"/v1/jobs/answers/{answer_id}", json=changes)
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Updated answer response was invalid")
+        return payload
+
     def applications(self) -> list[dict[str, Any]]:
         response = self._client.get("/v1/jobs/applications")
         response.raise_for_status()
@@ -68,9 +100,10 @@ class WorkerApi:
             raise RuntimeError("Application response was invalid")
         return payload
 
-    def batch_prepare(self, posting_ids: list[str]) -> dict[str, Any]:
+    def batch_prepare(self, posting_ids: list[str], *, tailor: bool = False) -> dict[str, Any]:
         response = self._client.post(
-            "/v1/jobs/applications/batch-prepare", json={"posting_ids": posting_ids}
+            "/v1/jobs/applications/batch-prepare",
+            json={"posting_ids": posting_ids, "tailor": tailor},
         )
         response.raise_for_status()
         payload = response.json()

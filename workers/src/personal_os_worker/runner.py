@@ -16,7 +16,7 @@ from personal_os_worker.api import WorkerApi
 from personal_os_worker.browser import VisibleBrowser, looks_like_application_form
 from personal_os_worker.claude_tailor import tailor_resume
 from personal_os_worker.config import CliConfig
-from personal_os_worker.resume_guard import UnsafeResumeChange
+from personal_os_worker.resume_guard import ResumeValidation, UnsafeResumeChange
 from personal_os_worker.resume_pdf import compile_resume
 
 
@@ -194,6 +194,30 @@ def process_resume_preview(
         )
 
 
+def prepare_resume_candidate(
+    bundle: dict[str, Any], capture: dict[str, Any], payload: dict[str, Any]
+) -> tuple[ResumeValidation, dict[str, Any]]:
+    """Choose the deterministic resume unless the queued task explicitly opts into Claude."""
+    if payload.get("tailor") is True:
+        return tailor_resume(
+            bundle["main_resume"],
+            job_description=str(capture["description"]),
+            profile=bundle["profile"],
+            approved_answers=bundle["approved_answers"],
+        )
+    return (
+        ResumeValidation(
+            candidate=bundle["main_resume"],
+            changed_word_ratio=0.0,
+            changed_paths=(),
+        ),
+        {
+            "patches": [],
+            "summary": "Canonical resume used unchanged in deterministic mode.",
+        },
+    )
+
+
 def process_task(
     api: WorkerApi, config: CliConfig, worker_id: str, task: dict[str, Any]
 ) -> str:
@@ -234,12 +258,7 @@ def process_task(
                         "in Chrome; find the real application and rerun."
                     )
                 lease.assert_active()
-                validation, claude_result = tailor_resume(
-                    bundle["main_resume"],
-                    job_description=str(capture["description"]),
-                    profile=bundle["profile"],
-                    approved_answers=bundle["approved_answers"],
-                )
+                validation, claude_result = prepare_resume_candidate(bundle, capture, payload)
                 lease.assert_active()
                 pdf = compile_resume(validation.candidate, output_directory)
                 lease.assert_active()

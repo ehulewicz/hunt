@@ -1,28 +1,24 @@
 # How workers work
 
-The Jobs worker is a foreground Python 3.13 process for the user's own Windows/WSL
-machine. `run.ps1` delegates to `run.sh`, which launches installed Linux Chrome
-through WSLg with a dedicated profile and loopback CDP, runs doctor checks, then
-starts the WSL worker. Pairing stores an expiring, revocable API token in
-the local user's configuration with mode `0600`; the worker never connects to
-PostgreSQL or Supabase directly.
+`os` is the local Python 3.13 entry point. It holds a Google PKCE session,
+starts local FastAPI on demand, and sends authenticated requests to that API.
+FastAPI is the only process that accesses hosted Postgres.
 
-For a preparation task the worker opens the direct company/ATS URL in visible
-Chrome, captures the posting and visible form labels, fetches the approved `main`
-resume/profile/answers from FastAPI, and calls subscription-authenticated
-`claude -p`. Claude must return a minimal JSON Patch, not a replacement resume.
+`os hunt sync` parses the approved SpeedyApply feeds deterministically. The
+database retains every valid row and its role-family tags; `os hunt listings`
+applies the user's technical-family view by default.
 
-The guard allows only summary, experience/project bullet, and skill-text edits.
-It preserves contact data, education, employers/projects, dates, section shape,
-bullet counts, and skill categories; rejects more than a 10 percent word change;
-and requires added keywords to be grounded in both the listing and known facts.
-The worker compiles a one-page PDF, uploads it through FastAPI, and reports an
-approval-required draft with a diff audit.
+The resume compiler reads the canonical JSON, emits the recovered LaTeX
+template, runs `latexmk`, and verifies exactly one page with `pdfinfo`. Watch
+mode compiles beside the stable output and atomically replaces the PDF only after
+success so an open viewer never loses its last good document.
 
-Approving the draft queues autofill. The worker downloads the approved PDF and
-fills only deterministic Profile facts, that resume, and approved long-form
-answers whose normalized question exactly matches a visible form label. Answers
-never substitute for missing Profile facts, and duplicate exact answers are left
-empty as ambiguous. Unknown,
-EEO, consent, attestation, and submit controls are untouched; missing required
-questions are reported to the application, and the visible page remains open.
+Preparation captures the real application form in visible native Windows Chrome.
+The default candidate is the canonical resume unchanged. `--tailor` alone calls
+`claude -p`; the existing fact, structure, 10 percent, and one-page validators
+still decide whether the result is usable.
+
+Autofill has two providers. `personal-os` fills only deterministic Profile facts,
+the chosen resume, and exact approved answers. `lentra` pauses for the user to
+trigger the Chrome extension and then audits only field presence. Both leave the
+headed page open and have no submit behavior.

@@ -8,13 +8,16 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from pathlib import Path
 
 import httpx
 
 from personal_os_worker import __version__
 from personal_os_worker.auth import LoginError, login, save_session
 from personal_os_worker.commands import hunt, services
+from personal_os_worker.commands.hunt import DEFAULT_TECHNICAL_FAMILIES
 from personal_os_worker.config import load_cli_config
+from personal_os_worker.resume import build_resume, watch_resume
 from personal_os_worker.service import ApiUnavailable, ChromeUnavailable
 from personal_os_worker.tables import ReferenceError, console
 
@@ -57,12 +60,68 @@ def build_parser() -> argparse.ArgumentParser:
     listings.add_argument(
         "--location", action="append", default=[], help="Filter by normalized location; repeatable"
     )
+    listings.add_argument(
+        "--family",
+        action="append",
+        default=[],
+        choices=DEFAULT_TECHNICAL_FAMILIES,
+        help="Technical role family; repeatable",
+    )
+    listings.add_argument(
+        "--all-roles",
+        action="store_true",
+        help="Include listings classified as other",
+    )
     listings.add_argument("--limit", type=int, default=50)
+
+    jobs_commands.add_parser("sync", help="Deterministically sync the configured listing feeds")
 
     jobs_commands.add_parser("apps", help="Show applications and their progress")
 
+    answers = jobs_commands.add_parser("answers", help="Manage reusable long-form answers")
+    answer_commands = answers.add_subparsers(dest="answer_command", required=True)
+    answer_commands.add_parser("list", help="List canonical reusable answers")
+    answer_add = answer_commands.add_parser("add", help="Add a canonical answer")
+    answer_add.add_argument("--question", required=True)
+    answer_add_input = answer_add.add_mutually_exclusive_group(required=True)
+    answer_add_input.add_argument("--text", help="Answer wording")
+    answer_add_input.add_argument("--file", help="Read answer wording from a UTF-8 file")
+    answer_add.add_argument("--draft", action="store_true", help="Save unapproved")
+    answer_edit = answer_commands.add_parser("edit", help="Edit a listed answer")
+    answer_edit.add_argument("ref", help="Row number from answers list or id prefix")
+    answer_edit.add_argument("--question")
+    answer_edit_input = answer_edit.add_mutually_exclusive_group()
+    answer_edit_input.add_argument("--text", help="Replacement wording")
+    answer_edit_input.add_argument("--file", help="Read replacement wording from a UTF-8 file")
+    answer_approval = answer_edit.add_mutually_exclusive_group()
+    answer_approval.add_argument("--approve", action="store_const", const=True, dest="approved")
+    answer_approval.add_argument("--draft", action="store_const", const=False, dest="approved")
+    answer_edit.set_defaults(approved=None)
+
+    resume = jobs_commands.add_parser(
+        "resume", help="Build or watch the canonical one-page resume"
+    )
+    resume_commands = resume.add_subparsers(dest="resume_command", required=True)
+    resume_build = resume_commands.add_parser("build", help="Compile resume JSON to PDF")
+    resume_build.add_argument("--input", help="Resume JSON path; defaults to canonical main")
+    resume_build.add_argument("--output", help="Stable PDF output path")
+    resume_watch = resume_commands.add_parser(
+        "watch", help="Recompile whenever the canonical JSON changes"
+    )
+    resume_watch.add_argument("--input", help="Resume JSON path; defaults to canonical main")
+    resume_watch.add_argument("--output", help="Stable PDF output path")
+    resume_watch.add_argument(
+        "--open", action="store_true", help="Open an auto-refreshing PDF preview"
+    )
+    resume_watch.add_argument("--interval", type=float, default=0.5)
+
     prep = jobs_commands.add_parser("prep", help="Queue preparation for listings")
     prep.add_argument("refs", nargs="+", help="Row numbers from the last listing, or id prefixes")
+    prep.add_argument(
+        "--tailor",
+        action="store_true",
+        help="Opt in to Claude resume tailoring; default uses canonical JSON unchanged",
+    )
 
     autofill = jobs_commands.add_parser(
         "autofill",
@@ -76,6 +135,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Show what would be filled without touching the page",
+    )
+    autofill.add_argument(
+        "--provider",
+        choices=["personal-os", "lentra"],
+        default="personal-os",
+        help="Use deterministic Personal OS fill or pause for Lentra and audit the result",
     )
     autofill.add_argument("--resume", help="PDF to attach to a resume upload field")
 
@@ -131,16 +196,60 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "hunt":
         if args.hunt_command == "listings":
             category = "faang" if args.faang else "quant" if args.quant else None
-            return hunt.run_listings(
-                category=category, locations=args.location, limit=args.limit
+            role_families = (
+                [] if args.all_roles else args.family or list(DEFAULT_TECHNICAL_FAMILIES)
             )
+            return hunt.run_listings(
+                category=category,
+                locations=args.location,
+                role_families=role_families,
+                limit=args.limit,
+            )
+        if args.hunt_command == "sync":
+            return hunt.run_sync()
         if args.hunt_command == "apps":
             return hunt.run_apps()
+        if args.hunt_command == "answers":
+            if args.answer_command == "list":
+                return hunt.run_answers()
+            if args.answer_command == "add":
+                return hunt.run_answer_add(
+                    question=args.question,
+                    text=args.text,
+                    file=args.file,
+                    approved=not args.draft,
+                )
+            if args.answer_command == "edit":
+                return hunt.run_answer_edit(
+                    args.ref,
+                    question=args.question,
+                    text=args.text,
+                    file=args.file,
+                    approved=args.approved,
+                )
+        if args.hunt_command == "resume":
+            source = Path(args.input).expanduser() if args.input else None
+            output = Path(args.output).expanduser() if args.output else None
+            if args.resume_command == "build":
+                result = build_resume(source, output)
+                console.print(f"Resume built: {result.pdf}")
+                return 0
+            if args.resume_command == "watch":
+                watch_resume(
+                    source,
+                    output,
+                    interval=args.interval,
+                    open_preview=args.open,
+                )
+                return 0
         if args.hunt_command == "prep":
-            return hunt.run_prep(args.refs)
+            return hunt.run_prep(args.refs, tailor=args.tailor)
         if args.hunt_command == "autofill":
             return hunt.run_autofill(
-                url=args.url, dry_run=args.dry_run, resume=args.resume
+                url=args.url,
+                dry_run=args.dry_run,
+                resume=args.resume,
+                provider=args.provider,
             )
         if args.hunt_command == "run":
             return hunt.run_tasks(once=args.once, watch=args.watch)

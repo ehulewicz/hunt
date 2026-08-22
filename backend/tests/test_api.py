@@ -10,7 +10,13 @@ from fastapi import FastAPI
 from personal_os.auth import InvalidAccessToken
 from personal_os.config import Settings
 from personal_os.database import BootstrapStore, get_bootstrap_store
-from personal_os.jobs_models import AnswerLibraryCreate, AnswerLibraryItem, JobListingPage
+from personal_os.jobs_models import (
+    AnswerLibraryCreate,
+    AnswerLibraryItem,
+    JobListingPage,
+    ListingSyncResponse,
+)
+from personal_os.jobs_sources import SpeedyApplySource
 from personal_os.jobs_store import get_jobs_store
 from personal_os.main import create_app
 from personal_os.models import Principal
@@ -57,10 +63,20 @@ class FakeJobsStore:
         self.autofill_application_id: UUID | None = None
         self.answer_create: AnswerLibraryCreate | None = None
         self.answer_update: tuple[UUID, object] | None = None
+        self.synced_count = 0
 
     async def list_listings(self, user_id: UUID, **filters: object) -> JobListingPage:
         self.filters = filters
         return JobListingPage(items=[], total=0, limit=200, offset=0)
+
+    async def sync_listings(self, user_id: UUID, listings: object) -> ListingSyncResponse:
+        self.synced_count = len(listings)  # type: ignore[arg-type]
+        return ListingSyncResponse(
+            source="speedyapply/college-jobs",
+            seen=self.synced_count,
+            open=self.synced_count,
+            synced_at=datetime(2026, 8, 21, tzinfo=UTC),
+        )
 
     async def archive_application(self, user_id: UUID, application_id: UUID) -> bool:
         self.archived_application_id = application_id
@@ -174,6 +190,8 @@ async def test_listings_accept_category_and_multiple_normalized_locations(
             ("category", "quant"),
             ("locations", "Remote"),
             ("locations", "New York City, NY"),
+            ("role_families", "software_engineering"),
+            ("role_families", "ml_engineering"),
             ("limit", "200"),
         ],
         headers={"Authorization": "Bearer approved"},
@@ -183,9 +201,35 @@ async def test_listings_accept_category_and_multiple_normalized_locations(
     assert store.filters == {
         "category": "quant",
         "locations": ["Remote", "New York City, NY"],
+        "role_families": ["software_engineering", "ml_engineering"],
         "limit": 200,
         "offset": 0,
     }
+
+
+async def test_listing_sync_persists_the_complete_deterministic_source(
+    app: FastAPI,
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = FakeJobsStore()
+
+    async def override_store() -> FakeJobsStore:
+        return store
+
+    async def fake_fetch(self: SpeedyApplySource) -> list[object]:
+        return [object(), object()]
+
+    app.dependency_overrides[get_jobs_store] = override_store
+    monkeypatch.setattr(SpeedyApplySource, "fetch", fake_fetch)
+    response = await client.post(
+        "/v1/jobs/listings/sync",
+        headers={"Authorization": "Bearer approved"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["seen"] == 2
+    assert store.synced_count == 2
 
 
 async def test_application_delete_archives_through_the_jobs_store(

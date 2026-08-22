@@ -1,53 +1,27 @@
-# Jobs worker
+# Personal OS local CLI
 
-This trusted foreground worker prepares tailored resumes and visibly fills job
-applications. It never clicks Submit. Chrome stays open after autofill so the
-application can be reviewed and submitted manually.
-
-## Set up and pair
-
-From WSL Ubuntu:
+Install the Python 3.13 CLI in editable mode:
 
 ```bash
-cd /home/eahtr/personal-os/workers
-UV_CACHE_DIR=.uv-cache uv sync
+cd /home/eahtr/personal-os
+UV_CACHE_DIR=/tmp/personal-os-uv-cache uv tool install --editable ./backend
+UV_CACHE_DIR=/tmp/personal-os-uv-cache uv tool install --editable ./workers
 ```
 
-In Personal OS, open **Jobs → Profile → Local runner**, create a credential, and
-copy the pairing command shown there. Run it in WSL and paste the one-time token
-when prompted. The token is stored at `~/.config/personal-os/worker.json` with
-mode `0600`.
-
-## Launch
-
-From Windows PowerShell:
-
-```powershell
-& "\\wsl.localhost\Ubuntu\home\eahtr\personal-os\workers\run.ps1"
-```
-
-PowerShell delegates to `run.sh`. The script launches `/usr/bin/google-chrome`
-through WSLg with the dedicated profile at
-`~/.local/share/personal-os/chrome`, exposes CDP only on
-`http://127.0.0.1:9222`, runs the doctor checks, and starts the worker.
-
-To diagnose without starting the polling loop:
+The installed entry point is `os`. Jobs commands live under `os hunt`:
 
 ```bash
-cd /home/eahtr/personal-os/workers
-UV_CACHE_DIR=.uv-cache uv run personal-os-worker doctor
+os doctor
+os hunt sync
+os hunt listings
+os hunt answers list
+os hunt resume watch --open
+os hunt prep 1
+os hunt run
+os hunt autofill --dry-run
 ```
 
-The doctor verifies pairing and hosted API access, Chrome CDP, Claude
-authentication, `latexmk`, and `pdfinfo`.
-
-## Recovery and revocation
-
-- If Chrome is closed, rerun `run.ps1`; the dedicated profile is reused.
-- If a task loses its lease or the API is temporarily unavailable, safe
-  transient failures remain queued and the worker can be restarted.
-- If pairing expires or is revoked, create a new credential in Profile and run
-  the new pairing command.
-- To revoke this machine, use **Revoke** beside its credential in Profile, then
-  delete `~/.config/personal-os/worker.json`. Revocation immediately prevents
-  further claims, heartbeats, uploads, and completion calls.
+The CLI launches local FastAPI and the dedicated native Windows Chrome profile
+as needed. It never accesses Postgres directly and never submits an application.
+See `../docs/jobs-cli.md` for the full deterministic, Claude opt-in, and optional
+Lentra-assisted workflows.
