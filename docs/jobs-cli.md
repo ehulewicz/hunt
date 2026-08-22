@@ -8,6 +8,7 @@ All commands run from any directory after the editable worker install.
 os doctor
 os hunt sync
 os hunt listings
+os hunt listings --limit 300
 os hunt listings --family software_engineering --location "Atlanta, GA"
 os hunt listings --all-roles
 os hunt apps

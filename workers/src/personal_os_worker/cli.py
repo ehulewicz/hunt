@@ -21,6 +21,18 @@ from personal_os_worker.resume import build_resume, watch_resume
 from personal_os_worker.service import ApiUnavailable, ChromeUnavailable
 from personal_os_worker.tables import ReferenceError, console
 
+MAX_LISTING_LIMIT = 300
+
+
+def listing_limit(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("limit must be an integer") from None
+    if not 1 <= parsed <= MAX_LISTING_LIMIT:
+        raise argparse.ArgumentTypeError(f"limit must be between 1 and {MAX_LISTING_LIMIT}")
+    return parsed
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -72,7 +84,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include listings classified as other",
     )
-    listings.add_argument("--limit", type=int, default=50)
+    listings.add_argument(
+        "--limit",
+        type=listing_limit,
+        default=50,
+        help=f"Maximum rows to show (1-{MAX_LISTING_LIMIT})",
+    )
 
     jobs_commands.add_parser("sync", help="Deterministically sync the configured listing feeds")
 

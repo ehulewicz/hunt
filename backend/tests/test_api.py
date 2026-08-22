@@ -192,7 +192,7 @@ async def test_listings_accept_category_and_multiple_normalized_locations(
             ("locations", "New York City, NY"),
             ("role_families", "software_engineering"),
             ("role_families", "ml_engineering"),
-            ("limit", "200"),
+            ("limit", "300"),
         ],
         headers={"Authorization": "Bearer approved"},
     )
@@ -202,9 +202,28 @@ async def test_listings_accept_category_and_multiple_normalized_locations(
         "category": "quant",
         "locations": ["Remote", "New York City, NY"],
         "role_families": ["software_engineering", "ml_engineering"],
-        "limit": 200,
+        "limit": 300,
         "offset": 0,
     }
+
+
+async def test_listings_reject_a_limit_above_300(
+    app: FastAPI, client: httpx.AsyncClient
+) -> None:
+    store = FakeJobsStore()
+
+    async def override_store() -> FakeJobsStore:
+        return store
+
+    app.dependency_overrides[get_jobs_store] = override_store
+    response = await client.get(
+        "/v1/jobs/listings",
+        params={"limit": 301},
+        headers={"Authorization": "Bearer approved"},
+    )
+
+    assert response.status_code == 422
+    assert store.filters == {}
 
 
 async def test_listing_sync_persists_the_complete_deterministic_source(

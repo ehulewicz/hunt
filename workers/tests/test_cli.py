@@ -20,6 +20,12 @@ def test_jobs_live_under_the_hunt_domain() -> None:
     assert args.all_roles is False and args.family == []
 
 
+def test_listing_limit_accepts_300_and_rejects_larger_values() -> None:
+    assert build_parser().parse_args(["hunt", "listings", "--limit", "300"]).limit == 300
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "listings", "--limit", "301"])
+
+
 def test_category_filters_are_mutually_exclusive() -> None:
     with pytest.raises(SystemExit):
         build_parser().parse_args(["hunt", "listings", "--faang", "--quant"])
