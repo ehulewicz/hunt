@@ -7,7 +7,7 @@ Last verified: 2026-08-22
 - [x] Drive a dedicated native Windows Chrome profile over CDP from WSL.
 - [x] Deterministically sync the full approved listing feeds.
 - [x] Default listing display to technical role families while retaining `--all-roles`.
-- [x] Support listing limits through 300 and reject larger CLI values cleanly.
+- [x] Keep listing limits unbounded above; reject only values below 1.
 - [x] Build and watch the canonical JSON resume with atomic one-page PDF output.
 - [x] Make canonical unchanged preparation the default and Claude tailoring explicit.
 - [x] Keep deterministic no-submit autofill as the default.
@@ -16,7 +16,7 @@ Last verified: 2026-08-22
 - [x] Pass Ruff, strict mypy, and 88 tests; one loopback bind test skips in sandbox.
 - [x] Compile the real canonical resume to one page and open its live Windows Chrome preview.
 - [x] Persist a real 415-row hosted sync and verify 320 technical-default rows.
-- [x] Live-test `--limit 300` against 323 current technical rows.
+- [x] Live-test `--limit 500` returning all 323 current technical rows.
 - [ ] Exercise the Lentra handoff with the extension installed on a real application.
 
 The canonical resume is `backend/src/personal_os/main_resume.json`; the stable

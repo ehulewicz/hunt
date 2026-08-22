@@ -75,7 +75,7 @@ async def list_listings(
     category: Annotated[Literal["faang", "quant"] | None, Query()] = None,
     locations: Annotated[list[str] | None, Query()] = None,
     role_families: Annotated[list[RoleFamily] | None, Query()] = None,
-    limit: Annotated[int, Query(ge=1, le=300)] = 100,
+    limit: Annotated[int, Query(ge=1)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> JobListingPage:
     normalized_locations = list(

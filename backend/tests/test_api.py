@@ -192,7 +192,7 @@ async def test_listings_accept_category_and_multiple_normalized_locations(
             ("locations", "New York City, NY"),
             ("role_families", "software_engineering"),
             ("role_families", "ml_engineering"),
-            ("limit", "300"),
+            ("limit", "500"),
         ],
         headers={"Authorization": "Bearer approved"},
     )
@@ -202,12 +202,12 @@ async def test_listings_accept_category_and_multiple_normalized_locations(
         "category": "quant",
         "locations": ["Remote", "New York City, NY"],
         "role_families": ["software_engineering", "ml_engineering"],
-        "limit": 300,
+        "limit": 500,
         "offset": 0,
     }
 
 
-async def test_listings_reject_a_limit_above_300(
+async def test_listings_reject_a_non_positive_limit(
     app: FastAPI, client: httpx.AsyncClient
 ) -> None:
     store = FakeJobsStore()
@@ -218,7 +218,7 @@ async def test_listings_reject_a_limit_above_300(
     app.dependency_overrides[get_jobs_store] = override_store
     response = await client.get(
         "/v1/jobs/listings",
-        params={"limit": 301},
+        params={"limit": 0},
         headers={"Authorization": "Bearer approved"},
     )
 
