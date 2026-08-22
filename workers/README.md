@@ -21,6 +21,9 @@ os hunt run
 os hunt autofill --dry-run
 ```
 
+Edit `artifacts/resume/main.json`; `os hunt resume watch --open` keeps the
+Git-tracked `artifacts/resume/main.pdf` beside it up to date.
+
 The CLI launches local FastAPI and the dedicated native Windows Chrome profile
 as needed. It never accesses Postgres directly and never submits an application.
 See `../docs/jobs-cli.md` for the full deterministic, Claude opt-in, and optional

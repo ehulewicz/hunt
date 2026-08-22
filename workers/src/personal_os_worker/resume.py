@@ -18,7 +18,7 @@ from typing import Any
 from personal_os_worker.browser import VisibleBrowser
 from personal_os_worker.config import load_cli_config
 from personal_os_worker.resume_pdf import compile_resume
-from personal_os_worker.service import ensure_chrome, state_dir
+from personal_os_worker.service import ensure_chrome
 
 DEFAULT_CDP_URL = "http://127.0.0.1:9333"
 
@@ -42,11 +42,11 @@ def canonical_resume_path() -> Path:
     configured = os.environ.get("PERSONAL_OS_RESUME_JSON")
     if configured:
         return Path(configured).expanduser().resolve()
-    return repository_root() / "backend" / "src" / "personal_os" / "main_resume.json"
+    return repository_root() / "artifacts" / "resume" / "main.json"
 
 
 def default_pdf_path() -> Path:
-    return state_dir() / "resume" / "main.pdf"
+    return canonical_resume_path().with_suffix(".pdf")
 
 
 def load_resume(path: Path) -> dict[str, Any]:

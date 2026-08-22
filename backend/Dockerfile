@@ -8,8 +8,9 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir uv==0.11.23
 
-COPY pyproject.toml uv.lock README.md ./
-COPY src ./src
+COPY backend/pyproject.toml backend/uv.lock backend/README.md ./
+COPY backend/src ./src
+COPY artifacts/resume/main.json ./artifacts/resume/main.json
 RUN uv sync --frozen --no-dev
 
 ENV PATH="/app/.venv/bin:$PATH"

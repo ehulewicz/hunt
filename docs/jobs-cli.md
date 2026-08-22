@@ -23,13 +23,20 @@ os hunt prep 1
 os hunt run
 
 os hunt autofill --dry-run
-os hunt autofill --resume ~/.local/state/personal-os/resume/main.pdf
+os hunt autofill --resume ./artifacts/resume/main.pdf
 ```
 
 `listings`, `apps`, and `prep` accept cached row numbers or unambiguous ID
 prefixes where applicable. Answer edits update the hosted canonical library
 immediately; Git is not a second answer store. Preparation without another flag
 compiles the canonical resume unchanged.
+
+The editable source and generated PDF are both portable Git artifacts:
+
+```text
+artifacts/resume/main.json
+artifacts/resume/main.pdf
+```
 
 ## Explicit AI command
 

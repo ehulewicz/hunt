@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from personal_os_worker import resume
+from personal_os_worker.resume_pdf import REPRODUCIBLE_EPOCH, build_latex, latex_environment
 
 
 def valid_resume() -> str:
@@ -14,6 +15,32 @@ def valid_resume() -> str:
       "projects": [{"title": "Project", "bullets": ["Shipped a project."]}],
       "skills": [{"category": "Languages", "items": "Python"}]
     }"""
+
+
+def test_default_resume_artifacts_live_together_in_the_repository() -> None:
+    assert resume.canonical_resume_path().parts[-3:] == ("artifacts", "resume", "main.json")
+    assert resume.default_pdf_path() == resume.canonical_resume_path().with_suffix(".pdf")
+
+
+def test_latex_build_environment_is_reproducible(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "different")
+
+    environment = latex_environment()
+
+    assert environment["SOURCE_DATE_EPOCH"] == REPRODUCIBLE_EPOCH
+    assert environment["FORCE_SOURCE_DATE"] == "1"
+
+
+def test_latex_trailer_id_is_content_derived() -> None:
+    first = build_latex({"contact": {"name": "Candidate"}})
+    second = build_latex({"contact": {"name": "Candidate"}})
+    changed = build_latex({"contact": {"name": "Different"}})
+
+    first_id = next(line for line in first.splitlines() if line.startswith("\\pdftrailerid"))
+    assert first_id == next(
+        line for line in second.splitlines() if line.startswith("\\pdftrailerid")
+    )
+    assert first_id not in changed
 
 
 def test_load_resume_rejects_invalid_json_with_location(tmp_path: Path) -> None:

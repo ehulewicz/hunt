@@ -1,6 +1,6 @@
 # Backend current state
 
-Last verified: 2026-08-13
+Last verified: 2026-08-22
 
 ## Milestones
 
@@ -25,7 +25,7 @@ Last verified: 2026-08-13
 - [x] Reserve Answers for create/update-by-ID approved long-form responses and
   keep deterministic factual values in Profile.
 - [x] Add authenticated resume review and worker-only approved PDF download.
-- [x] Validate locally with Ruff, mypy, and 26 passing tests.
+- [x] Validate locally with Ruff, mypy, and 38 passing tests.
 - [x] Validate the live strict-US source at exactly 440 rows, including 136
   FAANG+, 51 Quant, and 89 normalized location choices.
 - [x] Validate the live four-file source at 1,087 unique internships/co-ops,
@@ -42,6 +42,9 @@ Last verified: 2026-08-13
   with no migration because `task_type` is unconstrained.
 - [x] Allow in-place updates to main resume drafts and return CORS-visible
   errors so failures surface as a status instead of `Failed to fetch`.
+- [x] Move the canonical resume seed to the portable repository artifact
+  `artifacts/resume/main.json`; the backend and worker now consume the same
+  source, and the generated `main.pdf` is tracked beside it.
 - [ ] Run authenticated hosted Jobs acceptance.
 - [x] Deploy migration `20260814003115_complete_jobs_workflow.sql` and Cloud Run
   revision `personal-os-api-00012-dw2`; verify sync run `31759248462` writes
@@ -102,3 +105,14 @@ left to separate.
   migration, not yet applied, and is tracked with the leasing removal.
 - Backend Ruff, mypy, and all 35 tests pass. Verified live: `hunt doctor` reports
   `Local API accepted the session`, which exercises `/v1/jobs/worker/doctor`.
+
+## Portable resume artifact, 2026-08-22
+
+- `artifacts/resume/main.json` is the only canonical resume JSON in the
+  repository. Backend bootstrap reads it directly and the root-context Docker
+  build copies it into the image.
+- `artifacts/resume/main.pdf` is the deterministic, one-page Letter rendering
+  tracked in Git. The temporary LaTeX file is ignored.
+- Backend Ruff, mypy, and all 38 tests pass. A local Docker-image build could not
+  run because Docker Desktop integration is unavailable in this WSL instance;
+  the deployment workflow uses the corrected repository-root build context.

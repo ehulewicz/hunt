@@ -25,6 +25,9 @@ workers/.chrome-profile/
 .playwright-mcp/
 .logs/
 
+# Resume build intermediary; JSON and PDF in this directory are tracked.
+artifacts/resume/*.tex
+
 # Nested standalone repo (github.com/ehulewicz/dotfiles) — cloned here, never
 # committed to personal-os
 dotfiles/

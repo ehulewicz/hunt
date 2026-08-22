@@ -10,8 +10,12 @@ private `app` schema. Private PDF objects are read and written server-side with 
 Supabase secret key from GCP Secret Manager.
 
 `POST /v1/bootstrap` seeds the known Jobs profile and approved canonical `main`
-resume idempotently. Application facts stay in Profile; Answers contains only
-user-created long-form responses. Unknown or optional EEO values are not inferred.
+resume idempotently from the repository-level
+`artifacts/resume/main.json`. The backend Docker image copies that same tracked
+artifact from the repository-root build context, so local resume generation and
+hosted bootstrap do not maintain duplicate JSON sources. Application facts stay
+in Profile; Answers contains only user-created long-form responses. Unknown or
+optional EEO values are not inferred.
 
 ## Jobs boundary
 

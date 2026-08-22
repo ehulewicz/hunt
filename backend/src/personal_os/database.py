@@ -1,6 +1,7 @@
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from importlib.resources import files
+from pathlib import Path
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -9,6 +10,20 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 from personal_os.config import Settings
+
+
+def canonical_resume_path() -> Path:
+    configured = os.environ.get("PERSONAL_OS_RESUME_JSON")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "artifacts" / "resume" / "main.json"
+        if candidate.is_file():
+            return candidate
+    raise RuntimeError(
+        "Canonical resume not found; expected artifacts/resume/main.json "
+        "or PERSONAL_OS_RESUME_JSON"
+    )
 
 
 class BootstrapStore(Protocol):
@@ -81,7 +96,7 @@ class PostgresBootstrapStore:
                 """,
                 (user_id,),
             )
-            resume = files("personal_os").joinpath("main_resume.json").read_text(encoding="utf-8")
+            resume = canonical_resume_path().read_text(encoding="utf-8")
             await connection.execute(
                 """
                 insert into app.jobs_documents (

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -84,6 +87,15 @@ PREAMBLE = r"""%-------------------------
 \newcommand{\resumeItemListEnd}{\end{itemize}\vspace{2pt}}
 """
 
+REPRODUCIBLE_EPOCH = "946684800"  # 2000-01-01T00:00:00Z
+
+
+def latex_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    environment["SOURCE_DATE_EPOCH"] = REPRODUCIBLE_EPOCH
+    environment["FORCE_SOURCE_DATE"] = "1"
+    return environment
+
 
 def compile_resume(resume: dict[str, Any], output_directory: Path) -> Path:
     output_directory.mkdir(parents=True, exist_ok=True)
@@ -100,6 +112,7 @@ def compile_resume(resume: dict[str, Any], output_directory: Path) -> Path:
         ],
         check=False,
         capture_output=True,
+        env=latex_environment(),
         text=True,
         timeout=120,
     )
@@ -120,7 +133,14 @@ def compile_resume(resume: dict[str, Any], output_directory: Path) -> Path:
 
 
 def build_latex(resume: dict[str, Any]) -> str:
-    parts = [PREAMBLE, r"\begin{document}", r"\footnotesize"]
+    serialized = json.dumps(resume, sort_keys=True, separators=(",", ":"))
+    trailer_id = hashlib.sha256(serialized.encode()).hexdigest()[:32].upper()
+    parts = [
+        PREAMBLE,
+        rf"\pdftrailerid{{<{trailer_id}><{trailer_id}>}}",
+        r"\begin{document}",
+        r"\footnotesize",
+    ]
     parts.extend(build_header(resume.get("contact", {})))
     parts.extend(build_education(resume.get("education", {})))
     parts.extend(build_entries("Experience", resume.get("experience", [])))
