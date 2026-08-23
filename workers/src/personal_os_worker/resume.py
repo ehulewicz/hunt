@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -76,8 +77,10 @@ def _validate_resume_shape(resume: dict[str, Any]) -> None:
             if not isinstance(entry, dict):
                 raise RuntimeError(f"Resume {section}[{index}] must be an object")
             bullets = entry.get("bullets")
-            if not isinstance(bullets, list) or not bullets or not all(
-                isinstance(bullet, str) and bullet.strip() for bullet in bullets
+            if (
+                not isinstance(bullets, list)
+                or not bullets
+                or not all(isinstance(bullet, str) and bullet.strip() for bullet in bullets)
             ):
                 raise RuntimeError(
                     f"Resume {section}[{index}].bullets must be a non-empty list of text"
@@ -229,6 +232,16 @@ def watch_resume(
     resolved_output = (output or default_pdf_path()).expanduser().resolve()
     preview = _PreviewServer(resolved_output) if open_preview else None
     last_content: bytes | None = None
+
+    editor = shutil.which("code") or shutil.which("code.exe")
+    if editor is None:
+        raise RuntimeError("VS Code command 'code' was not found; install its shell command")
+    subprocess.Popen(
+        [editor, "--reuse-window", str(resolved_source)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
 
     try:
         if preview is not None:

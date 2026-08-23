@@ -115,8 +115,7 @@ def is_sensitive_field(field: dict[str, Any]) -> bool:
         " ".join(str(field.get(key) or "") for key in ("label", "name", "group"))
     )
     return any(
-        re.search(rf"(?<!\w){re.escape(word)}(?!\w)", context)
-        for word in BLOCKED_LABEL_WORDS
+        re.search(rf"(?<!\w){re.escape(word)}(?!\w)", context) for word in BLOCKED_LABEL_WORDS
     )
 
 
@@ -128,8 +127,15 @@ def build_autofill_plan(
 ) -> AutofillPlan:
     answer_candidates: dict[str, list[str]] = {}
     for item in approved_answers:
+        if str(item.get("reuse_policy") or "exact") != "exact":
+            continue
         question = normalize_answer_question(
-            str(item.get("normalized_question") or item.get("question") or "")
+            str(
+                item.get("normalized_key")
+                or item.get("normalized_question")
+                or item.get("question")
+                or ""
+            )
         )
         answer = str(item.get("answer_text", "")).strip()
         if question and answer:
@@ -147,16 +153,17 @@ def build_autofill_plan(
         if str(field.get("type") or "").casefold() == "file"
         and not is_sensitive_field(field)
         and any(
-            word in normalize_question(str(field.get("label") or ""))
-            for word in ("resume", "cv")
+            word in normalize_question(str(field.get("label") or "")) for word in ("resume", "cv")
         )
     }
 
     for field in fields:
         label = str(field.get("label") or "").strip()
-        normalized = normalize_question(label)
-        answer_question = normalize_answer_question(label)
         field_type = str(field.get("type") or "").casefold()
+        group = str(field.get("group") or "").strip()
+        question_label = group if field_type in {"radio", "checkbox"} and group else label
+        normalized = normalize_question(question_label)
+        answer_question = normalize_answer_question(label)
         tag = str(field.get("tag") or "").casefold()
         sensitive = is_sensitive_field(field)
         required = field.get("required") is True
@@ -171,15 +178,24 @@ def build_autofill_plan(
             pass
         elif field_type == "file" and index in resume_candidates and len(resume_candidates) == 1:
             kind = "resume"
-        elif field_type not in {"checkbox", "radio", "file"}:
+        elif field_type != "file":
             profile_key = PROFILE_LABELS.get(normalized)
             profile_value = resolve_profile_value(profile, profile_key)
             if isinstance(profile_value, bool):
                 value = "Yes" if profile_value else "No"
             elif profile_value is not None and str(profile_value).strip():
                 value = str(profile_value).strip()
-            elif profile_key is None and answer_question in answers:
+            elif (
+                profile_key is None
+                and field_type not in {"radio", "checkbox"}
+                and answer_question in answers
+            ):
                 value = answers[answer_question]
+
+            if field_type in {"radio", "checkbox"} and value is not None:
+                option = normalize_question(str(field.get("value") or field.get("label") or ""))
+                if option not in {normalize_question(value), normalize_question(value)[:1]}:
+                    value = None
 
         if kind == "resume" or value is not None:
             fills.append(FormFill(index=index, kind=kind, value=value))

@@ -10,15 +10,21 @@ Last verified: 2026-08-23
 - [x] Keep listing limits unbounded above; reject only values below 1.
 - [x] Build and watch the canonical JSON resume with atomic one-page PDF output.
 - [x] Make canonical unchanged preparation the default and Claude tailoring explicit.
-- [x] Keep deterministic no-submit autofill as the default.
+- [x] Run saved Greenhouse, Ashby, and Lever listings synchronously in headed
+  Windows Chrome with no navigation or submit actions.
 - [x] Manage the hosted reusable answer library with CLI list/add/edit commands.
-- [x] Add an optional user-triggered Lentra handoff followed by value-free Playwright audit.
+- [x] Add exact/contextual answer reuse, local-Claude 20 percent validation, and
+  explicit final webpage-answer approval.
+- [x] Add deduplicated failure capture plus list/show/diagnose/draft/apply/verify commands.
 - [x] Render `**keyword**` bullet emphasis as a dedicated sans type and omit Skills when empty.
-- [x] Pass Ruff, strict mypy, and 96 tests; one loopback bind test skips in sandbox.
+- [x] Pass Ruff, strict mypy, and 102 ordinary tests; one loopback bind test skips
+  in sandbox. Pass three headed synthetic ATS fixtures outside the restricted sandbox.
 - [x] Compile the real canonical resume to one page and open its live Windows Chrome preview.
 - [x] Persist a real 415-row hosted sync and verify 320 technical-default rows.
 - [x] Live-test `--limit 500` returning all 323 current technical rows.
-- [ ] Exercise the Lentra handoff with the extension installed on a real application.
+- [ ] Run one real saved listing on each supported ATS and the controlled hosted
+  failure lifecycle after the new migration is deployed.
+- [ ] Add Workday only after all three v1 adapters pass live acceptance.
 
 The canonical resume is `artifacts/resume/main.json`; the tracked PDF beside it
 is `artifacts/resume/main.pdf`. Invalid JSON, LaTeX errors, or a two-page result

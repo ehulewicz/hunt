@@ -91,7 +91,9 @@ class FakeJobsStore:
         return AnswerLibraryItem(
             id=ANSWER_ID,
             question="Why this team?",
+            normalized_key="why this team",
             answer_text="I want to build reliable developer tools.",
+            reuse_policy="exact",
             approved=True,
             updated_at=datetime(2026, 8, 13, tzinfo=UTC),
         )
@@ -105,7 +107,9 @@ class FakeJobsStore:
         return AnswerLibraryItem(
             id=ANSWER_ID,
             question="Why this team?",
+            normalized_key="why this team",
             answer_text="I want to build dependable developer tools.",
+            reuse_policy="exact",
             approved=False,
             updated_at=datetime(2026, 8, 13, tzinfo=UTC),
         )
@@ -331,6 +335,7 @@ async def test_long_form_answers_are_created_without_a_client_key(
     assert "key" not in response.json()
     assert store.answer_create is not None
     assert store.answer_create.question == "Why this team?"
+    assert store.answer_create.reuse_policy == "exact"
 
 
 async def test_long_form_answers_are_updated_by_id(app: FastAPI, client: httpx.AsyncClient) -> None:

@@ -1,0 +1,20 @@
+<!doctype html><html><body>
+<h1>Acme Backend Engineer Intern</h1>
+<form>
+  <label for="resume">Resume</label><input id="resume" type="file" required>
+  <label for="first">First name</label><input id="first" name="first_name" required>
+  <label for="email">Email</label><input id="email" name="email" type="email" required>
+  <label for="why">Why this team?</label><textarea id="why" required></textarea>
+  <label for="country">Country</label><select id="country" required>
+    <option></option><option>United States</option><option>Canada</option>
+  </select>
+  <input type="hidden" value="secret"><input type="password"><button type="submit">Submit</button>
+</form>
+<script>
+document.querySelector('#resume').addEventListener('change', () => {
+  const old = document.querySelector('#first');
+  const fresh = old.cloneNode(); fresh.id = 'first'; fresh.name = 'first_name';
+  old.replaceWith(fresh);
+});
+</script>
+</body></html>

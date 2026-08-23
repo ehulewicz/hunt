@@ -20,7 +20,8 @@ optional EEO values are not inferred.
 ## Jobs boundary
 
 `/v1/jobs/*` owns profile editing, listing filtering, application preparation,
-document review, answer-library management, worker pairing, and task leasing.
+document review, answer-library management, synchronous autofill runs, failure
+history, and task leasing.
 The scheduled SpeedyApply importer reads only the US `README.md` internship files
 from the 2027 SWE and AI/ML repositories. It accepts visible `City, ST`, US-wide,
 and US remote forms, rejects visibly international primary locations and titles
@@ -36,8 +37,12 @@ them newest-first. Selected locations use match-any semantics. The direct
 company/ATS URL is used for application work while the GitHub file remains the
 discovery URL.
 
-Browser sessions create revocable 30-day worker credentials. A paired worker may
-claim only that user's Jobs tasks, continuously heartbeat its five-minute lease,
-fetch the approved bundle and PDF, upload a new PDF, and report preparation or
-autofill results. Approving a tailored resume marks the application ready and
-queues visible autofill. Submission and submitted status remain manual actions.
+The signed-in CLI creates an autofill run from a posting ID. FastAPI upserts the
+application and returns only that user's direct URL, posting context, profile,
+approved answer bases, scoped variants, and duplicate-company warnings. Step
+results and approved final answers return through authenticated endpoints.
+
+Failure signatures deduplicate issues while occurrence rows preserve run/step
+evidence. FastAPI alone writes sanitized artifacts to the private autofill
+bucket. It verifies ownership for upload and download; storage paths are never
+trusted as authorization. Submission and submitted status remain manual.

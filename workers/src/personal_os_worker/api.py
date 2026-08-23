@@ -72,11 +72,21 @@ class WorkerApi:
         return payload if isinstance(payload, list) else []
 
     def create_answer(
-        self, *, question: str, answer_text: str, approved: bool
+        self,
+        *,
+        question: str,
+        answer_text: str,
+        approved: bool,
+        reuse_policy: str = "exact",
     ) -> dict[str, Any]:
         response = self._client.post(
             "/v1/jobs/answers",
-            json={"question": question, "answer_text": answer_text, "approved": approved},
+            json={
+                "question": question,
+                "answer_text": answer_text,
+                "approved": approved,
+                "reuse_policy": reuse_policy,
+            },
         )
         response.raise_for_status()
         payload = response.json()
@@ -99,6 +109,84 @@ class WorkerApi:
         if not isinstance(payload, list):
             raise RuntimeError("Application response was invalid")
         return payload
+
+    def create_autofill_run(
+        self, *, posting_id: str, ats: str, adapter_version: str
+    ) -> dict[str, Any]:
+        response = self._client.post(
+            "/v1/jobs/autofill/runs",
+            json={"posting_id": posting_id, "ats": ats, "adapter_version": adapter_version},
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Autofill run response was invalid")
+        return payload
+
+    def persist_autofill_step(self, run_id: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        response = self._client.post(f"/v1/jobs/autofill/runs/{run_id}/steps", json=payload)
+        response.raise_for_status()
+        value = response.json()
+        return value if isinstance(value, list) else []
+
+    def upload_autofill_artifact(
+        self, run_id: str, *, name: str, content: bytes, content_type: str
+    ) -> str:
+        response = self._client.post(
+            f"/v1/jobs/autofill/runs/{run_id}/artifacts",
+            files={"artifact": (name, content, content_type)},
+        )
+        response.raise_for_status()
+        path = response.json().get("storage_path")
+        if not isinstance(path, str):
+            raise RuntimeError("Artifact upload did not return a storage path")
+        return path
+
+    def complete_autofill_run(
+        self, run_id: str, *, final_url: str, answers: list[dict[str, Any]]
+    ) -> None:
+        response = self._client.post(
+            f"/v1/jobs/autofill/runs/{run_id}/complete",
+            json={"final_url": final_url, "answers": answers},
+        )
+        response.raise_for_status()
+
+    def stop_autofill_run(self, run_id: str, *, status: str) -> None:
+        response = self._client.post(
+            f"/v1/jobs/autofill/runs/{run_id}/stop", json={"status": status}
+        )
+        if response.status_code == 404:
+            return
+        response.raise_for_status()
+
+    def autofill_failures(self) -> list[dict[str, Any]]:
+        response = self._client.get("/v1/jobs/autofill/failures")
+        response.raise_for_status()
+        value = response.json()
+        return value if isinstance(value, list) else []
+
+    def autofill_failure(self, issue_id: str) -> dict[str, Any]:
+        response = self._client.get(f"/v1/jobs/autofill/failures/{issue_id}")
+        response.raise_for_status()
+        value = response.json()
+        if not isinstance(value, dict):
+            raise RuntimeError("Autofill failure response was invalid")
+        return value
+
+    def download_autofill_artifact(self, issue_id: str, path: str) -> bytes:
+        response = self._client.get(
+            f"/v1/jobs/autofill/failures/{issue_id}/artifact", params={"path": path}
+        )
+        response.raise_for_status()
+        return response.content
+
+    def update_autofill_failure(self, issue_id: str, changes: dict[str, Any]) -> dict[str, Any]:
+        response = self._client.patch(f"/v1/jobs/autofill/failures/{issue_id}", json=changes)
+        response.raise_for_status()
+        value = response.json()
+        if not isinstance(value, dict):
+            raise RuntimeError("Updated autofill failure response was invalid")
+        return value
 
     def batch_prepare(self, posting_ids: list[str], *, tailor: bool = False) -> dict[str, Any]:
         response = self._client.post(

@@ -12,11 +12,20 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
 from personal_os.config import Settings
+from personal_os.jobs_answers import answer_storage_key, normalize_answer_key
 from personal_os.jobs_models import (
     AnswerLibraryCreate,
     AnswerLibraryItem,
     AnswerLibraryUpdate,
     ApplicationUpdate,
+    AutofillFailureDetail,
+    AutofillFailureIssue,
+    AutofillFailureUpdate,
+    AutofillRunComplete,
+    AutofillRunContext,
+    AutofillRunCreate,
+    AutofillRunStop,
+    AutofillStepCreate,
     BatchPrepareResponse,
     JobApplication,
     JobDocument,
@@ -77,9 +86,7 @@ class JobsStore(Protocol):
         self, user_id: UUID, document_id: UUID, content: MasterResumeContent
     ) -> JobDocument | None: ...
 
-    async def queue_resume_preview(
-        self, user_id: UUID, document_id: UUID
-    ) -> UUID | None: ...
+    async def queue_resume_preview(self, user_id: UUID, document_id: UUID) -> UUID | None: ...
 
     async def get_master_resume_draft_content(
         self, user_id: UUID, document_id: UUID
@@ -108,6 +115,38 @@ class JobsStore(Protocol):
     async def update_answer(
         self, user_id: UUID, answer_id: UUID, item: AnswerLibraryUpdate
     ) -> AnswerLibraryItem | None: ...
+
+    async def create_autofill_run(
+        self, user_id: UUID, item: AutofillRunCreate
+    ) -> AutofillRunContext | None: ...
+
+    async def persist_autofill_step(
+        self, user_id: UUID, run_id: UUID, item: AutofillStepCreate
+    ) -> list[AutofillFailureIssue] | None: ...
+
+    async def complete_autofill_run(
+        self, user_id: UUID, run_id: UUID, item: AutofillRunComplete
+    ) -> bool: ...
+
+    async def owns_autofill_run(self, user_id: UUID, run_id: UUID) -> bool: ...
+
+    async def stop_autofill_run(
+        self, user_id: UUID, run_id: UUID, item: AutofillRunStop
+    ) -> bool: ...
+
+    async def list_autofill_failures(self, user_id: UUID) -> list[AutofillFailureIssue]: ...
+
+    async def get_autofill_failure(
+        self, user_id: UUID, issue_id: UUID
+    ) -> AutofillFailureDetail | None: ...
+
+    async def autofill_artifact_belongs_to_issue(
+        self, user_id: UUID, issue_id: UUID, path: str
+    ) -> bool: ...
+
+    async def update_autofill_failure(
+        self, user_id: UUID, issue_id: UUID, item: AutofillFailureUpdate
+    ) -> AutofillFailureIssue | None: ...
 
     async def claim_task(self, user_id: UUID, worker_id: str) -> WorkerTask | None: ...
 
@@ -833,9 +872,7 @@ class PostgresJobsStore:
             )
         return task_id
 
-    async def get_master_resume_draft_content(
-        self, user_id: UUID, document_id: UUID
-    ) -> str | None:
+    async def get_master_resume_draft_content(self, user_id: UUID, document_id: UUID) -> str | None:
         async with (
             self._pool.connection(timeout=self._timeout) as connection,
             connection.transaction(),
@@ -1019,8 +1056,8 @@ class PostgresJobsStore:
             await connection.execute("set local role personal_os_api")
             cursor = await connection.execute(
                 """
-                select id, normalized_question as question, answer_text,
-                       approved, updated_at
+                select id, normalized_question as question, normalized_key,
+                       answer_text, reuse_policy, approved, updated_at
                 from app.jobs_answer_library
                 where user_id = %s and answer_type = 'long_form'
                 order by updated_at desc
@@ -1031,7 +1068,8 @@ class PostgresJobsStore:
         return [AnswerLibraryItem.model_validate(row) for row in rows]
 
     async def create_answer(self, user_id: UUID, item: AnswerLibraryCreate) -> AnswerLibraryItem:
-        key = f"long-form-{uuid4().hex}"
+        normalized_key = normalize_answer_key(item.question)
+        key = answer_storage_key(normalized_key)
         async with (
             self._pool.connection(timeout=self._timeout) as connection,
             connection.transaction(),
@@ -1040,12 +1078,26 @@ class PostgresJobsStore:
             cursor = await connection.execute(
                 """
                 insert into app.jobs_answer_library (
-                  user_id, key, normalized_question, answer_text, answer_type, approved
-                ) values (%s, %s, %s, %s, 'long_form', %s)
-                returning id, normalized_question as question, answer_text,
-                          approved, updated_at
+                  user_id, key, normalized_question, normalized_key, answer_text,
+                  answer_type, reuse_policy, approved
+                ) values (%s, %s, %s, %s, %s, 'long_form', %s, %s)
+                on conflict (user_id, normalized_key) where answer_type = 'long_form'
+                do update set normalized_question = excluded.normalized_question,
+                              answer_text = excluded.answer_text,
+                              reuse_policy = excluded.reuse_policy,
+                              approved = excluded.approved
+                returning id, normalized_question as question, normalized_key,
+                          answer_text, reuse_policy, approved, updated_at
                 """,
-                (user_id, key, item.question, item.answer_text, item.approved),
+                (
+                    user_id,
+                    key,
+                    item.question,
+                    normalized_key,
+                    item.answer_text,
+                    item.reuse_policy,
+                    item.approved,
+                ),
             )
             row = await cursor.fetchone()
         if row is None:
@@ -1057,7 +1109,9 @@ class PostgresJobsStore:
     ) -> AnswerLibraryItem | None:
         values = item.model_dump(exclude_unset=True)
         if "question" in values:
-            values["normalized_question"] = values.pop("question")
+            question = values.pop("question")
+            values["normalized_question"] = question
+            values["normalized_key"] = normalize_answer_key(question)
         assignments = sql.SQL(", ").join(
             sql.SQL("{} = %s").format(sql.Identifier(key)) for key in values
         )
@@ -1071,14 +1125,458 @@ class PostgresJobsStore:
                     """
                     update app.jobs_answer_library set {}
                     where id = %s and user_id = %s and answer_type = 'long_form'
-                    returning id, normalized_question as question, answer_text,
-                              approved, updated_at
+                    returning id, normalized_question as question, normalized_key,
+                              answer_text, reuse_policy, approved, updated_at
                     """
                 ).format(assignments),
                 (*values.values(), answer_id, user_id),
             )
             row = await cursor.fetchone()
         return AnswerLibraryItem.model_validate(row) if row else None
+
+    async def create_autofill_run(
+        self, user_id: UUID, item: AutofillRunCreate
+    ) -> AutofillRunContext | None:
+        async with (
+            self._pool.connection(timeout=self._timeout) as connection,
+            connection.transaction(),
+        ):
+            await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                """
+                with target as (
+                  select posting.id, posting.application_url, posting.discovery_url,
+                         posting.description_text, posting.title, posting.company_id,
+                         company.name as company_name
+                  from app.jobs_postings posting
+                  join app.jobs_companies company on company.id = posting.company_id
+                  where posting.id = %s and posting.user_id = %s
+                    and posting.application_url is not null
+                    and posting.status not in ('closed', 'archived')
+                ), application as (
+                  insert into app.jobs_applications (user_id, posting_id)
+                  select %s, id from target
+                  on conflict (user_id, posting_id) do update set updated_at = now()
+                  returning id, posting_id
+                ), run as (
+                  insert into app.jobs_autofill_runs (
+                    user_id, application_id, ats, adapter_version, application_url
+                  )
+                  select %s, application.id,
+                         case when %s <> 'generic' then %s
+                              when target.application_url ilike '%%greenhouse%%' then 'greenhouse'
+                              when target.application_url ilike '%%ashbyhq%%' then 'ashby'
+                              when target.application_url ilike '%%lever.co%%' then 'lever'
+                              else 'generic' end,
+                         %s, target.application_url
+                  from application join target on target.id = application.posting_id
+                  returning id, application_id
+                )
+                select run.id as run_id, run.application_id, run.ats,
+                       target.application_url,
+                       target.discovery_url, target.company_name, target.title,
+                       target.description_text, target.company_id
+                from run join target on true
+                """,
+                (
+                    item.posting_id,
+                    user_id,
+                    user_id,
+                    user_id,
+                    item.ats,
+                    item.ats,
+                    item.adapter_version,
+                ),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+            profile_cursor = await connection.execute(
+                "select to_jsonb(profile) - 'user_id' as profile "
+                "from app.jobs_profile profile where user_id = %s",
+                (user_id,),
+            )
+            profile_row = await profile_cursor.fetchone()
+            answers_cursor = await connection.execute(
+                """
+                select id, normalized_question, normalized_key, answer_text,
+                       reuse_policy, approved, updated_at
+                from app.jobs_answer_library
+                where user_id = %s and approved and answer_type = 'long_form'
+                order by updated_at desc
+                """,
+                (user_id,),
+            )
+            scoped_cursor = await connection.execute(
+                """
+                select question.question_text, question.normalized_key,
+                       question.answer_text, question.answer_source,
+                       company.name as company_name, posting.title,
+                       question.updated_at
+                from app.jobs_application_questions question
+                join app.jobs_applications application on application.id = question.application_id
+                join app.jobs_postings posting on posting.id = application.posting_id
+                join app.jobs_companies company on company.id = posting.company_id
+                where question.user_id = %s and question.status in ('approved', 'submitted')
+                  and question.answer_text is not null
+                  and (posting.company_id = %s or posting.title = %s)
+                order by question.updated_at desc limit 100
+                """,
+                (user_id, row["company_id"], row["title"]),
+            )
+            duplicate_cursor = await connection.execute(
+                """
+                select application.id, application.status, posting.title,
+                       application.created_at
+                from app.jobs_applications application
+                join app.jobs_postings posting on posting.id = application.posting_id
+                where application.user_id = %s and posting.company_id = %s
+                  and application.id <> %s and application.status <> 'archived'
+                order by application.created_at desc
+                """,
+                (user_id, row["company_id"], row["application_id"]),
+            )
+            answers = await answers_cursor.fetchall()
+            scoped = await scoped_cursor.fetchall()
+            duplicates = await duplicate_cursor.fetchall()
+        if profile_row is None:
+            return None
+        return AutofillRunContext(
+            **{key: value for key, value in row.items() if key != "company_id"},
+            profile=profile_row["profile"],
+            approved_answers=[dict(answer) for answer in answers],
+            scoped_answers=[dict(answer) for answer in scoped],
+            duplicate_company_applications=[dict(item) for item in duplicates],
+        )
+
+    async def persist_autofill_step(
+        self, user_id: UUID, run_id: UUID, item: AutofillStepCreate
+    ) -> list[AutofillFailureIssue] | None:
+        issues: list[AutofillFailureIssue] = []
+        async with (
+            self._pool.connection(timeout=self._timeout) as connection,
+            connection.transaction(),
+        ):
+            await connection.execute("set local role personal_os_api")
+            run_cursor = await connection.execute(
+                """
+                update app.jobs_autofill_runs
+                set current_step = greatest(current_step, %s), final_url = %s,
+                    filled_count = filled_count + %s,
+                    skipped_count = skipped_count + %s,
+                    failure_count = failure_count + %s
+                where id = %s and user_id = %s and status = 'running'
+                returning ats, adapter_version
+                """,
+                (
+                    item.step_number,
+                    item.url,
+                    item.filled_count,
+                    item.skipped_count,
+                    len(item.failures),
+                    run_id,
+                    user_id,
+                ),
+            )
+            run = await run_cursor.fetchone()
+            if run is None:
+                return None
+            for failure in item.failures:
+                signature = str(failure.get("signature") or "").strip()
+                category = str(failure.get("category") or "unsupported_control").strip()
+                if not signature:
+                    continue
+                issue_cursor = await connection.execute(
+                    """
+                    insert into app.jobs_autofill_failure_issues (
+                      user_id, signature, ats, category, field_label, control_kind
+                    ) values (%s, %s, %s, %s, %s, %s)
+                    on conflict (user_id, signature) do update set
+                      occurrence_count = app.jobs_autofill_failure_issues.occurrence_count + 1,
+                      last_seen_at = now(),
+                      status = case
+                        when app.jobs_autofill_failure_issues.status in
+                          ('replay_passed', 'live_verified', 'fixed') then 'open'
+                        else app.jobs_autofill_failure_issues.status
+                      end
+                    returning id, signature, ats, category, field_label, control_kind,
+                              status, diagnosis, proposed_patch, fixed_commit,
+                              verification_notes, occurrence_count, first_seen_at,
+                              last_seen_at, updated_at
+                    """,
+                    (
+                        user_id,
+                        signature,
+                        run["ats"],
+                        category,
+                        failure.get("field_label"),
+                        failure.get("control_kind"),
+                    ),
+                )
+                issue = await issue_cursor.fetchone()
+                if issue is None:
+                    continue
+                await connection.execute(
+                    """
+                    insert into app.jobs_autofill_failure_occurrences (
+                      user_id, issue_id, run_id, step_number, field_fingerprint,
+                      intended_value, observed_value, error_message, dom_signals,
+                      artifact_paths, adapter_version
+                    ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        user_id,
+                        issue["id"],
+                        run_id,
+                        item.step_number,
+                        failure.get("field_fingerprint"),
+                        failure.get("intended_value"),
+                        failure.get("observed_value"),
+                        failure.get("error_message"),
+                        Jsonb(failure.get("dom_signals") or {}),
+                        Jsonb(failure.get("artifact_paths") or {}),
+                        run["adapter_version"],
+                    ),
+                )
+                issues.append(AutofillFailureIssue.model_validate(issue))
+        return issues
+
+    async def complete_autofill_run(
+        self, user_id: UUID, run_id: UUID, item: AutofillRunComplete
+    ) -> bool:
+        async with (
+            self._pool.connection(timeout=self._timeout) as connection,
+            connection.transaction(),
+        ):
+            await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                """
+                update app.jobs_autofill_runs
+                set status = 'review_ready', final_url = %s, completed_at = now()
+                where id = %s and user_id = %s and status = 'running'
+                returning application_id
+                """,
+                (item.final_url, run_id, user_id),
+            )
+            run = await cursor.fetchone()
+            if run is None:
+                return False
+            for answer in item.answers:
+                question = str(answer.get("question") or "").strip()
+                answer_text = str(answer.get("answer_text") or "").strip()
+                if not question or not answer_text:
+                    continue
+                normalized_key = normalize_answer_key(question)
+                source = str(answer.get("source") or "manual")
+                reuse_policy = str(answer.get("reuse_policy") or "contextual")
+                library_cursor = await connection.execute(
+                    """
+                    insert into app.jobs_answer_library (
+                      user_id, key, normalized_question, normalized_key, answer_text,
+                      answer_type, reuse_policy, approved
+                    ) values (%s, %s, %s, %s, %s, 'long_form', %s, true)
+                    on conflict (user_id, normalized_key) where answer_type = 'long_form'
+                    do update set normalized_question = excluded.normalized_question,
+                                  answer_text = excluded.answer_text,
+                                  reuse_policy = excluded.reuse_policy,
+                                  approved = true
+                    returning id
+                    """,
+                    (
+                        user_id,
+                        answer_storage_key(normalized_key),
+                        question,
+                        normalized_key,
+                        answer_text,
+                        reuse_policy if reuse_policy in {"exact", "contextual"} else "contextual",
+                    ),
+                )
+                library = await library_cursor.fetchone()
+                await connection.execute(
+                    """
+                    insert into app.jobs_application_questions (
+                      user_id, application_id, question_text, normalized_key,
+                      answer_text, answer_source, answer_library_id, status
+                    ) values (%s, %s, %s, %s, %s, %s, %s, 'approved')
+                    """,
+                    (
+                        user_id,
+                        run["application_id"],
+                        question,
+                        normalized_key,
+                        answer_text,
+                        source
+                        if source in {"jobs_profile", "answer_library", "model", "manual"}
+                        else "manual",
+                        library["id"] if library else None,
+                    ),
+                )
+            await connection.execute(
+                """
+                update app.jobs_applications
+                set status = 'ready', next_action = 'Review and submit the application manually'
+                where id = %s and user_id = %s
+                """,
+                (run["application_id"], user_id),
+            )
+        return True
+
+    async def owns_autofill_run(self, user_id: UUID, run_id: UUID) -> bool:
+        async with self._pool.connection(timeout=self._timeout) as connection:
+            await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                "select 1 from app.jobs_autofill_runs where id = %s and user_id = %s",
+                (run_id, user_id),
+            )
+            return await cursor.fetchone() is not None
+
+    async def stop_autofill_run(
+        self, user_id: UUID, run_id: UUID, item: AutofillRunStop
+    ) -> bool:
+        async with (
+            self._pool.connection(timeout=self._timeout) as connection,
+            connection.transaction(),
+        ):
+            await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                """
+                update app.jobs_autofill_runs
+                set status = %s, completed_at = now()
+                where id = %s and user_id = %s and status = 'running'
+                returning id
+                """,
+                (item.status, run_id, user_id),
+            )
+            return await cursor.fetchone() is not None
+
+    async def list_autofill_failures(self, user_id: UUID) -> list[AutofillFailureIssue]:
+        async with self._pool.connection(timeout=self._timeout) as connection:
+            await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                """
+                select id, signature, ats, category, field_label, control_kind,
+                       status, diagnosis, proposed_patch, fixed_commit,
+                       verification_notes, occurrence_count, first_seen_at,
+                       last_seen_at, updated_at
+                from app.jobs_autofill_failure_issues where user_id = %s
+                order by last_seen_at desc
+                """,
+                (user_id,),
+            )
+            rows = await cursor.fetchall()
+        return [AutofillFailureIssue.model_validate(row) for row in rows]
+
+    async def get_autofill_failure(
+        self, user_id: UUID, issue_id: UUID
+    ) -> AutofillFailureDetail | None:
+        async with self._pool.connection(timeout=self._timeout) as connection:
+            await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                """
+                select id, signature, ats, category, field_label, control_kind,
+                       status, diagnosis, proposed_patch, fixed_commit,
+                       verification_notes, occurrence_count, first_seen_at,
+                       last_seen_at, updated_at
+                from app.jobs_autofill_failure_issues where user_id = %s and id = %s
+                """,
+                (user_id, issue_id),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+            occurrence_cursor = await connection.execute(
+                """
+                select id, run_id, step_number, field_fingerprint, intended_value,
+                       observed_value, error_message, dom_signals, artifact_paths,
+                       adapter_version, created_at
+                from app.jobs_autofill_failure_occurrences
+                where user_id = %s and issue_id = %s
+                order by created_at desc limit 20
+                """,
+                (user_id, issue_id),
+            )
+            occurrences = await occurrence_cursor.fetchall()
+        return AutofillFailureDetail.model_validate(
+            {**dict(row), "occurrences": [dict(item) for item in occurrences]}
+        )
+
+    async def autofill_artifact_belongs_to_issue(
+        self, user_id: UUID, issue_id: UUID, path: str
+    ) -> bool:
+        async with self._pool.connection(timeout=self._timeout) as connection:
+            await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                """
+                select 1 from app.jobs_autofill_failure_occurrences occurrence
+                where occurrence.user_id = %s and occurrence.issue_id = %s
+                  and exists (
+                    select 1 from jsonb_each_text(occurrence.artifact_paths) artifact
+                    where artifact.value = %s
+                  )
+                limit 1
+                """,
+                (user_id, issue_id, path),
+            )
+            return await cursor.fetchone() is not None
+
+    async def update_autofill_failure(
+        self, user_id: UUID, issue_id: UUID, item: AutofillFailureUpdate
+    ) -> AutofillFailureIssue | None:
+        values = item.model_dump(exclude_unset=True)
+        if not values:
+            return await self.get_autofill_failure(user_id, issue_id)
+        async with (
+            self._pool.connection(timeout=self._timeout) as connection,
+            connection.transaction(),
+        ):
+            await connection.execute("set local role personal_os_api")
+            current_cursor = await connection.execute(
+                """
+                select status from app.jobs_autofill_failure_issues
+                where user_id = %s and id = %s for update
+                """,
+                (user_id, issue_id),
+            )
+            current = await current_cursor.fetchone()
+            if current is None:
+                return None
+            next_status = values.get("status")
+            allowed = {
+                "open": {"open", "diagnosed"},
+                "diagnosed": {"diagnosed", "patch_ready"},
+                "patch_ready": {"patch_ready", "replay_passed"},
+                "replay_passed": {"replay_passed", "live_verified", "fixed"},
+                "live_verified": {"live_verified", "fixed"},
+                "fixed": {"fixed"},
+            }
+            if next_status is not None and next_status not in allowed[str(current["status"])]:
+                raise ValueError(
+                    f"Invalid failure transition: {current['status']} -> {next_status}"
+                )
+            if next_status == "fixed" and not values.get("fixed_commit"):
+                raise ValueError("A fixed issue requires the verified Git commit")
+            if next_status == "replay_passed":
+                values["replay_verified_at"] = datetime.now(UTC)
+            if next_status in {"live_verified", "fixed"}:
+                values["live_verified_at"] = datetime.now(UTC)
+            assignments = sql.SQL(", ").join(
+                sql.SQL("{} = %s").format(sql.Identifier(key)) for key in values
+            )
+            cursor = await connection.execute(
+                sql.SQL(
+                    """
+                    update app.jobs_autofill_failure_issues set {}
+                    where user_id = %s and id = %s
+                    returning id, signature, ats, category, field_label, control_kind,
+                              status, diagnosis, proposed_patch, fixed_commit,
+                              verification_notes, occurrence_count, first_seen_at,
+                              last_seen_at, updated_at
+                    """
+                ).format(assignments),
+                (*values.values(), user_id, issue_id),
+            )
+            row = await cursor.fetchone()
+        return AutofillFailureIssue.model_validate(row) if row else None
 
     async def claim_task(self, user_id: UUID, worker_id: str) -> WorkerTask | None:
         async with (

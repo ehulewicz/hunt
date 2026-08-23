@@ -18,7 +18,15 @@ The default candidate is the canonical resume unchanged. `--tailor` alone calls
 `claude -p`; the existing fact, structure, 10 percent, and one-page validators
 still decide whether the result is usable.
 
-Autofill has two providers. `personal-os` fills only deterministic Profile facts,
-the chosen resume, and exact approved answers. `lentra` pauses for the user to
-trigger the Chrome extension and then audits only field presence. Both leave the
-headed page open and have no submit behavior.
+`os hunt autofill <listing-ref>` rebuilds the canonical PDF and opens the stored
+direct URL in native Windows Chrome. Greenhouse, Ashby, and Lever adapters use
+fresh locators, native events, strict option matching, readback, resume-first
+rerender handling, and same-origin iframe inspection. Exact answers and Profile
+facts are deterministic. Contextual or unmatched long-form fields alone may call
+local `claude -p`, with fact/voice hygiene and a 20 percent base-answer guard.
+
+The worker never clicks navigation or submission controls. It captures each
+step before the user manually advances, persists user-approved final textarea
+values through FastAPI, and reports failures with sanitized evidence. Failure
+fixes require explicit worktree mutation, replay tests, a user-created commit,
+and headed live confirmation.

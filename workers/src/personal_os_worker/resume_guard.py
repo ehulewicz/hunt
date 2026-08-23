@@ -206,4 +206,3 @@ def unsupported_new_keywords(
         and (stem(word) not in description_stems or stem(word) not in supported_stems)
     )
 
-

@@ -102,6 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
     answer_add_input.add_argument("--text", help="Answer wording")
     answer_add_input.add_argument("--file", help="Read answer wording from a UTF-8 file")
     answer_add.add_argument("--draft", action="store_true", help="Save unapproved")
+    answer_add.add_argument("--reuse", choices=["exact", "contextual"], default="exact")
     answer_edit = answer_commands.add_parser("edit", help="Edit a listed answer")
     answer_edit.add_argument("ref", help="Row number from answers list or id prefix")
     answer_edit.add_argument("--question")
@@ -112,10 +113,9 @@ def build_parser() -> argparse.ArgumentParser:
     answer_approval.add_argument("--approve", action="store_const", const=True, dest="approved")
     answer_approval.add_argument("--draft", action="store_const", const=False, dest="approved")
     answer_edit.set_defaults(approved=None)
+    answer_edit.add_argument("--reuse", choices=["exact", "contextual"])
 
-    resume = jobs_commands.add_parser(
-        "resume", help="Build or watch the canonical one-page resume"
-    )
+    resume = jobs_commands.add_parser("resume", help="Build or watch the canonical one-page resume")
     resume_commands = resume.add_subparsers(dest="resume_command", required=True)
     resume_build = resume_commands.add_parser("build", help="Compile resume JSON to PDF")
     resume_build.add_argument("--input", help="Resume JSON path; defaults to canonical main")
@@ -140,28 +140,26 @@ def build_parser() -> argparse.ArgumentParser:
 
     autofill = jobs_commands.add_parser(
         "autofill",
-        help="Autofill the active tab, or a URL, without submitting",
+        help="Fill a saved listing in native Chrome, or manage captured failures",
     )
+    autofill.add_argument("ref", help="Listing row/id, or the literal 'failures'")
     autofill.add_argument(
-        "--url",
-        help="Open this URL instead of using the tab already in the foreground",
+        "failure_action",
+        nargs="?",
+        choices=["list", "show", "diagnose", "draft-fix", "apply-fix", "verify"],
+        help="Failure command when ref is 'failures'",
+    )
+    autofill.add_argument("failure_ref", nargs="?", help="Failure row or id prefix")
+    autofill.add_argument(
+        "verify_listing_ref", nargs="?", help="Saved listing used for live verification"
     )
     autofill.add_argument(
         "--dry-run",
         action="store_true",
         help="Show what would be filled without touching the page",
     )
-    autofill.add_argument(
-        "--provider",
-        choices=["personal-os", "lentra"],
-        default="personal-os",
-        help="Use deterministic Personal OS fill or pause for Lentra and audit the result",
-    )
-    autofill.add_argument("--resume", help="PDF to attach to a resume upload field")
 
-    run = jobs_commands.add_parser(
-        "run", help="Run every queued task, then exit"
-    )
+    run = jobs_commands.add_parser("run", help="Run every queued task, then exit")
     run_mode = run.add_mutually_exclusive_group()
     run_mode.add_argument("--once", action="store_true", help="Stop after a single task")
     run_mode.add_argument(
@@ -233,6 +231,7 @@ def _dispatch(args: argparse.Namespace) -> int:
                     text=args.text,
                     file=args.file,
                     approved=not args.draft,
+                    reuse=args.reuse,
                 )
             if args.answer_command == "edit":
                 return hunt.run_answer_edit(
@@ -241,6 +240,7 @@ def _dispatch(args: argparse.Namespace) -> int:
                     text=args.text,
                     file=args.file,
                     approved=args.approved,
+                    reuse=args.reuse,
                 )
         if args.hunt_command == "resume":
             source = Path(args.input).expanduser() if args.input else None
@@ -260,12 +260,15 @@ def _dispatch(args: argparse.Namespace) -> int:
         if args.hunt_command == "prep":
             return hunt.run_prep(args.refs, tailor=args.tailor)
         if args.hunt_command == "autofill":
-            return hunt.run_autofill(
-                url=args.url,
-                dry_run=args.dry_run,
-                resume=args.resume,
-                provider=args.provider,
-            )
+            if args.ref == "failures":
+                return hunt.run_autofill_failure_command(
+                    args.failure_action,
+                    args.failure_ref,
+                    args.verify_listing_ref,
+                )
+            if args.failure_action or args.failure_ref or args.verify_listing_ref:
+                raise RuntimeError("Unexpected autofill arguments")
+            return hunt.run_autofill(args.ref, dry_run=args.dry_run)
         if args.hunt_command == "run":
             return hunt.run_tasks(once=args.once, watch=args.watch)
     return 2

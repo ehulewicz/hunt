@@ -1,6 +1,6 @@
 # Database current state
 
-Last verified: 2026-08-13
+Last verified: 2026-08-23
 
 ## Milestones
 
@@ -14,6 +14,9 @@ Last verified: 2026-08-13
 - [x] Add revocable, expiring Jobs worker credentials without creating a public
   API or alternate source of truth.
 - [x] Define the private `jobs-documents` PDF bucket with a 5 MiB limit.
+- [x] Define normalized answer reuse, synchronous autofill runs, deduplicated
+  failure issues/occurrences, and a private 10 MiB evidence bucket in
+  `20260823090000_autofill_failure_learning.sql`.
 - [x] Keep approved document content immutable while allowing lifecycle updates.
 - [x] Store the Supabase backend-only key and worker JWT key in GCP Secret Manager
   and grant access to the Cloud Run runtime.
@@ -38,3 +41,4 @@ Last verified: 2026-08-13
   and reactivation acceptance flow after this machine is paired.
 - [ ] Revoke legacy password sessions after Google acceptance is reconfirmed.
 - [ ] Add Calendar and Tasks schema only after Jobs works end to end.
+- [ ] Apply and verify the autofill/failure-learning migration on hosted Supabase.

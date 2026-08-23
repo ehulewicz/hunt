@@ -76,8 +76,7 @@ def resolve(kind: str, reference: str) -> str:
             f"Id prefix {reference!r} matches {len(matches)} rows; use more characters."
         )
     raise ReferenceError(
-        f"Nothing in the last {kind} result matches {reference!r}. "
-        f"Run 'os hunt {kind}' to refresh."
+        f"Nothing in the last {kind} result matches {reference!r}. Run 'os hunt {kind}' to refresh."
     )
 
 
@@ -169,6 +168,7 @@ def render_answers(items: list[dict[str, Any]]) -> None:
     table.add_column("question", no_wrap=True, overflow="ellipsis", ratio=1)
     table.add_column("answer", overflow="ellipsis", ratio=2)
     table.add_column("state", no_wrap=True)
+    table.add_column("reuse", no_wrap=True)
     for index, item in enumerate(items, start=1):
         table.add_row(
             str(index),
@@ -176,6 +176,7 @@ def render_answers(items: list[dict[str, Any]]) -> None:
             str(item.get("question") or "-"),
             str(item.get("answer_text") or "-"),
             "approved" if item.get("approved") is True else "draft",
+            str(item.get("reuse_policy") or "exact"),
         )
     console.print(table)
     remember("answers", [str(item.get("id", "")) for item in items])

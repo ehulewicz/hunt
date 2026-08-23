@@ -10,7 +10,8 @@ API derives the UUID from a verified JWT and never accepts it in a body.
 
 The Jobs tables hold structured profile facts, source listings, recoverably
 archived applications, immutable versioned documents, long-form answers,
-tailoring audits, and worker task leases. A partial unique index permits only one
+tailoring audits, synchronous autofill runs, deduplicated failure issues,
+failure occurrences, and worker task leases. A partial unique index permits only one
 queued/running autofill task per application. `jobs_worker_credentials` stores
 only SHA-256 token hashes plus scope,
 expiry, use, and revocation timestamps. Listing source metadata keeps discovery and
@@ -19,7 +20,9 @@ and stores normalized location arrays for match-any filtering. Composite, partia
 and GIN indexes support newest-first discovery, application task state, unanswered
 questions, and location overlap.
 
-The private `jobs-documents` Storage bucket accepts PDFs up to 5 MiB. Only FastAPI
+The private `jobs-documents` Storage bucket accepts PDFs up to 5 MiB. The private
+`jobs-autofill-artifacts` bucket accepts PNG, HTML, text, and JSON evidence up to
+10 MiB. Only FastAPI
 uses its backend secret key; the browser and worker never receive it. Approved
 document content cannot be mutated or deleted, though current/archive lifecycle
 fields can change.

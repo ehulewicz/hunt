@@ -62,24 +62,29 @@ def test_prep_takes_several_references() -> None:
 
 
 def test_resume_build_and_watch_are_cli_commands() -> None:
-    build = build_parser().parse_args(
-        ["hunt", "resume", "build", "--output", "/tmp/main.pdf"]
-    )
+    build = build_parser().parse_args(["hunt", "resume", "build", "--output", "/tmp/main.pdf"])
     assert (build.hunt_command, build.resume_command, build.output) == (
         "resume",
         "build",
         "/tmp/main.pdf",
     )
-    watch = build_parser().parse_args(
-        ["hunt", "resume", "watch", "--open", "--interval", "0.25"]
-    )
+    watch = build_parser().parse_args(["hunt", "resume", "watch", "--open", "--interval", "0.25"])
     assert watch.resume_command == "watch" and watch.open is True
     assert watch.interval == 0.25
 
 
-def test_lentra_is_an_explicit_autofill_provider() -> None:
-    args = build_parser().parse_args(["hunt", "autofill", "--provider", "lentra"])
-    assert args.provider == "lentra"
+def test_autofill_requires_a_saved_listing_reference_and_has_no_lentra_provider() -> None:
+    args = build_parser().parse_args(["hunt", "autofill", "7", "--dry-run"])
+    assert args.ref == "7" and args.dry_run is True
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "autofill", "7", "--provider", "lentra"])
+
+
+def test_autofill_failure_commands_preserve_the_documented_syntax() -> None:
+    listed = build_parser().parse_args(["hunt", "autofill", "failures", "list"])
+    verified = build_parser().parse_args(["hunt", "autofill", "failures", "verify", "2", "9"])
+    assert (listed.ref, listed.failure_action) == ("failures", "list")
+    assert (verified.failure_ref, verified.verify_listing_ref) == ("2", "9")
 
 
 def test_claude_tailoring_is_opt_in() -> None:
@@ -92,13 +97,24 @@ def test_claude_tailoring_is_opt_in() -> None:
 def test_answer_library_is_manageable_without_the_web_app() -> None:
     listed = build_parser().parse_args(["hunt", "answers", "list"])
     added = build_parser().parse_args(
-        ["hunt", "answers", "add", "--question", "Why us?", "--file", "answer.md"]
+        [
+            "hunt",
+            "answers",
+            "add",
+            "--question",
+            "Why us?",
+            "--file",
+            "answer.md",
+            "--reuse",
+            "contextual",
+        ]
     )
     edited = build_parser().parse_args(
         ["hunt", "answers", "edit", "2", "--text", "Updated", "--approve"]
     )
     assert listed.answer_command == "list"
     assert added.file == "answer.md" and added.draft is False
+    assert added.reuse == "contextual"
     assert edited.ref == "2" and edited.approved is True
 
 

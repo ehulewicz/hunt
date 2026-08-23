@@ -20,6 +20,11 @@ RoleFamily = Literal[
     "data_science",
     "other",
 ]
+AnswerReusePolicy = Literal["exact", "contextual"]
+AutofillAts = Literal["greenhouse", "ashby", "lever", "generic"]
+FailureStatus = Literal[
+    "open", "diagnosed", "patch_ready", "replay_passed", "live_verified", "fixed"
+]
 
 
 def internship_default() -> list[CareerStage]:
@@ -282,7 +287,9 @@ class JobDocumentReview(BaseModel):
 class AnswerLibraryItem(BaseModel):
     id: UUID
     question: str
+    normalized_key: str
     answer_text: str
+    reuse_policy: AnswerReusePolicy
     approved: bool
     updated_at: datetime
 
@@ -290,6 +297,7 @@ class AnswerLibraryItem(BaseModel):
 class AnswerLibraryCreate(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
     answer_text: str = Field(min_length=1, max_length=10000)
+    reuse_policy: AnswerReusePolicy = "exact"
     approved: bool
 
     @field_validator("question", "answer_text")
@@ -304,6 +312,7 @@ class AnswerLibraryCreate(BaseModel):
 class AnswerLibraryUpdate(BaseModel):
     question: str | None = Field(default=None, min_length=1, max_length=1000)
     answer_text: str | None = Field(default=None, min_length=1, max_length=10000)
+    reuse_policy: AnswerReusePolicy | None = None
     approved: bool | None = None
 
     @model_validator(mode="before")
@@ -312,13 +321,11 @@ class AnswerLibraryUpdate(BaseModel):
         if isinstance(value, dict):
             nullable_fields = {
                 key
-                for key in ("question", "answer_text", "approved")
+                for key in ("question", "answer_text", "reuse_policy", "approved")
                 if key in value and value[key] is None
             }
             if nullable_fields:
-                raise ValueError(
-                    f"must not be null: {', '.join(sorted(nullable_fields))}"
-                )
+                raise ValueError(f"must not be null: {', '.join(sorted(nullable_fields))}")
         return value
 
     @field_validator("question", "answer_text")
@@ -379,3 +386,89 @@ class WorkerApplicationBundle(BaseModel):
     profile: dict[str, Any]
     main_resume: dict[str, Any]
     approved_answers: list[dict[str, Any]]
+
+
+class AutofillRunCreate(BaseModel):
+    posting_id: UUID
+    ats: AutofillAts
+    adapter_version: str = Field(min_length=1, max_length=200)
+
+
+class AutofillRunContext(BaseModel):
+    run_id: UUID
+    application_id: UUID
+    ats: AutofillAts
+    application_url: str
+    discovery_url: str | None
+    company_name: str
+    title: str
+    description_text: str | None
+    profile: dict[str, Any]
+    approved_answers: list[dict[str, Any]]
+    scoped_answers: list[dict[str, Any]]
+    duplicate_company_applications: list[dict[str, Any]]
+
+
+class AutofillStepCreate(BaseModel):
+    step_number: int = Field(ge=0)
+    url: str = Field(min_length=1, max_length=4000)
+    filled_count: int = Field(default=0, ge=0)
+    skipped_count: int = Field(default=0, ge=0)
+    failures: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
+
+
+class AutofillRunComplete(BaseModel):
+    final_url: str = Field(min_length=1, max_length=4000)
+    answers: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
+
+
+class AutofillRunStop(BaseModel):
+    status: Literal["abandoned", "failed"]
+
+
+class AutofillFailureIssue(BaseModel):
+    id: UUID
+    signature: str
+    ats: str
+    category: str
+    field_label: str | None
+    control_kind: str | None
+    status: FailureStatus
+    diagnosis: str | None
+    proposed_patch: str | None
+    fixed_commit: str | None
+    verification_notes: str | None
+    occurrence_count: int
+    first_seen_at: datetime
+    last_seen_at: datetime
+    updated_at: datetime
+
+
+class AutofillFailureOccurrence(BaseModel):
+    id: UUID
+    run_id: UUID
+    step_number: int
+    field_fingerprint: str | None
+    intended_value: str | None
+    observed_value: str | None
+    error_message: str | None
+    dom_signals: dict[str, Any]
+    artifact_paths: dict[str, str]
+    adapter_version: str
+    created_at: datetime
+
+
+class AutofillFailureDetail(AutofillFailureIssue):
+    occurrences: list[AutofillFailureOccurrence] = Field(default_factory=list)
+
+
+class AutofillFailureUpdate(BaseModel):
+    status: FailureStatus | None = None
+    diagnosis: str | None = Field(default=None, max_length=30000)
+    proposed_patch: str | None = Field(default=None, max_length=200000)
+    fixed_commit: str | None = Field(default=None, max_length=100)
+    verification_notes: str | None = Field(default=None, max_length=30000)
+
+
+class AutofillArtifactResponse(BaseModel):
+    storage_path: str

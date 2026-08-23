@@ -1,6 +1,6 @@
 # Backend current state
 
-Last verified: 2026-08-22
+Last verified: 2026-08-23
 
 ## Milestones
 
@@ -25,7 +25,10 @@ Last verified: 2026-08-22
 - [x] Reserve Answers for create/update-by-ID approved long-form responses and
   keep deterministic factual values in Profile.
 - [x] Add authenticated resume review and worker-only approved PDF download.
-- [x] Validate locally with Ruff, mypy, and 38 passing tests.
+- [x] Add authenticated synchronous autofill run, step, completion, failure,
+  and private artifact endpoints with JWT-derived ownership.
+- [x] Add deterministic normalized answer keys and exact/contextual reuse policy.
+- [x] Validate locally with Ruff, mypy, and 40 passing tests.
 - [x] Validate the live strict-US source at exactly 440 rows, including 136
   FAANG+, 51 Quant, and 89 normalized location choices.
 - [x] Validate the live four-file source at 1,087 unique internships/co-ops,
@@ -46,6 +49,8 @@ Last verified: 2026-08-22
   `artifacts/resume/main.json`; the backend and worker now consume the same
   source, and the generated `main.pdf` is tracked beside it.
 - [ ] Run authenticated hosted Jobs acceptance.
+- [ ] Apply `20260823090000_autofill_failure_learning.sql` and run authenticated
+  hosted run/artifact authorization acceptance.
 - [x] Deploy migration `20260814003115_complete_jobs_workflow.sql` and Cloud Run
   revision `personal-os-api-00012-dw2`; verify sync run `31759248462` writes
   exactly 440 open strict-US rows.
