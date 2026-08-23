@@ -28,7 +28,7 @@
         "Led 4 customer Statements of Work, partnering directly with customers to scope requirements, break work into engineering deliverables, and coordinate execution across frontend, database, and middleware teams.",
         "For 2 of those engagements, independently designed and built the complete solution—from **SQL** schema changes and **REST APIs** to business logic, frontend functionality, and customer-specific configuration—through production deployment.",
         "Shipped 120+ full-stack production tickets (**PHP**/**PostgreSQL** backend, **JavaScript**/Handlebars frontend), owning application-layer business logic for customer-facing enterprise workflows.",
-        "Owned the transition of a legacy AJAX frontend onto internal REST APIs, moving business rules out of the client and into a single enforced layer."
+        "Owned the transition of the legacy AJAX system to internal REST APIs, asset library, and config system."
       ]
     },
     {
@@ -44,7 +44,7 @@
     {
       "title": "Undergraduate Researcher",
       "org": "Example Nuclear Group (iFAN) Laboratory",
-      "date": "May 2024 – December 2024",
+      "date": "April 2024 – August 2024",
       "bullets": [
         "Developed and refined machine learning models in **PyTorch** for real-time cybersecurity threat detection in simulated nuclear systems, improving anomaly detection accuracy and real-time responsiveness under operational constraints.",
         "Built a reproducible, containerized simulation environment using **Docker** and ICSSIM to support high-fidelity nuclear flow loop testing for model training and evaluation."
@@ -63,7 +63,7 @@
   "projects": [
     {
       "title": "AlphaResearch",
-      "org": "UC Berkeley AI Hackathon — Best Use of Cognition",
+      "org": "UC Berkeley AI Hackathon Winner — Best Use of Cognition",
       "date": "June 2026",
       "bullets": [
         "Built a cloud-orchestrated recursive **multi-agent** research platform where agents recursively spawn specialized sub-agents for parallel hypothesis generation, experimentation, and distributed computation, enabling scalable research across 1000+ agents.",
@@ -73,7 +73,6 @@
     },
     {
       "title": "Personal Dynamics Engine",
-      "org": "Multimodal capture and cognitive-state modeling",
       "date": "2026 – Present",
       "bullets": [
         "Building a personal data platform that ingests continuous multimodal streams — **Omi** and **Garmin** wearables for continuous audio and biometrics, plus passive desktop and ambient activity — through self-written capture and ingestion code into one time-aligned longitudinal store.",
@@ -83,12 +82,12 @@
     },
     {
       "title": "Tiny Object Tracking",
-      "org": "",
-      "date": "August – December 2024",
+      "date": "August – September 2024",
       "bullets": [
-        "Extended **MKDNet** in **PyTorch** on a large-scale tiny-object tracking dataset, then adapted it to a novel small-object domain for up to 39% accuracy increase over the base MKDNet model.",
-        "Reproduced the published baseline before adapting it, then evaluated the adapted model against that baseline under a matched **evaluation protocol**, establishing the 39% gain as a controlled comparison rather than a single run."
-      ]
+        "Adapted **MKDNet** in **PyTorch** to a novel shrimp-tracking domain, where a light 20-epoch fine-tune raised normalized precision 39%, precision 33%, and success rate 30% over the unadapted model.",
+        "Benchmarked the tracker against **DiMP50** and **YOLO** across all three metrics and reported that the published **LaTOT** results did not reproduce on the accessible data split."
+      ],
+      "org": "MKDNet replication and domain-adaptation study"
     }
   ],
   "skills": []
