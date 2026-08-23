@@ -26,9 +26,9 @@
       "date": "May 2025 – Present",
       "bullets": [
         "Led 4 customer Statements of Work, partnering directly with customers to scope requirements, break work into engineering deliverables, and coordinate execution across frontend, database, and middleware teams.",
-        "For 2 of those engagements, independently designed and built the complete solution—from database changes and REST APIs to business logic, frontend functionality, and customer-specific configuration—through production deployment.",
-        "Shipped 120+ full-stack production tickets (PHP/PostgreSQL backend, JavaScript/Handlebars frontend), owning application-layer business logic for customer-facing enterprise workflows.",
-        "Refactored legacy AJAX frontend into internal REST APIs to centralize business rules; worked directly with customers and product architects to translate requirements into shipped features and resolve reported production issues."
+        "For 2 of those engagements, independently designed and built the complete solution—from **SQL** schema changes and **REST APIs** to business logic, frontend functionality, and customer-specific configuration—through production deployment.",
+        "Shipped 120+ full-stack production tickets (**PHP**/**PostgreSQL** backend, **JavaScript**/Handlebars frontend), owning application-layer business logic for customer-facing enterprise workflows.",
+        "Refactored a legacy AJAX frontend into internal REST APIs to centralize business rules; worked directly with customers and product architects to translate requirements into shipped features and resolve reported production issues."
       ]
     },
     {
@@ -46,8 +46,8 @@
       "org": "Example Nuclear Group (iFAN) Laboratory",
       "date": "May 2024 – December 2024",
       "bullets": [
-        "Developed and refined machine learning models in PyTorch for real-time cybersecurity threat detection in simulated nuclear systems, improving anomaly detection accuracy and real-time responsiveness under operational constraints.",
-        "Built a reproducible, containerized simulation environment using Docker and ICSSIM to support high-fidelity nuclear flow loop testing for model training and evaluation."
+        "Developed and refined machine learning models in **PyTorch** for real-time cybersecurity threat detection in simulated nuclear systems, improving anomaly detection accuracy and real-time responsiveness under operational constraints.",
+        "Built a reproducible, containerized simulation environment using **Docker** and ICSSIM to support high-fidelity nuclear flow loop testing for model training and evaluation."
       ]
     },
     {
@@ -55,7 +55,7 @@
       "org": "Subcontractor at Example Public Schools",
       "date": "May 2023 – December 2024",
       "bullets": [
-        "Engineered a Java-based automation platform integrating 9 heterogeneous systems (databases, internal tools, web interfaces), reducing workflow time by 70% and significantly improving reliability.",
+        "Engineered a **Java**-based automation platform integrating 9 heterogeneous systems (databases, internal tools, web interfaces), reducing workflow time by 70% and significantly improving reliability.",
         "Designed a unified data model and adapter layer to normalize inconsistent schema, handle legacy edge cases, and enable deterministic cross-system synchronization."
       ]
     }
@@ -72,11 +72,11 @@
       ]
     },
     {
-      "title": "Personal Telemetry Platform",
+      "title": "Personal Dynamics Engine",
       "org": "Multimodal capture and cognitive-state modeling",
       "date": "2026 – Present",
       "bullets": [
-        "Building a personal telemetry platform that ingests continuous multimodal streams — **Omi** and **Garmin** wearables for continuous audio and biometrics, plus passive desktop and ambient activity — through self-written capture and ingestion code into one time-aligned longitudinal store.",
+        "Building a personal data platform that ingests continuous multimodal streams — **Omi** and **Garmin** wearables for continuous audio and biometrics, plus passive desktop and ambient activity — through self-written capture and ingestion code into one time-aligned longitudinal store.",
         "Shipped the platform's control plane end to end: a **Python** CLI, **FastAPI** services as the single database client, hosted **Supabase/Postgres** behind a private schema with **Google OAuth**, and deterministic ingestion pipelines that normalize and persist hundreds of records per run.",
         "Designing the modeling layer above capture: time-aligning heterogeneous streams, **feature engineering** over raw audio and biometric signals, and correlating environment and activity against physiological response to build a personal **time-series** model of state and focus."
       ]

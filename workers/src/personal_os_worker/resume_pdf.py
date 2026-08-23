@@ -65,6 +65,11 @@ PREAMBLE = r"""%-------------------------
   \item\small{#1}
 }
 
+% Keyword emphasis inside bullets. Sans-serif at a matched optical size, so a
+% skimmed keyword reads as a different texture rather than competing with the
+% bold entry headings.
+\newcommand{\resumeKeyword}[1]{{\fontfamily{lmss}\selectfont\footnotesize #1}}
+
 \newcommand{\resumeSubheading}[4]{
   \item
     \begin{tabular*}{\linewidth}[t]{l@{\extracolsep{\fill}}r}
@@ -198,7 +203,7 @@ def build_entries(title: str, entries: list[dict[str, Any]]) -> list[str]:
         org = escape(str(entry.get("org", "") or ""))
         if org:
             heading = rf"{heading} \textbar{{}} {org}"
-        date = escape(str(entry.get("date", "")))
+        date = escape_date(str(entry.get("date", "")))
         lines.append(rf"  \resumeProjectHeading{{{heading}}}{{{date}}}")
         lines.append(r"  \resumeItemListStart")
         lines.extend(
@@ -227,6 +232,16 @@ def display_url(url: str) -> str:
     return re.sub(r"^https?://(www\.)?", "", url).rstrip("/")
 
 
+def escape_date(value: str) -> str:
+    """Escape a date for the typewriter heading slot.
+
+    Typewriter faces carry no en-dash ligature, so "--" would print literally and
+    \textendash resolves to an unrelated glyph. A hyphen is the correct range
+    mark at this width.
+    """
+    return escape(value).replace("---", "-").replace("--", "-")
+
+
 BOLD_MARKUP = re.compile(r"\*\*(?P<text>[^*]+)\*\*")
 
 
@@ -237,7 +252,7 @@ def render(value: str) -> str:
     survive it untouched because asterisks are not special to TeX. Unpaired
     markers stay literal rather than failing the build.
     """
-    return BOLD_MARKUP.sub(lambda match: rf"\textbf{{{match['text']}}}", escape(value))
+    return BOLD_MARKUP.sub(lambda match: rf"\resumeKeyword{{{match['text']}}}", escape(value))
 
 
 def escape(value: str) -> str:

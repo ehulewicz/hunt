@@ -94,15 +94,15 @@ def test_watch_rejects_non_positive_interval() -> None:
         resume.watch_resume(interval=0)
 
 
-def test_bold_markup_renders_after_escaping() -> None:
+def test_keyword_markup_renders_after_escaping() -> None:
     tex = build_latex(
         {"projects": [{"title": "Project", "bullets": ["Used **C++ & Redis** daily."]}]}
     )
 
-    assert r"\textbf{C++ \& Redis}" in tex
+    assert r"\resumeKeyword{C++ \& Redis}" in tex
 
 
-def test_unpaired_bold_markers_stay_literal() -> None:
+def test_unpaired_keyword_markers_stay_literal() -> None:
     tex = build_latex({"projects": [{"title": "Project", "bullets": ["Shipped **half a marker."]}]})
 
     bullet = next(line for line in tex.splitlines() if "half a marker" in line)
@@ -113,3 +113,10 @@ def test_empty_skills_list_omits_the_section() -> None:
     assert r"\section{Skills}" not in build_latex({"skills": []})
     populated = build_latex({"skills": [{"category": "Languages", "items": "Python"}]})
     assert r"\section{Skills}" in populated
+
+
+def test_typewriter_dates_use_a_hyphen_range() -> None:
+    entry = {"title": "Project", "date": "2026 \u2013 Present", "bullets": ["Shipped it."]}
+    tex = build_latex({"projects": [entry]})
+
+    assert r"\resumeProjectHeading{Project}{2026 - Present}" in tex
