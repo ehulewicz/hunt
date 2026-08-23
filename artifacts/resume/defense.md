@@ -40,7 +40,7 @@ find it. Keep this in sync when a bullet changes.
 - 22 organizations: how you reached them, and name a specific thing in the
   product that changed because of what they said.
 
-## Undergraduate Researcher — Sample Lab, Example University Europe
+## Undergraduate Researcher | Sample Lab — Example University Europe
 
 - The 39% is fine-tuned versus unadapted MKDNet, **not** versus state of the
   art. YOLO beat your model on the same dataset. Say this before they ask.
@@ -53,7 +53,7 @@ find it. Keep this in sync when a bullet changes.
   with CNRS under Prof. Cédric Pradalier, which is also why the co-authors are
   French. It explains the term abroad without a detour.
 
-## Undergraduate Researcher — Example Lab, Example University
+## Undergraduate Researcher | Example Lab — Example University
 
 - "Improving accuracy" is the weakest quantifier on the page. Have the real
   before/after, or a clean reason it is not shareable.
@@ -61,7 +61,7 @@ find it. Keep this in sync when a bullet changes.
   simulated via ICSSIM, with no real plant data.
 - Know what the anomalies actually were and why that model class fit them.
 
-## Software Engineer Intern — Example Public Schools
+## Software Engineer Intern | Subcontractor — Example Public Schools
 
 - 70% workflow reduction: how it was measured, against what baseline, and who
   validated it. This is the most checkable claim on the resume.
