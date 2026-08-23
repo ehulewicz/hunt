@@ -92,3 +92,24 @@ def test_preview_server_serves_pdf_and_auto_refresh_shell(tmp_path: Path) -> Non
 def test_watch_rejects_non_positive_interval() -> None:
     with pytest.raises(RuntimeError, match="greater than zero"):
         resume.watch_resume(interval=0)
+
+
+def test_bold_markup_renders_after_escaping() -> None:
+    tex = build_latex(
+        {"projects": [{"title": "Project", "bullets": ["Used **C++ & Redis** daily."]}]}
+    )
+
+    assert r"\textbf{C++ \& Redis}" in tex
+
+
+def test_unpaired_bold_markers_stay_literal() -> None:
+    tex = build_latex({"projects": [{"title": "Project", "bullets": ["Shipped **half a marker."]}]})
+
+    bullet = next(line for line in tex.splitlines() if "half a marker" in line)
+    assert bullet == r"    \resumeItem{Shipped **half a marker.}"
+
+
+def test_empty_skills_list_omits_the_section() -> None:
+    assert r"\section{Skills}" not in build_latex({"skills": []})
+    populated = build_latex({"skills": [{"category": "Languages", "items": "Python"}]})
+    assert r"\section{Skills}" in populated

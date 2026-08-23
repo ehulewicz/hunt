@@ -202,7 +202,7 @@ def build_entries(title: str, entries: list[dict[str, Any]]) -> list[str]:
         lines.append(rf"  \resumeProjectHeading{{{heading}}}{{{date}}}")
         lines.append(r"  \resumeItemListStart")
         lines.extend(
-            rf"    \resumeItem{{{escape(str(bullet))}}}"
+            rf"    \resumeItem{{{render(str(bullet))}}}"
             for bullet in entry.get("bullets", [])
         )
         lines.append(r"  \resumeItemListEnd")
@@ -211,6 +211,8 @@ def build_entries(title: str, entries: list[dict[str, Any]]) -> list[str]:
 
 
 def build_skills(skills: list[dict[str, Any]]) -> list[str]:
+    if not skills:
+        return []
     lines = [r"\section{Skills}", r"\resumeSubHeadingListStart"]
     for skill in skills:
         lines.append(
@@ -223,6 +225,19 @@ def build_skills(skills: list[dict[str, Any]]) -> list[str]:
 
 def display_url(url: str) -> str:
     return re.sub(r"^https?://(www\.)?", "", url).rstrip("/")
+
+
+BOLD_MARKUP = re.compile(r"\*\*(?P<text>[^*]+)\*\*")
+
+
+def render(value: str) -> str:
+    """Escape resume text, then promote paired ``**...**`` markers to bold.
+
+    Escaping runs first so authored text can never inject LaTeX; the markers
+    survive it untouched because asterisks are not special to TeX. Unpaired
+    markers stay literal rather than failing the build.
+    """
+    return BOLD_MARKUP.sub(lambda match: rf"\textbf{{{match['text']}}}", escape(value))
 
 
 def escape(value: str) -> str:

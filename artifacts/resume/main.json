@@ -66,45 +66,30 @@
       "org": "UC Berkeley AI Hackathon — Best Use of Cognition",
       "date": "June 2026",
       "bullets": [
-        "Built a cloud-orchestrated recursive multi-agent research platform where agents recursively spawn specialized sub-agents for parallel hypothesis generation, experimentation, and distributed computation, enabling scalable research across 1000+ agents.",
-        "Built the distributed runtime: a Google Cloud Run orchestrator, isolated Modal sandboxes per agent with a shared compute budget, Redis state and event bus, GCS artifact storage, FastAPI + SSE API, and a Next.js live agent-tree dashboard.",
-        "Tested the distributed runtime for parallel CPU-only experimentation, reaching 500,000+ MiniGrid training steps/sec using Modal sandboxes, Redis state coordination, GCS artifacts, and FastAPI orchestration."
+        "Built a cloud-orchestrated recursive **multi-agent** research platform where agents recursively spawn specialized sub-agents for parallel hypothesis generation, experimentation, and distributed computation, enabling scalable research across 1000+ agents.",
+        "Built the distributed runtime: a **Google Cloud Run** orchestrator, isolated **Modal** sandboxes per agent with a shared compute budget, **Redis** state and event bus, **GCS** artifact storage, **FastAPI** + SSE API, and a **Next.js** live agent-tree dashboard.",
+        "Tested the distributed runtime for parallel CPU-only experimentation, reaching 500,000+ MiniGrid training steps/sec across concurrent sandboxes under a shared budget."
       ]
     },
     {
-      "title": "Personal Agent OS",
-      "org": "",
+      "title": "Personal Telemetry Platform",
+      "org": "Multimodal capture and cognitive-state modeling",
       "date": "2026 – Present",
       "bullets": [
-        "Architecting Personal Agent OS as a layered AI operating system spanning a personal brain, agent brain, life-management layer, execution/automation layer, and cognitive dynamics engine for long-term self-modeling.",
-        "Building the CLI/backend-first platform with a DB + Markdown hybrid architecture, FastAPI APIs, Supabase/Postgres runtime state, offline/live RAG, Supabase auth/RLS, and approval-gated workflows for notes, tasks, calendar, and job applications."
+        "Building a personal telemetry platform that ingests continuous multimodal streams — **Omi** and **Garmin** wearables for continuous audio and biometrics, plus passive desktop and ambient activity — through self-written capture and ingestion code into one time-aligned longitudinal store.",
+        "Shipped the platform's control plane end to end: a **Python** CLI, **FastAPI** services as the single database client, hosted **Supabase/Postgres** behind a private schema with **Google OAuth**, and deterministic ingestion pipelines that normalize and persist hundreds of records per run.",
+        "Designing the modeling layer above capture: time-aligning heterogeneous streams, **feature engineering** over raw audio and biometric signals, and correlating environment and activity against physiological response to build a personal **time-series** model of state and focus."
       ]
     },
     {
-      "title": "Tiny Object Tracking: Replication and Domain Adaptation",
+      "title": "Tiny Object Tracking",
       "org": "",
       "date": "August – December 2024",
       "bullets": [
-        "Extended MKDNet in PyTorch on a large-scale tiny-object tracking dataset, then adapted it to a novel small-object domain for up to 39% accuracy increase over the base MKDNet model."
+        "Extended **MKDNet** in **PyTorch** on a large-scale tiny-object tracking dataset, then adapted it to a novel small-object domain for up to 39% accuracy increase over the base MKDNet model.",
+        "Reproduced the published baseline before adapting it, then evaluated the adapted model against that baseline under a matched **evaluation protocol**, establishing the 39% gain as a controlled comparison rather than a single run."
       ]
     }
   ],
-  "skills": [
-    {
-      "category": "Languages",
-      "items": "Python, Java, JavaScript, PHP, SQL, Bash, C, C++"
-    },
-    {
-      "category": "AI & Agents",
-      "items": "Claude Agent SDK, multi-agent orchestration, LLM tooling, RAG"
-    },
-    {
-      "category": "Cloud",
-      "items": "Google Cloud, Modal, Azure, AWS"
-    },
-    {
-      "category": "Frameworks & Tools",
-      "items": "FastAPI, Next.js, PyTorch, PostgreSQL, Redis, Docker, Git, Linux, REST APIs, SSH"
-    }
-  ]
+  "skills": []
 }

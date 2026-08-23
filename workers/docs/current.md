@@ -1,6 +1,6 @@
 # Worker current state
 
-Last verified: 2026-08-22
+Last verified: 2026-08-23
 
 - [x] Use `os hunt` as the local Jobs command surface.
 - [x] Authenticate through Google PKCE and keep FastAPI as the only database client.
@@ -13,7 +13,8 @@ Last verified: 2026-08-22
 - [x] Keep deterministic no-submit autofill as the default.
 - [x] Manage the hosted reusable answer library with CLI list/add/edit commands.
 - [x] Add an optional user-triggered Lentra handoff followed by value-free Playwright audit.
-- [x] Pass Ruff, strict mypy, and 91 tests; one loopback bind test skips in sandbox.
+- [x] Render `**bold**` keywords in resume bullets and omit Skills when the list is empty.
+- [x] Pass Ruff, strict mypy, and 95 tests; one loopback bind test skips in sandbox.
 - [x] Compile the real canonical resume to one page and open its live Windows Chrome preview.
 - [x] Persist a real 415-row hosted sync and verify 320 technical-default rows.
 - [x] Live-test `--limit 500` returning all 323 current technical rows.
@@ -22,6 +23,12 @@ Last verified: 2026-08-22
 The canonical resume is `artifacts/resume/main.json`; the tracked PDF beside it
 is `artifacts/resume/main.pdf`. Invalid JSON, LaTeX errors, or a two-page result
 leave the previous PDF untouched.
+
+Bullet text may wrap keywords in `**...**` to bold them. Escaping still runs
+first, so authored text cannot inject LaTeX, and an unpaired marker stays
+literal instead of failing the build. `skills` remains a required list; an empty
+one now emits no Skills section, which is how the canonical resume carries its
+keywords inside bullets instead.
 
 The hosted answer library currently has three approved rows: current US work
 authorization, salary deflection without an invented range, and career goals.
