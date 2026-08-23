@@ -43,6 +43,15 @@
     },
     {
       "title": "Undergraduate Researcher",
+      "org": "The Sample Lab",
+      "date": "August – September 2024",
+      "bullets": [
+        "Adapted the **MKDNet** tiny-object tracker in **PyTorch** to a novel shrimp-tracking domain, where a light 20-epoch fine-tune raised normalized precision 39%, precision 33%, and success rate 30% over the unadapted model.",
+        "Benchmarked the tracker against **DiMP50** and **YOLO** across all three metrics and reported that the published **LaTOT** results did not reproduce on the accessible data split."
+      ]
+    },
+    {
+      "title": "Undergraduate Researcher",
       "org": "Example Nuclear Group (iFAN) Laboratory",
       "date": "April 2024 – August 2024",
       "bullets": [
@@ -79,15 +88,6 @@
         "Shipped the platform's control plane end-to-end: a **Python** CLI, **FastAPI** services as the single database client, hosted **Supabase/Postgres** behind a private schema with **Google OAuth**, and deterministic ingestion pipelines that normalize and persist hundreds of records per run.",
         "Designing the modeling layer above capture: time-aligning heterogeneous streams, **feature engineering** over raw audio and biometric signals, and correlating environment and activity against physiological response to build a personal **time-series** model of state and focus."
       ]
-    },
-    {
-      "title": "Tiny Object Tracking",
-      "date": "August – September 2024",
-      "bullets": [
-        "Adapted **MKDNet** in **PyTorch** to a novel shrimp-tracking domain, where a light 20-epoch fine-tune raised normalized precision 39%, precision 33%, and success rate 30% over the unadapted model.",
-        "Benchmarked the tracker against **DiMP50** and **YOLO** across all three metrics and reported that the published **LaTOT** results did not reproduce on the accessible data split."
-      ],
-      "org": "MKDNet replication and domain-adaptation study"
     }
   ],
   "skills": []
