@@ -41,4 +41,6 @@ Last verified: 2026-08-23
   and reactivation acceptance flow after this machine is paired.
 - [ ] Revoke legacy password sessions after Google acceptance is reconfirmed.
 - [ ] Add Calendar and Tasks schema only after Jobs works end to end.
-- [ ] Apply and verify the autofill/failure-learning migration on hosted Supabase.
+- [x] Apply the autofill/failure-learning migration in deploy run `32630539002`;
+  authenticated reads verify the normalized answer columns and failure table.
+- [ ] Verify private artifact upload/download during the first controlled live failure.

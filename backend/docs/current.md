@@ -49,8 +49,11 @@ Last verified: 2026-08-23
   `artifacts/resume/main.json`; the backend and worker now consume the same
   source, and the generated `main.pdf` is tracked beside it.
 - [ ] Run authenticated hosted Jobs acceptance.
-- [ ] Apply `20260823090000_autofill_failure_learning.sql` and run authenticated
-  hosted run/artifact authorization acceptance.
+- [x] Apply `20260823090000_autofill_failure_learning.sql` in deploy run
+  `32630539002`, deploy Cloud Run revision `personal-os-api-00034-68n`, and
+  verify health, unauthenticated rejection, and authenticated answer/failure reads.
+- [ ] Run authenticated create/step/artifact/complete acceptance with a
+  user-selected live application.
 - [x] Deploy migration `20260814003115_complete_jobs_workflow.sql` and Cloud Run
   revision `personal-os-api-00012-dw2`; verify sync run `31759248462` writes
   exactly 440 open strict-US rows.
