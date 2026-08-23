@@ -17,7 +17,7 @@ Last verified: 2026-08-23
   explicit final webpage-answer approval.
 - [x] Add deduplicated failure capture plus list/show/diagnose/draft/apply/verify commands.
 - [x] Render `**keyword**` bullet emphasis as a dedicated sans type and omit Skills when empty.
-- [x] Pass Ruff, strict mypy, and 102 ordinary tests; one loopback bind test skips
+- [x] Pass Ruff, strict mypy, and 103 ordinary tests; one loopback bind test skips
   in sandbox. Pass three headed synthetic ATS fixtures outside the restricted sandbox.
 - [x] Compile the real canonical resume to one page and open its live Windows Chrome preview.
 - [x] Persist a real 415-row hosted sync and verify 320 technical-default rows.
@@ -25,6 +25,12 @@ Last verified: 2026-08-23
 - [ ] Run one real saved listing on each supported ATS and the controlled hosted
   failure lifecycle after the new migration is deployed.
 - [ ] Add Workday only after all three v1 adapters pass live acceptance.
+
+API HTTP failures now exit with the response status, request path, and FastAPI
+detail instead of exposing an `httpx` traceback. A create-run smoke test succeeds
+for listing 12, but that Availity listing resolves to the unsupported generic
+adapter rather than Greenhouse, Ashby, or Lever. The exact dry-run command now
+stops cleanly without touching the form and records open failure `aa3d51b9`.
 
 The canonical resume is `artifacts/resume/main.json`; the tracked PDF beside it
 is `artifacts/resume/main.pdf`. Invalid JSON, LaTeX errors, or a two-page result

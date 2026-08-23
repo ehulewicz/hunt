@@ -278,6 +278,19 @@ def main(arguments: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(arguments)
     try:
         return _dispatch(args)
+    except httpx.HTTPStatusError as error:
+        response = error.response
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        detail = payload.get("detail") if isinstance(payload, dict) else None
+        if not isinstance(detail, str) or not detail.strip():
+            detail = response.text.strip() or response.reason_phrase
+        raise SystemExit(
+            f"API request failed ({response.status_code}) for "
+            f"{error.request.method} {error.request.url.path}: {detail}"
+        ) from None
     except (
         LoginError,
         ApiUnavailable,

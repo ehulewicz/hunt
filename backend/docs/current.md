@@ -28,7 +28,7 @@ Last verified: 2026-08-23
 - [x] Add authenticated synchronous autofill run, step, completion, failure,
   and private artifact endpoints with JWT-derived ownership.
 - [x] Add deterministic normalized answer keys and exact/contextual reuse policy.
-- [x] Validate locally with Ruff, mypy, and 40 passing tests.
+- [x] Validate locally with Ruff, mypy, and 41 passing tests.
 - [x] Validate the live strict-US source at exactly 440 rows, including 136
   FAANG+, 51 Quant, and 89 normalized location choices.
 - [x] Validate the live four-file source at 1,087 unique internships/co-ops,
@@ -54,6 +54,9 @@ Last verified: 2026-08-23
   verify health, unauthenticated rejection, and authenticated answer/failure reads.
 - [ ] Run authenticated create/step/artifact/complete acceptance with a
   user-selected live application.
+- [x] Fix the create-run data-modifying CTE to return the `ats` column consumed
+  by its outer query; verify against hosted Postgres through the restarted local
+  API by creating and abandoning a real listing-12 run.
 - [x] Deploy migration `20260814003115_complete_jobs_workflow.sql` and Cloud Run
   revision `personal-os-api-00012-dw2`; verify sync run `31759248462` writes
   exactly 440 open strict-US rows.

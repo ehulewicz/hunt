@@ -1,5 +1,7 @@
+import httpx
 import pytest
 
+from personal_os_worker import cli
 from personal_os_worker.cli import build_parser, main
 
 
@@ -11,6 +13,21 @@ def test_help_describes_the_personal_os_cli(capsys: pytest.CaptureFixture[str]) 
     assert "Personal OS local command line" in output
     for command in ("status", "stop", "api", "chrome", "login", "doctor", "hunt"):
         assert command in output
+
+
+def test_api_errors_exit_with_the_backend_detail_instead_of_a_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = httpx.Request("POST", "http://127.0.0.1:8000/v1/jobs/autofill/runs")
+    response = httpx.Response(409, request=request, json={"detail": "Listing is closed"})
+
+    def fail(_: object) -> int:
+        raise httpx.HTTPStatusError("conflict", request=request, response=response)
+
+    monkeypatch.setattr(cli, "_dispatch", fail)
+
+    with pytest.raises(SystemExit, match=r"API request failed \(409\).+Listing is closed"):
+        main(["status"])
 
 
 def test_jobs_live_under_the_hunt_domain() -> None:

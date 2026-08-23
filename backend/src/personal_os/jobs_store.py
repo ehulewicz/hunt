@@ -1170,7 +1170,7 @@ class PostgresJobsStore:
                               else 'generic' end,
                          %s, target.application_url
                   from application join target on target.id = application.posting_id
-                  returning id, application_id
+                  returning id, application_id, ats
                 )
                 select run.id as run_id, run.application_id, run.ats,
                        target.application_url,

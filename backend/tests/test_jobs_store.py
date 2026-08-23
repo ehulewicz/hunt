@@ -173,6 +173,16 @@ def test_no_query_locks_a_grouped_select() -> None:
     assert offending == [], f"these queries would raise at runtime: {offending}"
 
 
+def test_autofill_run_cte_returns_the_selected_ats() -> None:
+    """PostgreSQL exposes only columns named by a data-modifying CTE RETURNING."""
+    source = (Path(__file__).resolve().parents[1] / "src/personal_os/jobs_store.py").read_text()
+    query = source.split("async def create_autofill_run", 2)[2].split(
+        "async def persist_autofill_step", 1
+    )[0]
+
+    assert "returning id, application_id, ats" in " ".join(query.split())
+
+
 def test_master_resume_content_rejects_blank_bullets() -> None:
     with pytest.raises(ValueError, match="blank"):
         MasterResumeContent.model_validate(
