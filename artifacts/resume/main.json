@@ -43,8 +43,8 @@
     },
     {
       "title": "Undergraduate Researcher",
-      "org": "The Sample Lab",
-      "date": "August – September 2024",
+      "org": "Sample Lab, Example University Europe",
+      "date": "August 2024 – December 2024",
       "bullets": [
         "Adapted the **MKDNet** tiny-object tracker in **PyTorch** to a novel shrimp-tracking domain, where a light 20-epoch fine-tune raised normalized precision 39%, precision 33%, and success rate 30% over the unadapted model.",
         "Benchmarked the tracker against **DiMP50** and **YOLO** across all three metrics and reported that the published **LaTOT** results did not reproduce on the accessible data split."
@@ -52,7 +52,7 @@
     },
     {
       "title": "Undergraduate Researcher",
-      "org": "Example Nuclear Group (iFAN) Laboratory",
+      "org": "Example Lab, Example University",
       "date": "April 2024 – August 2024",
       "bullets": [
         "Developed and refined machine learning models in **PyTorch** for real-time cybersecurity threat detection in simulated nuclear systems, improving anomaly detection accuracy and real-time responsiveness under operational constraints.",
