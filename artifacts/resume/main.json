@@ -63,7 +63,7 @@
   "projects": [
     {
       "title": "AlphaResearch",
-      "org": "Best Hack, Cognition Track",
+      "org": "UC Berkeley AI Hackathon — Best Use of Cognition",
       "date": "June 2026",
       "bullets": [
         "Built a cloud-orchestrated recursive multi-agent research platform where agents recursively spawn specialized sub-agents for parallel hypothesis generation, experimentation, and distributed computation, enabling scalable research across 1000+ agents.",
