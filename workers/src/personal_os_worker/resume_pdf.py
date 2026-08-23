@@ -65,10 +65,10 @@ PREAMBLE = r"""%-------------------------
   \item\small{#1}
 }
 
-% Keyword emphasis inside bullets. Sans-serif at a matched optical size, so a
-% skimmed keyword reads as a different texture rather than competing with the
-% bold entry headings.
-\newcommand{\resumeKeyword}[1]{{\fontfamily{lmss}\selectfont\footnotesize #1}}
+% Keyword emphasis inside bullets. Bold carries the emphasis; the sans family
+% and matched optical size keep it from competing with the serif bold entry
+% headings, which is what plain \textbf at body size did.
+\newcommand{\resumeKeyword}[1]{{\fontfamily{lmss}\selectfont\footnotesize\bfseries #1}}
 
 \newcommand{\resumeSubheading}[4]{
   \item

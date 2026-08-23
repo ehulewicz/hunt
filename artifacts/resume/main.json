@@ -28,7 +28,7 @@
         "Led 4 customer Statements of Work, partnering directly with customers to scope requirements, break work into engineering deliverables, and coordinate execution across frontend, database, and middleware teams.",
         "For 2 of those engagements, independently designed and built the complete solution—from **SQL** schema changes and **REST APIs** to business logic, frontend functionality, and customer-specific configuration—through production deployment.",
         "Shipped 120+ full-stack production tickets (**PHP**/**PostgreSQL** backend, **JavaScript**/Handlebars frontend), owning application-layer business logic for customer-facing enterprise workflows.",
-        "Refactored a legacy AJAX frontend into internal REST APIs to centralize business rules; worked directly with customers and product architects to translate requirements into shipped features and resolve reported production issues."
+        "Owned the transition of a legacy AJAX frontend onto internal REST APIs, moving business rules out of the client and into a single enforced layer."
       ]
     },
     {
@@ -38,7 +38,7 @@
       "bullets": [
         "Founded Northhealth AI, a clinician-first rehab platform that turns continuous patient data into provider insight at visits and personalized recovery support between visits.",
         "Led engineering and shipped the platform to its v1 release, the version the company used to begin clinical trials.",
-        "Accepted to present at the American Academy of Neurology (AAN) in 2026; validated direction with 22 healthcare organizations and professionals, incorporating clinician feedback into MVP scope, safety constraints, and workflow design."
+        "Accepted to present at the American Academy of Neurology (AAN) in 2026. Validated direction with 22 healthcare organizations and professionals, incorporating clinician feedback into MVP scope, safety constraints, and workflow design."
       ]
     },
     {
@@ -77,7 +77,7 @@
       "date": "2026 – Present",
       "bullets": [
         "Building a personal data platform that ingests continuous multimodal streams — **Omi** and **Garmin** wearables for continuous audio and biometrics, plus passive desktop and ambient activity — through self-written capture and ingestion code into one time-aligned longitudinal store.",
-        "Shipped the platform's control plane end to end: a **Python** CLI, **FastAPI** services as the single database client, hosted **Supabase/Postgres** behind a private schema with **Google OAuth**, and deterministic ingestion pipelines that normalize and persist hundreds of records per run.",
+        "Shipped the platform's control plane end-to-end: a **Python** CLI, **FastAPI** services as the single database client, hosted **Supabase/Postgres** behind a private schema with **Google OAuth**, and deterministic ingestion pipelines that normalize and persist hundreds of records per run.",
         "Designing the modeling layer above capture: time-aligning heterogeneous streams, **feature engineering** over raw audio and biometric signals, and correlating environment and activity against physiological response to build a personal **time-series** model of state and focus."
       ]
     },
