@@ -18,6 +18,12 @@ PREAMBLE = r"""%-------------------------
 
 \documentclass[letterpaper,11pt]{article}
 
+% Times for text and math. Denser than the Computer Modern default, which fits
+% roughly ten percent more characters per line at the same nominal size.
+\usepackage{mathptmx}
+% T1 puts the bullet in the text font; under OT1 it falls back to Computer
+% Modern's math symbol face and drags a second family into the PDF.
+\usepackage[T1]{fontenc}
 \usepackage{latexsym}
 \usepackage[empty]{fullpage}
 \usepackage{titlesec}
@@ -91,7 +97,7 @@ PREAMBLE = r"""%-------------------------
 \newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.0in, label={},%
   itemsep=0pt, topsep=2pt, parsep=0pt]}
 \newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
-\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=0.2in, label=$\bullet$,%
+\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=0.2in, label=\textbullet,%
   itemsep=1pt, topsep=2pt, parsep=0pt]}
 \newcommand{\resumeItemListEnd}{\end{itemize}\vspace{2pt}}
 """
@@ -181,7 +187,7 @@ def build_header(contact: dict[str, Any]) -> list[str]:
     return [
         r"\begin{center}",
         rf"    {{\huge \bfseries {escape(str(contact.get('name', '')))}}} \\ \vspace{{2pt}}",
-        "    " + " $\\vert$\n    ".join(details),
+        "    " + " \\textbar{}\n    ".join(details),
         r"\end{center}",
         r"\vspace{-12pt}",
     ]
