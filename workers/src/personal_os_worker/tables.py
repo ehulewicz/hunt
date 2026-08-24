@@ -14,6 +14,7 @@ from typing import Any
 from rich import box
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
 from personal_os_worker.service import state_dir
 
@@ -34,10 +35,15 @@ def cache_path(kind: str) -> str:
     return str(state_dir() / f"last-{kind}.json")
 
 
-def remember(kind: str, ids: list[str]) -> None:
+def remember(
+    kind: str, ids: list[str], *, records: list[dict[str, Any]] | None = None
+) -> None:
     path = state_dir() / f"last-{kind}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"ids": ids}, indent=2) + "\n")
+    payload: dict[str, Any] = {"ids": ids}
+    if records is not None:
+        payload["records"] = records
+    path.write_text(json.dumps(payload, indent=2) + "\n")
 
 
 def recall(kind: str) -> list[str]:
@@ -80,6 +86,23 @@ def resolve(kind: str, reference: str) -> str:
     )
 
 
+def resolve_record(kind: str, reference: str) -> dict[str, Any]:
+    """Resolve a displayed row and return its cached non-secret display data."""
+    record_id = resolve(kind, reference)
+    try:
+        data = json.loads((state_dir() / f"last-{kind}.json").read_text())
+        records = data.get("records")
+    except (FileNotFoundError, TypeError, ValueError, json.JSONDecodeError):
+        records = None
+    if isinstance(records, list):
+        for record in records:
+            if isinstance(record, dict) and str(record.get("id")) == record_id:
+                return record
+    raise ReferenceError(
+        f"The cached {kind} rows predate link support. Run 'os hunt {kind}' to refresh."
+    )
+
+
 def _age(days: Any) -> str:
     if not isinstance(days, int):
         return "-"
@@ -108,18 +131,36 @@ def render_listings(items: list[dict[str, Any]], total: int) -> None:
 
     for index, item in enumerate(items, start=1):
         category = str(item.get("source_category") or "")
+        title = str(item.get("title") or "-")
+        application_url = str(item.get("application_url") or "")
+        rendered_title = (
+            Text(title, style=f"link {application_url}") if application_url else Text(title)
+        )
         table.add_row(
             str(index),
             short_id(str(item.get("id", ""))),
             str(item.get("company_name") or "-"),
-            str(item.get("title") or "-"),
+            rendered_title,
             str(item.get("location") or "-"),
             _age(item.get("source_age_days")),
             "" if category == "other" else category,
             "yes" if item.get("application_id") else "",
         )
     console.print(table)
-    remember("listings", [str(item.get("id", "")) for item in items])
+    remember(
+        "listings",
+        [str(item.get("id", "")) for item in items],
+        records=[
+            {
+                "id": str(item.get("id", "")),
+                "company_name": item.get("company_name"),
+                "title": item.get("title"),
+                "application_url": item.get("application_url"),
+                "discovery_url": item.get("discovery_url"),
+            }
+            for item in items
+        ],
+    )
 
 
 def render_applications(items: list[dict[str, Any]]) -> None:

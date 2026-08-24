@@ -25,8 +25,9 @@ rerender handling, and same-origin iframe inspection. Exact answers and Profile
 facts are deterministic. Contextual or unmatched long-form fields alone may call
 local `claude -p`, with fact/voice hygiene and a 20 percent base-answer guard.
 
-The worker never clicks navigation or submission controls. It captures each
-step before the user manually advances, persists user-approved final textarea
-values through FastAPI, and reports failures with sanitized evidence. Failure
-fixes require explicit worktree mutation, replay tests, a user-created commit,
-and headed live confirmation.
+The worker may click one unambiguous Apply or Next/Continue control after context
+and final field values are captured. It never clicks submission, consent, or
+captcha controls. When navigation is missing or ambiguous, it reports the wall
+and keeps the session alive for manual advancement. User-approved final textarea
+values persist through FastAPI. Failure fixes require explicit worktree mutation,
+replay tests, a user-created commit, and headed live confirmation.

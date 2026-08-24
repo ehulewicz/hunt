@@ -13,7 +13,9 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import time
+import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,6 +42,38 @@ class ApiUnavailable(RuntimeError):
 
 class ChromeUnavailable(RuntimeError):
     """Raised when the automation browser is neither running nor startable."""
+
+
+def open_external_url(url: str) -> None:
+    """Open an HTTP URL in the host machine's ordinary browser."""
+    if not url.startswith(("https://", "http://")):
+        raise RuntimeError("Only http:// and https:// listing links can be opened")
+
+    command: list[str] | None = None
+    if Path(CHROME_EXE).exists():
+        # Under WSL, launch native Windows Chrome without the automation profile.
+        command = [CHROME_EXE, url]
+    elif sys.platform == "darwin":
+        command = ["open", url]
+    elif sys.platform.startswith("linux"):
+        opener = shutil.which("xdg-open")
+        if opener is not None:
+            command = [opener, url]
+
+    if command is None:
+        if not webbrowser.open(url, new=2):
+            raise RuntimeError(f"Could not open the browser. Link: {url}")
+        return
+    try:
+        subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as error:
+        raise RuntimeError(f"Could not open the browser. Link: {url}") from error
 
 
 def state_dir() -> Path:

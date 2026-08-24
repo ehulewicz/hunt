@@ -6,13 +6,14 @@ from personal_os_worker.api import WorkerApi
 from personal_os_worker.commands.services import connected
 from personal_os_worker.doctor import run_doctor
 from personal_os_worker.runner import run_worker
-from personal_os_worker.service import ensure_chrome
+from personal_os_worker.service import ensure_chrome, open_external_url
 from personal_os_worker.tables import (
     console,
     render_answers,
     render_applications,
     render_listings,
     resolve,
+    resolve_record,
 )
 
 DEFAULT_TECHNICAL_FAMILIES = [
@@ -57,6 +58,18 @@ def run_sync() -> int:
         f"{result.get('source', 'the configured source')} "
         f"({result.get('seen', 0)} rows seen)."
     )
+    return 0
+
+
+def run_open_listing(reference: str, *, source: bool) -> int:
+    record = resolve_record("listings", reference)
+    key = "discovery_url" if source else "application_url"
+    url = str(record.get(key) or "").strip()
+    if not url:
+        label = "discovery" if source else "direct application"
+        raise RuntimeError(f"This listing has no {label} URL")
+    open_external_url(url)
+    console.print(f"Opened {record.get('company_name') or 'listing'}: {url}")
     return 0
 
 
@@ -202,10 +215,13 @@ def run_autofill(reference: str, *, dry_run: bool) -> int:
     from personal_os_worker.browser import (
         VisibleBrowser,
         apply_autofill,
+        audit_filled_form,
+        click_safe_transition,
         fresh_control,
         inspect_fields,
         looks_like_application_form,
         plan_autofill,
+        reveal_application_form,
         sanitized_evidence,
     )
     from personal_os_worker.resume import build_resume, load_resume
@@ -343,22 +359,38 @@ def run_autofill(reference: str, *, dry_run: bool) -> int:
                 report_page_failure("closed_posting", "The live posting appears closed")
                 raise RuntimeError("The live posting appears closed; nothing was filled")
             console.print(f"Verified {expected_company} — {expected_title} on {adapter.name}.")
+            console.print(f"Context saved. Canonical resume ready: {resume.pdf}")
             collected_answers: dict[str, dict[str, object]] = {}
             generated_questions: set[str] = set()
             generated_drafts: dict[str, str] = {}
             emitted_warnings: set[str] = set()
             step = 0
             while True:
-                fields = inspect_fields(page)
+                navigation_wall_reported = False
+                while True:
+                    reveal_application_form(page)
+                    page = browser.active_page()
+                    fields = inspect_fields(page)
+                    if looks_like_application_form(fields):
+                        break
+                    if not navigation_wall_reported:
+                        report_page_failure(
+                            "navigation_wall",
+                            "No unambiguous Apply control revealed a recognizable form",
+                            step_number=step,
+                        )
+                        navigation_wall_reported = True
+                    console.print(
+                        "[yellow]Hit a wall:[/yellow] I could not safely reach the "
+                        "application form. The session is still running."
+                    )
+                    input(
+                        "Use the open browser to click Apply/Next or otherwise reach "
+                        "the form, then press Enter here: "
+                    )
+                    page = browser.active_page()
                 for field in fields:
                     field["ats"] = adapter.name
-                if not looks_like_application_form(fields):
-                    report_page_failure(
-                        "unsupported_form",
-                        "The current page was not a recognizable application form",
-                        step_number=step,
-                    )
-                    raise RuntimeError("The current page is not a recognizable application form")
                 resume_fields = [
                     field
                     for field in fields
@@ -588,8 +620,7 @@ def run_autofill(reference: str, *, dry_run: bool) -> int:
                 action = (
                     input(
                         "Edit this page now. Type 'review' at final review; otherwise "
-                        "Enter, then click "
-                        "Next/Continue manually and press Enter again: "
+                        "press Enter and I will safely click Next/Continue: "
                     )
                     .strip()
                     .casefold()
@@ -622,61 +653,110 @@ def run_autofill(reference: str, *, dry_run: bool) -> int:
                     page.url,
                     tuple(str(item.get("fingerprint")) for item in current),
                 )
-                input("After you click Next/Continue and the next step loads, press Enter: ")
-                page.wait_for_timeout(500)
-                next_fields = inspect_fields(page)
-                next_page_signature = (
-                    page.url,
-                    tuple(str(item.get("fingerprint")) for item in next_fields),
-                )
-                if next_page_signature == prior_page_signature:
-                    if not artifact_paths:
-                        evidence = {
-                            **before,
-                            **{f"after-{key}": value for key, value in after.items()},
-                        }
-                        for name, content in evidence.items():
-                            content_type = (
-                                "image/png"
-                                if name.endswith(".png")
-                                else "text/html"
-                                if name.endswith(".html")
-                                else "application/json"
-                            )
-                            artifact_paths[name] = api.upload_autofill_artifact(
-                                run_id,
-                                name=name,
-                                content=content,
-                                content_type=content_type,
-                            )
-                    fingerprint = f"transition|{page.url}|{step}"
-                    api.persist_autofill_step(
-                        run_id,
-                        {
-                            "step_number": step,
-                            "url": page.url,
-                            "failures": [
-                                {
-                                    "signature": failure_signature(
-                                        adapter.name,
-                                        "page_transition_failure",
-                                        fingerprint,
-                                    ),
-                                    "category": "page_transition_failure",
-                                    "field_fingerprint": fingerprint,
-                                    "error_message": (
-                                        "URL and visible control fingerprints did not change "
-                                        "after manual navigation"
-                                    ),
-                                    "artifact_paths": artifact_paths,
-                                }
-                            ],
-                        },
+                transition_failure_reported = False
+                while True:
+                    page = browser.active_page()
+                    next_fields = inspect_fields(page)
+                    next_page_signature = (
+                        page.url,
+                        tuple(str(item.get("fingerprint")) for item in next_fields),
                     )
+                    if next_page_signature != prior_page_signature:
+                        break
+
+                    audit = audit_filled_form(next_fields)
+                    clicked = None
+                    if not audit["required_unfilled"]:
+                        clicked = click_safe_transition(page, kind="next")
+                    if clicked is not None:
+                        console.print(f"Clicked {clicked}. Waiting for the next step ...")
+                    else:
+                        if audit["required_unfilled"]:
+                            console.print(
+                                "[yellow]Hit a wall:[/yellow] required fields still need "
+                                "your input: " + ", ".join(audit["required_unfilled"])
+                            )
+                        else:
+                            console.print(
+                                "[yellow]Hit a wall:[/yellow] no single safe Next/Continue "
+                                "control was available. The session is still running."
+                            )
+                        manual_action = (
+                            input(
+                                "Type 'review' if this is final review; otherwise use the "
+                                "browser to advance and press Enter here: "
+                            )
+                            .strip()
+                            .casefold()
+                        )
+                        if manual_action == "review":
+                            action = "review"
+                            break
+
+                    for _ in range(30):
+                        page.wait_for_timeout(500)
+                        page = browser.active_page()
+                        next_fields = inspect_fields(page)
+                        next_page_signature = (
+                            page.url,
+                            tuple(str(item.get("fingerprint")) for item in next_fields),
+                        )
+                        if next_page_signature != prior_page_signature:
+                            break
+                    if next_page_signature != prior_page_signature:
+                        break
+
+                    if not transition_failure_reported:
+                        if not artifact_paths:
+                            evidence = {
+                                **before,
+                                **{f"after-{key}": value for key, value in after.items()},
+                            }
+                            for name, content in evidence.items():
+                                content_type = (
+                                    "image/png"
+                                    if name.endswith(".png")
+                                    else "text/html"
+                                    if name.endswith(".html")
+                                    else "application/json"
+                                )
+                                artifact_paths[name] = api.upload_autofill_artifact(
+                                    run_id,
+                                    name=name,
+                                    content=content,
+                                    content_type=content_type,
+                                )
+                        fingerprint = f"transition|{page.url}|{step}"
+                        api.persist_autofill_step(
+                            run_id,
+                            {
+                                "step_number": step,
+                                "url": page.url,
+                                "failures": [
+                                    {
+                                        "signature": failure_signature(
+                                            adapter.name,
+                                            "page_transition_failure",
+                                            fingerprint,
+                                        ),
+                                        "category": "page_transition_failure",
+                                        "field_fingerprint": fingerprint,
+                                        "error_message": (
+                                            "URL and visible control fingerprints did not "
+                                            "change after navigation"
+                                        ),
+                                        "artifact_paths": artifact_paths,
+                                    }
+                                ],
+                            },
+                        )
+                        transition_failure_reported = True
                     console.print(
-                        "[yellow]The form did not appear to advance; "
-                        "a failure was recorded.[/yellow]"
+                        "[yellow]The form did not advance; the failure was recorded. "
+                        "I am still waiting for you.[/yellow]"
                     )
+                if action == "review":
+                    break
                 step += 1
             approval = (
                 input(

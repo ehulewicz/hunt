@@ -104,6 +104,42 @@ class VisibleBrowser:
         )
 
 
+def click_safe_transition(page: Page, *, kind: str) -> str | None:
+    """Click one unambiguous non-submission navigation control."""
+    patterns = {
+        "apply": re.compile(
+            r"^\s*(?:apply(?: for this job| now)?|start application)\s*$", re.I
+        ),
+        "next": re.compile(r"^\s*(?:next|continue|save and continue)\s*$", re.I),
+    }
+    pattern = patterns.get(kind)
+    if pattern is None:
+        raise ValueError(f"Unknown transition kind: {kind}")
+    if kind == "next" and page.locator(
+        'iframe[src*="captcha" i], [data-sitekey], [class*="captcha" i]'
+    ).count():
+        return None
+
+    for role in ("link", "button"):
+        candidates: list[Any] = []
+        locator = page.get_by_role(role, name=pattern)
+        for index in range(locator.count()):
+            candidate = locator.nth(index)
+            try:
+                if candidate.is_visible() and candidate.is_enabled():
+                    candidates.append(candidate)
+            except Error:
+                continue
+        if len(candidates) > 1:
+            return None
+        if len(candidates) == 1:
+            candidate = candidates[0]
+            label = str(candidate.get_attribute("aria-label") or candidate.inner_text()).strip()
+            candidate.click(timeout=5_000)
+            return label or kind.title()
+    return None
+
+
 def reveal_application_form(page: Page, *, timeout_ms: int = 15_000) -> bool:
     """Click through to the form when a posting hides it behind an Apply step.
 
@@ -112,20 +148,15 @@ def reveal_application_form(page: Page, *, timeout_ms: int = 15_000) -> bool:
     is given. Waiting longer never helps; the form has to be asked for.
     Returns whether controls are present once this has run.
     """
-    if page.locator("input, textarea, select").count() > 0:
+    if looks_like_application_form(inspect_fields(page)):
         return True
-    for role in ("link", "button"):
-        target = page.get_by_role(role, name=re.compile(r"^\s*apply", re.I))
-        if target.count() == 0:
-            continue
-        try:
-            target.first.click(timeout=5_000)
+    try:
+        clicked = click_safe_transition(page, kind="apply")
+        if clicked is not None:
             page.wait_for_selector("input, textarea, select", timeout=timeout_ms)
-        except Error:
-            continue
-        if page.locator("input, textarea, select").count() > 0:
-            return True
-    return page.locator("input, textarea, select").count() > 0
+    except Error:
+        return False
+    return looks_like_application_form(inspect_fields(page))
 
 
 def plan_autofill(

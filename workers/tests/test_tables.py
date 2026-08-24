@@ -71,3 +71,23 @@ def test_listings_and_apps_caches_are_independent() -> None:
 
 def test_short_id_strips_dashes() -> None:
     assert tables.short_id(IDS[0]) == "3f2a8c91"
+
+
+def test_displayed_listing_records_keep_their_direct_and_discovery_links() -> None:
+    records = [
+        {
+            "id": IDS[0],
+            "application_url": "https://jobs.example/apply/1",
+            "discovery_url": "https://github.com/example/jobs",
+        }
+    ]
+    tables.remember("listings", IDS[:1], records=records)
+
+    assert tables.resolve_record("listings", "1") == records[0]
+
+
+def test_old_listing_cache_requests_a_refresh_before_opening() -> None:
+    tables.remember("listings", IDS[:1])
+
+    with pytest.raises(tables.ReferenceError, match="predate link support"):
+        tables.resolve_record("listings", "1")

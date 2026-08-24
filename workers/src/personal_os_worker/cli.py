@@ -91,6 +91,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     jobs_commands.add_parser("sync", help="Deterministically sync the configured listing feeds")
 
+    open_listing = jobs_commands.add_parser(
+        "open", help="Open a displayed listing in the host browser"
+    )
+    open_listing.add_argument("ref", help="Row number from the last listings table or id prefix")
+    open_listing.add_argument(
+        "--source",
+        action="store_true",
+        help="Open the discovery source instead of the direct application URL",
+    )
+
     jobs_commands.add_parser("apps", help="Show applications and their progress")
 
     answers = jobs_commands.add_parser("answers", help="Manage reusable long-form answers")
@@ -220,6 +230,8 @@ def _dispatch(args: argparse.Namespace) -> int:
             )
         if args.hunt_command == "sync":
             return hunt.run_sync()
+        if args.hunt_command == "open":
+            return hunt.run_open_listing(args.ref, source=args.source)
         if args.hunt_command == "apps":
             return hunt.run_apps()
         if args.hunt_command == "answers":

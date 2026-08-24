@@ -108,6 +108,25 @@ def test_missing_chrome_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
         service.ensure_chrome("http://127.0.0.1:9333")
 
 
+def test_open_external_url_uses_native_windows_chrome_from_wsl(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(service.Path, "exists", lambda _: True)
+    spawned: list[list[str]] = []
+    monkeypatch.setattr(
+        service.subprocess, "Popen", lambda cmd, **kwargs: spawned.append(cmd) or object()
+    )
+
+    service.open_external_url("https://jobs.example/apply/1")
+
+    assert spawned == [[service.CHROME_EXE, "https://jobs.example/apply/1"]]
+
+
+def test_open_external_url_rejects_non_web_schemes() -> None:
+    with pytest.raises(RuntimeError, match="Only http"):
+        service.open_external_url("file:///tmp/not-a-listing")
+
+
 def test_registry_round_trips_and_forgets(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setattr(service, "state_dir", lambda: tmp_path)
     service.record_service("api", 4242, "8000")

@@ -11,6 +11,8 @@ os hunt listings
 os hunt listings --limit 500  # overshooting returns every available match
 os hunt listings --family software_engineering --location "Atlanta, GA"
 os hunt listings --all-roles
+os hunt open 12
+os hunt open 12 --source
 os hunt apps
 os hunt answers list
 os hunt answers add --question "Are you authorized?" --text "Yes" --reuse exact
@@ -34,8 +36,10 @@ os hunt autofill failures apply-fix 1
 os hunt autofill failures verify 1 7
 ```
 
-`listings`, `apps`, and `prep` accept cached row numbers or unambiguous ID
-prefixes where applicable. Answer edits update the hosted canonical library
+Displayed listing titles are clickable when the terminal supports hyperlinks.
+`os hunt open <row>` opens the direct company/ATS URL without creating an
+application; `--source` opens the discovery URL. `listings`, `apps`, and `prep`
+accept cached row numbers or unambiguous ID prefixes where applicable. Answer edits update the hosted canonical library
 immediately; Git is not a second answer store. `exact` answers are reused
 unchanged. `contextual` and unmatched long-form questions invoke local Claude,
 with the 20 percent guard applied whenever a base exists. Preparation without another flag
@@ -68,10 +72,13 @@ Run `os hunt listings`, then pass a displayed row or ID prefix:
 os hunt autofill 12
 ```
 
-The command verifies the company/role, compiles and attaches
-`artifacts/resume/main.pdf`, fills the current step, then pauses. Edit the real
-page, answer the one incorrect-field prompt, and either type `review` or press
-Enter before clicking Next/Continue yourself. The CLI rescans after navigation.
+The command verifies the company/role, saves the tracked run/application context,
+compiles and attaches `artifacts/resume/main.pdf`, follows one unambiguous Apply
+control when the ATS starts on a job-description page, fills the current step,
+then pauses. Edit the real page, answer the one incorrect-field prompt, and
+either type `review` or press Enter to authorize one exact Next/Continue click.
+If that is unsafe or unavailable, the CLI says `Hit a wall` and keeps waiting
+while you advance the visible browser manually. The CLI rescans after navigation.
 At final review, type `approve` to reread and persist non-empty long-form answers.
 No action vocabulary contains Next, Submit, consent, signature, attestation, or
 captcha operations.

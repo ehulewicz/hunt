@@ -37,6 +37,14 @@ def test_jobs_live_under_the_hunt_domain() -> None:
     assert args.all_roles is False and args.family == []
 
 
+def test_any_displayed_listing_can_open_its_direct_or_discovery_link() -> None:
+    direct = build_parser().parse_args(["hunt", "open", "12"])
+    source = build_parser().parse_args(["hunt", "open", "12", "--source"])
+
+    assert (direct.hunt_command, direct.ref, direct.source) == ("open", "12", False)
+    assert source.source is True
+
+
 def test_listing_limit_has_no_upper_bound_and_rejects_non_positive_values() -> None:
     assert build_parser().parse_args(["hunt", "listings", "--limit", "500"]).limit == 500
     with pytest.raises(SystemExit):

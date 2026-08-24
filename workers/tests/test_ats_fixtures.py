@@ -4,7 +4,12 @@ import pytest
 from playwright.sync_api import Error, sync_playwright
 
 from personal_os_worker.autofill import build_autofill_plan
-from personal_os_worker.browser import apply_autofill, inspect_fields
+from personal_os_worker.browser import (
+    apply_autofill,
+    click_safe_transition,
+    inspect_fields,
+    reveal_application_form,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -79,3 +84,35 @@ def test_lever_captcha_keeps_radio_and_sensitive_checkbox_manual(browser_page) -
     assert browser_page.locator("input[name=terms]").is_checked() is False
     assert browser_page.locator("input[name=sponsor]:checked").count() == 0
     assert any("captcha" in failure["error_message"].casefold() for failure in result["failures"])
+
+
+def test_ashby_landing_page_apply_control_reveals_the_form(browser_page) -> None:  # type: ignore[no-untyped-def]
+    browser_page.set_content(
+        """
+        <main>
+          <h1>Embedded Controls Intern - Spring</h1>
+          <a href="#application" onclick="document.querySelector('main').innerHTML = `
+            <label>First name<input name='first_name' required></label>
+            <label>Last name<input name='last_name' required></label>
+            <label>Email<input name='email' type='email' required></label>
+            <label>Resume<input name='resume' type='file' required></label>
+          `"><button>Apply for this job</button></a>
+        </main>
+        """
+    )
+
+    assert reveal_application_form(browser_page, timeout_ms=2_000) is True
+    assert any(field.get("type") == "file" for field in inspect_fields(browser_page))
+
+
+def test_safe_next_clicks_next_but_never_submit(browser_page) -> None:  # type: ignore[no-untyped-def]
+    browser_page.set_content(
+        """
+        <button id="next" onclick="this.dataset.clicked = 'yes'">Continue</button>
+        <button id="submit" onclick="this.dataset.clicked = 'yes'">Submit application</button>
+        """
+    )
+
+    assert click_safe_transition(browser_page, kind="next") == "Continue"
+    assert browser_page.locator("#next").get_attribute("data-clicked") == "yes"
+    assert browser_page.locator("#submit").get_attribute("data-clicked") is None
