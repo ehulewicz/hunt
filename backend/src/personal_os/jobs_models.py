@@ -242,6 +242,7 @@ class ResumeEducation(BaseModel):
 class ResumeEntry(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     org: str = Field(default="", max_length=300)
+    location: str = Field(default="", max_length=200)
     date: str = Field(default="", max_length=100)
     bullets: list[str] = Field(default_factory=list, max_length=20)
 

@@ -54,8 +54,8 @@ PREAMBLE = r"""%-------------------------
 
 % Section formatting (balanced)
 \titleformat{\section}{
-  \vspace{-8pt}\scshape\raggedright\large
-}{}{0em}{}[\color{black}\titlerule \vspace{-6pt}]
+  \vspace{-12pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-8pt}]
 
 \pdfgentounicode=1
 
@@ -82,14 +82,14 @@ PREAMBLE = r"""%-------------------------
   \item
   \begin{tabular*}{\linewidth}{l@{\extracolsep{\fill}}r}
     \textbf{#1} & \texttt{#2} \\
-  \end{tabular*}\vspace{-3pt}
+  \end{tabular*}\vspace{-4pt}
 }
 
 \newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={},%
-  itemsep=0pt, topsep=4pt]}
+  itemsep=0pt, topsep=2pt]}
 \newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
-\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=*, itemsep=2pt, topsep=2pt]}
-\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{2pt}}
+\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=*, itemsep=1pt, topsep=1pt]}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{1pt}}
 """
 
 REPRODUCIBLE_EPOCH = "946684800"  # 2000-01-01T00:00:00Z
@@ -171,7 +171,7 @@ def build_header(contact: dict[str, Any]) -> list[str]:
         details.append(escape(citizenship))
     return [
         r"\begin{center}",
-        rf"    {{\Huge \scshape {escape(str(contact.get('name', '')))}}} \\ \vspace{{1pt}}",
+        rf"    {{\huge \scshape {escape(str(contact.get('name', '')))}}} \\ \vspace{{1pt}}",
         "    " + " $\\vert$\n    ".join(details),
         r"\end{center}",
     ]
@@ -201,8 +201,13 @@ def build_entries(title: str, entries: list[dict[str, Any]]) -> list[str]:
     for entry in entries:
         heading = escape(str(entry.get("title", "")))
         org = escape(str(entry.get("org", "") or ""))
+        location = escape(str(entry.get("location", "") or ""))
+        if location:
+            org = f"{org}, {location}" if org else location
         if org:
-            heading = rf"{heading} \textbar{{}} {org}"
+            # Em dash separates role from organization; the comma introduces the
+            # campus or city, so each heading carries exactly one dash.
+            heading = rf"{heading} --- {org}"
         date = escape_date(str(entry.get("date", "")))
         lines.append(rf"  \resumeProjectHeading{{{heading}}}{{{date}}}")
         lines.append(r"  \resumeItemListStart")

@@ -9,7 +9,7 @@
   "contact": {
     "name": "Alex Example",
     "phone": "555-010-0199",
-    "email": "ehulewicz3@gatech.edu",
+    "email": "eahtree@gmail.com",
     "linkedin": "https://www.linkedin.com/in/alex-example",
     "citizenship": "US Citizen"
   },
@@ -23,6 +23,7 @@
     {
       "title": "Middleware Engineer",
       "org": "Northwind",
+      "location": "Atlanta, GA",
       "date": "May 2025 – Present",
       "bullets": [
         "Led 4 customer Statements of Work, partnering directly with customers to scope requirements, break work into engineering deliverables, and coordinate execution across frontend, database, and middleware teams.",
@@ -34,6 +35,7 @@
     {
       "title": "Technical Co-founder",
       "org": "Northhealth AI",
+      "location": "Chicago, IL",
       "date": "October 2025 – May 2026",
       "bullets": [
         "Founded Northhealth AI, a clinician-first rehab platform that turns continuous patient data into provider insight at visits and personalized recovery support between visits.",
@@ -43,7 +45,8 @@
     },
     {
       "title": "Undergraduate Researcher",
-      "org": "Sample Lab — Example University Europe",
+      "org": "Sample Lab",
+      "location": "Example University Europe",
       "date": "August 2024 – December 2024",
       "bullets": [
         "Adapted the **MKDNet** tiny-object tracker in **PyTorch** to a novel shrimp-tracking domain, where a light 20-epoch fine-tune raised normalized precision 39%, precision 33%, and success rate 30% over the unadapted model.",
@@ -52,7 +55,8 @@
     },
     {
       "title": "Undergraduate Researcher",
-      "org": "Example Lab — Example University",
+      "org": "Example Lab",
+      "location": "Example University",
       "date": "April 2024 – August 2024",
       "bullets": [
         "Developed and refined machine learning models in **PyTorch** for real-time cybersecurity threat detection in simulated nuclear systems, improving anomaly detection accuracy and real-time responsiveness under operational constraints.",
@@ -60,8 +64,9 @@
       ]
     },
     {
-      "title": "Software Engineer Intern",
-      "org": "Subcontractor — Example Public Schools",
+      "title": "Software Engineer Subcontractor",
+      "org": "Example Public Schools",
+      "location": "Chicago, IL",
       "date": "May 2023 – December 2024",
       "bullets": [
         "Engineered a **Java**-based automation platform integrating 9 heterogeneous systems (databases, internal tools, web interfaces), reducing workflow time by 70% and significantly improving reliability.",
@@ -72,7 +77,7 @@
   "projects": [
     {
       "title": "AlphaResearch",
-      "org": "UC Berkeley AI Hackathon Winner — Best Use of Cognition",
+      "org": "UC Berkeley AI Hackathon Winner, Best Use of Cognition",
       "date": "June 2026",
       "bullets": [
         "Built a cloud-orchestrated recursive **multi-agent** research platform where agents recursively spawn specialized sub-agents for parallel hypothesis generation, experimentation, and distributed computation, enabling scalable research across 1000+ agents.",

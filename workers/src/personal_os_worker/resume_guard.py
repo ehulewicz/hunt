@@ -88,7 +88,7 @@ def ensure_structure_unchanged(base: dict[str, Any], candidate: dict[str, Any]) 
         if not isinstance(before, list) or not isinstance(after, list) or len(before) != len(after):
             raise UnsafeResumeChange(f"{section.title()} structure changed")
         for old_entry, new_entry in zip(before, after, strict=True):
-            for key in ("title", "org", "date"):
+            for key in ("title", "org", "location", "date"):
                 if old_entry.get(key) != new_entry.get(key):
                     raise UnsafeResumeChange(f"{section.title()} identity changed")
             if len(old_entry.get("bullets", [])) != len(new_entry.get("bullets", [])):
@@ -124,7 +124,9 @@ def resume_text(resume: dict[str, Any]) -> str:
         values.extend(str(value) for value in resume.get(section, {}).values())
     for section in ("experience", "projects"):
         for entry in resume.get(section, []):
-            values.extend(str(entry.get(key, "")) for key in ("title", "org", "date"))
+            values.extend(
+                str(entry.get(key, "")) for key in ("title", "org", "location", "date")
+            )
             values.extend(str(bullet) for bullet in entry.get("bullets", []))
     for skill in resume.get("skills", []):
         values.extend((str(skill.get("category", "")), str(skill.get("items", ""))))
