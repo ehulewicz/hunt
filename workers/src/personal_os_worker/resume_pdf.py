@@ -49,10 +49,10 @@ PREAMBLE = r"""%-------------------------
 \raggedright
 \setlength{\tabcolsep}{0in}
 
-% Section headings set in bold capitals over a full-width rule.
-\titleformat{\section}{
-  \vspace{-6pt}\large\bfseries\raggedright
-}{}{0em}{\MakeUppercase}[\vspace{-5pt}\titlerule\vspace{-4pt}]
+% Section headings set in bold capitals over a full-width rule. Spacing is
+% carried by \titlespacing so the rule never rides up into the descenders.
+\titleformat{\section}{\large\bfseries\raggedright}{}{0em}{\MakeUppercase}[\titlerule]
+\titlespacing*{\section}{0pt}{3pt}{3pt}
 
 \pdfgentounicode=1
 
@@ -183,7 +183,7 @@ def build_header(contact: dict[str, Any]) -> list[str]:
         rf"    {{\huge \bfseries {escape(str(contact.get('name', '')))}}} \\ \vspace{{2pt}}",
         "    " + " $\\vert$\n    ".join(details),
         r"\end{center}",
-        r"\vspace{-6pt}",
+        r"\vspace{-12pt}",
     ]
 
 
