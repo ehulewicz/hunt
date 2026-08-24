@@ -64,10 +64,10 @@
       ]
     },
     {
-      "title": "Software Engineer Subcontractor",
+      "title": "Software Engineer (Contract)",
       "org": "Example Public Schools",
       "location": "Chicago, IL",
-      "date": "May 2023 – December 2024",
+      "date": "May 2023 – December 2023",
       "bullets": [
         "Engineered a **Java**-based automation platform integrating 9 heterogeneous systems (databases, internal tools, web interfaces), reducing workflow time by 70% and significantly improving reliability.",
         "Designed a unified data model and adapter layer to normalize inconsistent schema, handle legacy edge cases, and enable deterministic cross-system synchronization."

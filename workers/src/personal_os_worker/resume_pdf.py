@@ -205,9 +205,9 @@ def build_entries(title: str, entries: list[dict[str, Any]]) -> list[str]:
         if location:
             org = f"{org}, {location}" if org else location
         if org:
-            # Em dash separates role from organization; the comma introduces the
-            # campus or city, so each heading carries exactly one dash.
-            heading = rf"{heading} --- {org}"
+            # The pipe separates role from organization; the comma introduces the
+            # campus, city, or award qualifier that follows it.
+            heading = rf"{heading} \textbar{{}} {org}"
         date = escape_date(str(entry.get("date", "")))
         lines.append(rf"  \resumeProjectHeading{{{heading}}}{{{date}}}")
         lines.append(r"  \resumeItemListStart")
