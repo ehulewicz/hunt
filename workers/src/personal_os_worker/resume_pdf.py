@@ -44,9 +44,9 @@ PREAMBLE = r"""%-------------------------
 \setlength{\footskip}{4.1pt}
 
 % Adjust margins
-\addtolength{\oddsidemargin}{-0.8in}
-\addtolength{\evensidemargin}{-0.8in}
-\addtolength{\textwidth}{1.6in}
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1.0in}
 \addtolength{\topmargin}{-.85in}
 \addtolength{\textheight}{1.7in}
 
