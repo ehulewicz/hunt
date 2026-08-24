@@ -166,6 +166,9 @@ def build_header(contact: dict[str, Any]) -> list[str]:
     linkedin = str(contact.get("linkedin", "")).strip()
     if linkedin:
         details.append(rf"\href{{{linkedin}}}{{\underline{{{escape(display_url(linkedin))}}}}}")
+    github = str(contact.get("github", "")).strip()
+    if github:
+        details.append(rf"\href{{{github}}}{{\underline{{{escape(display_url(github))}}}}}")
     citizenship = str(contact.get("citizenship", "")).strip()
     if citizenship:
         details.append(escape(citizenship))

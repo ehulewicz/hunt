@@ -229,6 +229,7 @@ class ResumeContact(BaseModel):
     phone: str = Field(default="", max_length=100)
     email: str = Field(default="", max_length=200)
     linkedin: str = Field(default="", max_length=300)
+    github: str = Field(default="", max_length=300)
     citizenship: str = Field(default="", max_length=200)
 
 
