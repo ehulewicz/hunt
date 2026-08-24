@@ -236,8 +236,11 @@ class ResumeContact(BaseModel):
 class ResumeEducation(BaseModel):
     school: str = Field(min_length=1, max_length=300)
     degree: str = Field(default="", max_length=300)
+    threads: str = Field(default="", max_length=200)
+    courses: str = Field(default="", max_length=500)
     graduation: str = Field(default="", max_length=100)
     gpa: str = Field(default="", max_length=20)
+    gpaScale: str = Field(default="", max_length=20)
 
 
 class ResumeEntry(BaseModel):

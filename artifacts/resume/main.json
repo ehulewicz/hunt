@@ -16,9 +16,12 @@
   },
   "education": {
     "school": "Example Institute of Technology",
-    "degree": "Bachelor of Science in Computer Science",
+    "degree": "BS Computer Science",
+    "threads": "Intelligence & Theory",
+    "courses": "Data Structures, Algorithms, Machine Learning, Applied Intelligence",
     "graduation": "May 2028",
-    "gpa": "3.78"
+    "gpa": "3.78",
+    "gpaScale": "4.00"
   },
   "experience": [
     {
@@ -29,8 +32,7 @@
       "bullets": [
         "Led 4 customer Statements of Work, partnering directly with customers to scope requirements, break work into engineering deliverables, and coordinate execution across frontend, database, and middleware teams.",
         "For 2 of those engagements, independently designed and built the complete solution—from **SQL** schema changes and **REST APIs** to business logic, frontend functionality, and customer-specific configuration—through production deployment.",
-        "Shipped 120+ full-stack production tickets (**PHP**/**PostgreSQL** backend, **JavaScript**/Handlebars frontend), owning application-layer business logic for customer-facing enterprise workflows.",
-        "Owned the transition of the legacy AJAX system to internal REST APIs, asset library, and config system."
+        "Shipped 120+ full-stack production tickets (**PHP**/**PostgreSQL** backend, **JavaScript**/Handlebars frontend), owning application-layer business logic for customer-facing enterprise workflows."
       ]
     },
     {
@@ -46,22 +48,24 @@
     },
     {
       "title": "Undergraduate Researcher",
-      "org": "Sample Lab",
-      "location": "Example University Europe",
+      "org": "Sample Lab @ Example University Europe",
+      "location": "Metz, France",
       "date": "August 2024 – December 2024",
       "bullets": [
         "Adapted the **MKDNet** tiny-object tracker in **PyTorch** to a novel shrimp-tracking domain, where a light 20-epoch fine-tune raised normalized precision 39%, precision 33%, and success rate 30% over the unadapted model.",
-        "Benchmarked the tracker against **DiMP50** and **YOLO** across all three metrics and reported that the published **LaTOT** results did not reproduce on the accessible data split."
+        "Benchmarked the tracker against **DiMP50** and **YOLO** across all three metrics and reported that the published **LaTOT** results did not reproduce on the accessible data split.",
+        "TODO: write this bullet."
       ]
     },
     {
       "title": "Undergraduate Researcher",
-      "org": "Example Lab",
-      "location": "Example University",
+      "org": "Example Lab @ Example University",
+      "location": "Atlanta, GA",
       "date": "April 2024 – August 2024",
       "bullets": [
         "Developed and refined machine learning models in **PyTorch** for real-time cybersecurity threat detection in simulated nuclear systems, improving anomaly detection accuracy and real-time responsiveness under operational constraints.",
-        "Built a reproducible, containerized simulation environment using **Docker** and ICSSIM to support high-fidelity nuclear flow loop testing for model training and evaluation."
+        "Built a reproducible, containerized simulation environment using **Docker** and ICSSIM to support high-fidelity nuclear flow loop testing for model training and evaluation.",
+        "TODO: write this bullet."
       ]
     },
     {
@@ -71,7 +75,8 @@
       "date": "May 2023 – December 2023",
       "bullets": [
         "Engineered a **Java**-based automation platform integrating 9 heterogeneous systems (databases, internal tools, web interfaces), reducing workflow time by 70% and significantly improving reliability.",
-        "Designed a unified data model and adapter layer to normalize inconsistent schema, handle legacy edge cases, and enable deterministic cross-system synchronization."
+        "Designed a unified data model and adapter layer to normalize inconsistent schema, handle legacy edge cases, and enable deterministic cross-system synchronization.",
+        "TODO: write this bullet."
       ]
     }
   ],
@@ -90,11 +95,28 @@
       "title": "Personal Dynamics Engine",
       "date": "2026 – Present",
       "bullets": [
-        "Building a personal data platform that ingests continuous multimodal streams — **Omi** and **Garmin** wearables for continuous audio and biometrics, plus passive desktop and ambient activity — through self-written capture and ingestion code into one time-aligned longitudinal store.",
-        "Shipped the platform's control plane end-to-end: a **Python** CLI, **FastAPI** services as the single database client, hosted **Supabase/Postgres** behind a private schema with **Google OAuth**, and deterministic ingestion pipelines that normalize and persist hundreds of records per run.",
-        "Designing the modeling layer above capture: time-aligning heterogeneous streams, **feature engineering** over raw audio and biometric signals, and correlating environment and activity against physiological response to build a personal **time-series** model of state and focus."
+        "TODO: write this bullet.",
+        "TODO: write this bullet.",
+        "TODO: write this bullet."
       ]
     }
   ],
-  "skills": []
+  "skills": [
+    {
+      "category": "Languages",
+      "items": "Python, Java, JavaScript, PHP, SQL, Bash, C"
+    },
+    {
+      "category": "AI & Agents",
+      "items": "Claude Agent SDK, multi-agent orchestration, LLM tooling, RAG"
+    },
+    {
+      "category": "Cloud",
+      "items": "Google Cloud, Modal, Azure, AWS"
+    },
+    {
+      "category": "Frameworks & Tools",
+      "items": "FastAPI, Next.js, PyTorch, PostgreSQL, Redis, Docker, Git, Linux, REST APIs, SSH"
+    }
+  ]
 }

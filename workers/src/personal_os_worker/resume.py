@@ -65,6 +65,11 @@ def load_resume(path: Path) -> dict[str, Any]:
     return payload
 
 
+# Every experience and project entry carries exactly this many bullets, so the
+# page budget stays predictable while the content is cut down by hand.
+REQUIRED_BULLETS = 3
+
+
 def _validate_resume_shape(resume: dict[str, Any]) -> None:
     for section in ("contact", "education"):
         if not isinstance(resume.get(section), dict):
@@ -84,6 +89,11 @@ def _validate_resume_shape(resume: dict[str, Any]) -> None:
             ):
                 raise RuntimeError(
                     f"Resume {section}[{index}].bullets must be a non-empty list of text"
+                )
+            if len(bullets) != REQUIRED_BULLETS:
+                raise RuntimeError(
+                    f"Resume {section}[{index}].bullets must hold exactly "
+                    f"{REQUIRED_BULLETS} bullets; found {len(bullets)}"
                 )
     for index, skill in enumerate(resume["skills"]):
         if not isinstance(skill, dict) or not all(

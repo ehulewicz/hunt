@@ -11,8 +11,8 @@ def valid_resume() -> str:
     return """{
       "contact": {"name": "Candidate"},
       "education": {"school": "School"},
-      "experience": [{"title": "Engineer", "bullets": ["Built a system."]}],
-      "projects": [{"title": "Project", "bullets": ["Shipped a project."]}],
+      "experience": [{"title": "Engineer", "bullets": ["Built it.", "Ran it.", "Shipped it."]}],
+      "projects": [{"title": "Project", "bullets": ["Built it.", "Ran it.", "Shipped it."]}],
       "skills": [{"category": "Languages", "items": "Python"}]
     }"""
 
@@ -115,8 +115,22 @@ def test_empty_skills_list_omits_the_section() -> None:
     assert r"\section{Skills}" in populated
 
 
-def test_typewriter_dates_use_a_hyphen_range() -> None:
+def test_entry_dates_keep_an_en_dash_range() -> None:
     entry = {"title": "Project", "date": "2026 \u2013 Present", "bullets": ["Shipped it."]}
     tex = build_latex({"projects": [entry]})
 
-    assert r"\resumeProjectHeading{Project}{2026 - Present}" in tex
+    assert r"\resumeHeading{Project}{2026 -- Present}" in tex
+
+
+def test_project_awards_sit_below_the_project_name() -> None:
+    entry = {"title": "Project", "org": "Hackathon Winner", "date": "2026", "bullets": ["Did it."]}
+    tex = build_latex({"projects": [entry]})
+
+    assert r"\resumeEntry{Project}{2026}{Hackathon Winner}{}" in tex
+
+
+def test_experience_entries_lead_with_the_organization() -> None:
+    entry = {"title": "Engineer", "org": "Company", "location": "Atlanta, GA", "date": "2025"}
+    tex = build_latex({"experience": [entry | {"bullets": ["Did it."]}]})
+
+    assert r"\resumeEntry{Company}{Atlanta, GA}{Engineer}{2025}" in tex
