@@ -49,11 +49,13 @@ These slot counts are placeholders, not a decision. See open questions.
 
 Measured on the current TeX Gyre Termes layout (2026-09-10):
 
-- A bullet's first line holds **~131 characters** of ordinary prose.
-- Treat **<=124 characters as a safe one-liner.** Confirmed empirically: the
-  Northwind bulk-actions bullet is 124 characters and renders on one line.
-- Between 125 and 131 it depends on the text. Capitals, digits, and figures are
-  wider than average lowercase, so number-heavy bullets wrap earlier.
+- A bullet's first line holds **~129 characters** of ordinary prose, measured by
+  binary search after the entry indent narrowed the measure.
+- Treat **<=124 characters as a safe one-liner.**
+- Between 125 and 129 it depends on the text. Character count is only a proxy:
+  the same layout fits 149 characters of two-letter words and 131 of three-letter
+  words, because capitals, digits, and wide letters cost more than average
+  lowercase. Number-heavy bullets wrap earlier.
 
 Re-measure after any layout change:
 
@@ -99,6 +101,21 @@ slot allocation before writing rather than writing and trimming afterward.
   | organization -> first bullet | 14.49 | 14.50 |
   | bullet -> bullet | 13.67 | 13.65 |
   | last bullet -> next role | 15.80 | 15.81 |
+
+- **Entries hang indented under the section label.** The label sits at the left
+  margin and everything beneath it steps in, which is what separates a section
+  from its contents in the reference. Measured x positions:
+
+  | Element | Reference | Ours |
+  |---|---|---|
+  | section label | 36.00 | 36.00 |
+  | entry heading | 46.80 | 46.76 |
+  | bullet | 61.53 | 61.41 |
+
+  Set through `leftmargin` on the two list macros (10.8pt and 23.2pt). Because
+  `leftmargin` shrinks `\linewidth`, the right-aligned dates still reach the
+  margin, so only the left edge moves. The cost is bullet width: the one-line
+  budget dropped from about 131 characters to about 129.
 
 - **Section rule geometry.** The rule is the section label's underline: it sits
   at the glyph bottom (reference 0.14 to -0.12pt, ours 0.20 to -0.13pt) and must

@@ -94,10 +94,14 @@ PREAMBLE = r"""%-------------------------
   \item \textbf{#1:} #2
 }
 
-\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.0in, label={},%
+% Entries hang indented under the section label rather than sitting flush with
+% it, and bullets indent again from the entry. The reference puts the label at
+% the margin, entries 10.8pt in, and bullets 25.5pt in. Right edges are
+% unaffected: leftmargin shrinks \linewidth, so the dates still reach the margin.
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=10.8pt, label={},%
   itemsep=0pt, topsep=1pt, parsep=0pt]}
 \newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
-\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=0.2in, label=\textbullet,%
+\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=23.2pt, label=\textbullet,%
   itemsep=1.7pt, topsep=5pt, parsep=0pt]}
 \newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-3.8pt}}
 """
