@@ -4,7 +4,7 @@ Handoff for continuing the base-resume writing pass on another machine. Pairs
 with `defense.md` (interview exposure per entry) and `main.json` (canonical
 content). Update this file as decisions land.
 
-Last verified: 2026-09-10, against commit `5b40cb6`.
+Last verified: 2026-09-10, against commit `5b40cb6` plus the entry-spacing pass.
 
 ## State
 
@@ -47,16 +47,24 @@ These slot counts are placeholders, not a decision. See open questions.
 
 ## Line budget
 
-A bullet line held **~126 characters** of body text, so a guaranteed one-liner
-was <=118 and anything past ~126 wrapped.
+Measured on the current TeX Gyre Termes layout (2026-09-10):
 
-**Caveat: that was measured on the retired layout** (mathptmx, pre-`5b40cb6`).
-`5b40cb6` switched to TeX Gyre Termes with half-inch side margins, so the figure
-needs re-measuring once the first real bullets render. Method:
+- A bullet's first line holds **~131 characters** of ordinary prose.
+- Treat **<=124 characters as a safe one-liner.** Confirmed empirically: the
+  Northwind bulk-actions bullet is 124 characters and renders on one line.
+- Between 125 and 131 it depends on the text. Capitals, digits, and figures are
+  wider than average lowercase, so number-heavy bullets wrap earlier.
+
+Re-measure after any layout change:
 
 ```bash
-pdftotext -layout main.pdf - | grep "•" | awk '{s=substr($0,index($0,"•")); print length(s)}' | sort -rn | head
+pdftotext -layout artifacts/resume/main.pdf - | grep "•" \
+  | awk '{s=substr($0,index($0,"•")); print length(s)}' | sort -rn | head
 ```
+
+**Page budget is tight.** Filling all 22 bullet slots with two-line bullets
+compiles to 2 pages and fails the gate. Every entry cannot run long. Decide the
+slot allocation before writing rather than writing and trimming afterward.
 
 ## Decisions from the 2026-09-09 session
 
@@ -80,6 +88,22 @@ pdftotext -layout main.pdf - | grep "•" | awk '{s=substr($0,index($0,"•")); 
   commits, files?), and a number that precise is implicitly a claim about what
   teammates did not do. "Sole engineer" is a scope claim rather than a
   measurement, so it cannot be litigated, and it is stronger.
+
+- **Entry spacing is now matched to the reference and should not be nudged by
+  eye.** Measured against `bin/Sam_Kim_resume_dec2027.pdf`, in points of
+  top-to-top advance:
+
+  | Interval | Reference | Ours |
+  |---|---|---|
+  | role -> organization | 14.08 | 14.09 |
+  | organization -> first bullet | 14.49 | 14.50 |
+  | bullet -> bullet | 13.67 | 13.65 |
+  | last bullet -> next role | 15.80 | 15.81 |
+
+  Before this pass the organization-to-first-bullet gap was 7.52, about half the
+  reference, while the gap between entries was 21.59, well over it. Entries read
+  as crammed blocks separated by chasms. If spacing needs changing again,
+  re-measure both PDFs rather than adjusting `\vspace` by eye.
 
 ## Northwind plan
 
@@ -150,10 +174,8 @@ material for phrasing and recoverable facts, never as correct copy.
 
 1. Answer open questions 1 and 2.
 2. Write the four Northwind bullets. Build and confirm the page gate passes.
-3. Re-measure the per-line character budget on the new Termes layout and record
-   it in this file, replacing the stale ~126 figure.
-4. Settle slot allocation against the new five-section structure.
-5. Work down the remaining entries. Keep `defense.md` in sync as bullets change.
+3. Settle slot allocation against the new five-section structure.
+4. Work down the remaining entries. Keep `defense.md` in sync as bullets change.
 
 ## Commands
 

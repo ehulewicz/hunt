@@ -53,7 +53,7 @@ PREAMBLE = r"""%-------------------------
 
 % The reference uses light small-caps labels over thin full-width rules.
 \titleformat{\section}{\large\scshape\raggedright}{}{0em}{}[\titlerule]
-\titlespacing*{\section}{0pt}{7pt}{4pt}
+\titlespacing*{\section}{0pt}{7pt}{-1.5pt}
 
 \pdfgentounicode=1
 
@@ -72,9 +72,9 @@ PREAMBLE = r"""%-------------------------
 \newcommand{\resumeEntry}[4]{
   \item
   \begin{tabular*}{\linewidth}[t]{l@{\extracolsep{\fill}}r}
-    \textbf{#1} & #2 \\
+    \textbf{#1} & #2 \\[2pt]
     \textit{#3} & \textit{#4} \\
-  \end{tabular*}\vspace{-3pt}
+  \end{tabular*}\vspace{1pt}
 }
 
 % Single-row heading for entries that carry no separate role or location.
@@ -82,7 +82,7 @@ PREAMBLE = r"""%-------------------------
   \item
   \begin{tabular*}{\linewidth}[t]{l@{\extracolsep{\fill}}r}
     \textbf{#1} & #2 \\
-  \end{tabular*}\vspace{-3pt}
+  \end{tabular*}\vspace{1pt}
 }
 
 \newcommand{\resumeSkill}[2]{
@@ -90,11 +90,11 @@ PREAMBLE = r"""%-------------------------
 }
 
 \newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.0in, label={},%
-  itemsep=2pt, topsep=1pt, parsep=0pt]}
+  itemsep=0pt, topsep=1pt, parsep=0pt]}
 \newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
 \newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=0.2in, label=\textbullet,%
-  itemsep=1pt, topsep=2pt, parsep=0pt]}
-\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{3pt}}
+  itemsep=1.7pt, topsep=5pt, parsep=0pt]}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-3.8pt}}
 """
 
 REPRODUCIBLE_EPOCH = "946684800"  # 2000-01-01T00:00:00Z
@@ -248,7 +248,13 @@ def build_entries(title: str, entries: list[dict[str, Any]]) -> list[str]:
 def build_skills(skills: list[dict[str, Any]]) -> list[str]:
     if not skills:
         return []
-    lines = [r"\section{Technical Skills}", r"\resumeSubHeadingListStart"]
+    # Skill items are plain lines rather than [t]-aligned tabulars, so they ride
+    # higher under the rule than an entry heading does. Recover the difference.
+    lines = [
+        r"\section{Technical Skills}",
+        r"\vspace{4pt}",
+        r"\resumeSubHeadingListStart",
+    ]
     lines.extend(
         rf"  \resumeSkill{{{escape(str(skill.get('category', '')))}}}"
         rf"{{{escape(str(skill.get('items', '')))}}}"

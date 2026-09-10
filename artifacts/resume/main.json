@@ -31,7 +31,7 @@
       "location": "Atlanta, GA",
       "date": "May 2025 – Present",
       "bullets": [
-        "",
+        "Built full-stack bulk actions system for 1,000-node batches with multi-tenant configs, recursive updates, and DB savepoints.",
         "",
         "",
         ""
