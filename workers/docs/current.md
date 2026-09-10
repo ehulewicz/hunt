@@ -1,6 +1,6 @@
 # Worker current state
 
-Last verified: 2026-08-23
+Last verified: 2026-09-09
 
 - [x] Use `os hunt` as the local Jobs command surface.
 - [x] Authenticate through Google PKCE and keep FastAPI as the only database client.
@@ -11,6 +11,10 @@ Last verified: 2026-08-23
 - [x] Make displayed listing titles clickable and add `os hunt open <row>` for
   direct application URLs, with `--source` for discovery URLs.
 - [x] Build and watch the canonical JSON resume with atomic one-page PDF output.
+- [x] Match the Sam Kim reference layout with TeX Gyre Termes, role-first
+  headings, small-caps section rules, and a separate Research section.
+- [x] Support four blank bullet slots for Northwind and three for every other
+  entry while preserving variable counts through validation and tailoring.
 - [x] Make canonical unchanged preparation the default and Claude tailoring explicit.
 - [x] Run saved Greenhouse, Ashby, and Lever listings synchronously in headed
   Windows Chrome with exact non-submission navigation and no submit actions.
@@ -19,8 +23,9 @@ Last verified: 2026-08-23
   explicit final webpage-answer approval.
 - [x] Add deduplicated failure capture plus list/show/diagnose/draft/apply/verify commands.
 - [x] Render `**keyword**` bullet emphasis as a dedicated sans type and omit Skills when empty.
-- [x] Pass Ruff, strict mypy, and 108 ordinary tests; one loopback bind test skips
-  in sandbox. Pass five headed synthetic ATS fixtures outside the restricted sandbox.
+- [x] Pass Ruff, strict mypy, and 114 tests; one loopback bind test and five
+  headed browser tests skip in the restricted sandbox. Pass the five headed
+  synthetic ATS fixtures outside the restricted sandbox.
 - [x] Compile the real canonical resume to one page and open its live Windows Chrome preview.
 - [x] Persist a real 415-row hosted sync and verify 320 technical-default rows.
 - [x] Live-test `--limit 500` returning all 323 current technical rows.
@@ -43,18 +48,17 @@ controls and planned 5 fills without changing the page; the direct row-opening
 command also opened H3X in native Windows Chrome.
 
 The canonical resume is `artifacts/resume/main.json`; the tracked PDF beside it
-is `artifacts/resume/main.pdf`. Invalid JSON, LaTeX errors, or a two-page result
-leave the previous PDF untouched.
+is `artifacts/resume/main.pdf`. The pre-redesign comparison is retained as
+`artifacts/resume/old.pdf`. Invalid JSON, LaTeX errors, or a two-page result
+leave the previous PDF untouched. The current JSON intentionally has blank
+bullet text while retaining visible slots: four for Northwind and three for
+each other Experience, Research, or Project entry.
 
-Bullet text may wrap keywords in `**...**`. They render through `\resumeKeyword`,
-a sans-serif size-matched type kept deliberately lighter than the bold entry
-headings so keywords read as texture rather than competing with the hierarchy.
-Escaping still runs first, so authored text cannot inject LaTeX, and an unpaired
-marker stays literal instead of failing the build. Heading dates render in
-typewriter, where en dashes are normalized to hyphens because that face carries
-no en-dash ligature. `skills` remains a required list; an empty
-one now emits no Skills section, which is how the canonical resume carries its
-keywords inside bullets instead.
+The active resume carries no bullet-level keyword emphasis. `skills` remains a
+required and populated list and renders as Technical Skills. The parser retains
+legacy `**...**` compatibility for older drafts, and escaping still runs first
+so authored text cannot inject LaTeX. En dashes in heading dates normalize to
+TeX range ligatures.
 
 The hosted answer library currently has three approved rows: current US work
 authorization, salary deflection without an invented range, and career goals.

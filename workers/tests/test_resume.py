@@ -12,6 +12,9 @@ def valid_resume() -> str:
       "contact": {"name": "Candidate"},
       "education": {"school": "School"},
       "experience": [{"title": "Engineer", "bullets": ["Built it.", "Ran it.", "Shipped it."]}],
+      "research": [
+        {"title": "Researcher", "bullets": ["Studied it.", "Tested it.", "Reported it."]}
+      ],
       "projects": [{"title": "Project", "bullets": ["Built it.", "Ran it.", "Shipped it."]}],
       "skills": [{"category": "Languages", "items": "Python"}]
     }"""
@@ -48,6 +51,25 @@ def test_load_resume_rejects_invalid_json_with_location(tmp_path: Path) -> None:
     source.write_text('{"contact":')
     with pytest.raises(RuntimeError, match=r"line 1, column 12"):
         resume.load_resume(source)
+
+
+def test_load_resume_accepts_blank_bullet_slots_and_variable_counts(tmp_path: Path) -> None:
+    source = tmp_path / "main.json"
+    source.write_text(
+        """{
+          "contact": {"name": "Candidate"},
+          "education": {"school": "School"},
+          "experience": [{"title": "Engineer", "bullets": ["", "", "", ""]}],
+          "research": [{"title": "Researcher", "bullets": ["", "", ""]}],
+          "projects": [{"title": "Project", "bullets": ["", "", ""]}],
+          "skills": [{"category": "Languages", "items": "Python"}]
+        }"""
+    )
+
+    loaded = resume.load_resume(source)
+
+    assert loaded["experience"][0]["bullets"] == ["", "", "", ""]
+    assert loaded["research"][0]["bullets"] == ["", "", ""]
 
 
 def test_build_resume_atomically_publishes_pdf_and_tex(
@@ -110,9 +132,39 @@ def test_unpaired_keyword_markers_stay_literal() -> None:
 
 
 def test_empty_skills_list_omits_the_section() -> None:
-    assert r"\section{Skills}" not in build_latex({"skills": []})
+    assert r"\section{Technical Skills}" not in build_latex({"skills": []})
     populated = build_latex({"skills": [{"category": "Languages", "items": "Python"}]})
-    assert r"\section{Skills}" in populated
+    assert r"\section{Technical Skills}" in populated
+
+
+def test_research_renders_between_experience_and_projects() -> None:
+    latex = build_latex(
+        {
+            "experience": [{"title": "Engineer", "bullets": [""]}],
+            "research": [{"title": "Researcher", "bullets": [""]}],
+            "projects": [{"title": "Project", "bullets": [""]}],
+        }
+    )
+
+    assert latex.index(r"\section{Experience}") < latex.index(r"\section{Research}")
+    assert latex.index(r"\section{Research}") < latex.index(r"\section{Projects}")
+    assert latex.count(r"\resumeItem{}") == 3
+
+
+def test_education_renders_location_and_graduation_like_the_reference_template() -> None:
+    latex = build_latex(
+        {
+            "education": {
+                "school": "Example University",
+                "location": "Atlanta, GA",
+                "degree": "BS Computer Science",
+                "graduation": "May 2028",
+            }
+        }
+    )
+
+    assert r"\textbf{Example University} & Atlanta, GA \\" in latex
+    assert r"\textit{BS Computer Science} & \textit{May 2028} \\" in latex
 
 
 def test_entry_dates_keep_an_en_dash_range() -> None:
@@ -129,8 +181,8 @@ def test_project_awards_sit_below_the_project_name() -> None:
     assert r"\resumeEntry{Project}{2026}{Hackathon Winner}{}" in tex
 
 
-def test_experience_entries_lead_with_the_organization() -> None:
+def test_experience_entries_lead_with_the_role_like_the_reference_template() -> None:
     entry = {"title": "Engineer", "org": "Company", "location": "Atlanta, GA", "date": "2025"}
     tex = build_latex({"experience": [entry | {"bullets": ["Did it."]}]})
 
-    assert r"\resumeEntry{Company}{Atlanta, GA}{Engineer}{2025}" in tex
+    assert r"\resumeEntry{Engineer}{2025}{Company}{Atlanta, GA}" in tex

@@ -183,15 +183,18 @@ def test_autofill_run_cte_returns_the_selected_ats() -> None:
     assert "returning id, application_id, ats" in " ".join(query.split())
 
 
-def test_master_resume_content_rejects_blank_bullets() -> None:
-    with pytest.raises(ValueError, match="blank"):
-        MasterResumeContent.model_validate(
-            {
-                "contact": {"name": "Candidate"},
-                "education": {"school": "School"},
-                "experience": [{"title": "Engineer", "bullets": ["   "]}],
-            }
-        )
+def test_master_resume_content_accepts_blank_bullet_slots() -> None:
+    content = MasterResumeContent.model_validate(
+        {
+            "contact": {"name": "Candidate"},
+            "education": {"school": "School"},
+            "experience": [{"title": "Engineer", "bullets": ["", "", "", ""]}],
+            "research": [{"title": "Researcher", "bullets": ["", "", ""]}],
+        }
+    )
+
+    assert content.experience[0].bullets == ["", "", "", ""]
+    assert content.research[0].bullets == ["", "", ""]
 
 
 def test_master_resume_content_requires_a_contact_name() -> None:
@@ -206,13 +209,20 @@ def test_master_resume_content_accepts_the_canonical_shape() -> None:
         {
             "meta": {"slug": "main"},
             "contact": {"name": "Candidate", "email": "candidate@example.com"},
-            "education": {"school": "School", "degree": "B.S."},
+            "education": {
+                "school": "School",
+                "location": "Atlanta, GA",
+                "degree": "B.S.",
+            },
             "experience": [{"title": "Engineer", "org": "Company", "bullets": ["Built it"]}],
+            "research": [{"title": "Researcher", "org": "Lab", "bullets": ["Tested it"]}],
             "projects": [],
             "skills": [{"category": "Languages", "items": "Python"}],
         }
     )
 
     assert content.experience[0].bullets == ["Built it"]
+    assert content.research[0].bullets == ["Tested it"]
+    assert content.education.location == "Atlanta, GA"
     # Unknown keys such as meta survive so the worker template keeps its extras.
     assert "meta" in content.model_dump()

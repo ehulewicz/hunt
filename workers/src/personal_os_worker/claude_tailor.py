@@ -61,6 +61,7 @@ Hard rules:
 
 Allowed JSON pointer paths:
 /experience/<index>/bullets/<index>
+/research/<index>/bullets/<index>
 /projects/<index>/bullets/<index>
 /skills/<index>/items
 

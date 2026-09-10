@@ -1,6 +1,6 @@
 # Backend current state
 
-Last verified: 2026-08-23
+Last verified: 2026-09-09
 
 ## Milestones
 
@@ -48,6 +48,9 @@ Last verified: 2026-08-23
 - [x] Move the canonical resume seed to the portable repository artifact
   `artifacts/resume/main.json`; the backend and worker now consume the same
   source, and the generated `main.pdf` is tracked beside it.
+- [x] Preserve the resume's first-class Research section and education location
+  through master-resume validation, and allow intentional blank bullet slots
+  during the manual writing pass.
 - [ ] Run authenticated hosted Jobs acceptance.
 - [x] Apply `20260823090000_autofill_failure_learning.sql` in deploy run
   `32630539002`, deploy Cloud Run revision `personal-os-api-00034-68n`, and

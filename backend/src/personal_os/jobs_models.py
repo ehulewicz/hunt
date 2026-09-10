@@ -235,6 +235,7 @@ class ResumeContact(BaseModel):
 
 class ResumeEducation(BaseModel):
     school: str = Field(min_length=1, max_length=300)
+    location: str = Field(default="", max_length=200)
     degree: str = Field(default="", max_length=300)
     threads: str = Field(default="", max_length=200)
     courses: str = Field(default="", max_length=500)
@@ -252,9 +253,7 @@ class ResumeEntry(BaseModel):
 
     @field_validator("bullets")
     @classmethod
-    def reject_blank_bullets(cls, value: list[str]) -> list[str]:
-        if any(not bullet.strip() for bullet in value):
-            raise ValueError("Resume bullets cannot be blank")
+    def limit_bullet_length(cls, value: list[str]) -> list[str]:
         if any(len(bullet) > 1000 for bullet in value):
             raise ValueError("Resume bullets cannot exceed 1000 characters")
         return value
@@ -273,6 +272,7 @@ class MasterResumeContent(BaseModel):
     contact: ResumeContact
     education: ResumeEducation
     experience: list[ResumeEntry] = Field(default_factory=list, max_length=20)
+    research: list[ResumeEntry] = Field(default_factory=list, max_length=20)
     projects: list[ResumeEntry] = Field(default_factory=list, max_length=20)
     skills: list[ResumeSkill] = Field(default_factory=list, max_length=20)
 

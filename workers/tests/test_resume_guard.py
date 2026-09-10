@@ -102,3 +102,40 @@ def test_structural_or_wholesale_changes_are_rejected() -> None:
             job_description=" ".join(f"different{index}" for index in range(100)),
             fact_context=" ".join(f"different{index}" for index in range(100)),
         )
+
+
+def test_research_bullet_replacements_are_allowed() -> None:
+    base = {
+        "contact": {"name": "Candidate"},
+        "education": {"school": "School"},
+        "experience": [],
+        "research": [
+            {
+                "title": "Researcher",
+                "org": "Lab",
+                "date": "2025",
+                "bullets": ["Measured model accuracy on benchmark data."],
+            }
+        ],
+        "projects": [],
+        "skills": [],
+    }
+
+    result = apply_and_validate(
+        base,
+        [
+            {
+                "op": "replace",
+                "path": "/research/0/bullets/0",
+                "value": "Measured model precision on benchmark data.",
+            }
+        ],
+        job_description="precision",
+        fact_context="precision",
+        maximum_change_ratio=1.0,
+    )
+
+    assert result.changed_paths == ("/research/0/bullets/0",)
+    assert result.candidate["research"][0]["bullets"][0] == (
+        "Measured model precision on benchmark data."
+    )

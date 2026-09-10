@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Any
 
-ALLOWED_PATH = re.compile(r"^/(experience|projects)/(\d+)/bullets/(\d+)$|^/skills/(\d+)/items$")
+ALLOWED_PATH = re.compile(
+    r"^/(experience|research|projects)/(\d+)/bullets/(\d+)$|^/skills/(\d+)/items$"
+)
 
 
 class UnsafeResumeChange(ValueError):
@@ -82,9 +84,9 @@ def ensure_structure_unchanged(base: dict[str, Any], candidate: dict[str, Any]) 
         raise UnsafeResumeChange("Contact details cannot be tailored")
     if base.get("education") != candidate.get("education"):
         raise UnsafeResumeChange("Education cannot be tailored")
-    for section in ("experience", "projects"):
-        before = base.get(section)
-        after = candidate.get(section)
+    for section in ("experience", "research", "projects"):
+        before = base.get(section, [])
+        after = candidate.get(section, [])
         if not isinstance(before, list) or not isinstance(after, list) or len(before) != len(after):
             raise UnsafeResumeChange(f"{section.title()} structure changed")
         for old_entry, new_entry in zip(before, after, strict=True):
@@ -122,7 +124,7 @@ def resume_text(resume: dict[str, Any]) -> str:
     values: list[str] = []
     for section in ("contact", "education"):
         values.extend(str(value) for value in resume.get(section, {}).values())
-    for section in ("experience", "projects"):
+    for section in ("experience", "research", "projects"):
         for entry in resume.get(section, []):
             values.extend(
                 str(entry.get(key, "")) for key in ("title", "org", "location", "date")
@@ -207,4 +209,3 @@ def unsupported_new_keywords(
         if stem(word) not in original_stems
         and (stem(word) not in description_stems or stem(word) not in supported_stems)
     )
-

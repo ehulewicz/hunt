@@ -8,10 +8,13 @@ FastAPI is the only process that accesses hosted Postgres.
 database retains every valid row and its role-family tags; `os hunt listings`
 applies the user's technical-family view by default.
 
-The resume compiler reads the canonical JSON, emits the recovered LaTeX
-template, runs `latexmk`, and verifies exactly one page with `pdfinfo`. Watch
-mode compiles beside the stable output and atomically replaces the PDF only after
-success so an open viewer never loses its last good document.
+The resume compiler reads the canonical JSON, emits a TeX Gyre Termes template
+with Education, Experience, Research, Projects, and Technical Skills, runs
+`latexmk`, and verifies exactly one page with `pdfinfo`. Experience, Research,
+and Projects keep separate structured lists so both rendering and explicit
+tailoring preserve the distinction. Watch mode compiles beside the stable output
+and atomically replaces the PDF only after success so an open viewer never loses
+its last good document.
 
 Preparation captures the real application form in visible native Windows Chrome.
 The default candidate is the canonical resume unchanged. `--tailor` alone calls

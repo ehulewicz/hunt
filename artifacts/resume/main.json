@@ -4,7 +4,7 @@
     "label": "Main",
     "company": null,
     "clonedFrom": null,
-    "updatedAt": "2026-07-11T01:47:59.015Z"
+    "updatedAt": "2026-09-10T02:32:52.000Z"
   },
   "contact": {
     "name": "Alex Example",
@@ -16,6 +16,7 @@
   },
   "education": {
     "school": "Example Institute of Technology",
+    "location": "Atlanta, GA",
     "degree": "BS Computer Science",
     "threads": "Intelligence & Theory",
     "courses": "Data Structures, Algorithms, Machine Learning, Applied Intelligence",
@@ -30,9 +31,10 @@
       "location": "Atlanta, GA",
       "date": "May 2025 – Present",
       "bullets": [
-        "Led 4 customer Statements of Work, partnering directly with customers to scope requirements, break work into engineering deliverables, and coordinate execution across frontend, database, and middleware teams.",
-        "For 2 of those engagements, independently designed and built the complete solution—from SQL schema changes and REST APIs to business logic, frontend functionality, and customer-specific configuration—through production deployment.",
-        "Shipped 120+ full-stack production tickets (PHP/PostgreSQL backend, JavaScript/Handlebars frontend), owning application-layer business logic for customer-facing enterprise workflows."
+        "",
+        "",
+        "",
+        ""
       ]
     },
     {
@@ -41,31 +43,9 @@
       "location": "Chicago, IL",
       "date": "October 2025 – May 2026",
       "bullets": [
-        "Founded Northhealth AI, a clinician-first rehab platform that turns continuous patient data into provider insight at visits and personalized recovery support between visits.",
-        "Led engineering and shipped the platform to its v1 release, the version the company used to begin clinical trials.",
-        "Accepted to present at the American Academy of Neurology (AAN) in 2026. Validated direction with 22 healthcare organizations and professionals, incorporating clinician feedback into MVP scope, safety constraints, and workflow design."
-      ]
-    },
-    {
-      "title": "Undergraduate Researcher",
-      "org": "Sample Lab @ Example University Europe",
-      "location": "Metz, France",
-      "date": "August 2024 – December 2024",
-      "bullets": [
-        "Adapted the MKDNet tiny-object tracker in PyTorch to a novel shrimp-tracking domain, where a light 20-epoch fine-tune raised normalized precision 39%, precision 33%, and success rate 30% over the unadapted model.",
-        "Benchmarked the tracker against DiMP50 and YOLO across all three metrics and reported that the published LaTOT results did not reproduce on the accessible data split.",
-        "TODO: write this bullet."
-      ]
-    },
-    {
-      "title": "Undergraduate Researcher",
-      "org": "Example Lab @ Example University",
-      "location": "Atlanta, GA",
-      "date": "April 2024 – August 2024",
-      "bullets": [
-        "Developed and refined machine learning models in PyTorch for real-time cybersecurity threat detection in simulated nuclear systems, improving anomaly detection accuracy and real-time responsiveness under operational constraints.",
-        "Built a reproducible, containerized simulation environment using Docker and ICSSIM to support high-fidelity nuclear flow loop testing for model training and evaluation.",
-        "TODO: write this bullet."
+        "",
+        "",
+        ""
       ]
     },
     {
@@ -74,9 +54,33 @@
       "location": "Chicago, IL",
       "date": "May 2023 – December 2023",
       "bullets": [
-        "Engineered a Java-based automation platform integrating 9 heterogeneous systems (databases, internal tools, web interfaces), reducing workflow time by 70% and significantly improving reliability.",
-        "Designed a unified data model and adapter layer to normalize inconsistent schema, handle legacy edge cases, and enable deterministic cross-system synchronization.",
-        "TODO: write this bullet."
+        "",
+        "",
+        ""
+      ]
+    }
+  ],
+  "research": [
+    {
+      "title": "Undergraduate Researcher",
+      "org": "Sample Lab @ Example University Europe",
+      "location": "Metz, France",
+      "date": "August 2024 – December 2024",
+      "bullets": [
+        "",
+        "",
+        ""
+      ]
+    },
+    {
+      "title": "Undergraduate Researcher",
+      "org": "Example Lab @ Example University",
+      "location": "Atlanta, GA",
+      "date": "April 2024 – August 2024",
+      "bullets": [
+        "",
+        "",
+        ""
       ]
     }
   ],
@@ -86,18 +90,18 @@
       "org": "UC Berkeley AI Hackathon Winner, Best Use of Cognition",
       "date": "June 2026",
       "bullets": [
-        "Built a cloud-orchestrated recursive multi-agent research platform where agents recursively spawn specialized sub-agents for parallel hypothesis generation, experimentation, and distributed computation, enabling scalable research across 1000+ agents.",
-        "Built the distributed runtime: a Google Cloud Run orchestrator, isolated Modal sandboxes per agent with a shared compute budget, Redis state and event bus, GCS artifact storage, FastAPI + SSE API, and a Next.js live agent-tree dashboard.",
-        "Tested the distributed runtime for parallel CPU-only experimentation, reaching 500,000+ MiniGrid training steps/sec across concurrent sandboxes under a shared budget."
+        "",
+        "",
+        ""
       ]
     },
     {
       "title": "Personal Dynamics Engine",
       "date": "2026 – Present",
       "bullets": [
-        "TODO: write this bullet.",
-        "TODO: write this bullet.",
-        "TODO: write this bullet."
+        "",
+        "",
+        ""
       ]
     }
   ],
