@@ -52,8 +52,14 @@ PREAMBLE = r"""%-------------------------
 \setlength{\tabcolsep}{0in}
 
 % The reference uses light small-caps labels over thin full-width rules.
+% The rule underlines the label, so it sits at the glyph bottom and must not be
+% shifted. The space after it is what gives the first entry heading clearance.
+% The reference clears the rule by 6.4pt to 9.2pt. This content does not fit on
+% one page at that value, so 1pt buys 2.8pt of clearance, which separates the
+% rule from the entry without overflowing. Raise it toward 4.6pt once entries
+% or bullets are cut.
 \titleformat{\section}{\large\scshape\raggedright}{}{0em}{}[\titlerule]
-\titlespacing*{\section}{0pt}{7pt}{-1.5pt}
+\titlespacing*{\section}{0pt}{7pt}{1pt}
 
 \pdfgentounicode=1
 

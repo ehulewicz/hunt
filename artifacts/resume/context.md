@@ -100,6 +100,17 @@ slot allocation before writing rather than writing and trimming afterward.
   | bullet -> bullet | 13.67 | 13.65 |
   | last bullet -> next role | 15.80 | 15.81 |
 
+- **Section rule geometry.** The rule is the section label's underline: it sits
+  at the glyph bottom (reference 0.14 to -0.12pt, ours 0.20 to -0.13pt) and must
+  not be shifted with `\vspace` inside the `\titleformat` after-code. Shifting it
+  cuts the rule through the label. Clearance for the first entry comes from the
+  third argument of `\titlespacing` instead.
+- **The first entry's clearance below the rule is a knowing compromise.** The
+  reference clears the rule by 6.38-9.16pt. This content does not fit on one
+  page at that value, so `\titlespacing` after is 1pt, giving 2.76-3.03pt. That
+  separates rule from entry without overflowing. **Raise it toward 4.6pt once
+  entries or bullets are cut** - 4.6pt reproduces the reference exactly.
+
   Before this pass the organization-to-first-bullet gap was 7.52, about half the
   reference, while the gap between entries was 21.59, well over it. Entries read
   as crammed blocks separated by chasms. If spacing needs changing again,
