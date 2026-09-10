@@ -105,11 +105,17 @@ slot allocation before writing rather than writing and trimming afterward.
   not be shifted with `\vspace` inside the `\titleformat` after-code. Shifting it
   cuts the rule through the label. Clearance for the first entry comes from the
   third argument of `\titlespacing` instead.
-- **The first entry's clearance below the rule is a knowing compromise.** The
-  reference clears the rule by 6.38-9.16pt. This content does not fit on one
-  page at that value, so `\titlespacing` after is 1pt, giving 2.76-3.03pt. That
-  separates rule from entry without overflowing. **Raise it toward 4.6pt once
-  entries or bullets are cut** - 4.6pt reproduces the reference exactly.
+- **The gap under a section rule is worth more than the gap above the label.**
+  The reference clears the rule by 6.38-9.16pt before the first entry heading.
+  Ours now runs 6.09-6.68pt, paid for by cutting `\titlespacing` before from 7pt
+  to 3.5pt. That drops the space above each label to about 17.7pt against the
+  reference's 19.22-23.95, which is the deliberate trade: space above a label is
+  separation the preceding section already provides, while space below the rule
+  is the only thing keeping the rule off the entry heading.
+- **The Technical Skills spacer is load-bearing.** `build_skills` emits an extra
+  `\vspace{4pt}` because skill items are plain lines rather than `[t]`-aligned
+  tabulars and ride higher under the rule. Remove it and that one section
+  collapses to 2.37pt of clearance while every other section stays correct.
 
   Before this pass the organization-to-first-bullet gap was 7.52, about half the
   reference, while the gap between entries was 21.59, well over it. Entries read

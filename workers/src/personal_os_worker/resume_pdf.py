@@ -54,12 +54,11 @@ PREAMBLE = r"""%-------------------------
 % The reference uses light small-caps labels over thin full-width rules.
 % The rule underlines the label, so it sits at the glyph bottom and must not be
 % shifted. The space after it is what gives the first entry heading clearance.
-% The reference clears the rule by 6.4pt to 9.2pt. This content does not fit on
-% one page at that value, so 1pt buys 2.8pt of clearance, which separates the
-% rule from the entry without overflowing. Raise it toward 4.6pt once entries
-% or bullets are cut.
+% The 4.6pt after-space reproduces the reference's 6.4pt gap between the rule
+% and the first entry heading. It is paid for out of the space above the label,
+% which the reference spends less carefully than the space below it.
 \titleformat{\section}{\large\scshape\raggedright}{}{0em}{}[\titlerule]
-\titlespacing*{\section}{0pt}{7pt}{1pt}
+\titlespacing*{\section}{0pt}{3.5pt}{4.6pt}
 
 \pdfgentounicode=1
 
@@ -254,8 +253,8 @@ def build_entries(title: str, entries: list[dict[str, Any]]) -> list[str]:
 def build_skills(skills: list[dict[str, Any]]) -> list[str]:
     if not skills:
         return []
-    # Skill items are plain lines rather than [t]-aligned tabulars, so they ride
-    # higher under the rule than an entry heading does. Recover the difference.
+    # Skill items are plain lines, not [t]-aligned tabulars, so they ride higher
+    # under the rule than an entry heading does. Recover the difference.
     lines = [
         r"\section{Technical Skills}",
         r"\vspace{4pt}",
