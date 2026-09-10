@@ -116,19 +116,18 @@ def test_watch_rejects_non_positive_interval() -> None:
         resume.watch_resume(interval=0)
 
 
-def test_keyword_markup_renders_after_escaping() -> None:
+def test_bullet_markup_stays_literal_and_escaped() -> None:
+    """Bullets carry no keyword emphasis, so asterisks are ordinary characters.
+
+    The template has no keyword macro, and the resume rules put technologies in
+    the Skills section rather than bolding them inline.
+    """
     tex = build_latex(
         {"projects": [{"title": "Project", "bullets": ["Used **C++ & Redis** daily."]}]}
     )
 
-    assert r"\resumeKeyword{C++ \& Redis}" in tex
-
-
-def test_unpaired_keyword_markers_stay_literal() -> None:
-    tex = build_latex({"projects": [{"title": "Project", "bullets": ["Shipped **half a marker."]}]})
-
-    bullet = next(line for line in tex.splitlines() if "half a marker" in line)
-    assert bullet == r"    \resumeItem{Shipped **half a marker.}"
+    bullet = next(line for line in tex.splitlines() if "Redis" in line)
+    assert bullet == r"        \resumeItem{Used **C++ \& Redis** daily.}"
 
 
 def test_empty_skills_list_omits_the_section() -> None:
@@ -163,26 +162,85 @@ def test_education_renders_location_and_graduation_like_the_reference_template()
         }
     )
 
-    assert r"\textbf{Example University} & Atlanta, GA \\" in latex
-    assert r"\textit{BS Computer Science} & \textit{May 2028} \\" in latex
+    assert r"{Example University}{Atlanta, GA}" in latex
+    assert r"\textit{\small BS Computer Science} & \textit{\small May 2028} \\" in latex
+
+
+def test_education_renders_one_row_per_declared_degree() -> None:
+    latex = build_latex(
+        {
+            "education": {
+                "school": "Example University",
+                "location": "Atlanta, GA",
+                "degrees": [
+                    {"degree": "MS Computer Science", "date": "Dec 2027"},
+                    {"degree": "BS Computer Science", "date": "May 2026"},
+                ],
+                "courses": "Algorithms",
+            }
+        }
+    )
+
+    assert r"\textit{\small MS Computer Science} & \textit{\small Dec 2027} \\" in latex
+    assert r"\textit{\small BS Computer Science} & \textit{\small May 2026} \\" in latex
+    assert r"\small Core Coursework: Algorithms & \\" in latex
 
 
 def test_entry_dates_keep_an_en_dash_range() -> None:
     entry = {"title": "Project", "date": "2026 \u2013 Present", "bullets": ["Shipped it."]}
     tex = build_latex({"projects": [entry]})
 
-    assert r"\resumeHeading{Project}{2026 -- Present}" in tex
+    assert r"\resumeProjectHeading{\textbf{Project}}{2026 -- Present}" in tex
 
 
 def test_project_awards_sit_below_the_project_name() -> None:
     entry = {"title": "Project", "org": "Hackathon Winner", "date": "2026", "bullets": ["Did it."]}
     tex = build_latex({"projects": [entry]})
 
-    assert r"\resumeEntry{Project}{2026}{Hackathon Winner}{}" in tex
+    assert r"\resumeSubheading{Project}{2026}{Hackathon Winner}{}" in tex
 
 
 def test_experience_entries_lead_with_the_role_like_the_reference_template() -> None:
     entry = {"title": "Engineer", "org": "Company", "location": "Atlanta, GA", "date": "2025"}
     tex = build_latex({"experience": [entry | {"bullets": ["Did it."]}]})
 
-    assert r"\resumeEntry{Engineer}{2025}{Company}{Atlanta, GA}" in tex
+    assert r"\resumeSubheading{Engineer}{2025}{Company}{Atlanta, GA}" in tex
+
+
+def test_sections_without_entries_emit_nothing() -> None:
+    """An absent section leaves no label and no rule behind.
+
+    This is what lets one generator serve a resume with Research and no
+    Leadership and the reference resume, which is the other way round.
+    """
+    latex = build_latex(
+        {
+            "experience": [{"title": "Engineer", "bullets": ["Did it."]}],
+            "research": [],
+            "leadership": [{"title": "Teaching Assistant", "bullets": ["Taught it."]}],
+        }
+    )
+
+    assert r"\section{Research}" not in latex
+    assert r"\section{Projects}" not in latex
+    assert latex.index(r"\section{Experience}") < latex.index(r"\section{Leadership}")
+
+
+def test_skills_render_as_one_item_of_joined_lines() -> None:
+    """Every category shares a single list item, separated by line breaks.
+
+    One item per category would inherit the list's inter-item spacing and open
+    the block up; the reference keeps the categories tight.
+    """
+    latex = build_latex(
+        {
+            "skills": [
+                {"category": "Languages", "items": "Python"},
+                {"category": "Libraries", "items": "NumPy"},
+            ]
+        }
+    )
+
+    assert latex.count(r"\item{") == 1
+    assert r"\textbf{Languages}{: Python} \\" in latex
+    assert r"\textbf{Libraries}{: NumPy}" in latex

@@ -8,11 +8,16 @@ FastAPI is the only process that accesses hosted Postgres.
 database retains every valid row and its role-family tags; `os hunt listings`
 applies the user's technical-family view by default.
 
-The resume compiler reads the canonical JSON, emits a TeX Gyre Termes template
-with Education, Experience, Research, Projects, and Technical Skills, runs
-`latexmk`, and verifies exactly one page with `pdfinfo`. Experience, Research,
-and Projects keep separate structured lists so both rendering and explicit
-tailoring preserve the distinction. Watch mode compiles beside the stable output
+The resume compiler reads the canonical JSON, emits the Jake Gutierrez "Jake's
+Resume" template as adapted for `bin/Sam_Kim_resume_dec2027.pdf` (11pt newtx
+Times, small-caps section rules, role-first two-row entries), runs `latexmk`, and
+verifies exactly one page with `pdfinfo`. Sections render in the fixed order
+Education, Experience, Research, Projects, Leadership, Technical Skills, and a
+section holding no entries emits neither label nor rule. That is what lets one
+generator serve the canonical resume, which has Research and no Leadership, and
+the Sam Kim reference fixture, which is the other way round. Experience,
+Research, Projects, and Leadership keep separate structured lists so both
+rendering and explicit tailoring preserve the distinction. Watch mode compiles beside the stable output
 and atomically replaces the PDF only after success so an open viewer never loses
 its last good document.
 

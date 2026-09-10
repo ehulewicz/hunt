@@ -18,7 +18,7 @@ from typing import Any
 
 from personal_os_worker.browser import VisibleBrowser
 from personal_os_worker.config import load_cli_config
-from personal_os_worker.resume_pdf import compile_resume
+from personal_os_worker.resume_pdf import ENTRY_SECTIONS, compile_resume
 from personal_os_worker.service import ensure_chrome
 
 DEFAULT_CDP_URL = "http://127.0.0.1:9333"
@@ -69,11 +69,16 @@ def _validate_resume_shape(resume: dict[str, Any]) -> None:
     for section in ("contact", "education"):
         if not isinstance(resume.get(section), dict):
             raise RuntimeError(f"Resume section '{section}' must be an object")
-    for section in ("experience", "research", "projects", "skills"):
-        if not isinstance(resume.get(section), list):
+    if not isinstance(resume.get("skills"), list):
+        raise RuntimeError("Resume section 'skills' must be a list")
+    # Entry sections are optional. A resume with research and no leadership and
+    # one with leadership and no research are both well formed; only a section
+    # that is present has to be shaped correctly.
+    for section, _ in ENTRY_SECTIONS:
+        if section in resume and not isinstance(resume[section], list):
             raise RuntimeError(f"Resume section '{section}' must be a list")
-    for section in ("experience", "research", "projects"):
-        for index, entry in enumerate(resume[section]):
+    for section, _ in ENTRY_SECTIONS:
+        for index, entry in enumerate(resume.get(section, [])):
             if not isinstance(entry, dict):
                 raise RuntimeError(f"Resume {section}[{index}] must be an object")
             bullets = entry.get("bullets")

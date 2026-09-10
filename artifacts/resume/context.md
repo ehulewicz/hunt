@@ -4,7 +4,8 @@ Handoff for continuing the base-resume writing pass on another machine. Pairs
 with `defense.md` (interview exposure per entry) and `main.json` (canonical
 content). Update this file as decisions land.
 
-Last verified: 2026-09-10, against commit `5b40cb6` plus the entry-spacing pass.
+Last verified: 2026-09-10, after the template was rebuilt on the supplied Sam
+Kim LaTeX source.
 
 ## State
 
@@ -12,9 +13,21 @@ Last verified: 2026-09-10, against commit `5b40cb6` plus the entry-spacing pass.
 the Sam Kim reference style and cleared all bullet text for a fresh writing pass.
 The previous rendered resume is preserved at `artifacts/resume/old.pdf`.
 
-Structure is now five sections: Education, Experience, **Research**, Projects,
-Technical Skills. DREAM and iFAN moved out of Experience into Research. Chicago
-Public Schools stays in Experience.
+The generator now emits the supplied Sam Kim LaTeX source directly rather than a
+layout reverse-engineered from the PDF. `bin/sam-kim.json` reproduces that resume
+through the generator and renders at **zero pixel difference** against the
+supplied `.tex`; it is the regression target for any future template change.
+Compare with:
+
+```bash
+os hunt resume build --input bin/sam-kim.json --output bin/sam-kim.pdf
+```
+
+Structure is Education, Experience, **Research**, Projects, Leadership, Technical
+Skills, in that fixed order, and a section with no entries emits neither label
+nor rule. The canonical resume has Research and no Leadership; the reference
+fixture is the other way round. DREAM and iFAN moved out of Experience into
+Research. Example Public Schools stays in Experience.
 
 Current empty slot counts:
 
@@ -47,15 +60,15 @@ These slot counts are placeholders, not a decision. See open questions.
 
 ## Line budget
 
-Measured on the current TeX Gyre Termes layout (2026-09-10):
+Re-measured on the 11pt newtx layout (2026-09-10), by binary search against the
+count of distinct rendered text baselines:
 
-- A bullet's first line holds **~129 characters** of ordinary prose, measured by
-  binary search after the entry indent narrowed the measure.
-- Treat **<=124 characters as a safe one-liner.**
-- Between 125 and 129 it depends on the text. Character count is only a proxy:
-  the same layout fits 149 characters of two-letter words and 131 of three-letter
-  words, because capitals, digits, and wide letters cost more than average
-  lowercase. Number-heavy bullets wrap earlier.
+- A bullet's first line holds **125 characters** of ordinary lowercase prose.
+- Treat **<=122 characters as a safe one-liner.**
+- Character count is only a proxy. Capitals, digits, and wide letters cost more
+  than average lowercase, so number-heavy bullets wrap earlier. The reference's
+  own longest bullet measures 126 characters and still sets on one line, because
+  its letter mix is narrower than the proxy sentence used to find the limit.
 
 Re-measure after any layout change:
 
@@ -91,53 +104,26 @@ slot allocation before writing rather than writing and trimming afterward.
   teammates did not do. "Sole engineer" is a scope claim rather than a
   measurement, so it cannot be litigated, and it is stronger.
 
-- **Entry spacing is now matched to the reference and should not be nudged by
-  eye.** Measured against `bin/Sam_Kim_resume_dec2027.pdf`, in points of
-  top-to-top advance:
+- **Entry spacing, section-rule geometry, and the Technical Skills spacer are no
+  longer hand-tuned.** The generator emits the supplied Sam Kim LaTeX source, so
+  spacing comes from that template's own macros (`\vspace{-2pt}` before each
+  entry, `\vspace{-7pt}` after each heading tabular, `\vspace{-5pt}` after each
+  bullet list, and the `\titleformat` rule spacing). The point-level gap and
+  x-position tables that used to live here measured the retired 10pt TeX Gyre
+  Termes layout and no longer describe anything. **Do not reintroduce hand-tuned
+  `\vspace` corrections.** If spacing looks wrong, rebuild `bin/sam-kim.json`
+  and pixel-compare against the reference before touching the template:
 
-  | Interval | Reference | Ours |
-  |---|---|---|
-  | role -> organization | 14.08 | 14.09 |
-  | organization -> first bullet | 14.49 | 14.50 |
-  | bullet -> bullet | 13.67 | 13.65 |
-  | last bullet -> next role | 15.80 | 15.81 |
+  ```bash
+  os hunt resume build --input bin/sam-kim.json --output bin/sam-kim.pdf
+  compare -metric AE -fuzz 5% <(pdftoppm -r 150 -png -gray bin/sam-kim.pdf) ...
+  ```
 
-- **Entries hang indented under the section label.** The label sits at the left
-  margin and everything beneath it steps in, which is what separates a section
-  from its contents in the reference. Measured x positions:
-
-  | Element | Reference | Ours |
-  |---|---|---|
-  | section label | 36.00 | 36.00 |
-  | entry heading | 46.80 | 46.76 |
-  | bullet | 61.53 | 61.41 |
-
-  Set through `leftmargin` on the two list macros (10.8pt and 23.2pt). Because
-  `leftmargin` shrinks `\linewidth`, the right-aligned dates still reach the
-  margin, so only the left edge moves. The cost is bullet width: the one-line
-  budget dropped from about 131 characters to about 129.
-
-- **Section rule geometry.** The rule is the section label's underline: it sits
-  at the glyph bottom (reference 0.14 to -0.12pt, ours 0.20 to -0.13pt) and must
-  not be shifted with `\vspace` inside the `\titleformat` after-code. Shifting it
-  cuts the rule through the label. Clearance for the first entry comes from the
-  third argument of `\titlespacing` instead.
-- **The gap under a section rule is worth more than the gap above the label.**
-  The reference clears the rule by 6.38-9.16pt before the first entry heading.
-  Ours now runs 6.09-6.68pt, paid for by cutting `\titlespacing` before from 7pt
-  to 3.5pt. That drops the space above each label to about 17.7pt against the
-  reference's 19.22-23.95, which is the deliberate trade: space above a label is
-  separation the preceding section already provides, while space below the rule
-  is the only thing keeping the rule off the entry heading.
-- **The Technical Skills spacer is load-bearing.** `build_skills` emits an extra
-  `\vspace{4pt}` because skill items are plain lines rather than `[t]`-aligned
-  tabulars and ride higher under the rule. Remove it and that one section
-  collapses to 2.37pt of clearance while every other section stays correct.
-
-  Before this pass the organization-to-first-bullet gap was 7.52, about half the
-  reference, while the gap between entries was 21.59, well over it. Entries read
-  as crammed blocks separated by chasms. If spacing needs changing again,
-  re-measure both PDFs rather than adjusting `\vspace` by eye.
+  Two departures from the supplied source are deliberate and documented in
+  `resume_pdf.py`: `\PassOptionsToPackage` for `color` (newtx loads it first, so
+  a later `\usepackage[usenames,dvipsnames]{color}` raises an option clash), and
+  a `\resumeEducation` that takes a prebuilt row block instead of a hard-coded
+  pair of degree rows, so one degree renders as well as two.
 
 ## Northwind plan
 
@@ -216,6 +202,10 @@ material for phrasing and recoverable facts, never as correct copy.
 ```bash
 os hunt resume build      # compile main.json -> main.pdf, enforces the 1-page gate
 os hunt resume watch      # open main.json in VS Code, rebuild on change
+
+# Sam Kim reference fixture: the regression target for template changes.
+os hunt resume build --input bin/sam-kim.json --output bin/sam-kim.pdf
+os hunt resume watch --input bin/sam-kim.json --output bin/sam-kim.pdf --open
 pdfinfo artifacts/resume/main.pdf | grep Pages
 pdftotext -layout artifacts/resume/main.pdf -   # what an ATS parser receives
 ```

@@ -7,7 +7,7 @@ from difflib import SequenceMatcher
 from typing import Any
 
 ALLOWED_PATH = re.compile(
-    r"^/(experience|research|projects)/(\d+)/bullets/(\d+)$|^/skills/(\d+)/items$"
+    r"^/(experience|research|projects|leadership)/(\d+)/bullets/(\d+)$|^/skills/(\d+)/items$"
 )
 
 
@@ -84,7 +84,7 @@ def ensure_structure_unchanged(base: dict[str, Any], candidate: dict[str, Any]) 
         raise UnsafeResumeChange("Contact details cannot be tailored")
     if base.get("education") != candidate.get("education"):
         raise UnsafeResumeChange("Education cannot be tailored")
-    for section in ("experience", "research", "projects"):
+    for section in ("experience", "research", "projects", "leadership"):
         before = base.get(section, [])
         after = candidate.get(section, [])
         if not isinstance(before, list) or not isinstance(after, list) or len(before) != len(after):
@@ -124,7 +124,7 @@ def resume_text(resume: dict[str, Any]) -> str:
     values: list[str] = []
     for section in ("contact", "education"):
         values.extend(str(value) for value in resume.get(section, {}).values())
-    for section in ("experience", "research", "projects"):
+    for section in ("experience", "research", "projects", "leadership"):
         for entry in resume.get(section, []):
             values.extend(
                 str(entry.get(key, "")) for key in ("title", "org", "location", "date")

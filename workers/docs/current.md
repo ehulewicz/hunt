@@ -11,8 +11,10 @@ Last verified: 2026-09-09
 - [x] Make displayed listing titles clickable and add `os hunt open <row>` for
   direct application URLs, with `--source` for discovery URLs.
 - [x] Build and watch the canonical JSON resume with atomic one-page PDF output.
-- [x] Match the Sam Kim reference layout with TeX Gyre Termes, role-first
+- [x] Match the Sam Kim reference layout with 11pt newtx Times, role-first
   headings, small-caps section rules, and a separate Research section.
+- [x] Rebuild the generator directly on the supplied Sam Kim LaTeX source, and
+  verify it against `bin/sam-kim.json` at zero rendered pixel difference.
 - [x] Support four blank bullet slots for Northwind and three for every other
   entry while preserving variable counts through validation and tailoring.
 - [x] Make canonical unchanged preparation the default and Claude tailoring explicit.

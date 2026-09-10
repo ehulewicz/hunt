@@ -28,6 +28,12 @@ workers/.chrome-profile/
 # Resume build intermediary; JSON and PDF in this directory are tracked.
 artifacts/resume/*.tex
 
+# Sam Kim reference fixture renders. The fixture JSON is tracked; its build
+# output is not, because bin/Sam_Kim_resume_dec2027.pdf is already the tracked
+# comparison target and a second near-identical PDF is just noise.
+bin/sam-kim.tex
+bin/sam-kim.pdf
+
 # Nested standalone repo (github.com/ehulewicz/dotfiles) — cloned here, never
 # committed to personal-os
 dotfiles/
