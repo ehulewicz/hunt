@@ -40,3 +40,4 @@ database/.temp/
 
 # Scratch clones used for local exploration, never product state
 testing/
+.env*.local
