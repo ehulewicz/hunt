@@ -31,10 +31,10 @@
       "location": "Atlanta, GA",
       "date": "May 2025 – Present",
       "bullets": [
-        "Architected full-stack bulk actions system for 1,000-node batches with multi-tenant configs, recursive updates, and DB savepoints.",
-        "Designed and built",
-        "",
-        ""
+        "Built Program Notes end to end, expanding scope to link Project, Reset, and Location systems and secure another signed SOW.",
+        "Architected full-stack bulk actions for 1,000-node batches with multi-tenant configs, recursive updates, and DB savepoints.",
+        "Migrated legacy PHP page flows to AJAX-driven REST endpoints on PostgreSQL with full behavior parity and zero downtime.",
+        "Led 2 customer SOWs and shipped 120+ production tickets across the wider product surface with frontend and database teams."
       ]
     },
     {

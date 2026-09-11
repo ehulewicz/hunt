@@ -1,7 +1,7 @@
 # Fdb version 4
-["pdflatex"] 1789082074.72612 "/home/eahtr/personal-os/artifacts/resume/main.tex" "main.pdf" "main" 1789082075.34173 0
+["pdflatex"] 1789104957.9095 "/home/eahtr/personal-os/artifacts/resume/main.tex" "main.pdf" "main" 1789104958.47312 0
   "/etc/texmf/web2c/texmf.cnf" 1780630509.26566 475 c0e671620eb5563b2130f56340a5fde8 ""
-  "/home/eahtr/personal-os/artifacts/resume/main.tex" 1789082074.4424 6256 e61eb40efd2ad12ce6a8ac56b4e8b408 ""
+  "/home/eahtr/personal-os/artifacts/resume/main.tex" 1789104957.59192 6595 4140ef714ab5a252793275274bbb1c9a ""
   "/usr/share/texlive/texmf-dist/fonts/enc/dvips/newtx/ntx-ec-tlf-pc.enc" 1698694482 3136 bbe665bd0bb471a2da1e8fd326cff9fa ""
   "/usr/share/texlive/texmf-dist/fonts/enc/dvips/newtx/ntx-ec-tlf.enc" 1698694482 2914 fdbc4a54b9bc76f4551b5303f2737d33 ""
   "/usr/share/texlive/texmf-dist/fonts/map/fontname/texfonts.map" 1577235249 3524 cb3e574dea2d1052e39280babc910dc8 ""
@@ -128,9 +128,9 @@
   "/usr/share/texmf/web2c/texmf.cnf" 1707919699 40399 f2c302f7d2af602abb742093540a5834 ""
   "/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map" 1789011111.40074 5114800 e3f0cf800e575dbf1c6f484a77073776 ""
   "/var/lib/texmf/web2c/pdftex/pdflatex.fmt" 1780630537 6800789 85ec4ba972b3f0758b79c4abefe08781 ""
-  "main.aux" 1789082075.263 778 632e818418517d3f48bec4801544be4a "pdflatex"
-  "main.out" 1789082075.263 473 037573c7a87dd9fdecc0ef1431ddbaf9 "pdflatex"
-  "main.tex" 1789082074.4424 6256 e61eb40efd2ad12ce6a8ac56b4e8b408 ""
+  "main.aux" 1789104958.39591 778 632e818418517d3f48bec4801544be4a "pdflatex"
+  "main.out" 1789104958.39991 473 037573c7a87dd9fdecc0ef1431ddbaf9 "pdflatex"
+  "main.tex" 1789104957.59192 6595 4140ef714ab5a252793275274bbb1c9a ""
   (generated)
   "main.aux"
   "main.log"
