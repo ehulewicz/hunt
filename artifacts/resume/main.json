@@ -90,9 +90,9 @@
       "org": "UC Berkeley AI Hackathon Winner, Best Use of Cognition",
       "date": "June 2026",
       "bullets": [
-        "",
-        "",
-        ""
+        "Built a platform where AI agents broke research questions into hypotheses and ran experiments in parallel",
+        "Designed the cloud runtime for 1,000+ AI agents, giving each an isolated workspace under one shared compute budget",
+        "Reached 500,000+ simulation steps per second by running experiments concurrently across cloud environments"
       ]
     },
     {

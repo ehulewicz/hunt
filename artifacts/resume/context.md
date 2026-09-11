@@ -53,7 +53,7 @@ which gets 4 because it is the frontline experience.
 | Experience | Example Public Schools | 3 | yes |
 | Research | Sample Lab @ GT Europe | 3 | no |
 | Research | Example Lab @ GT | 3 | no |
-| Projects | AlphaResearch | 3 | no |
+| Projects | AlphaResearch | 3 | yes |
 | Projects | Personal Dynamics Engine | 3 | no |
 
 ## Hard constraints
@@ -264,8 +264,8 @@ material for phrasing and recoverable facts, never as correct copy.
    written but not yet satisfying, and the leadership-versus-solo seam in bullet
    4 is still unresolved.
 2. Write Northhealth AI. `defense.md` holds recoverable material from `38edffe`.
-3. Work down the research entries, then the projects. Personal Dynamics Engine
-   is last because it is the least defined.
+3. Work down the research entries, then Personal Dynamics Engine, which remains
+   last because it is the least defined. AlphaResearch is written.
 4. Keep `defense.md` in sync as bullets change. It is the only place the detail
    a one-line bullet sheds is preserved.
 
