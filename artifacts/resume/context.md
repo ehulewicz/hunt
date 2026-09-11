@@ -36,19 +36,18 @@ nor rule. The canonical resume has Research and no Leadership; the reference
 fixture is the other way round. DREAM and iFAN moved out of Experience into
 Research. Example Public Schools stays in Experience.
 
-Current empty slot counts:
+Bullet allocation is **settled**: every entry gets 3 bullets, except Northwind
+which gets 4 because it is the frontline experience.
 
-| Section | Entry | Slots |
-|---|---|---|
-| Experience | Northwind | 0 |
-| Experience | Northhealth AI | 3 |
-| Experience | Example Public Schools | 0 |
-| Research | Sample Lab @ GT Europe | 3 |
-| Research | Example Lab @ GT | 3 |
-| Projects | AlphaResearch | 3 |
-| Projects | Personal Dynamics Engine | 3 |
-
-These slot counts are placeholders, not a decision. See open questions.
+| Section | Entry | Bullets | Written |
+|---|---|---|---|
+| Experience | Northwind | 4 | yes |
+| Experience | Northhealth AI | 3 | no |
+| Experience | Example Public Schools | 3 | yes |
+| Research | Sample Lab @ GT Europe | 3 | no |
+| Research | Example Lab @ GT | 3 | no |
+| Projects | AlphaResearch | 3 | no |
+| Projects | Personal Dynamics Engine | 3 | no |
 
 ## Hard constraints
 
@@ -56,7 +55,11 @@ These slot counts are placeholders, not a decision. See open questions.
   `workers/src/personal_os_worker/resume_pdf.py`. Exceeding it raises
   `Resume must stay within 1 page(s)` and the build fails. This is a gate, not a
   warning, so the writing pass is budget-constrained from the first bullet.
-- No semicolons in bullets. Never exceed two rendered lines.
+- **Every bullet is exactly one rendered line.** This is the operating rule for
+  the whole page, stricter than the two-line ceiling in `AGENTS.md`, and it is
+  what makes 22 bullets fit at all. Write to roughly 122 characters and verify
+  against the rendered PDF, never against the character count alone.
+- No semicolons in bullets.
 - No keyword bolding inside bullets. Skills section is the only place
   technologies are listed.
 - Entry headings separate role from organization with `|`. A comma introduces a
@@ -85,8 +88,28 @@ pdftotext -layout artifacts/resume/main.pdf - | grep "•" \
 ```
 
 **Page budget is tight.** Filling all 22 bullet slots with two-line bullets
-compiles to 2 pages and fails the gate. Every entry cannot run long. Decide the
-slot allocation before writing rather than writing and trimming afterward.
+compiles to 2 pages and fails the gate. Measured on 2026-09-11 with only
+Northwind written, Example Public Schools could fit just **two** rendered lines
+before the page broke, which is what forced the one-line-per-bullet rule. That
+measurement predates the formatting work in progress on the template, so
+re-measure before treating it as the current ceiling.
+
+Verify wrapping by reading the rendered text, not by trusting character counts:
+
+```bash
+pdftotext -layout artifacts/resume/main.pdf - | sed -n '/Example Public Schools/,/Research/p'
+```
+
+A wrapped bullet shows a continuation line with no bullet marker.
+
+**Blank slots already occupy their space.** An empty bullet still emits an
+`\item` and renders as a bare marker, so the current one-page build is already
+carrying all 22 bullet lines. Filling a blank slot therefore costs no additional
+vertical space, provided the text stays on one line. Confirmed 2026-09-11:
+
+```bash
+pdftotext -layout artifacts/resume/main.pdf - | grep -c "•"   # 22
+```
 
 ## Decisions from the 2026-09-09 session
 
@@ -162,6 +185,31 @@ Bullet 1 candidates, with character counts against the **old** budget:
      directly with customers and driving delivery across teams.   <- risky
 ```
 
+## Example Public Schools plan
+
+**Written on 2026-09-11.** Three one-line bullets, verified unwrapped at one
+page. Full interview material is in `defense.md`.
+
+| # | Carries | Lines |
+|---|---|---|
+| 1 | What it is and its impact: automated the deterministic majority of leave cases across 9 HR and payroll systems, 10 minutes to 3 | 1 |
+| 2 | The engineering underneath: unified data model and adapter layer over inconsistent schemas, browser automation where no API existed | 1 |
+| 3 | Sustained ownership after launch: integrations rebuilt as upstream systems changed, plus the background-login feature request | 1 |
+
+Two corrections drove this entry and must not be undone:
+
+- **The users were not engineers.** They were the district's Leave Specialists,
+  an HR, payroll, and timekeeping function. The resume signal is shipping an
+  internal tool to a non-technical operations team in a rule-heavy domain.
+- **The tool did automate a large deterministic share of cases outright.** It was
+  not merely decision support. The hard cases still required a specialist, and
+  for those it consolidated the nine systems into one interface. State the
+  automation first and the support second.
+
+Dates are resolved: May to December 2023, development complete in August, four
+months of maintenance after that. The earlier May 2023 to December 2024 range in
+older notes is wrong.
+
 ## Open questions — these block the writing pass
 
 1. **What did the other Northwind teams actually do?** "Coordinated execution
@@ -176,15 +224,19 @@ Bullet 1 candidates, with character counts against the **old** budget:
    recorded detail is `defense.md` calling the AJAX transition "the ownership
    story" — behavior parity, legacy edge cases, no downtime. Still needed: what
    it replaced, roughly how much surface it touched, and what got better.
-3. **Slot allocation is unresolved.** The user's instinct was 4/3/2/2/3 across
-   the old flat Experience list. The counter-proposal was 4/3/2/2/2, on the
-   grounds that CPS is pre-college and the oldest item, so giving it three while
-   GT research gets two says it outranks the research. That discussion predates
-   the Research-section split in `5b40cb6`, so it needs redoing against the new
-   structure — research entries now sit in their own section where 2 vs 3 reads
-   differently.
-4. **Personal Dynamics Engine has no written content at all** and is the least
+3. **What is the Example Public Schools title and employment relationship?** The
+   work was done as a subcontractor under a SWE contractor, not as a direct CPS
+   employee, so the current "Software Engineer (Contract) | Chicago Public
+   Schools" heading implies a relationship that did not exist. The contracting
+   entity name is not recorded. See `defense.md`.
+4. **Is there any handle on the Example Public Schools error reduction?** The
+   engagement was for speed and error reduction, and only speed has a number.
+   The error claim is currently unquantified and off the page entirely.
+5. **Personal Dynamics Engine has no written content at all** and is the least
    defined entry on the page.
+
+Bullet allocation is no longer an open question. It is settled at 3 per entry,
+4 for Northwind, one rendered line each.
 
 ## Recovering the old bullet text
 
@@ -201,10 +253,14 @@ material for phrasing and recoverable facts, never as correct copy.
 
 ## Next actions
 
-1. Answer open questions 1 and 2.
-2. Write the four Northwind bullets. Build and confirm the page gate passes.
-3. Settle slot allocation against the new five-section structure.
-4. Work down the remaining entries. Keep `defense.md` in sync as bullets change.
+1. Answer open questions 1 and 2 and revisit the Northwind bullets. They are
+   written but not yet satisfying, and the leadership-versus-solo seam in bullet
+   4 is still unresolved.
+2. Write Northhealth AI. `defense.md` holds recoverable material from `38edffe`.
+3. Work down the research entries, then the projects. Personal Dynamics Engine
+   is last because it is the least defined.
+4. Keep `defense.md` in sync as bullets change. It is the only place the detail
+   a one-line bullet sheds is preserved.
 
 ## Commands
 

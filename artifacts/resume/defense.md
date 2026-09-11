@@ -1,52 +1,182 @@
 # Resume defense
 
-`main.json` is currently a layout-complete, blank-bullet writing template. The
-previous populated rendering is preserved as `old.pdf`; its wording is not the
-current resume. Restore this document's interview defenses as each new bullet is
-approved.
+Interview-facing companion to `main.json`. Every bullet on the page is one
+rendered line, so each one compresses far more than it states. This file records
+what was compressed, what the honest expanded answer is, and what must not be
+claimed without checking sources first.
 
-## Education — Example University, BS CS, May 2028, 3.78
+Pairs with `context.md` (writing-pass state and constraints).
+
+Last updated: 2026-09-11.
+
+## Education, Example University, BS CS, May 2028, 3.78
 
 - The heading and coursework are populated. No education bullet is planned.
 
 ## Experience
 
-### Middleware Engineer | Northwind
+### Middleware Engineer | Northwind, May 2025 – Present
 
-1. Concrete technical accomplishment from the strongest customer SOW.
-2. End-to-end ownership and cross-team leadership across the SOWs.
-3. System modernization and the major refactor.
-4. Production volume and breadth.
+Current bullets:
 
-### Technical Co-founder | Northhealth AI
+1. Built Program Notes end to end, expanding scope to link Project, Reset, and
+   Location systems and secure another signed SOW.
+2. Architected full-stack bulk actions for 1,000-node batches with multi-tenant
+   configs, recursive updates, and DB savepoints.
+3. Migrated legacy PHP page flows to AJAX-driven REST endpoints on PostgreSQL
+   with full behavior parity and zero downtime.
+4. Led 2 customer SOWs and shipped 120+ production tickets across the wider
+   product surface with frontend and database teams.
 
-- Three blank slots for zero-to-one product work and founder ownership.
+What they are meant to convey, in priority order: team lead and project
+ownership, end-to-end full-stack build, sheer volume of work, larger projects.
 
-### Software Engineer (Contract) | Example Public Schools
+Settled facts:
 
-- Three blank slots for integration and automation in messy real-world systems.
+- **2** customer Statements of Work, both led, both carried nearly end to end.
+  The earlier "4 Statements of Work" claim was wrong and came from ChatGPT
+  output. Never restore it.
+- The AJAX migration is the ownership story: behavior parity, legacy edge cases,
+  no downtime.
+- Roughly 93% of the code written solo. **Deliberately kept off the page.** Bad
+  provenance (93% of what, exactly), and a number that precise is implicitly a
+  claim about what teammates did not do. "Sole engineer" or "led" is a scope
+  claim rather than a measurement and cannot be litigated.
+
+Anticipated probes:
+
+- *"You led two SOWs, but also wrote nearly all the code. Which was it?"* This is
+  the weak seam. Bullet 4 says "with frontend and database teams" and the
+  honest answer depends on what those teams actually delivered. Unresolved, see
+  `context.md` open question 1.
+
+Do not claim without checking: the exact division of labor with the frontend and
+database teams, and the scope of the "larger projects" beyond the AJAX work.
+
+### Technical Co-founder | Northhealth AI, October 2025 – May 2026
+
+Three blank slots for zero-to-one product work and founder ownership.
+
+Recoverable material from the pre-rewrite version at `38edffe`:
+
+- Clinician-first rehab platform turning continuous patient data into provider
+  insight at visits and personalized recovery support between visits.
+- Led engineering and shipped to a v1 release, the version used to begin
+  clinical trials.
+- Accepted to present at the American Academy of Neurology (AAN) in 2026.
+- Validated direction with 22 healthcare organizations and professionals, and
+  fed clinician feedback into MVP scope, safety constraints, and workflow design.
+
+### Software Engineer (Contract) | Example Public Schools, May 2023 – December 2023
+
+Current bullets:
+
+1. Automated deterministic leave cases across 9 HR and payroll systems, cutting
+   case handling from 10 minutes to 3.
+2. Designed a unified data model and adapter layer over inconsistent schemas,
+   automating browsers where systems had no API.
+3. Owned the tool after launch, rebuilding integrations as systems changed and
+   eliminating a 2 to 3 minute daily login.
+
+**Employment relationship.** Not a direct CPS employee. Worked under a SWE
+contractor (the user's father) on a CPS engagement, and built a tool used by a
+CPS team. "Software Engineer (Contract) | Example Public Schools" therefore
+implies a direct CPS relationship that did not exist. "Subcontractor" is more
+defensible. Most precise would be the contracting entity's name with CPS named
+in a bullet, but that entity name is not recorded. Unresolved.
+
+**Who actually used it.** Not engineers. The users were the district's **Leave
+Specialists**, an HR, payroll, and timekeeping function. This was the most
+significant correction to the entry: the resume signal is shipping an internal
+tool to a non-technical operations team in a rule-heavy domain, which is rare
+for a student.
+
+**The domain.** Employee leave administration. Resolving a case meant
+determining pay eligibility and amount, approval, hour logging, part-time versus
+full-time employment status, and which of several leave types applied. Done
+manually it required moving between multiple enterprise systems with inconsistent
+schemas, missing or legacy data, and system-specific edge cases.
+
+**The deterministic versus judgment split.** A large share of cases were
+rule-bound, and those the tool resolved outright with no human in the loop. What
+remained were the genuinely hard cases that required a person, and for those the
+tool consolidated everything the specialist needed into one real-time interface
+so the call was faster and better informed. Both halves are true and the order
+matters: it automated the majority and supported the remainder.
+
+**Architecture.** Source-specific adapters normalize each system into one common
+domain model. That model drives deterministic updates across downstream systems.
+Browser automation is isolated to the systems that had no usable API, so the
+Selenium surface does not leak into the rest of the design.
+
+**Scale.** 9 heterogeneous systems: databases, internal tools, and web
+interfaces. Oracle and SQL data access are confirmed. Salesforce was mentioned in
+older notes as possibly one of them.
+
+**Technologies with solid support.** Java, SQL, Oracle, Selenium.
+
+**The 70% metric.** 10 minutes down to 3 on the core task. Unlike the Northwind
+93%, this has defensible provenance: a single named task, measured start to
+finish. Safe to state and safe to be asked about.
+
+**Timeline and maintenance.** Development completed in August 2023. Maintenance
+ran August through December 2023, roughly four months. The majority of that work
+was overhauling the tool as the upstream systems it integrated changed, which is
+the standard way a nine-system integration dies and this one did not. One named
+feature request landed in that window: automating login across the connected
+tools. The first login of the day cost 2 to 3 minutes on its own, and moving it
+to the background was a real efficiency and quality-of-life gain for the
+specialists.
+
+What the one-line bullets had to shed, and is therefore yours to supply in
+conversation:
+
+- Bullet 1 dropped "timekeeping" from the system list, the human-in-the-loop
+  half, and the unquantified error reduction. The page now reads as more fully
+  automated than the truth, so expect and welcome the probe.
+- Bullet 2 dropped "legacy edge cases" and "deterministic cross-system
+  synchronization." The browser-automation clause was kept deliberately as the
+  most concrete evidence that these were genuinely messy legacy systems.
+- Bullet 3 dropped "upstream" before "systems changed," and dropped that the
+  login work was a stakeholder request rather than self-directed.
+
+Anticipated probes:
+
+- *"So it decided eligibility?"* Yes for the rule-bound cases, and for the
+  ambiguous ones it pulled everything the specialist needed into one place. This
+  is a strong answer, not a walk-back. The bullet is written to invite it.
+- *"70% of what?"* One named task, 10 minutes to 3.
+- *"Which nine systems?"* Only partially recoverable. See below.
+
+Do not claim without checking the code or records: the exact list of all 9
+systems, the number of specialists who used the tool, any ticket count, the
+contracting entity name, the employment classification, and the specific
+implementation of retries or state checks. The error-reduction claim has no
+measurement behind it and stays unquantified.
 
 ## Research
 
 ### Undergraduate Researcher | Sample Lab @ Example University Europe
 
-- Three blank slots for machine-learning research, experimental honesty, and
-  technical communication.
+Three blank slots for machine-learning research, experimental honesty, and
+technical communication.
 
 ### Undergraduate Researcher | Example Lab @ Example University
 
-- Three blank slots for simulation and systems engineering.
+Three blank slots for simulation and systems engineering.
 
 ## Projects
 
 ### AlphaResearch
 
-- Three blank slots.
+Three blank slots.
 
 ### Personal Dynamics Engine
 
-- Three blank slots.
+Three blank slots. The least defined entry on the page, with no written content
+anywhere.
 
 ## Technical Skills
 
-- Skills remain populated and carry no bullet-level keyword emphasis.
+Skills remain populated and carry no bullet-level keyword emphasis. This section
+is the only place technologies are listed.
