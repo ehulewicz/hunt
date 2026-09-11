@@ -21,12 +21,6 @@ rendering and explicit tailoring preserve the distinction. Watch mode compiles b
 and atomically replaces the PDF only after success so an open viewer never loses
 its last good document.
 
-The compiler depends on a system TeX installation, not on anything uv resolves.
-Beyond `latexmk` and the base TeX Live packages it needs `newtx`, which Debian
-and Ubuntu ship in `texlive-fonts-extra`. Without it `pdflatex` stops at
-`File 'newtxtext.sty' not found` and the command reports `Resume not updated`
-while leaving the previous PDF in place.
-
 Preparation captures the real application form in visible native Windows Chrome.
 The default candidate is the canonical resume unchanged. `--tailor` alone calls
 `claude -p`; the existing fact, structure, 10 percent, and one-page validators
@@ -45,3 +39,31 @@ captcha controls. When navigation is missing or ambiguous, it reports the wall
 and keeps the session alive for manual advancement. User-approved final textarea
 values persist through FastAPI. Failure fixes require explicit worktree mutation,
 replay tests, a user-created commit, and headed live confirmation.
+
+## Host prerequisites
+
+Two dependencies live on the host rather than in this repository. `uv sync`
+resolves neither, and both fail in ways that do not name the cause, so check
+them first on a new machine.
+
+`os hunt` reaches native Windows Chrome over CDP at `http://127.0.0.1:9333`. WSL
+defaults to `networkingMode=nat`, where WSL's localhost is not the Windows
+localhost and every CDP call fails. Confirm with `wslinfo --networking-mode`. To
+fix it, put the following in `C:\Users\<user>\.wslconfig` and then run
+`wsl --shutdown` from PowerShell; the file alone changes nothing until WSL
+restarts. A fresh Windows install has no `.wslconfig`, so this recurs on every
+new device.
+
+```ini
+[wsl2]
+networkingMode=mirrored
+```
+
+The resume compiler needs a system TeX installation. Beyond `latexmk` and the
+base TeX Live packages it requires `newtx`, which Debian and Ubuntu ship in
+`texlive-fonts-extra` rather than `texlive-fonts-recommended`. Without it
+`pdflatex` stops at `File 'newtxtext.sty' not found`, and build and watch report
+`Resume not updated` while leaving the previous PDF in place. Verify with
+`kpsewhich newtxtext.sty`. The template is pinned to 11pt newtx Times to hold its
+verified match against `bin/Sam_Kim_resume_dec2027.pdf`, so installing the font
+is the fix and switching fonts is not.

@@ -85,3 +85,9 @@ the canonical resume on this toolchain reproduces the committed PDF with
 identical extracted text and a single line of Experience bullet text differing
 only in inter-word spacing, which is a newtx version difference from the machine
 that produced the previous PDF rather than a content change.
+
+WSL networking on this machine was `nat` with no `.wslconfig`, which is why CDP
+at `127.0.0.1:9333` was unreachable and Chrome-opening commands failed.
+`C:\Users\eahtr\.wslconfig` now sets `networkingMode=mirrored`. It does not take
+effect until `wsl --shutdown` runs from PowerShell, which had not been done when
+this was written, so the mirrored-mode fix is recorded but not yet verified.
