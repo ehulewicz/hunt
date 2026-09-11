@@ -173,7 +173,7 @@ Current bullets:
 
 1. Built a platform where AI agents broke research questions into hypotheses and
    ran experiments in parallel.
-2. Designed the cloud runtime for 1,000+ AI agents, giving each an isolated
+2. Designed the cloud system for 1,000+ AI agents, giving each an isolated
    workspace under one shared compute budget.
 3. Reached 500,000+ simulation steps per second by running experiments
    concurrently across cloud environments.
