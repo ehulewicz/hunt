@@ -21,6 +21,12 @@ rendering and explicit tailoring preserve the distinction. Watch mode compiles b
 and atomically replaces the PDF only after success so an open viewer never loses
 its last good document.
 
+The compiler depends on a system TeX installation, not on anything uv resolves.
+Beyond `latexmk` and the base TeX Live packages it needs `newtx`, which Debian
+and Ubuntu ship in `texlive-fonts-extra`. Without it `pdflatex` stops at
+`File 'newtxtext.sty' not found` and the command reports `Resume not updated`
+while leaving the previous PDF in place.
+
 Preparation captures the real application form in visible native Windows Chrome.
 The default candidate is the canonical resume unchanged. `--tailor` alone calls
 `claude -p`; the existing fact, structure, 10 percent, and one-page validators

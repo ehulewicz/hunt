@@ -77,3 +77,11 @@ Activating `backend/.venv` and then running `os` previously failed with
 uses this package's own tool configuration. Ruff, strict mypy over 21 source
 files, and 122 tests pass on the shared environment with no skips, so the
 earlier restricted-sandbox skips do not apply here.
+
+The resume compiler needs `newtx` from the system TeX tree, which this machine
+was missing. `texlive-fonts-extra` is now installed and `newtxtext.sty` and
+`newtxmath.sty` resolve, so `os hunt resume build` succeeds again. Rebuilding
+the canonical resume on this toolchain reproduces the committed PDF with
+identical extracted text and a single line of Experience bullet text differing
+only in inter-word spacing, which is a newtx version difference from the machine
+that produced the previous PDF rather than a content change.
