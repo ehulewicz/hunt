@@ -54,9 +54,9 @@
       "location": "Chicago, IL",
       "date": "May 2023 – December 2023",
       "bullets": [
-        "",
-        "",
-        ""
+        "Automated deterministic leave cases across 9 HR and payroll systems, cutting case handling from 10 minutes to 3.",
+        "Designed a unified data model and adapter layer over inconsistent schemas, automating browsers where systems had no API.",
+        "Owned the tool after launch, rebuilding integrations as systems changed and eliminating a 2 to 3 minute daily login."
       ]
     }
   ],

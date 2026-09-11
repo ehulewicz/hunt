@@ -46,6 +46,15 @@ def test_latex_trailer_id_is_content_derived() -> None:
     assert first_id not in changed
 
 
+def test_template_pins_the_reference_font_family_and_size_hierarchy() -> None:
+    tex = build_latex({"contact": {"name": "Candidate"}})
+
+    assert r"\documentclass[letterpaper,11pt]{article}" in tex
+    assert r"\usepackage{newtxtext,newtxmath}" in tex
+    assert r"\textbf{\Huge \scshape Candidate}" in tex
+    assert r"\titleformat{\section}" in tex
+
+
 def test_load_resume_rejects_invalid_json_with_location(tmp_path: Path) -> None:
     source = tmp_path / "main.json"
     source.write_text('{"contact":')
@@ -128,6 +137,14 @@ def test_bullet_markup_stays_literal_and_escaped() -> None:
 
     bullet = next(line for line in tex.splitlines() if "Redis" in line)
     assert bullet == r"        \resumeItem{Used **C++ \& Redis** daily.}"
+
+
+def test_bullet_spacing_sits_outside_the_text_line() -> None:
+    """A full-width bullet must not wrap the spacing command onto a blank line."""
+    tex = build_latex({"projects": [{"title": "Project", "bullets": ["Filled line."]}]})
+
+    assert r"\item\small{#1}\vspace{-2pt}" in tex
+    assert r"#1 \vspace{-2pt}" not in tex
 
 
 def test_empty_skills_list_omits_the_section() -> None:

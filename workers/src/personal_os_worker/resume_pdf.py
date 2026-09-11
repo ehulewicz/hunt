@@ -79,9 +79,7 @@ PREAMBLE = r"""%-------------------------
 %-------------------------
 % Custom commands
 \newcommand{\resumeItem}[1]{
-  \item\small{
-    {#1 \vspace{-2pt}}
-  }
+  \item\small{#1}\vspace{-2pt}
 }
 
 \newcommand{\resumeSubheading}[4]{
@@ -89,7 +87,7 @@ PREAMBLE = r"""%-------------------------
     \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
       \textbf{#1} & #2 \\
       \textit{\small#3} & \textit{\small #4} \\
-    \end{tabular*}\vspace{-7pt}
+    \end{tabular*}\vspace{-6pt}
 }
 
 % School with any number of degree lines plus a coursework line, all on one

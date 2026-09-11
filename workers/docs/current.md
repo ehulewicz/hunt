@@ -1,6 +1,6 @@
 # Worker current state
 
-Last verified: 2026-09-09
+Last verified: 2026-09-11
 
 - [x] Use `os hunt` as the local Jobs command surface.
 - [x] Authenticate through Google PKCE and keep FastAPI as the only database client.
@@ -13,10 +13,16 @@ Last verified: 2026-09-09
 - [x] Build and watch the canonical JSON resume with atomic one-page PDF output.
 - [x] Match the Sam Kim reference layout with 11pt newtx Times, role-first
   headings, small-caps section rules, and a separate Research section.
-- [x] Rebuild the generator directly on the supplied Sam Kim LaTeX source, and
-  verify it against `bin/sam-kim.json` at zero rendered pixel difference.
-- [x] Support four blank bullet slots for Northwind and three for every other
-  entry while preserving variable counts through validation and tailoring.
+- [x] Verify the reference and generated PDFs embed the same
+  TeXGyreTermesX 2.004 regular, bold, and italic outlines at the same effective
+  25pt/12pt/11pt/10pt hierarchy, and pin that stack with a regression test.
+- [x] Keep bullet spacing outside the text run so full-width bullets cannot
+  create phantom blank lines, and give company-to-first-bullet transitions one
+  additional point of optical space.
+- [x] Rebuild the generator directly on the supplied Sam Kim LaTeX source and
+  retain `bin/sam-kim.json` as the reference fixture, with only the documented
+  global spacing corrections as intentional layout differences.
+- [x] Preserve variable bullet counts through validation and tailoring.
 - [x] Make canonical unchanged preparation the default and Claude tailoring explicit.
 - [x] Run saved Greenhouse, Ashby, and Lever listings synchronously in headed
   Windows Chrome with exact non-submission navigation and no submit actions.
@@ -25,9 +31,8 @@ Last verified: 2026-09-09
   explicit final webpage-answer approval.
 - [x] Add deduplicated failure capture plus list/show/diagnose/draft/apply/verify commands.
 - [x] Render `**keyword**` bullet emphasis as a dedicated sans type and omit Skills when empty.
-- [x] Pass Ruff, strict mypy, and 114 tests; one loopback bind test and five
-  headed browser tests skip in the restricted sandbox. Pass the five headed
-  synthetic ATS fixtures outside the restricted sandbox.
+- [x] Pass Ruff, strict mypy, and 124 tests, including the loopback preview and
+  five headed synthetic ATS fixtures on the current machine.
 - [x] Compile the real canonical resume to one page and open its live Windows Chrome preview.
 - [x] Persist a real 415-row hosted sync and verify 320 technical-default rows.
 - [x] Live-test `--limit 500` returning all 323 current technical rows.
@@ -52,9 +57,8 @@ command also opened H3X in native Windows Chrome.
 The canonical resume is `artifacts/resume/main.json`; the tracked PDF beside it
 is `artifacts/resume/main.pdf`. The pre-redesign comparison is retained as
 `artifacts/resume/old.pdf`. Invalid JSON, LaTeX errors, or a two-page result
-leave the previous PDF untouched. The current JSON intentionally has blank
-bullet text while retaining visible slots: four for Northwind and three for
-each other Experience, Research, or Project entry.
+leave the previous PDF untouched. Northwind and Example Public Schools have
+written bullets; unfinished entries retain visible blank slots.
 
 The active resume carries no bullet-level keyword emphasis. `skills` remains a
 required and populated list and renders as Technical Skills. The parser retains
@@ -75,7 +79,7 @@ Activating `backend/.venv` and then running `os` previously failed with
 `os: command not found`; there is now only one environment to activate. Running
 `uv run ruff check .`, `uv run mypy`, and `uv run pytest` from `workers/` still
 uses this package's own tool configuration. Ruff, strict mypy over 21 source
-files, and 122 tests pass on the shared environment with no skips, so the
+files, and 124 tests pass on the shared environment with no skips, so the
 earlier restricted-sandbox skips do not apply here.
 
 The resume compiler needs `newtx` from the system TeX tree, which this machine

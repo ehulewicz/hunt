@@ -4,24 +4,31 @@ Handoff for continuing the base-resume writing pass on another machine. Pairs
 with `defense.md` (interview exposure per entry) and `main.json` (canonical
 content). Update this file as decisions land.
 
-Last verified: 2026-09-10, after the template was rebuilt on the supplied Sam
-Kim LaTeX source.
+Last verified: 2026-09-11, after the exact-width bullet spacing fix.
 
 ## State
 
-`main.json` currently has **every bullet blank**. `5b40cb6` rebuilt the layout on
-the Sam Kim reference style and cleared all bullet text for a fresh writing pass.
-The previous rendered resume is preserved at `artifacts/resume/old.pdf`.
+`main.json` now has written Northwind and Example Public Schools bullets. The
+other tracked entries retain blank slots for the ongoing writing pass. The
+previous rendered resume is preserved at `artifacts/resume/old.pdf`.
 
-The generator now emits the supplied Sam Kim LaTeX source directly rather than a
-layout reverse-engineered from the PDF. `bin/sam-kim.json` reproduces that resume
-through the generator and renders at **zero pixel difference** against the
-supplied `.tex`; it is the regression target for any future template change.
+The generator started from the supplied Sam Kim LaTeX source directly rather
+than a layout reverse-engineered from the PDF. `bin/sam-kim.json` remains the
+typography and structure regression fixture. It now differs intentionally at
+the global bullet and company-to-first-bullet spacing points documented below.
 Compare with:
 
 ```bash
 os hunt resume build --input bin/sam-kim.json --output bin/sam-kim.pdf
 ```
+
+Font inspection on 2026-09-11 confirmed that both PDFs embed
+TeXGyreTermesX Regular, Bold, and Italic version 2.004 with the same effective
+25pt name, 12pt section, 11pt heading, and 10pt body hierarchy. The same
+regular-weight word rasterized from both files at 600 DPI produced identical
+pixels and ink density. Apparent weight differences in a viewer are therefore
+rendering scale/antialiasing or page-density effects, not a template font
+mismatch; do not substitute another Times clone to compensate.
 
 Structure is Education, Experience, **Research**, Projects, Leadership, Technical
 Skills, in that fixed order, and a section with no entries emits neither label
@@ -33,9 +40,9 @@ Current empty slot counts:
 
 | Section | Entry | Slots |
 |---|---|---|
-| Experience | Northwind | 4 |
+| Experience | Northwind | 0 |
 | Experience | Northhealth AI | 3 |
-| Experience | Example Public Schools | 3 |
+| Experience | Example Public Schools | 0 |
 | Research | Sample Lab @ GT Europe | 3 |
 | Research | Example Lab @ GT | 3 |
 | Projects | AlphaResearch | 3 |
@@ -46,7 +53,7 @@ These slot counts are placeholders, not a decision. See open questions.
 ## Hard constraints
 
 - **One page is enforced at build time.** `MAXIMUM_PAGES = 1` in
-  `workers/src/personal_os_worker/resume_pdf.py:103`. Exceeding it raises
+  `workers/src/personal_os_worker/resume_pdf.py`. Exceeding it raises
   `Resume must stay within 1 page(s)` and the build fails. This is a gate, not a
   warning, so the writing pass is budget-constrained from the first bullet.
 - No semicolons in bullets. Never exceed two rendered lines.
@@ -104,15 +111,17 @@ slot allocation before writing rather than writing and trimming afterward.
   teammates did not do. "Sole engineer" is a scope claim rather than a
   measurement, so it cannot be litigated, and it is stronger.
 
-- **Entry spacing, section-rule geometry, and the Technical Skills spacer are no
-  longer hand-tuned.** The generator emits the supplied Sam Kim LaTeX source, so
-  spacing comes from that template's own macros (`\vspace{-2pt}` before each
-  entry, `\vspace{-7pt}` after each heading tabular, `\vspace{-5pt}` after each
-  bullet list, and the `\titleformat` rule spacing). The point-level gap and
-  x-position tables that used to live here measured the retired 10pt TeX Gyre
-  Termes layout and no longer describe anything. **Do not reintroduce hand-tuned
-  `\vspace` corrections.** If spacing looks wrong, rebuild `bin/sam-kim.json`
-  and pixel-compare against the reference before touching the template:
+- **Entry spacing, section-rule geometry, and the Technical Skills spacer start
+  from the supplied Sam Kim template rather than per-entry corrections.** Two
+  global optical corrections are now deliberate: `\resumeItem` applies its
+  `\vspace{-2pt}` after the text group so an exactly full line cannot wrap that
+  invisible command onto a phantom baseline, and company headings use
+  `\vspace{-6pt}` instead of `-7pt` to open the first-bullet gap by 1pt. The
+  rule-to-role gap intentionally remains about 1pt larger than the other
+  transitions because the hairline needs optical separation. Do not add
+  per-entry spacing exceptions. If spacing looks wrong, rebuild
+  `bin/sam-kim.json` and compare against the reference before changing the
+  global template:
 
   ```bash
   os hunt resume build --input bin/sam-kim.json --output bin/sam-kim.pdf
