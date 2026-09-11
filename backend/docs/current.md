@@ -130,3 +130,27 @@ left to separate.
 - Backend Ruff, mypy, and all 38 tests pass. A local Docker-image build could not
   run because Docker Desktop integration is unavailable in this WSL instance;
   the deployment workflow uses the corrected repository-root build context.
+
+## Shared uv workspace environment, 2026-09-11
+
+- The backend no longer owns a venv or a lock. It is a member of the uv
+  workspace declared by the root `pyproject.toml`, resolved through the root
+  `uv.lock` and installed into the root `.venv`. Run `uv run ruff check .`,
+  `uv run mypy`, and `uv run pytest` from `backend/` exactly as before; uv
+  resolves them to the shared environment and this package's own tool config.
+- `personal-os-api` and the worker's `os` script now share one `PATH`.
+- Backend Ruff, strict mypy over 14 source files, and all 41 tests pass on the
+  shared environment.
+- `Dockerfile` now copies the root `pyproject.toml` and `uv.lock` plus both
+  member manifests, then runs `uv sync --frozen --no-dev --package
+  personal-os-backend`. Installing only that package keeps Playwright and the
+  rest of the worker dependency tree out of the API image. `.dockerignore`
+  re-includes `workers/pyproject.toml` and `workers/README.md`, which uv needs
+  to resolve the workspace.
+- Because the member now installs from `backend/`, application code resolves to
+  `/app/backend/src/personal_os` inside the image rather than `/app/src`.
+  `canonical_resume_path()` walks parents until it finds the artifact, so it
+  still resolves `/app/artifacts/resume/main.json`.
+- Unlike the 2026-08-22 note above, Docker is available in this WSL instance.
+  The image was built and run locally: the app object constructs and exposes the
+  same four top-level routes as the local environment.

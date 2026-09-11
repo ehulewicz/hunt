@@ -1,0 +1,4 @@
+# Virtual workspace root. Personal OS ships no package from here; this file
+# exists so `backend` and `workers` resolve against one lock and one `.venv`.
+[tool.uv.workspace]
+members = ["backend", "workers"]

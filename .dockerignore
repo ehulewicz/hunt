@@ -5,6 +5,9 @@ database
 docs
 frontend
 workers
+# The workspace lock resolves both members, so keep their manifests.
+!workers/pyproject.toml
+!workers/README.md
 **/.venv
 **/__pycache__
 **/.pytest_cache

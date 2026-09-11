@@ -65,3 +65,15 @@ TeX range ligatures.
 The hosted answer library currently has three approved rows: current US work
 authorization, salary deflection without an invented range, and career goals.
 Archived STEM OPT wording was deliberately rejected as stale.
+
+The worker no longer owns a venv or a lock. It is a member of the uv workspace
+declared by the root `pyproject.toml`, resolved through the root `uv.lock` and
+installed into the root `.venv`. `uv sync --all-packages --python 3.13` from the
+repository root builds that one environment, and `source .venv/bin/activate`
+puts the `os` script on `PATH` alongside the backend's `personal-os-api`.
+Activating `backend/.venv` and then running `os` previously failed with
+`os: command not found`; there is now only one environment to activate. Running
+`uv run ruff check .`, `uv run mypy`, and `uv run pytest` from `workers/` still
+uses this package's own tool configuration. Ruff, strict mypy over 21 source
+files, and 122 tests pass on the shared environment with no skips, so the
+earlier restricted-sandbox skips do not apply here.
