@@ -18,7 +18,7 @@
     "school": "Example Institute of Technology",
     "location": "Atlanta, GA",
     "degree": "BS Computer Science",
-    "threads": "Intelligence & Theory",
+    "threads": "Artificial Intelligence & Theory",
     "courses": "Data Structures, Algorithms, Machine Learning, Applied Intelligence",
     "graduation": "May 2028",
     "gpa": "3.78",
@@ -31,10 +31,10 @@
       "location": "Atlanta, GA",
       "date": "May 2025 – Present",
       "bullets": [
-        "Built Program Notes end to end, expanding scope to link Project, Reset, and Location systems and secure another signed SOW.",
-        "Architected full-stack bulk actions for 1,000-node batches with multi-tenant configs, recursive updates, and DB savepoints.",
-        "Migrated legacy PHP page flows to AJAX-driven REST endpoints on PostgreSQL with full behavior parity and zero downtime.",
-        "Led 2 customer SOWs and shipped 120+ production tickets across the wider product surface with frontend and database teams."
+        "Engineered a notes and reporting system, proposing linking across ERP modules: customer signed second SOW on delivery",
+        "Built a chunked full-stack bulk action system updating 1,000-task batches and their subtasks with per-family rollback",
+        "Owned a 41-ticket modernization of PHP pages into AJAX-driven API on PostgreSQL and a rebuilt JS asset library",
+        "Led both customer SOWs end to end and shipped 120+ production tickets across the wider product alongside two other teams"
       ]
     },
     {
@@ -43,9 +43,9 @@
       "location": "Chicago, IL",
       "date": "October 2025 – May 2026",
       "bullets": [
-        "",
-        "",
-        ""
+        "Sole engineer on a gamified wellness tracker that scores patient-owned logs and generates clinician-ready reports",
+        "Validated with 22 healthcare professionals and accepted to present at the 2026 American Academy of Neurology annual meet",
+        "Isolated identity from physical and mental wellness data across two Postgres databases, linked only by an opaque UUID"
       ]
     },
     {
@@ -54,9 +54,9 @@
       "location": "Chicago, IL",
       "date": "May 2023 – December 2023",
       "bullets": [
-        "Automated deterministic leave cases across 9 HR and payroll systems, cutting case handling from 10 minutes to 3.",
-        "Designed a unified data model and adapter layer over inconsistent schemas, automating browsers where systems had no API.",
-        "Owned the tool after launch, rebuilding integrations as systems changed and eliminating a 2 to 3 minute daily login."
+        "Unified 10+ leave-processing screens into one interface with workflow automation, cutting HR processing 10 to <3 min",
+        "Built a Java integration layer spanning 9 disparate systems, normalizing data from APIs, SQL, and API-less browser automation",
+        "Maintained the tool through upstream changes and automated 4–5 daily authentication cycles, saving 12+ min/user/day"
       ]
     }
   ],
@@ -67,9 +67,9 @@
       "location": "Metz, France",
       "date": "August 2024 – December 2024",
       "bullets": [
-        "",
-        "",
-        ""
+        "Fine-tuned MKDNet in PyTorch on shrimp tracking, improving NPR 39%, precision 33%, and success rate 30%",
+        "Tested MKDNet against DiMP50 on LaTOT, finding that its published performance did not reproduce on our split",
+        "Co-authored a research paper analyzing replication limits, domain adaptation, and tracker failure modes"
       ]
     },
     {
@@ -78,9 +78,9 @@
       "location": "Atlanta, GA",
       "date": "April 2024 – August 2024",
       "bullets": [
-        "",
-        "",
-        ""
+        "Built a Dockerized nuclear flow-loop simulation alongside ICSSIM to support repeatable cyberattack experiments",
+        "Derived ~30 signals from thousands of ICSSIM readings and exposed them through networked nodes for experimentation",
+        "Ran DDoS and injection attacks, comparing sensor responses to identify signals most useful for future detection models"
       ]
     }
   ],
@@ -90,33 +90,33 @@
       "org": "UC Berkeley AI Hackathon Winner, Best Use of Cognition",
       "date": "June 2026",
       "bullets": [
-        "Built a platform where AI agents broke research questions into hypotheses and ran experiments in parallel",
-        "Designed the cloud system for 1,000+ AI agents, giving each an isolated workspace under one shared compute budget",
-        "Reached 500,000+ simulation steps per second by running experiments concurrently across cloud environments"
+        "Built a recursive multi-agent research platform where agents spawned specialists to test hypotheses in parallel",
+        "Designed isolated Modal sandboxes per agent with configurable CPU/GPU compute under a shared research budget",
+        "Orchestrated 1,000+ agents across Cloud Run, Redis, and GCS, reaching 500,000+ MiniGrid steps/sec concurrently"
       ]
     },
     {
       "title": "Personal Dynamics Engine",
-      "date": "2026 – Present",
+      "date": "November 2025",
       "bullets": [
-        "",
-        "",
-        ""
+        "Building a personal data platform to continuously capture wearable audio/biometrics, device activity, and location",
+        "Shipped a Python/FastAPI control plane over private Supabase Postgres, centralizing auth, ingestion, and database access",
+        "Designing a time-aligned longitudinal store across every stream for durable recall and personal state modeling"
       ]
     }
   ],
   "skills": [
     {
       "category": "Languages",
-      "items": "Python, Java, JavaScript, PHP, SQL, Bash, C"
+      "items": "Python, Java, JavaScript, SQL PHP, Bash, C"
     },
     {
       "category": "Frameworks & Tools",
-      "items": "FastAPI, PostgreSQL, Redis, Docker, Google Cloud, Modal, Azure, Git, Linux, REST APIs, SSH"
+      "items": "Git, Linux, SSH, REST, PostgreSQL, Docker, FastAPI, Google Cloud, Modal, Azure, Redis, Selenium"
     },
     {
       "category": "Libraries",
-      "items": "PyTorch, Claude Agent SDK"
+      "items": "PyTorch, Scikit-Learn, Numpy, Claude Agent SDK"
     }
   ]
 }

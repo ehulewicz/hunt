@@ -17,41 +17,90 @@ Last updated: 2026-09-11.
 
 ### Middleware Engineer | Northwind, May 2025 – Present
 
-Current bullets:
+Current bullets (settled 2026-09-11):
 
-1. Built Program Notes end to end, expanding scope to link Project, Reset, and
-   Location systems and secure another signed SOW.
-2. Architected full-stack bulk actions for 1,000-node batches with multi-tenant
-   configs, recursive updates, and DB savepoints.
-3. Migrated legacy PHP page flows to AJAX-driven REST endpoints on PostgreSQL
-   with full behavior parity and zero downtime.
-4. Led 2 customer SOWs and shipped 120+ production tickets across the wider
-   product surface with frontend and database teams.
+1. Engineered a notes and reporting system, proposing linking across ERP
+   modules: customer signed second SOW on delivery
+2. Built a chunked full-stack bulk action system updating 1,000-task batches
+   and their subtasks with per-family rollback
+3. Owned a 41-ticket modernization of PHP pages into AJAX-driven API on
+   PostgreSQL and a rebuilt JS asset library
+4. Led both customer SOWs end to end and shipped 120+ production tickets across
+   the wider product alongside two other teams
 
-What they are meant to convey, in priority order: team lead and project
-ownership, end-to-end full-stack build, sheer volume of work, larger projects.
+Each line has one job: judgment that made money, one hard system, legacy work
+at scale, breadth of the role. Verbs are deliberately plain (engineered, built,
+owned, led). "Architected" and "delivered" were rejected as showy or evasive.
 
-Settled facts:
+**Product.** Northwind calls its product xERP. Say "ERP" on the page, "xERP"
+in conversation. The bullet-2 nouns are the product's task model: tasks contain
+subtasks, and a task with its subtasks is a family.
+
+**Bullet 1, the notes system.** Internal name is Program Notes. The customer
+asked for notes. The cross-module linking across Projects, Resets, and
+Locations was the user's proposal, accepted and built, and that quality is what
+made the customer come back. The second SOW was a different project, not a
+continuation, and the customer initiated it on delivery of the first. "Signed"
+is the verb because an SOW is a document and it was signed. The colon is a
+deliberate pause before the payoff, chosen over an em dash because the em dash
+now reads as machine-written.
+
+**Bullet 2, the bulk action system.** Full design detail, all of it interview
+material:
+
+- Chunked 10-group runner shared across update and cancel flows, selections
+  capped at 1,000 items, so large batches neither exhaust client memory nor time
+  out a request.
+- Per-family atomicity on bulk cancel via savepoints. If a child task fails to
+  cancel, its whole family tree rolls back without failing unrelated families in
+  the same batch. This is the "per-family rollback" on the page.
+- Fail-fast on connection drop: execution halts rather than cascading false
+  failures across later chunks.
+- A dedicated internal hook for recursive subtask cancellation instead of
+  reusing the public child-status hook, which discarded child return statuses
+  and exposed an unsafe public flag. `internal_allowed` guards stay in place so
+  external endpoints cannot trigger recursion.
+- Reset resolution via `top_level_graph_type_table_name` and
+  `top_level_graph_pk_val` rather than `reset_task_reset`, avoiding an implicit
+  INNER JOIN that silently excluded non-reset tasks.
+- One unified confirmation modal warning not to navigate away during chunk
+  execution, replacing several prompts.
+- Errors grouped by reason rather than task id, so a hundred items failing the
+  same validation rule do not truncate the browser alert.
+
+Multi-tenancy was dropped from the line because any SaaS ERP is multi-tenant.
+It is the floor, not a feature.
+
+**Bullet 3, the modernization.** Accurate architecture: server-rendered PHP
+pages split into a static PHP shell, new PHP API routes on PostgreSQL, and an
+overhauled JS asset library doing the dynamic work over AJAX. PHP was kept, not
+replaced. 41 tickets after a recount (an earlier 54 was wrong). "Zero downtime"
+was removed because the platform's deployment handles that, not this work.
+"Full behavior parity" is true and is the honest answer to "what made it hard,"
+but it lost the character budget to the JS library. The API-route side was
+still in progress as of 2026-09-11, so answer "is it done?" with: the JS
+overhaul shipped, the API routes are mid-migration.
+
+**Bullet 4, breadth.** Settled facts:
 
 - **2** customer Statements of Work, both led, both carried nearly end to end.
   The earlier "4 Statements of Work" claim was wrong and came from ChatGPT
   output. Never restore it.
-- The AJAX migration is the ownership story: behavior parity, legacy edge cases,
-  no downtime.
 - Roughly 93% of the code written solo. **Deliberately kept off the page.** Bad
   provenance (93% of what, exactly), and a number that precise is implicitly a
-  claim about what teammates did not do. "Sole engineer" or "led" is a scope
-  claim rather than a measurement and cannot be litigated.
+  claim about what teammates did not do. "Led" and "owned" are scope claims
+  rather than measurements and cannot be litigated.
+- "Alongside two other teams" was chosen over naming frontend and database
+  teams. The seam is still open: what those teams actually delivered on the SOWs
+  has never been recorded. See `context.md` open question 1.
 
 Anticipated probes:
 
-- *"You led two SOWs, but also wrote nearly all the code. Which was it?"* This is
-  the weak seam. Bullet 4 says "with frontend and database teams" and the
-  honest answer depends on what those teams actually delivered. Unresolved, see
-  `context.md` open question 1.
-
-Do not claim without checking: the exact division of labor with the frontend and
-database teams, and the scope of the "larger projects" beyond the AJAX work.
+- *"You led two SOWs, but also wrote nearly all the code. Which was it?"* The
+  weak seam. Have a concrete answer about what the other teams owned.
+- *"What is a task family?"* The bullet-2 question you want. Answer with the
+  per-family savepoint design.
+- *"Is the modernization finished?"* See bullet 3 above.
 
 ### Technical Co-founder | Northhealth AI, October 2025 – May 2026
 

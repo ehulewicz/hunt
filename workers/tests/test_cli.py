@@ -2,7 +2,9 @@ import httpx
 import pytest
 
 from personal_os_worker import cli
+from personal_os_worker.auth import Session
 from personal_os_worker.cli import build_parser, main
+from personal_os_worker.config import CliConfig
 
 
 def test_help_describes_the_personal_os_cli(capsys: pytest.CaptureFixture[str]) -> None:
@@ -13,6 +15,27 @@ def test_help_describes_the_personal_os_cli(capsys: pytest.CaptureFixture[str]) 
     assert "Personal OS local command line" in output
     for command in ("status", "stop", "api", "chrome", "login", "doctor", "hunt"):
         assert command in output
+
+
+def test_login_starts_the_automation_browser_with_cdp_first(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    config = CliConfig("http://127.0.0.1:8000", "https://example.supabase.co", "key")
+    calls: list[tuple[str, object]] = []
+    session = Session("access", "refresh", 4_000_000_000)
+    monkeypatch.setattr(cli, "load_cli_config", lambda: config)
+    monkeypatch.setattr(
+        cli, "ensure_chrome", lambda url: calls.append(("chrome", url))
+    )
+    monkeypatch.setattr(
+        cli,
+        "login",
+        lambda auth: calls.append(("login", auth)) or session,
+    )
+    monkeypatch.setattr(cli, "save_session", lambda _: tmp_path / "session.json")
+
+    assert cli.run_login() == 0
+    assert [name for name, _ in calls] == ["chrome", "login"]
 
 
 def test_api_errors_exit_with_the_backend_detail_instead_of_a_traceback(

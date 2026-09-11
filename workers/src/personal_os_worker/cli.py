@@ -18,7 +18,7 @@ from personal_os_worker.commands import hunt, services
 from personal_os_worker.commands.hunt import DEFAULT_TECHNICAL_FAMILIES
 from personal_os_worker.config import load_cli_config
 from personal_os_worker.resume import build_resume, watch_resume
-from personal_os_worker.service import ApiUnavailable, ChromeUnavailable
+from personal_os_worker.service import ApiUnavailable, ChromeUnavailable, ensure_chrome
 from personal_os_worker.tables import ReferenceError, console
 
 
@@ -180,6 +180,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def run_login() -> int:
     config = load_cli_config()
+    # Login and autofill share one dedicated Chrome profile. Start it with CDP
+    # from the outset; opening the profile first without remote debugging makes
+    # a later `os chrome start` attach to that non-CDP process and time out.
+    ensure_chrome(config.cdp_url)
     session = login(services.supabase_auth(config))
     console.print(f"Signed in. Session stored at {save_session(session)}")
     return 0
