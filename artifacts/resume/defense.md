@@ -178,5 +178,15 @@ anywhere.
 
 ## Technical Skills
 
-Skills remain populated and carry no bullet-level keyword emphasis. This section
-is the only place technologies are listed.
+Skills use three rows matching the Sam Kim reference: Languages, Frameworks &
+Tools, and Libraries. This section is the only place technologies are listed.
+
+- FastAPI stays because the user has implemented and can explain a real service
+  with it; a skills line signals working experience, not expert-level mastery.
+- Next.js and AWS are intentionally omitted from the base resume because the
+  current depth is not strong enough to invite interview probing.
+- Google Cloud, Modal, Redis, and Claude Agent SDK are supported by the
+  AlphaResearch runtime; Azure is supported by the Northhealth deployment;
+  PyTorch is supported by both research entries.
+- Broad concepts such as multi-agent orchestration, LLM tooling, and RAG are
+  intentionally omitted in favor of named, verifiable technologies.

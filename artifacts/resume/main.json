@@ -4,7 +4,7 @@
     "label": "Main",
     "company": null,
     "clonedFrom": null,
-    "updatedAt": "2026-09-10T02:32:52.000Z"
+    "updatedAt": "2026-09-11T06:49:00-04:00"
   },
   "contact": {
     "name": "Alex Example",
@@ -111,16 +111,12 @@
       "items": "Python, Java, JavaScript, PHP, SQL, Bash, C"
     },
     {
-      "category": "AI & Agents",
-      "items": "Claude Agent SDK, multi-agent orchestration, LLM tooling, RAG"
-    },
-    {
-      "category": "Cloud",
-      "items": "Google Cloud, Modal, Azure, AWS"
-    },
-    {
       "category": "Frameworks & Tools",
-      "items": "FastAPI, Next.js, PyTorch, PostgreSQL, Redis, Docker, Git, Linux, REST APIs, SSH"
+      "items": "FastAPI, PostgreSQL, Redis, Docker, Google Cloud, Modal, Azure, Git, Linux, REST APIs, SSH"
+    },
+    {
+      "category": "Libraries",
+      "items": "PyTorch, Claude Agent SDK"
     }
   ]
 }

@@ -36,6 +36,13 @@ nor rule. The canonical resume has Research and no Leadership; the reference
 fixture is the other way round. DREAM and iFAN moved out of Experience into
 Research. Example Public Schools stays in Experience.
 
+Technical Skills now follows the reference's three-row taxonomy: Languages,
+Frameworks & Tools, and Libraries. FastAPI remains because it represents
+defensible hands-on implementation experience even though fluency is still
+developing. Next.js and AWS were removed from the base resume. The broad labels
+"multi-agent orchestration," "LLM tooling," and "RAG" were also removed in
+favor of concrete technologies; PyTorch and Claude Agent SDK moved to Libraries.
+
 Bullet allocation is **settled**: every entry gets 3 bullets, except Northwind
 which gets 4 because it is the frontline experience.
 
