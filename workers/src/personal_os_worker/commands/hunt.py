@@ -373,23 +373,15 @@ def run_autofill(reference: str, *, dry_run: bool) -> int:
                     dry_run=dry_run,
                 )
             )
-            try:
-                outcome = session.run()
-            except KeyboardInterrupt:
-                # The user stopped early; keep what was already on the page.
-                saved = session.answers_so_far()
-                api.complete_autofill_run(run_id, final_url=session.page.url, answers=saved)
-                console.print(
-                    f"Stopped. Saved {len(saved)} answer(s) from the page. Nothing was submitted."
-                )
-                return 0
+            outcome = session.run()
             if outcome.get("dry_run"):
                 api.stop_autofill_run(run_id, status="abandoned")
                 console.print("Dry run: no values were changed and nothing was submitted.")
                 return 0
             saved = list(outcome["answers"])
             api.complete_autofill_run(run_id, final_url=str(outcome["final_url"]), answers=saved)
-            console.print(f"Done. Saved {len(saved)} answer(s) to the library for reuse.")
+            verb = "Stopped" if outcome.get("interrupted") else "Done"
+            console.print(f"{verb}. Saved {len(saved)} answer(s) to the library for reuse.")
     except KeyboardInterrupt:
         if run_id is not None:
             api.stop_autofill_run(run_id, status="abandoned")

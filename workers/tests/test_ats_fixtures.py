@@ -187,3 +187,43 @@ def test_live_greenhouse_shapes_strip_asterisks_skip_mirrors_and_find_resume_by_
     )
     kinds = {fields[fill.index]["selector"]: fill.kind for fill in plan.fills}
     assert kinds == {"#first": "text", "#resume": "resume"}
+
+
+def test_ashby_combobox_label_comes_from_the_field_entry_not_the_placeholder(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(
+        """
+        <div class="ashby-application-form-field-entry">
+          <label>Location<span>*</span></label>
+          <div class="_inputContainer">
+            <input placeholder="Start typing..." role="combobox" aria-expanded="false">
+          </div>
+        </div>
+        <div class="ashby-application-form-field-entry">
+          <label>Preferred first name</label>
+          <input placeholder="Type here...">
+        </div>
+        """
+    )
+    labels = [(field["label"], field["required"]) for field in inspect_fields(browser_page)]
+    assert labels == [("Location", True), ("Preferred first name", False)]
+
+
+def test_ashby_radio_groups_take_their_question_from_the_heading_label(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(
+        """
+        <fieldset class="ashby-application-form-input-radio-group">
+          <label class="_heading_f7cvd_52 _required_f7cvd_91">Are you authorized to work?</label>
+          <div><label><input type="radio" name="a" value="y">Yes</label></div>
+          <div><label><input type="radio" name="a" value="n">No</label></div>
+        </fieldset>
+        """
+    )
+    fields = inspect_fields(browser_page)
+    assert [(f["label"], f["group"], f["required"]) for f in fields] == [
+        ("Yes", "Are you authorized to work?", True),
+        ("No", "Are you authorized to work?", True),
+    ]

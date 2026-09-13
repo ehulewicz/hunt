@@ -8,7 +8,7 @@ import pytest
 from playwright.sync_api import Error, sync_playwright
 
 from personal_os_worker.autofill_session import AutofillSession, SessionContext
-from personal_os_worker.browser import VisibleBrowser
+from personal_os_worker.browser import BrowserClosedError, VisibleBrowser
 from personal_os_worker.drafts import DIVIDER, parse_draft
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -21,8 +21,10 @@ def browser_page():  # type: ignore[no-untyped-def]
             browser = playwright.chromium.launch(headless=True)
         except Error as error:
             pytest.skip(f"browser launch is restricted: {error}")
-        page = browser.new_page()
+        context = browser.new_context()
+        page = context.new_page()
         yield page
+        context.close()
         browser.close()
 
 
@@ -30,6 +32,11 @@ class FakeApi:
     def __init__(self) -> None:
         self.steps: list[dict[str, Any]] = []
         self.artifacts: list[str] = []
+        self.library: dict[str, dict[str, Any]] = {}
+
+    def create_answer(self, **item: Any) -> dict[str, Any]:
+        self.library[str(item["question"])] = item
+        return item
 
     def persist_autofill_step(self, run_id: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
         self.steps.append(payload)
@@ -40,11 +47,36 @@ class FakeApi:
         return f"artifacts/{name}"
 
 
+class ScriptedKeys:
+    """Returns one scripted key set per wait, then nothing."""
+
+    def __init__(self, script: list[set[str]]) -> None:
+        self.script = list(script)
+
+    def __enter__(self) -> ScriptedKeys:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def wait(self, seconds: float) -> set[str]:
+        return self.script.pop(0) if self.script else set()
+
+
+class InterruptingKeys(ScriptedKeys):
+    """Raises KeyboardInterrupt on the first wait after the script runs out."""
+
+    def wait(self, seconds: float) -> set[str]:
+        if not self.script:
+            raise KeyboardInterrupt
+        return super().wait(seconds)
+
+
 class FakeBrowser:
     def __init__(self, page: Any) -> None:
         self.page = page
 
-    def active_page(self) -> Any:
+    def active_page(self, _current_page: Any | None = None) -> Any:
         return self.page
 
 
@@ -60,6 +92,62 @@ class ClosedTab:
         return 0
 
 
+def test_active_page_rejects_a_closed_session_page_when_another_web_tab_remains(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.goto("data:text/html,<title>Other tab</title>")
+    application_page = browser_page.context.new_page()
+    application_page.goto("data:text/html,<title>Application</title>")
+    application_page.close()
+    browser = VisibleBrowser("http://unused")
+    browser._browser = cast(Any, browser_page.context.browser)
+
+    with pytest.raises(BrowserClosedError):
+        browser.active_page(application_page)
+
+
+def test_session_stops_when_page_closes_during_form_inspection(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    page = SimpleNamespace(
+        url="https://boards.example/jobs/123",
+        is_closed=lambda: True,
+    )
+    browser = SimpleNamespace(active_page=lambda _current=None: page)
+
+    def closed_inspection(_: Any) -> list[dict[str, Any]]:
+        raise Error("Target page, context or browser has been closed")
+
+    monkeypatch.setattr(
+        "personal_os_worker.autofill_session.reveal_application_form", lambda _: False
+    )
+    monkeypatch.setattr("personal_os_worker.autofill_session.inspect_fields", closed_inspection)
+    context = SessionContext(
+        api=FakeApi(),  # type: ignore[arg-type]
+        run_id="run-race",
+        adapter_name="greenhouse",
+        browser=cast(Any, browser),
+        page=cast(Any, page),
+        console_errors=[],
+        profile={},
+        answers=[],
+        scoped=[],
+        resume_json={},
+        resume_pdf=tmp_path / "missing.pdf",
+        company="Acme",
+        title="Backend Engineer Intern",
+        description=None,
+        draft_dir=tmp_path / "drafts",
+    )
+
+    outcome = AutofillSession(context).run()
+
+    assert "browser or application tab was closed" in capsys.readouterr().out.casefold()
+    assert outcome == {"final_url": page.url, "answers": []}
+
+
 @pytest.mark.parametrize(
     "contexts",
     [[], [SimpleNamespace(pages=[])]],
@@ -71,7 +159,10 @@ def test_session_stops_cleanly_when_browser_or_application_tab_closes(
     monkeypatch: pytest.MonkeyPatch,
     contexts: list[Any],
 ) -> None:
-    page = SimpleNamespace(url="https://boards.example/jobs/123")
+    page = SimpleNamespace(
+        url="https://boards.example/jobs/123",
+        is_closed=lambda: False,
+    )
     monkeypatch.setattr(
         "personal_os_worker.autofill_session.reveal_application_form", lambda _: False
     )
@@ -147,6 +238,7 @@ def test_session_fills_from_closed_tabs_saves_every_answer_and_ends_on_submit(
         opener=opener,
         drafter=drafter,
         poll_seconds=0.05,
+        keys=ScriptedKeys([set(), set(), {"save"}]),
     )
     session = AutofillSession(context)
     polls = {"count": 0}
@@ -185,6 +277,10 @@ def test_session_fills_from_closed_tabs_saves_every_answer_and_ends_on_submit(
     assert "dry_run" not in outcome
     printed = capsys.readouterr().out
     assert "picked up: Country -> Canada" in printed
+    # The scripted Ctrl+S landed after the country was chosen and pushed it to the library.
+    assert api.library["Country"]["answer_text"] == "Canada"
+    assert api.library["Country"]["approved"] is True
+    assert "saved:" in printed
     assert printed.count("picked up: Country") == 1
     assert "picked up: Why this team?" not in printed  # the tab already reported it
     assert "picked up: First name" not in printed  # the worker filled it
@@ -219,3 +315,38 @@ def test_dry_run_plans_without_opening_tabs_or_writing(
     assert outcome["dry_run"] is True
     assert browser_page.locator("#first").input_value() == ""
     assert not (tmp_path / "drafts").exists()
+
+
+def test_ctrl_c_ends_cleanly_with_the_answers_picked_up_so_far(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
+    browser_page.set_content((FIXTURES / "greenhouse.html").read_text())
+    browser_page.fill("#why", "Typed on the page.")
+    context = SessionContext(
+        api=FakeApi(),  # type: ignore[arg-type]
+        run_id="run-3",
+        adapter_name="greenhouse",
+        browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
+        page=browser_page,
+        console_errors=[],
+        profile={"legal_name": "Alex Example", "email": "ethan@example.com"},
+        answers=[],
+        scoped=[],
+        resume_json={},
+        resume_pdf=tmp_path / "main.pdf",
+        company="Acme",
+        title="Backend Engineer Intern",
+        description=None,
+        draft_dir=tmp_path / "drafts",
+        opener=lambda path: ClosedTab(path, None),
+        drafter=lambda **_: None,
+        poll_seconds=0.01,
+        keys=InterruptingKeys([set()]),
+    )
+    (tmp_path / "main.pdf").write_bytes(b"%PDF-1.4\n%%EOF")
+    outcome = AutofillSession(context).run()
+    assert outcome["interrupted"] is True
+    saved = {item["question"]: item["answer_text"] for item in outcome["answers"]}
+    assert saved["Why this team?"] == "Typed on the page."
+    assert saved["First name"] == "Ethan"

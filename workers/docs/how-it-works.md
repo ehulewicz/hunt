@@ -47,9 +47,12 @@ After the tabs close the worker polls the page. It prints the required fields
 still empty and waits for the user to fill them on the page. Once none remain it
 follows the single safe Next/Continue control if one exists, and otherwise keeps
 watching until the user presses Submit and the page leaves the form. On every
-poll it snapshots every non-empty control on the page by its question, so when
-the page moves on or the run is interrupted, all of those answers are saved to
-the library as approved. Closing Chrome or the last usable application tab also
+poll it snapshots every non-empty control on the page by its question and echoes
+anything the user typed or chose as `picked up`. Answers are saved to the
+library as approved when the page moves on after Submit, when the user presses
+Ctrl+S (or `s`) in the terminal, or when Ctrl+C stops the run; a later save of
+the same question overwrites the earlier value. The terminal is put in cbreak
+mode with XOFF disabled for the run so Ctrl+S reaches the worker. Closing Chrome or the last usable application tab also
 ends the run cleanly and preserves answers captured so far. Short answers reuse
 exactly next time; textarea answers are stored as contextual so the next draft
 can be tailored again. The worker never clicks submission, consent, attestation,

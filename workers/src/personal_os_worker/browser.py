@@ -16,6 +16,20 @@ class BrowserClosedError(RuntimeError):
     """The connected browser or its last usable application tab was closed."""
 
 
+def is_browser_closed_error(page: Page, error: Error) -> bool:
+    """Whether a Playwright operation failed because its page or browser closed."""
+    try:
+        if page.is_closed():
+            return True
+    except Error:
+        return True
+    message = str(error).casefold()
+    return (
+        "target page, context or browser has been closed" in message
+        or "target closed" in message
+    )
+
+
 class VisibleBrowser:
     def __init__(self, cdp_url: str) -> None:
         self._cdp_url = cdp_url
@@ -48,17 +62,20 @@ class VisibleBrowser:
         # Deliberately leave the company page open in the dedicated visible profile.
         return result
 
-    def active_page(self) -> Page:
+    def active_page(self, current_page: Page | None = None) -> Page:
         """The tab currently in the foreground of the automation browser.
 
         Playwright exposes no notion of an active tab, but only the foreground
         tab of a focused window reports a visible document, so ask the pages
         themselves. Falls back to the most recently opened tab when the window is
-        unfocused and every tab reports hidden.
+        unfocused and every tab reports hidden. A closed current page ends its
+        owning session even when an unrelated browser tab remains open.
         """
         if self._browser is None:
             raise RuntimeError("Visible browser is not connected")
         try:
+            if current_page is not None and current_page.is_closed():
+                raise BrowserClosedError("The application tab was closed")
             contexts = self._browser.contexts
             if not contexts:
                 raise BrowserClosedError("The automation browser was closed")
@@ -409,19 +426,31 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           const explicit = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`) : null;
           const wrapping = element.closest('label');
           const fieldset = element.closest('fieldset');
-          const legend = fieldset?.querySelector(':scope > legend');
+          // Ashby writes the group question as a heading label, not a legend.
+          const legend = fieldset?.querySelector(':scope > legend, :scope > label');
+          const groupRequired = Boolean(
+            legend && (/required/i.test(legend.className) || /\\*\\s*$/.test(legend.textContent))
+          );
           const group = element.closest('[role="group"], [role="radiogroup"]');
           const nearby = element.closest('[class*="field"], [class*="question"], [data-testid]');
+          const labelledBy = element.getAttribute('aria-labelledby');
+          const referenced = labelledBy
+            ? labelledBy.split(/\\s+/).map(id => document.getElementById(id)?.textContent || '')
+                .join(' ')
+            : '';
+          // A placeholder such as "Start typing..." is the last resort; Ashby
+          // comboboxes have no id, so their question lives on the field's label.
           const rawLabel = (
               explicit?.textContent
               || wrapping?.textContent
               || element.getAttribute('aria-label')
-              || element.getAttribute('placeholder')
+              || referenced
               || nearby?.querySelector('label')?.textContent
+              || element.getAttribute('placeholder')
               || ''
             ).trim();
           // A trailing asterisk marks a required field on Greenhouse boards.
-          const label = rawLabel.replace(/\s*\*\s*$/, '');
+          const label = rawLabel.replace(/\\s*\\*\\s*$/, '');
           let shell = element.parentElement;
           let mirroredRequired = false;
           for (let depth = 0; shell && depth < 4; depth += 1) {
@@ -448,10 +477,11 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
               legend?.textContent
               || group?.getAttribute('aria-label')
               || ''
-            ).trim(),
+            ).trim().replace(/\\s*\\*\\s*$/, ''),
             required: element.required === true
               || element.getAttribute('aria-required') === 'true'
-              || /\*\s*$/.test(rawLabel)
+              || /\\*\\s*$/.test(rawLabel)
+              || (['radio', 'checkbox'].includes(element.type) && groupRequired)
               || (element.getAttribute('role') === 'combobox' && mirroredRequired),
             selector,
             role: element.getAttribute('role'),

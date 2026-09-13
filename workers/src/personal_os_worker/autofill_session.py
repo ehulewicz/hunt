@@ -11,7 +11,6 @@ submits, or when the user interrupts, and both paths save the collected answers.
 from __future__ import annotations
 
 import json
-import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +30,7 @@ from personal_os_worker.browser import (
     click_safe_transition,
     fresh_control,
     inspect_fields,
+    is_browser_closed_error,
     looks_like_application_form,
     plan_autofill,
     reveal_application_form,
@@ -48,6 +48,7 @@ from personal_os_worker.drafts import (
     similar_answers,
     write_draft,
 )
+from personal_os_worker.keys import KeyWatcher, NoKeys
 from personal_os_worker.tables import console
 
 SUBMITTED_MARKERS = (
@@ -84,6 +85,7 @@ class SessionContext:
     opener: DraftOpener = default_opener
     drafter: Drafter = draft_contextual_answer
     poll_seconds: float = 1.0
+    keys: KeyWatcher | NoKeys = field(default_factory=KeyWatcher)
 
 
 @dataclass
@@ -92,6 +94,7 @@ class SessionState:
     seeds: dict[str, tuple[str, str]] = field(default_factory=dict)  # question -> (text, source)
     planned: dict[str, str] = field(default_factory=dict)  # question -> planned value
     announced: dict[str, str] = field(default_factory=dict)  # question -> value shown
+    saved: dict[str, str] = field(default_factory=dict)  # question -> value in the library
     warnings: set[str] = field(default_factory=set)
     step: int = 0
 
@@ -172,10 +175,29 @@ class AutofillSession:
             self.state.warnings.add(key)
 
     def sleep(self) -> None:
-        try:
-            self.page.wait_for_timeout(int(self.ctx.poll_seconds * 1000))
-        except Error:
-            time.sleep(self.ctx.poll_seconds)
+        if "save" in self.ctx.keys.wait(self.ctx.poll_seconds):
+            self.save_now()
+
+    def save_now(self) -> int:
+        """Push every picked-up answer that changed since the last save to the library."""
+        pending = [
+            item
+            for question, item in self.state.collected.items()
+            if self.state.saved.get(question) != item["answer_text"]
+        ]
+        for item in pending:
+            self.ctx.api.create_answer(
+                question=str(item["question"]),
+                answer_text=str(item["answer_text"]),
+                approved=True,
+                reuse_policy=str(item["reuse_policy"]),
+            )
+            self.state.saved[str(item["question"])] = str(item["answer_text"])
+        if pending:
+            console.print(f"  [green]saved:[/green] {len(pending)} answer(s) to the library.")
+        else:
+            console.print("  Nothing new to save.")
+        return len(pending)
 
     # ----- form discovery --------------------------------------------------
 
@@ -183,7 +205,7 @@ class AutofillSession:
         """Return the form's fields, or None once the page shows the application went in."""
         wall_reported = False
         while True:
-            self.page = self.ctx.browser.active_page()
+            self.page = self.ctx.browser.active_page(self.page)
             reveal_application_form(self.page)
             fields = inspect_fields(self.page)
             if looks_like_application_form(fields):
@@ -469,7 +491,7 @@ class AutofillSession:
         transition_reported = False
         idle_polls = 0
         while True:
-            self.page = self.ctx.browser.active_page()
+            self.page = self.ctx.browser.active_page(self.page)
             current = inspect_fields(self.page)
             if page_signature(self.page, current) != prior:
                 return
@@ -509,6 +531,11 @@ class AutofillSession:
     # ----- driver ----------------------------------------------------------
 
     def run(self) -> dict[str, Any]:
+        console.print("[dim]Ctrl+S saves picked-up answers now; Ctrl+C stops and saves.[/dim]")
+        with self.ctx.keys:
+            return self._run()
+
+    def _run(self) -> dict[str, Any]:
         try:
             while True:
                 fields = self.wait_for_form()
@@ -524,6 +551,21 @@ class AutofillSession:
                 self.wait_and_advance(fields, result.get("artifact_paths") or {})
                 self.state.step += 1
         except BrowserClosedError:
+            console.print("The browser or application tab was closed. Ending autofill.")
+        except KeyboardInterrupt:
+            console.print("Stopped. The application tab stays open in the browser.")
+            try:
+                final_url = self.page.url
+            except Error:
+                final_url = ""
+            return {
+                "final_url": final_url,
+                "answers": list(self.state.collected.values()),
+                "interrupted": True,
+            }
+        except Error as error:
+            if not is_browser_closed_error(self.page, error):
+                raise
             console.print("The browser or application tab was closed. Ending autofill.")
         return {"final_url": self.page.url, "answers": list(self.state.collected.values())}
 

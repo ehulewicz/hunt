@@ -35,6 +35,11 @@ Last verified: 2026-09-12
   for the user's Submit, and saves every visible answer for reuse.
 - [x] End autofill cleanly when Chrome or the last usable application tab closes,
   preserving answers already captured instead of exposing a Playwright traceback.
+- [x] Echo every value the user types or chooses as `picked up`, save on
+  Submit, Ctrl+S, or Ctrl+C, and leave the application tab open on Ctrl+C.
+- [x] Read Ashby markup: field-entry labels beat placeholders, and radio or
+  checkbox groups take their question and required flag from the fieldset's
+  heading label.
 - [x] Reuse saved answers for selects, comboboxes, and radio groups; only
   consent, attestation, and signature labels stay unfilled.
 - [x] Handle live Greenhouse job-board markup: trailing-asterisk labels, hidden
