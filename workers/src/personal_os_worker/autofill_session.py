@@ -499,7 +499,9 @@ class AutofillSession:
             missing = tuple(audit_filled_form(current)["required_unfilled"])
             if missing != last_missing:
                 if missing:
-                    console.print("  [yellow]left for you:[/yellow] " + ", ".join(missing))
+                    console.print("  [yellow]left for you:[/yellow]")
+                    for question in missing:
+                        console.print(f"    - {question}")
                 else:
                     console.print(
                         "  All required fields are filled. Press Submit in the browser when ready."
