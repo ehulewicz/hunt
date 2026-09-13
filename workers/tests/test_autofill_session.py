@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 from playwright.sync_api import Error, sync_playwright
 
 from personal_os_worker.autofill_session import AutofillSession, SessionContext
+from personal_os_worker.browser import VisibleBrowser
 from personal_os_worker.drafts import DIVIDER, parse_draft
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -58,9 +60,51 @@ class ClosedTab:
         return 0
 
 
+@pytest.mark.parametrize(
+    "contexts",
+    [[], [SimpleNamespace(pages=[])]],
+    ids=["browser-closed", "application-tab-closed"],
+)
+def test_session_stops_cleanly_when_browser_or_application_tab_closes(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    contexts: list[Any],
+) -> None:
+    page = SimpleNamespace(url="https://boards.example/jobs/123")
+    monkeypatch.setattr(
+        "personal_os_worker.autofill_session.reveal_application_form", lambda _: False
+    )
+    browser = VisibleBrowser("http://unused")
+    browser._browser = cast(Any, SimpleNamespace(contexts=contexts))
+    context = SessionContext(
+        api=FakeApi(),  # type: ignore[arg-type]
+        run_id="run-closed",
+        adapter_name="greenhouse",
+        browser=browser,
+        page=cast(Any, page),
+        console_errors=[],
+        profile={},
+        answers=[],
+        scoped=[],
+        resume_json={},
+        resume_pdf=tmp_path / "missing.pdf",
+        company="Acme",
+        title="Backend Engineer Intern",
+        description=None,
+        draft_dir=tmp_path / "drafts",
+    )
+
+    outcome = AutofillSession(context).run()
+
+    assert "browser or application tab was closed" in capsys.readouterr().out.casefold()
+    assert outcome == {"final_url": page.url, "answers": []}
+
+
 def test_session_fills_from_closed_tabs_saves_every_answer_and_ends_on_submit(
     browser_page,  # type: ignore[no-untyped-def]
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     browser_page.set_content((FIXTURES / "greenhouse.html").read_text())
     api = FakeApi()
@@ -139,6 +183,11 @@ def test_session_fills_from_closed_tabs_saves_every_answer_and_ends_on_submit(
     assert saved["First name"]["source"] == "jobs_profile"
     assert saved["Email"]["answer_text"] == "ethan@example.com"
     assert "dry_run" not in outcome
+    printed = capsys.readouterr().out
+    assert "picked up: Country -> Canada" in printed
+    assert printed.count("picked up: Country") == 1
+    assert "picked up: Why this team?" not in printed  # the tab already reported it
+    assert "picked up: First name" not in printed  # the worker filled it
 
 
 def test_dry_run_plans_without_opening_tabs_or_writing(

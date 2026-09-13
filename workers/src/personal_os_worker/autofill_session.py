@@ -24,6 +24,7 @@ from personal_os_worker.answers import answer_match, draft_contextual_answer
 from personal_os_worker.api import WorkerApi
 from personal_os_worker.autofill import is_resume_field, is_sensitive_field
 from personal_os_worker.browser import (
+    BrowserClosedError,
     VisibleBrowser,
     apply_autofill,
     audit_filled_form,
@@ -90,6 +91,7 @@ class SessionState:
     collected: dict[str, dict[str, Any]] = field(default_factory=dict)
     seeds: dict[str, tuple[str, str]] = field(default_factory=dict)  # question -> (text, source)
     planned: dict[str, str] = field(default_factory=dict)  # question -> planned value
+    announced: dict[str, str] = field(default_factory=dict)  # question -> value shown
     warnings: set[str] = field(default_factory=set)
     step: int = 0
 
@@ -104,6 +106,12 @@ def looks_submitted(page: Page) -> bool:
     except Error:
         return False
     return any(marker in body for marker in SUBMITTED_MARKERS)
+
+
+def preview(value: str, *, limit: int = 100) -> str:
+    """One terminal line of a value, however long the textarea answer is."""
+    flat = " ".join(value.split())
+    return flat if len(flat) <= limit else flat[: limit - 3].rstrip() + "..."
 
 
 def content_type_for(name: str) -> str:
@@ -175,8 +183,8 @@ class AutofillSession:
         """Return the form's fields, or None once the page shows the application went in."""
         wall_reported = False
         while True:
-            reveal_application_form(self.page)
             self.page = self.ctx.browser.active_page()
+            reveal_application_form(self.page)
             fields = inspect_fields(self.page)
             if looks_like_application_form(fields):
                 for item in fields:
@@ -399,6 +407,7 @@ class AutofillSession:
             ok = False
             console.print(f"  [red]fill failed:[/red] {draft.question}: {error}")
         if ok:
+            self.state.announced[draft.question] = text
             console.print(f"  [green]filled:[/green] {draft.question}")
         else:
             self.report_page_failure(
@@ -445,6 +454,10 @@ class AutofillSession:
                 "source": source,
                 "reuse_policy": policy,
             }
+            # Echo what the user typed or chose so they can see it was picked up.
+            if source == "manual" and self.state.announced.get(question) != value:
+                self.state.announced[question] = value
+                console.print(f"  [cyan]picked up:[/cyan] {question} -> {preview(value)}")
 
     def wait_and_advance(
         self, fields: list[dict[str, Any]], artifact_paths: dict[str, str]
@@ -496,19 +509,22 @@ class AutofillSession:
     # ----- driver ----------------------------------------------------------
 
     def run(self) -> dict[str, Any]:
-        while True:
-            fields = self.wait_for_form()
-            if fields is None:
-                console.print("The page reports the application was submitted.")
-                break
-            self.emit_warnings(fields)
-            result = self.fill_deterministic(fields)
-            if self.ctx.dry_run:
-                return {"final_url": self.page.url, "answers": [], "dry_run": True}
-            opened = self.open_drafts(fields)
-            self.await_drafts(fields, opened)
-            self.wait_and_advance(fields, result.get("artifact_paths") or {})
-            self.state.step += 1
+        try:
+            while True:
+                fields = self.wait_for_form()
+                if fields is None:
+                    console.print("The page reports the application was submitted.")
+                    break
+                self.emit_warnings(fields)
+                result = self.fill_deterministic(fields)
+                if self.ctx.dry_run:
+                    return {"final_url": self.page.url, "answers": [], "dry_run": True}
+                opened = self.open_drafts(fields)
+                self.await_drafts(fields, opened)
+                self.wait_and_advance(fields, result.get("artifact_paths") or {})
+                self.state.step += 1
+        except BrowserClosedError:
+            console.print("The browser or application tab was closed. Ending autofill.")
         return {"final_url": self.page.url, "answers": list(self.state.collected.values())}
 
     def answers_so_far(self) -> list[dict[str, Any]]:

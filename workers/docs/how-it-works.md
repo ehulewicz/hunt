@@ -49,12 +49,13 @@ follows the single safe Next/Continue control if one exists, and otherwise keeps
 watching until the user presses Submit and the page leaves the form. On every
 poll it snapshots every non-empty control on the page by its question, so when
 the page moves on or the run is interrupted, all of those answers are saved to
-the library as approved. Short answers reuse exactly next time; textarea answers
-are stored as contextual so the next draft can be tailored again. The worker
-never clicks submission, consent, attestation, or captcha controls, and those
-consent labels are the only ones excluded from filling. Failure fixes still
-require explicit worktree mutation, replay tests, a user-created commit, and
-headed live confirmation.
+the library as approved. Closing Chrome or the last usable application tab also
+ends the run cleanly and preserves answers captured so far. Short answers reuse
+exactly next time; textarea answers are stored as contextual so the next draft
+can be tailored again. The worker never clicks submission, consent, attestation,
+or captcha controls, and those consent labels are the only ones excluded from
+filling. Failure fixes still require explicit worktree mutation, replay tests, a
+user-created commit, and headed live confirmation.
 
 ## Host prerequisites
 

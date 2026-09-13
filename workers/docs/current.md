@@ -33,6 +33,8 @@ Last verified: 2026-09-12
 - [x] Remove every terminal prompt from `os hunt autofill`: the worker polls the
   page, reports required fields left for the user, follows one safe Next, waits
   for the user's Submit, and saves every visible answer for reuse.
+- [x] End autofill cleanly when Chrome or the last usable application tab closes,
+  preserving answers already captured instead of exposing a Playwright traceback.
 - [x] Reuse saved answers for selects, comboboxes, and radio groups; only
   consent, attestation, and signature labels stay unfilled.
 - [x] Handle live Greenhouse job-board markup: trailing-asterisk labels, hidden
@@ -40,7 +42,7 @@ Last verified: 2026-09-12
   only hint is the `resume` id.
 - [x] Add deduplicated failure capture plus list/show/diagnose/draft/apply/verify commands.
 - [x] Render `**keyword**` bullet emphasis as a dedicated sans type and omit Skills when empty.
-- [x] Pass Ruff, strict mypy, and 128 tests with no skips, including the
+- [x] Pass Ruff, strict mypy, and 130 tests with no skips, including the
   headless ATS fixtures and an end-to-end session test that closes a fake tab,
   fills the textarea, snapshots a manual select, and ends on a confirmation page.
 - [x] Compile the real canonical resume to one page and open its live Windows Chrome preview.
@@ -104,7 +106,7 @@ Activating `backend/.venv` and then running `os` previously failed with
 `os: command not found`; there is now only one environment to activate. Running
 `uv run ruff check .`, `uv run mypy`, and `uv run pytest` from `workers/` still
 uses this package's own tool configuration. Ruff, strict mypy over 21 source
-files, and 124 tests pass on the shared environment with no skips, so the
+files, and 130 tests pass on the shared environment with no skips, so the
 earlier restricted-sandbox skips do not apply here.
 
 The resume compiler needs `newtx` from the system TeX tree, which this machine

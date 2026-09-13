@@ -12,6 +12,10 @@ from personal_os_worker.adapters import failure_signature, option_match
 from personal_os_worker.autofill import AutofillPlan, build_autofill_plan, is_sensitive_field
 
 
+class BrowserClosedError(RuntimeError):
+    """The connected browser or its last usable application tab was closed."""
+
+
 class VisibleBrowser:
     def __init__(self, cdp_url: str) -> None:
         self._cdp_url = cdp_url
@@ -54,13 +58,19 @@ class VisibleBrowser:
         """
         if self._browser is None:
             raise RuntimeError("Visible browser is not connected")
-        pages = [
-            page
-            for page in self._browser.contexts[0].pages
-            if not page.url.startswith(("chrome://", "devtools://", "about:"))
-        ]
+        try:
+            contexts = self._browser.contexts
+            if not contexts:
+                raise BrowserClosedError("The automation browser was closed")
+            pages = [
+                page
+                for page in contexts[0].pages
+                if not page.url.startswith(("chrome://", "devtools://", "about:"))
+            ]
+        except Error as error:
+            raise BrowserClosedError("The automation browser was closed") from error
         if not pages:
-            raise RuntimeError("No usable tab is open in the automation browser")
+            raise BrowserClosedError("The application tab was closed")
         for page in reversed(pages):
             try:
                 if page.evaluate("document.visibilityState") == "visible":
