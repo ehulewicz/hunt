@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+
+from personal_os_worker.adapters import option_match
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,7 +122,14 @@ def build_autofill_plan(
     *,
     profile: dict[str, Any],
     approved_answers: list[dict[str, Any]],
+    fallback: Callable[[str], str | None] | None = None,
 ) -> AutofillPlan:
+    """Plan fills from profile facts, then exact answers, then `fallback(question)`.
+
+    The fallback is how the pattern and Claude tiers plug in without the planner
+    knowing about them. Choice groups pick the single option that equals, starts
+    with, is a prefix of, or contains every word of the answer.
+    """
     answer_candidates: dict[str, list[str]] = {}
     for item in approved_answers:
         if str(item.get("reuse_policy") or "exact") != "exact":
@@ -149,6 +159,13 @@ def build_autofill_plan(
         for field in fields
         if is_resume_field(field) and not is_sensitive_field(field)
     }
+
+    group_options: dict[str, list[str]] = {}
+    for field in fields:
+        if str(field.get("type") or "").casefold() in {"radio", "checkbox"} and field.get("group"):
+            group_options.setdefault(normalize_question(str(field["group"])), []).append(
+                str(field.get("label") or field.get("value") or "")
+            )
 
     for field in fields:
         label = str(field.get("label") or "").strip()
@@ -180,13 +197,14 @@ def build_autofill_plan(
                 value = str(profile_value).strip()
             elif profile_key is None and answer_question in answers:
                 value = answers[answer_question]
+            elif profile_key is None and fallback is not None and question_label:
+                value = fallback(question_label)
 
             if field_type in {"radio", "checkbox"} and value is not None:
-                options = {
-                    normalize_question(str(field.get(key) or "")) for key in ("value", "label")
-                }
-                options.discard("")
-                if not options & {normalize_question(value), normalize_question(value)[:1]}:
+                own = str(field.get("label") or field.get("value") or "")
+                options = group_options.get(normalized) or [own]
+                chosen = choose_option(options, value)
+                if chosen is None or chosen != own:
                     value = None
 
         if kind == "resume" or value is not None:
@@ -195,7 +213,7 @@ def build_autofill_plan(
                 answered_groups.add(normalized)
         elif required and label:
             if field_type in {"radio", "checkbox"} and group:
-                pending_choices.append((normalized, label))
+                pending_choices.append((normalized, question_label))
             else:
                 unanswered.append(label)
 
@@ -204,6 +222,21 @@ def build_autofill_plan(
         label for group_key, label in pending_choices if group_key not in answered_groups
     )
     return AutofillPlan(tuple(fills), tuple(dict.fromkeys(unanswered)))
+
+
+def choose_option(options: list[str], answer: str) -> str | None:
+    """The single option an answer denotes, or None when none or several fit."""
+    matched = option_match(options, answer)
+    if matched is not None:
+        return matched
+    target = normalize_question(answer)
+    prefixed = [
+        option
+        for option in options
+        if normalize_question(option).startswith(target)
+        or target.startswith(normalize_question(option))
+    ]
+    return prefixed[0] if len(prefixed) == 1 else None
 
 
 def resolve_profile_value(profile: dict[str, Any], profile_key: str | None) -> Any:

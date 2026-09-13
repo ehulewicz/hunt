@@ -540,3 +540,88 @@ def test_audit_reports_a_choice_group_once_by_its_question() -> None:
     )
     assert audit["filled_fields"] == ["Authorized?"]
     assert audit["required_unfilled"] == ["Worked here before?", "I certify"]
+
+
+def test_fallback_answers_fill_text_and_choice_groups_by_prefix() -> None:
+    fields = [
+        {"index": 0, "tag": "input", "type": "text", "label": "Desired salary", "required": True},
+        {
+            "index": 1,
+            "tag": "input",
+            "type": "radio",
+            "label": "Yes - I am a previous intern",
+            "group": "Have you ever worked here?",
+            "required": True,
+        },
+        {
+            "index": 2,
+            "tag": "input",
+            "type": "radio",
+            "label": "Yes - I am a previous contractor",
+            "group": "Have you ever worked here?",
+            "required": True,
+        },
+        {
+            "index": 3,
+            "tag": "input",
+            "type": "radio",
+            "label": "No - I have never worked here",
+            "group": "Have you ever worked here?",
+            "required": True,
+        },
+        {
+            "index": 4,
+            "tag": "input",
+            "type": "radio",
+            "label": "Yes",
+            "group": "Authorized?",
+            "required": True,
+        },
+        {"index": 5, "tag": "input", "type": "radio", "label": "No", "group": "Authorized?"},
+    ]
+    answers = {
+        "Desired salary": "Open",
+        "Have you ever worked here?": "No",
+        "Authorized?": "Yes - I have US work authorization as a Citizen",
+    }
+    plan = build_autofill_plan(
+        fields, profile={}, approved_answers=[], fallback=lambda question: answers.get(question)
+    )
+    assert [(fill.index, fill.value) for fill in plan.fills] == [
+        (0, "Open"),
+        (3, "No"),
+        (4, "Yes - I have US work authorization as a Citizen"),
+    ]
+    assert plan.unanswered_required_questions == ()
+
+
+def test_fallback_yes_is_ambiguous_against_several_yes_options() -> None:
+    fields = [
+        {
+            "index": 0,
+            "tag": "input",
+            "type": "radio",
+            "label": "Yes - citizen",
+            "group": "Authorized?",
+            "required": True,
+        },
+        {
+            "index": 1,
+            "tag": "input",
+            "type": "radio",
+            "label": "Yes - visa",
+            "group": "Authorized?",
+            "required": True,
+        },
+        {
+            "index": 2,
+            "tag": "input",
+            "type": "radio",
+            "label": "No",
+            "group": "Authorized?",
+            "required": True,
+        },
+    ]
+    plan = build_autofill_plan(fields, profile={}, approved_answers=[], fallback=lambda _: "Yes")
+    assert plan.fills == ()
+    assert plan.unanswered_required_questions == ("Authorized?",)
