@@ -630,17 +630,35 @@ def audit_filled_form(
     filled: list[str] = []
     required_unfilled: list[str] = []
     sensitive_filled: list[str] = []
+    # A choice group is one question: it is filled once any option is checked,
+    # and it is reported by the group question rather than each option's label.
+    answered_groups: set[str] = set()
+    pending_groups: list[str] = []
     for field in fields:
         field_type = str(field.get("type") or "").casefold()
         if field_type in {"submit", "button", "reset", "hidden"}:
             continue
-        label = str(field.get("label") or field.get("name") or field.get("index") or "field")
+        group = str(field.get("group") or "").strip()
+        is_choice = field_type in {"radio", "checkbox"} and bool(group)
+        label = group if is_choice else str(
+            field.get("label") or field.get("name") or field.get("index") or "field"
+        )
         if field.get("filled") is True:
+            if is_choice:
+                if label in answered_groups:
+                    continue
+                answered_groups.add(label)
             filled.append(label)
             if is_sensitive_field(field):
                 sensitive_filled.append(label)
         elif field.get("required") is True:
-            required_unfilled.append(label)
+            if is_choice:
+                pending_groups.append(label)
+            else:
+                required_unfilled.append(label)
+    required_unfilled.extend(
+        dict.fromkeys(group for group in pending_groups if group not in answered_groups)
+    )
     return {
         "filled_fields": filled,
         "required_unfilled": required_unfilled,

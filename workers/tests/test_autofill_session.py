@@ -319,7 +319,8 @@ def test_session_fills_from_closed_tabs_saves_every_answer_and_ends_on_submit(
     # The scripted Ctrl+S landed after the country was chosen and pushed it to the library.
     assert api.library["Country"]["answer_text"] == "Canada"
     assert api.library["Country"]["approved"] is True
-    assert "saved:" in printed
+    assert "saved: Country -> Canada" in printed
+    assert set(api.library) == {"Country", "Why this team?"}  # profile fills are not re-saved
     assert printed.count("picked up: Country") == 1
     assert "picked up: Why this team?" not in printed  # the tab already reported it
     assert "picked up: First name" not in printed  # the worker filled it

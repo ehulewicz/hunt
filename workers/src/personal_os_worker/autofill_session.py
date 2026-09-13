@@ -180,10 +180,13 @@ class AutofillSession:
 
     def save_now(self) -> int:
         """Push every picked-up answer that changed since the last save to the library."""
+        # Profile facts and unchanged library answers are already stored; only
+        # what the user typed or chose, or a Claude draft they accepted, is new.
         pending = [
             item
             for question, item in self.state.collected.items()
-            if self.state.saved.get(question) != item["answer_text"]
+            if item["source"] in {"manual", "model"}
+            and self.state.saved.get(question) != item["answer_text"]
         ]
         for item in pending:
             self.ctx.api.create_answer(
@@ -193,9 +196,10 @@ class AutofillSession:
                 reuse_policy=str(item["reuse_policy"]),
             )
             self.state.saved[str(item["question"])] = str(item["answer_text"])
-        if pending:
-            console.print(f"  [green]saved:[/green] {len(pending)} answer(s) to the library.")
-        else:
+            console.print(
+                f"  [green]saved:[/green] {item['question']} -> {preview(str(item['answer_text']))}"
+            )
+        if not pending:
             console.print("  Nothing new to save.")
         return len(pending)
 

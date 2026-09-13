@@ -193,9 +193,7 @@ def test_autofill_uses_profile_earliest_start_text_then_exact_date() -> None:
     assert [(item.index, item.value) for item in with_note.fills] == [
         (0, "Two weeks after offer acceptance")
     ]
-    assert [(item.index, item.value) for item in with_date_only.fills] == [
-        (0, "2027-05-15")
-    ]
+    assert [(item.index, item.value) for item in with_date_only.fills] == [(0, "2027-05-15")]
 
 
 def test_autofill_derives_name_parts_and_us_authorization_from_profile_facts() -> None:
@@ -493,3 +491,52 @@ def test_exact_matching_still_refuses_to_guess() -> None:
 
     for label in ("company name", "reference name", "name of school"):
         assert label not in PROFILE_LABELS
+
+
+def test_audit_reports_a_choice_group_once_by_its_question() -> None:
+    audit = audit_filled_form(
+        [
+            {
+                "index": 0,
+                "type": "radio",
+                "label": "Yes",
+                "group": "Authorized?",
+                "required": True,
+                "filled": False,
+            },
+            {
+                "index": 1,
+                "type": "radio",
+                "label": "No",
+                "group": "Authorized?",
+                "required": True,
+                "filled": True,
+            },
+            {
+                "index": 2,
+                "type": "radio",
+                "label": "Yes",
+                "group": "Worked here before?",
+                "required": True,
+                "filled": False,
+            },
+            {
+                "index": 3,
+                "type": "radio",
+                "label": "No",
+                "group": "Worked here before?",
+                "required": True,
+                "filled": False,
+            },
+            {
+                "index": 4,
+                "type": "checkbox",
+                "label": "Yes",
+                "group": "I certify",
+                "required": True,
+                "filled": False,
+            },
+        ]
+    )
+    assert audit["filled_fields"] == ["Authorized?"]
+    assert audit["required_unfilled"] == ["Worked here before?", "I certify"]
