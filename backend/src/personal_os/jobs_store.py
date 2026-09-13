@@ -1388,7 +1388,9 @@ class PostgresJobsStore:
                         question,
                         normalized_key,
                         answer_text,
-                        reuse_policy if reuse_policy in {"exact", "contextual"} else "contextual",
+                        reuse_policy
+                        if reuse_policy in {"exact", "contextual", "pattern"}
+                        else "contextual",
                     ),
                 )
                 library = await library_cursor.fetchone()

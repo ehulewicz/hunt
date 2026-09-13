@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
@@ -20,7 +21,7 @@ RoleFamily = Literal[
     "data_science",
     "other",
 ]
-AnswerReusePolicy = Literal["exact", "contextual"]
+AnswerReusePolicy = Literal["exact", "contextual", "pattern"]
 AutofillAts = Literal["greenhouse", "ashby", "lever", "generic"]
 FailureStatus = Literal[
     "open", "diagnosed", "patch_ready", "replay_passed", "live_verified", "fixed"
@@ -289,6 +290,16 @@ class JobDocumentReview(BaseModel):
     changed_word_ratio: Decimal | None = None
 
 
+def validate_pattern(reuse_policy: str | None, question: str | None) -> None:
+    """A pattern row's question is a regular expression; refuse ones that cannot compile."""
+    if reuse_policy != "pattern" or question is None:
+        return
+    try:
+        re.compile(question, re.IGNORECASE)
+    except re.error as error:
+        raise ValueError(f"question must be a valid regular expression: {error}") from None
+
+
 class AnswerLibraryItem(BaseModel):
     id: UUID
     question: str
@@ -313,6 +324,11 @@ class AnswerLibraryCreate(BaseModel):
             raise ValueError("must not be blank")
         return value
 
+    @model_validator(mode="after")
+    def pattern_must_compile(self) -> "AnswerLibraryCreate":
+        validate_pattern(self.reuse_policy, self.question)
+        return self
+
 
 class AnswerLibraryUpdate(BaseModel):
     question: str | None = Field(default=None, min_length=1, max_length=1000)
@@ -332,6 +348,11 @@ class AnswerLibraryUpdate(BaseModel):
             if nullable_fields:
                 raise ValueError(f"must not be null: {', '.join(sorted(nullable_fields))}")
         return value
+
+    @model_validator(mode="after")
+    def pattern_must_compile(self) -> "AnswerLibraryUpdate":
+        validate_pattern(self.reuse_policy, self.question)
+        return self
 
     @field_validator("question", "answer_text")
     @classmethod

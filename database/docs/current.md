@@ -1,6 +1,6 @@
 # Database current state
 
-Last verified: 2026-08-23
+Last verified: 2026-09-13
 
 ## Milestones
 
@@ -18,6 +18,10 @@ Last verified: 2026-08-23
   failure issues/occurrences, and a private 10 MiB evidence bucket in
   `20260823090000_autofill_failure_learning.sql`.
 - [x] Keep approved document content immutable while allowing lifecycle updates.
+- [x] Allow `reuse_policy = 'pattern'` in `app.jobs_answer_library` through
+  `20260913090000_answer_patterns.sql`; a pattern row's `normalized_question`
+  is a case-insensitive regular expression. Applied by the deploy workflow on
+  push to `main` (2026-09-13).
 - [x] Store the Supabase backend-only key and worker JWT key in GCP Secret Manager
   and grant access to the Cloud Run runtime.
 - [x] Apply `20260810231802_jobs_vertical_slice.sql` to hosted Supabase.
