@@ -47,7 +47,7 @@ Last verified: 2026-09-12
   only hint is the `resume` id.
 - [x] Add deduplicated failure capture plus list/show/diagnose/draft/apply/verify commands.
 - [x] Render `**keyword**` bullet emphasis as a dedicated sans type and omit Skills when empty.
-- [x] Pass Ruff, strict mypy, and 130 tests with no skips, including the
+- [x] Pass Ruff, strict mypy, and 136 tests with no skips, including the
   headless ATS fixtures and an end-to-end session test that closes a fake tab,
   fills the textarea, snapshots a manual select, and ends on a confirmation page.
 - [x] Compile the real canonical resume to one page and open its live Windows Chrome preview.
@@ -110,8 +110,8 @@ puts the `os` script on `PATH` alongside the backend's `personal-os-api`.
 Activating `backend/.venv` and then running `os` previously failed with
 `os: command not found`; there is now only one environment to activate. Running
 `uv run ruff check .`, `uv run mypy`, and `uv run pytest` from `workers/` still
-uses this package's own tool configuration. Ruff, strict mypy over 21 source
-files, and 130 tests pass on the shared environment with no skips, so the
+uses this package's own tool configuration. Ruff, strict mypy over 22 source
+files, and 136 tests pass on the shared environment with no skips, so the
 earlier restricted-sandbox skips do not apply here.
 
 The resume compiler needs `newtx` from the system TeX tree, which this machine

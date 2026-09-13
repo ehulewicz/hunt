@@ -148,6 +148,45 @@ def test_session_stops_when_page_closes_during_form_inspection(
     assert outcome == {"final_url": page.url, "answers": []}
 
 
+def test_session_reraises_unrelated_playwright_error_that_mentions_target_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    page = SimpleNamespace(
+        url="https://boards.example/jobs/123",
+        is_closed=lambda: False,
+    )
+    browser = SimpleNamespace(active_page=lambda _current=None: page)
+
+    def failed_inspection(_: Any) -> list[dict[str, Any]]:
+        raise Error('Locator.click: Timeout waiting for get_by_text("Target closed")')
+
+    monkeypatch.setattr(
+        "personal_os_worker.autofill_session.reveal_application_form", lambda _: False
+    )
+    monkeypatch.setattr("personal_os_worker.autofill_session.inspect_fields", failed_inspection)
+    context = SessionContext(
+        api=FakeApi(),  # type: ignore[arg-type]
+        run_id="run-error",
+        adapter_name="greenhouse",
+        browser=cast(Any, browser),
+        page=cast(Any, page),
+        console_errors=[],
+        profile={},
+        answers=[],
+        scoped=[],
+        resume_json={},
+        resume_pdf=tmp_path / "missing.pdf",
+        company="Acme",
+        title="Backend Engineer Intern",
+        description=None,
+        draft_dir=tmp_path / "drafts",
+    )
+
+    with pytest.raises(Error, match="Target closed"):
+        AutofillSession(context).run()
+
+
 @pytest.mark.parametrize(
     "contexts",
     [[], [SimpleNamespace(pages=[])]],

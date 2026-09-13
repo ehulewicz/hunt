@@ -25,8 +25,8 @@ def is_browser_closed_error(page: Page, error: Error) -> bool:
         return True
     message = str(error).casefold()
     return (
-        "target page, context or browser has been closed" in message
-        or "target closed" in message
+        type(error).__name__ == "TargetClosedError"
+        or "target page, context or browser has been closed" in message
     )
 
 
