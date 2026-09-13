@@ -54,7 +54,7 @@
       "location": "Chicago, IL",
       "date": "May 2023 – December 2023",
       "bullets": [
-        "Unified 10+ leave-processing screens into one interface with workflow automation, cutting HR processing 10 to <3 min",
+        "Unified 10+ leave-processing screens into one interface with workflow automation, cutting HR processing from 10 to <3 min",
         "Built a Java integration layer spanning 9 disparate systems, normalizing data from APIs, SQL, and API-less browser automation",
         "Maintained the tool through upstream changes and automated 4–5 daily authentication cycles, saving 12+ min/user/day"
       ]
