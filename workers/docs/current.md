@@ -78,7 +78,7 @@ controls and planned 5 fills without changing the page; the direct row-opening
 command also opened H3X in native Windows Chrome.
 
 The canonical resume is `artifacts/resume/main.json`; the tracked PDF beside it
-is `artifacts/resume/main.pdf`. The pre-redesign comparison is retained as
+is `artifacts/resume/Alex_Example.pdf`. The pre-redesign comparison is retained as
 `artifacts/resume/old.pdf`. Invalid JSON, LaTeX errors, or a two-page result
 leave the previous PDF untouched. Northwind and Example Public Schools have
 written bullets; unfinished entries retain visible blank slots.

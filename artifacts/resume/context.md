@@ -73,7 +73,7 @@ which gets 4 because it is the frontline experience.
   campus, city, or award qualifier. Never an em dash.
 - Do not restate a point another bullet in the same entry already makes. Prefer
   the wording that shows ownership.
-- `main.json` is the only canonical resume file. `main.pdf` is tracked beside it.
+- `main.json` is the only canonical resume file. `Alex_Example.pdf` is tracked beside it.
 
 ## Line budget
 
@@ -90,7 +90,7 @@ count of distinct rendered text baselines:
 Re-measure after any layout change:
 
 ```bash
-pdftotext -layout artifacts/resume/main.pdf - | grep "•" \
+pdftotext -layout artifacts/resume/Alex_Example.pdf - | grep "•" \
   | awk '{s=substr($0,index($0,"•")); print length(s)}' | sort -rn | head
 ```
 
@@ -104,7 +104,7 @@ re-measure before treating it as the current ceiling.
 Verify wrapping by reading the rendered text, not by trusting character counts:
 
 ```bash
-pdftotext -layout artifacts/resume/main.pdf - | sed -n '/Example Public Schools/,/Research/p'
+pdftotext -layout artifacts/resume/Alex_Example.pdf - | sed -n '/Example Public Schools/,/Research/p'
 ```
 
 A wrapped bullet shows a continuation line with no bullet marker.
@@ -115,7 +115,7 @@ carrying all 22 bullet lines. Filling a blank slot therefore costs no additional
 vertical space, provided the text stays on one line. Confirmed 2026-09-11:
 
 ```bash
-pdftotext -layout artifacts/resume/main.pdf - | grep -c "•"   # 22
+pdftotext -layout artifacts/resume/Alex_Example.pdf - | grep -c "•"   # 22
 ```
 
 ## Decisions from the 2026-09-09 session
@@ -272,12 +272,12 @@ material for phrasing and recoverable facts, never as correct copy.
 ## Commands
 
 ```bash
-os hunt resume build      # compile main.json -> main.pdf, enforces the 1-page gate
+os hunt resume build      # compile main.json -> Alex_Example.pdf, enforces the 1-page gate
 os hunt resume watch      # open main.json in VS Code, rebuild on change
 
 # Sam Kim reference fixture: the regression target for template changes.
 os hunt resume build --input bin/sam-kim.json --output bin/sam-kim.pdf
 os hunt resume watch --input bin/sam-kim.json --output bin/sam-kim.pdf --open
-pdfinfo artifacts/resume/main.pdf | grep Pages
-pdftotext -layout artifacts/resume/main.pdf -   # what an ATS parser receives
+pdfinfo artifacts/resume/Alex_Example.pdf | grep Pages
+pdftotext -layout artifacts/resume/Alex_Example.pdf -   # what an ATS parser receives
 ```

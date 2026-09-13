@@ -47,3 +47,12 @@ database/.temp/
 # Scratch clones used for local exploration, never product state
 testing/
 .env*.local
+
+# LaTeX build residue beside the canonical resume
+artifacts/resume/*.aux
+artifacts/resume/*.fdb_latexmk
+artifacts/resume/*.fls
+artifacts/resume/*.log
+artifacts/resume/*.out
+artifacts/resume/*.synctex.gz
+artifacts/resume/*.tex

@@ -46,8 +46,12 @@ def canonical_resume_path() -> Path:
     return repository_root() / "artifacts" / "resume" / "main.json"
 
 
+RESUME_PDF_NAME = "Alex_Example.pdf"
+
+
 def default_pdf_path() -> Path:
-    return canonical_resume_path().with_suffix(".pdf")
+    # The tracked PDF carries the applicant's name because ATS uploads keep it.
+    return canonical_resume_path().with_name(RESUME_PDF_NAME)
 
 
 def load_resume(path: Path) -> dict[str, Any]:

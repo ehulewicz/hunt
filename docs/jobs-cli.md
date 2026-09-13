@@ -49,7 +49,7 @@ The editable source and generated PDF are both portable Git artifacts:
 
 ```text
 artifacts/resume/main.json
-artifacts/resume/main.pdf
+artifacts/resume/Alex_Example.pdf
 ```
 
 ## Explicit AI command
@@ -73,7 +73,7 @@ os hunt autofill 12
 ```
 
 The command verifies the company/role, saves the tracked run/application context,
-compiles and attaches `artifacts/resume/main.pdf`, follows one unambiguous Apply
+compiles and attaches `artifacts/resume/Alex_Example.pdf`, follows one unambiguous Apply
 control when the ATS starts on a job-description page, fills the current step,
 then pauses. Edit the real page, answer the one incorrect-field prompt, and
 either type `review` or press Enter to authorize one exact Next/Continue click.

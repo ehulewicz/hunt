@@ -47,7 +47,7 @@ Last verified: 2026-09-09
   errors so failures surface as a status instead of `Failed to fetch`.
 - [x] Move the canonical resume seed to the portable repository artifact
   `artifacts/resume/main.json`; the backend and worker now consume the same
-  source, and the generated `main.pdf` is tracked beside it.
+  source, and the generated `Alex_Example.pdf` is tracked beside it.
 - [x] Preserve the resume's first-class Research section and education location
   through master-resume validation, and allow intentional blank bullet slots
   during the manual writing pass.
@@ -125,7 +125,7 @@ left to separate.
 - `artifacts/resume/main.json` is the only canonical resume JSON in the
   repository. Backend bootstrap reads it directly and the root-context Docker
   build copies it into the image.
-- `artifacts/resume/main.pdf` is the deterministic, one-page Letter rendering
+- `artifacts/resume/Alex_Example.pdf` is the deterministic, one-page Letter rendering
   tracked in Git. The temporary LaTeX file is ignored.
 - Backend Ruff, mypy, and all 38 tests pass. A local Docker-image build could not
   run because Docker Desktop integration is unavailable in this WSL instance;
