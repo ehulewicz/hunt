@@ -188,10 +188,10 @@ class WorkerApi:
             raise RuntimeError("Updated autofill failure response was invalid")
         return value
 
-    def batch_prepare(self, posting_ids: list[str], *, tailor: bool = False) -> dict[str, Any]:
+    def batch_prepare(self, posting_ids: list[str]) -> dict[str, Any]:
         response = self._client.post(
             "/v1/jobs/applications/batch-prepare",
-            json={"posting_ids": posting_ids, "tailor": tailor},
+            json={"posting_ids": posting_ids, "tailor": False},
         )
         response.raise_for_status()
         payload = response.json()

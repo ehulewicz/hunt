@@ -142,11 +142,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     prep = jobs_commands.add_parser("prep", help="Queue preparation for listings")
     prep.add_argument("refs", nargs="+", help="Row numbers from the last listing, or id prefixes")
-    prep.add_argument(
-        "--tailor",
-        action="store_true",
-        help="Opt in to Claude resume tailoring; default uses canonical JSON unchanged",
-    )
 
     autofill = jobs_commands.add_parser(
         "autofill",
@@ -274,7 +269,7 @@ def _dispatch(args: argparse.Namespace) -> int:
                 )
                 return 0
         if args.hunt_command == "prep":
-            return hunt.run_prep(args.refs, tailor=args.tailor)
+            return hunt.run_prep(args.refs)
         if args.hunt_command == "autofill":
             if args.ref == "failures":
                 return hunt.run_autofill_failure_command(

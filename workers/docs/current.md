@@ -1,6 +1,6 @@
 # Worker current state
 
-Last verified: 2026-09-11
+Last verified: 2026-09-12
 
 - [x] Use `os hunt` as the local Jobs command surface.
 - [x] Authenticate through Google PKCE and keep FastAPI as the only database client.
@@ -22,23 +22,46 @@ Last verified: 2026-09-11
 - [x] Rebuild the generator directly on the supplied Sam Kim LaTeX source and
   retain `bin/sam-kim.json` as the reference fixture, with only the documented
   global spacing corrections as intentional layout differences.
-- [x] Preserve variable bullet counts through validation and tailoring.
-- [x] Make canonical unchanged preparation the default and Claude tailoring explicit.
+- [x] Retire resume tailoring: `prep --tailor`, the Claude tailor module, and the
+  resume guard are gone, and preparation always compiles the canonical resume.
 - [x] Run saved Greenhouse, Ashby, and Lever listings synchronously in headed
   Windows Chrome with exact non-submission navigation and no submit actions.
 - [x] Manage the hosted reusable answer library with CLI list/add/edit commands.
-- [x] Add exact/contextual answer reuse, local-Claude 20 percent validation, and
-  explicit final webpage-answer approval.
+- [x] Draft every long-form textarea in its own VS Code tab, seeded from an exact
+  library answer or a local Claude draft with similar answers as reference, and
+  fill the textarea when the tab closes.
+- [x] Remove every terminal prompt from `os hunt autofill`: the worker polls the
+  page, reports required fields left for the user, follows one safe Next, waits
+  for the user's Submit, and saves every visible answer for reuse.
+- [x] Reuse saved answers for selects, comboboxes, and radio groups; only
+  consent, attestation, and signature labels stay unfilled.
+- [x] Handle live Greenhouse job-board markup: trailing-asterisk labels, hidden
+  react-select mirror inputs that carry `required`, and resume uploads whose
+  only hint is the `resume` id.
 - [x] Add deduplicated failure capture plus list/show/diagnose/draft/apply/verify commands.
 - [x] Render `**keyword**` bullet emphasis as a dedicated sans type and omit Skills when empty.
-- [x] Pass Ruff, strict mypy, and 124 tests, including the loopback preview and
-  five headed synthetic ATS fixtures on the current machine.
+- [x] Pass Ruff, strict mypy, and 128 tests with no skips, including the
+  headless ATS fixtures and an end-to-end session test that closes a fake tab,
+  fills the textarea, snapshots a manual select, and ends on a confirmation page.
 - [x] Compile the real canonical resume to one page and open its live Windows Chrome preview.
 - [x] Persist a real 415-row hosted sync and verify 320 technical-default rows.
 - [x] Live-test `--limit 500` returning all 323 current technical rows.
-- [ ] Run one real saved listing on each supported ATS and the controlled hosted
-  failure lifecycle after the new migration is deployed.
+- [x] Dry-run the real Vercel Greenhouse listing: 28 controls, 8 planned from
+  the profile, 14 required left for the user.
+- [ ] Complete one real Greenhouse application end to end through VS Code tabs
+  (Vercel rows 133/137, Viam 134, Scale AI 205, Schonfeld 201 are the
+  candidates), then Ashby and Lever, and confirm the saved answers fill the
+  next form.
 - [ ] Add Workday only after all three v1 adapters pass live acceptance.
+
+The apply loop lives in `autofill_session.py`. `commands/hunt.py` still owns run
+creation and the company/role/closed-posting checks, then hands the page to the
+session. Draft files land in `~/.local/state/personal-os/drafts/<run>/step-N/`.
+Ctrl+C during a run completes it with whatever answers were on the page rather
+than abandoning it. The headless Playwright shell had to be installed on this
+machine (`uv run playwright install chromium-headless-shell`) for the fixture
+tests to stop skipping. A local Supabase Docker stack was holding port 54321,
+which the `os login` callback needs; it was stopped and must not be started here.
 
 API HTTP failures now exit with the response status, request path, and FastAPI
 detail instead of exposing an `httpx` traceback. A create-run smoke test succeeds
@@ -68,7 +91,9 @@ TeX range ligatures.
 
 The hosted answer library currently has three approved rows: current US work
 authorization, salary deflection without an invented range, and career goals.
-Archived STEM OPT wording was deliberately rejected as stale.
+Archived STEM OPT wording was deliberately rejected as stale. Every completed
+run now adds to it, including short and choice answers, so a wrong one-off
+answer propagates until `os hunt answers edit` corrects it.
 
 The worker no longer owns a venv or a lock. It is a member of the uv workspace
 declared by the root `pyproject.toml`, resolved through the root `uv.lock` and

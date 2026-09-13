@@ -66,30 +66,15 @@ PROFILE_LABELS = {
     "are you authorized to work in the united states?": "work_authorization_status",
 }
 
+# The worker never attests, consents, or signs on the user's behalf. Demographic
+# questions are ordinary saved answers for a single user and are no longer
+# blocked from reuse.
 BLOCKED_LABEL_WORDS = frozenset(
     {
         "agree",
         "agreement",
         "acknowledge",
         "certification",
-        "gender",
-        "hispanic",
-        "latino",
-        "military",
-        "orientation",
-        "pronoun",
-        "pronouns",
-        "race",
-        "racial",
-        "ethnicity",
-        "ethnic",
-        "veteran",
-        "disability",
-        "disabled",
-        "demographic",
-        "demographics",
-        "eeo",
-        "equal employment",
         "consent",
         "certify",
         "attest",
@@ -108,6 +93,16 @@ def normalize_question(value: str) -> str:
 def normalize_answer_question(value: str) -> str:
     """Normalize harmless punctuation differences for exact answer reuse."""
     return re.sub(r"[^a-z0-9+#]+", " ", value.casefold()).strip()
+
+
+def is_resume_field(field: dict[str, Any]) -> bool:
+    """A file control for the resume, whether its label or only its id says so."""
+    if str(field.get("type") or "").casefold() != "file":
+        return False
+    hints = normalize_question(
+        " ".join(str(field.get(key) or "") for key in ("label", "name", "selector"))
+    )
+    return "resume" in hints or re.search(r"(?<![a-z])cv(?![a-z])", hints) is not None
 
 
 def is_sensitive_field(field: dict[str, Any]) -> bool:
@@ -147,14 +142,12 @@ def build_autofill_plan(
     }
     fills: list[FormFill] = []
     unanswered: list[str] = []
+    answered_groups: set[str] = set()
+    pending_choices: list[tuple[str, str]] = []
     resume_candidates = {
         int(field["index"])
         for field in fields
-        if str(field.get("type") or "").casefold() == "file"
-        and not is_sensitive_field(field)
-        and any(
-            word in normalize_question(str(field.get("label") or "")) for word in ("resume", "cv")
-        )
+        if is_resume_field(field) and not is_sensitive_field(field)
     }
 
     for field in fields:
@@ -163,7 +156,7 @@ def build_autofill_plan(
         group = str(field.get("group") or "").strip()
         question_label = group if field_type in {"radio", "checkbox"} and group else label
         normalized = normalize_question(question_label)
-        answer_question = normalize_answer_question(label)
+        answer_question = normalize_answer_question(question_label)
         tag = str(field.get("tag") or "").casefold()
         sensitive = is_sensitive_field(field)
         required = field.get("required") is True
@@ -185,23 +178,31 @@ def build_autofill_plan(
                 value = "Yes" if profile_value else "No"
             elif profile_value is not None and str(profile_value).strip():
                 value = str(profile_value).strip()
-            elif (
-                profile_key is None
-                and field_type not in {"radio", "checkbox"}
-                and answer_question in answers
-            ):
+            elif profile_key is None and answer_question in answers:
                 value = answers[answer_question]
 
             if field_type in {"radio", "checkbox"} and value is not None:
-                option = normalize_question(str(field.get("value") or field.get("label") or ""))
-                if option not in {normalize_question(value), normalize_question(value)[:1]}:
+                options = {
+                    normalize_question(str(field.get(key) or "")) for key in ("value", "label")
+                }
+                options.discard("")
+                if not options & {normalize_question(value), normalize_question(value)[:1]}:
                     value = None
 
         if kind == "resume" or value is not None:
             fills.append(FormFill(index=index, kind=kind, value=value))
+            if field_type in {"radio", "checkbox"} and group:
+                answered_groups.add(normalized)
         elif required and label:
-            unanswered.append(label)
+            if field_type in {"radio", "checkbox"} and group:
+                pending_choices.append((normalized, label))
+            else:
+                unanswered.append(label)
 
+    # A choice group counts as answered once any of its options is planned.
+    unanswered.extend(
+        label for group_key, label in pending_choices if group_key not in answered_groups
+    )
     return AutofillPlan(tuple(fills), tuple(dict.fromkeys(unanswered)))
 
 

@@ -17,28 +17,44 @@ section holding no entries emits neither label nor rule. That is what lets one
 generator serve the canonical resume, which has Research and no Leadership, and
 the Sam Kim reference fixture, which is the other way round. Experience,
 Research, Projects, and Leadership keep separate structured lists so both
-rendering and explicit tailoring preserve the distinction. Watch mode compiles beside the stable output
+rendering and the reference fixture preserve the distinction. Watch mode compiles beside the stable output
 and atomically replaces the PDF only after success so an open viewer never loses
 its last good document.
 
-Preparation captures the real application form in visible native Windows Chrome.
-The default candidate is the canonical resume unchanged. `--tailor` alone calls
-`claude -p`; the existing fact, structure, 10 percent, and one-page validators
-still decide whether the result is usable.
+Preparation captures the real application form in visible native Windows Chrome
+and always compiles the canonical resume unchanged. Resume tailoring was retired:
+the canonical resume already carries the breadth it needs, and the effort goes
+into answers instead.
 
-`os hunt autofill <listing-ref>` rebuilds the canonical PDF and opens the stored
-direct URL in native Windows Chrome. Greenhouse, Ashby, and Lever adapters use
-fresh locators, native events, strict option matching, readback, resume-first
-rerender handling, and same-origin iframe inspection. Exact answers and Profile
-facts are deterministic. Contextual or unmatched long-form fields alone may call
-local `claude -p`, with fact/voice hygiene and a 20 percent base-answer guard.
+`os hunt autofill <listing-ref>` rebuilds the canonical PDF, opens the stored
+direct URL in native Windows Chrome, and then runs without a single terminal
+prompt. Greenhouse, Ashby, and Lever adapters use fresh locators, native events,
+strict option matching, readback, resume-first rerender handling, and same-origin
+iframe inspection. Profile facts and exact library answers fill deterministically,
+including selects, comboboxes, and radio groups matched by their question text.
 
-The worker may click one unambiguous Apply or Next/Continue control after context
-and final field values are captured. It never clicks submission, consent, or
-captcha controls. When navigation is missing or ambiguous, it reports the wall
-and keeps the session alive for manual advancement. User-approved final textarea
-values persist through FastAPI. Failure fixes require explicit worktree mutation,
-replay tests, a user-created commit, and headed live confirmation.
+Every long-form textarea becomes a Markdown file under the state directory and
+opens as its own VS Code tab through `code --wait`. The text above the divider is
+the seed: an exact library answer when one exists, otherwise a local `claude -p`
+draft grounded in the posting, the canonical resume, the profile, and the most
+similar library answers, otherwise blank. Below the divider sit the question, the
+company and role, where the seed came from, and the similar answers for
+reference. Closing the tab fills the textarea with whatever is above the divider;
+an empty top section leaves the field alone. Claude is only ever called for a
+textarea without an exact answer.
+
+After the tabs close the worker polls the page. It prints the required fields
+still empty and waits for the user to fill them on the page. Once none remain it
+follows the single safe Next/Continue control if one exists, and otherwise keeps
+watching until the user presses Submit and the page leaves the form. On every
+poll it snapshots every non-empty control on the page by its question, so when
+the page moves on or the run is interrupted, all of those answers are saved to
+the library as approved. Short answers reuse exactly next time; textarea answers
+are stored as contextual so the next draft can be tailored again. The worker
+never clicks submission, consent, attestation, or captcha controls, and those
+consent labels are the only ones excluded from filling. Failure fixes still
+require explicit worktree mutation, replay tests, a user-created commit, and
+headed live confirmation.
 
 ## Host prerequisites
 

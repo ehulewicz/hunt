@@ -170,12 +170,12 @@ def run_answer_edit(
     return 0
 
 
-def run_prep(references: list[str], *, tailor: bool) -> int:
+def run_prep(references: list[str]) -> int:
     config, token = connected()
     posting_ids = [resolve("listings", reference) for reference in references]
     api = WorkerApi(config, token)
     try:
-        result = api.batch_prepare(posting_ids, tailor=tailor)
+        result = api.batch_prepare(posting_ids)
     finally:
         api.close()
     queued = result.get("queued_task_ids") or []
@@ -184,10 +184,7 @@ def run_prep(references: list[str], *, tailor: bool) -> int:
         f"{len(result.get('application_ids') or [])} application(s)."
     )
     console.print("Run 'os hunt run' to execute them.")
-    if tailor:
-        console.print("Claude tailoring requested; the 10% resume guard remains enforced.")
-    else:
-        console.print("Deterministic mode: the canonical resume will be compiled unchanged.")
+    console.print("The canonical resume will be compiled unchanged.")
     return 0
 
 
@@ -207,24 +204,16 @@ def run_doctor_command() -> int:
 
 
 def run_autofill(reference: str, *, dry_run: bool) -> int:
-    import json
+    from pathlib import Path
 
     from personal_os_worker.adapters import adapter_version, detect_ats, failure_signature
-    from personal_os_worker.answers import answer_match, draft_contextual_answer
-    from personal_os_worker.autofill import is_sensitive_field
-    from personal_os_worker.browser import (
-        VisibleBrowser,
-        apply_autofill,
-        audit_filled_form,
-        click_safe_transition,
-        fresh_control,
-        inspect_fields,
-        looks_like_application_form,
-        plan_autofill,
-        reveal_application_form,
-        sanitized_evidence,
-    )
+    from personal_os_worker.autofill_session import AutofillSession, SessionContext
+    from personal_os_worker.browser import VisibleBrowser, inspect_fields, sanitized_evidence
     from personal_os_worker.resume import build_resume, load_resume
+    from personal_os_worker.service import state_dir
+
+    def draft_directory(run_id: str) -> Path:
+        return state_dir() / "drafts" / run_id
 
     posting_id = resolve("listings", reference)
     resume = build_resume()
@@ -360,418 +349,47 @@ def run_autofill(reference: str, *, dry_run: bool) -> int:
                 raise RuntimeError("The live posting appears closed; nothing was filled")
             console.print(f"Verified {expected_company} — {expected_title} on {adapter.name}.")
             console.print(f"Context saved. Canonical resume ready: {resume.pdf}")
-            collected_answers: dict[str, dict[str, object]] = {}
-            generated_questions: set[str] = set()
-            generated_drafts: dict[str, str] = {}
-            emitted_warnings: set[str] = set()
-            step = 0
-            while True:
-                navigation_wall_reported = False
-                while True:
-                    reveal_application_form(page)
-                    page = browser.active_page()
-                    fields = inspect_fields(page)
-                    if looks_like_application_form(fields):
-                        break
-                    if not navigation_wall_reported:
-                        report_page_failure(
-                            "navigation_wall",
-                            "No unambiguous Apply control revealed a recognizable form",
-                            step_number=step,
-                        )
-                        navigation_wall_reported = True
-                    console.print(
-                        "[yellow]Hit a wall:[/yellow] I could not safely reach the "
-                        "application form. The session is still running."
-                    )
-                    input(
-                        "Use the open browser to click Apply/Next or otherwise reach "
-                        "the form, then press Enter here: "
-                    )
-                    page = browser.active_page()
-                for field in fields:
-                    field["ats"] = adapter.name
-                resume_fields = [
-                    field
-                    for field in fields
-                    if str(field.get("type") or "").casefold() == "file"
-                    and any(
-                        word in str(field.get("label") or "").casefold()
-                        for word in ("resume", "cv")
-                    )
-                ]
-                if len(resume_fields) > 1 and "multiple-resumes" not in emitted_warnings:
-                    console.print(
-                        "[yellow]Warning:[/yellow] multiple resume upload controls; "
-                        "all are left manual."
-                    )
-                    emitted_warnings.add("multiple-resumes")
-                if (
-                    any(field.get("filled") is True for field in fields)
-                    and "profile-drift" not in emitted_warnings
-                ):
-                    console.print(
-                        "[yellow]Warning:[/yellow] the ATS already prefilled controls; "
-                        "review for profile drift."
-                    )
-                    emitted_warnings.add("profile-drift")
-                knockout_markers = (
-                    "sponsor",
-                    "authorized to work",
-                    "salary",
-                    "relocat",
-                    "security clearance",
+            session = AutofillSession(
+                SessionContext(
+                    api=api,
+                    run_id=run_id,
+                    adapter_name=adapter.name,
+                    browser=browser,
+                    page=page,
+                    console_errors=console_errors,
+                    profile=profile,
+                    answers=answers,
+                    scoped=scoped,
+                    resume_json=resume_json,
+                    resume_pdf=resume.pdf,
+                    company=expected_company,
+                    title=expected_title,
+                    description=(
+                        str(run.get("description_text"))
+                        if run.get("description_text")
+                        else None
+                    ),
+                    draft_dir=draft_directory(run_id),
+                    dry_run=dry_run,
                 )
-                if (
-                    any(
-                        marker in str(field.get("label") or field.get("group") or "").casefold()
-                        for marker in knockout_markers
-                        for field in fields
-                    )
-                    and "knockout" not in emitted_warnings
-                ):
-                    console.print(
-                        "[yellow]Warning:[/yellow] review factual or knockout questions carefully."
-                    )
-                    emitted_warnings.add("knockout")
-                before = sanitized_evidence(
-                    page, fields, console_errors=console_errors
-                )
-                contextual = []
-                for field in fields if not dry_run else []:
-                    if field.get("tag") != "textarea" or is_sensitive_field(field):
-                        continue
-                    question = str(field.get("label") or "").strip()
-                    matched = answer_match(question, answers)
-                    if (
-                        matched is not None
-                        and str(matched.get("reuse_policy") or "exact") == "exact"
-                    ):
-                        continue
-                    draft = draft_contextual_answer(
-                        question=question,
-                        base=(str(matched.get("answer_text") or "") or None) if matched else None,
-                        posting={
-                            "company": expected_company,
-                            "role": expected_title,
-                            "description": run.get("description_text"),
-                        },
-                        resume=resume_json,
-                        profile=profile,
-                        scoped_variants=scoped,
-                    )
-                    if draft:
-                        generated_questions.add(question)
-                        generated_drafts[question] = draft
-                        contextual.append(
-                            {
-                                "normalized_question": question,
-                                "answer_text": draft,
-                                "reuse_policy": "exact",
-                            }
-                        )
-                fields, plan = plan_autofill(
-                    page, profile=profile, approved_answers=[*answers, *contextual]
-                )
-                for field in fields:
-                    field["ats"] = adapter.name
+            )
+            try:
+                outcome = session.run()
+            except KeyboardInterrupt:
+                # The user stopped early; keep what was already on the page.
+                saved = session.answers_so_far()
+                api.complete_autofill_run(run_id, final_url=session.page.url, answers=saved)
                 console.print(
-                    f"Step {step + 1}: {len(fields)} controls, {len(plan.fills)} planned, "
-                    f"{len(plan.unanswered_required_questions)} required left for review."
+                    f"Stopped. Saved {len(saved)} answer(s) from the page. Nothing was submitted."
                 )
-                if dry_run:
-                    api.stop_autofill_run(run_id, status="abandoned")
-                    console.print("Dry run: no values were changed and nothing was submitted.")
-                    return 0
-                result = apply_autofill(
-                    page, fields, plan, resume_path=resume.pdf, assert_active=lambda: None
-                )
-                for question in result["unanswered_required_questions"]:
-                    field = next(
-                        (
-                            item
-                            for item in fields
-                            if str(item.get("label") or item.get("group") or "") == question
-                        ),
-                        {},
-                    )
-                    fingerprint = str(field.get("fingerprint") or question)
-                    result["failures"].append(
-                        {
-                            "signature": failure_signature(
-                                adapter.name, "required_field_empty", fingerprint
-                            ),
-                            "category": "required_field_empty",
-                            "field_label": question,
-                            "control_kind": field.get("type") or field.get("tag"),
-                            "field_fingerprint": fingerprint,
-                            "error_message": (
-                                "Required field remained empty after deterministic planning"
-                            ),
-                            "dom_signals": {
-                                key: field.get(key)
-                                for key in ("tag", "type", "name", "label", "group", "role")
-                            },
-                        }
-                    )
-                after = sanitized_evidence(
-                    page, inspect_fields(page), console_errors=console_errors
-                )
-                after["fill-plan.json"] = json.dumps(
-                    [
-                        {
-                            "field": fields[fill.index].get("fingerprint"),
-                            "kind": fill.kind,
-                            "has_value": fill.value is not None,
-                        }
-                        for fill in plan.fills
-                    ],
-                    indent=2,
-                ).encode()
-                after["verification.json"] = json.dumps(
-                    {
-                        "filled_fields": result["filled_fields"],
-                        "skipped_fields": result["skipped_fields"],
-                        "unanswered_required_questions": result[
-                            "unanswered_required_questions"
-                        ],
-                        "failures": result["failures"],
-                        "submitted": False,
-                    },
-                    indent=2,
-                    default=str,
-                ).encode()
-                artifact_paths: dict[str, str] = {}
-                if result["failures"]:
-                    for name, content in {
-                        **before,
-                        **{f"after-{k}": v for k, v in after.items()},
-                    }.items():
-                        content_type = (
-                            "image/png"
-                            if name.endswith(".png")
-                            else "text/html"
-                            if name.endswith(".html")
-                            else "application/json"
-                        )
-                        artifact_paths[name] = api.upload_autofill_artifact(
-                            run_id, name=name, content=content, content_type=content_type
-                        )
-                    for failure in result["failures"]:
-                        failure["artifact_paths"] = artifact_paths
-                api.persist_autofill_step(
-                    run_id,
-                    {
-                        "step_number": step,
-                        "url": page.url,
-                        "filled_count": len(result["filled_fields"]),
-                        "skipped_count": len(result["skipped_fields"]),
-                        "failures": result["failures"],
-                    },
-                )
-                for question in result["unanswered_required_questions"]:
-                    console.print(f"  [yellow]left for you:[/yellow] {question}")
-                incorrect = input(
-                    "Any apparently filled field incorrect? Describe it, or Enter: "
-                ).strip()
-                if incorrect:
-                    if not artifact_paths:
-                        evidence = {
-                            **before,
-                            **{f"after-{key}": value for key, value in after.items()},
-                        }
-                        for name, content in evidence.items():
-                            content_type = (
-                                "image/png"
-                                if name.endswith(".png")
-                                else "text/html"
-                                if name.endswith(".html")
-                                else "application/json"
-                            )
-                            artifact_paths[name] = api.upload_autofill_artifact(
-                                run_id,
-                                name=name,
-                                content=content,
-                                content_type=content_type,
-                            )
-                    fingerprint = f"manual-review|{incorrect.casefold()[:200]}"
-                    api.persist_autofill_step(
-                        run_id,
-                        {
-                            "step_number": step,
-                            "url": page.url,
-                            "failures": [
-                                {
-                                    "signature": failure_signature(
-                                        adapter.name, "user_reported_incorrect", fingerprint
-                                    ),
-                                    "category": "user_reported_incorrect",
-                                    "field_label": incorrect,
-                                    "field_fingerprint": fingerprint,
-                                    "error_message": (
-                                        "User reported an apparently filled field as incorrect"
-                                    ),
-                                    "artifact_paths": artifact_paths,
-                                }
-                            ],
-                        },
-                    )
-                    console.print("Recorded as a deduplicated failure issue.")
-                action = (
-                    input(
-                        "Edit this page now. Type 'review' at final review; otherwise "
-                        "press Enter and I will safely click Next/Continue: "
-                    )
-                    .strip()
-                    .casefold()
-                )
-                # Capture final long-form values before the page is allowed to transition.
-                current = inspect_fields(page)
-                for field in current:
-                    if field.get("tag") != "textarea" or is_sensitive_field(field):
-                        continue
-                    value = fresh_control(page, field).input_value().strip()
-                    question = str(field.get("label") or "").strip()
-                    if question and value:
-                        matched = answer_match(question, answers)
-                        collected_answers[question] = {
-                            "question": question,
-                            "answer_text": value,
-                            "source": (
-                                "model"
-                                if question in generated_questions
-                                and value == generated_drafts.get(question)
-                                else "manual"
-                            ),
-                            "reuse_policy": str(
-                                matched.get("reuse_policy") if matched else "contextual"
-                            ),
-                        }
-                if action == "review":
-                    break
-                prior_page_signature = (
-                    page.url,
-                    tuple(str(item.get("fingerprint")) for item in current),
-                )
-                transition_failure_reported = False
-                while True:
-                    page = browser.active_page()
-                    next_fields = inspect_fields(page)
-                    next_page_signature = (
-                        page.url,
-                        tuple(str(item.get("fingerprint")) for item in next_fields),
-                    )
-                    if next_page_signature != prior_page_signature:
-                        break
-
-                    audit = audit_filled_form(next_fields)
-                    clicked = None
-                    if not audit["required_unfilled"]:
-                        clicked = click_safe_transition(page, kind="next")
-                    if clicked is not None:
-                        console.print(f"Clicked {clicked}. Waiting for the next step ...")
-                    else:
-                        if audit["required_unfilled"]:
-                            console.print(
-                                "[yellow]Hit a wall:[/yellow] required fields still need "
-                                "your input: " + ", ".join(audit["required_unfilled"])
-                            )
-                        else:
-                            console.print(
-                                "[yellow]Hit a wall:[/yellow] no single safe Next/Continue "
-                                "control was available. The session is still running."
-                            )
-                        manual_action = (
-                            input(
-                                "Type 'review' if this is final review; otherwise use the "
-                                "browser to advance and press Enter here: "
-                            )
-                            .strip()
-                            .casefold()
-                        )
-                        if manual_action == "review":
-                            action = "review"
-                            break
-
-                    for _ in range(30):
-                        page.wait_for_timeout(500)
-                        page = browser.active_page()
-                        next_fields = inspect_fields(page)
-                        next_page_signature = (
-                            page.url,
-                            tuple(str(item.get("fingerprint")) for item in next_fields),
-                        )
-                        if next_page_signature != prior_page_signature:
-                            break
-                    if next_page_signature != prior_page_signature:
-                        break
-
-                    if not transition_failure_reported:
-                        if not artifact_paths:
-                            evidence = {
-                                **before,
-                                **{f"after-{key}": value for key, value in after.items()},
-                            }
-                            for name, content in evidence.items():
-                                content_type = (
-                                    "image/png"
-                                    if name.endswith(".png")
-                                    else "text/html"
-                                    if name.endswith(".html")
-                                    else "application/json"
-                                )
-                                artifact_paths[name] = api.upload_autofill_artifact(
-                                    run_id,
-                                    name=name,
-                                    content=content,
-                                    content_type=content_type,
-                                )
-                        fingerprint = f"transition|{page.url}|{step}"
-                        api.persist_autofill_step(
-                            run_id,
-                            {
-                                "step_number": step,
-                                "url": page.url,
-                                "failures": [
-                                    {
-                                        "signature": failure_signature(
-                                            adapter.name,
-                                            "page_transition_failure",
-                                            fingerprint,
-                                        ),
-                                        "category": "page_transition_failure",
-                                        "field_fingerprint": fingerprint,
-                                        "error_message": (
-                                            "URL and visible control fingerprints did not "
-                                            "change after navigation"
-                                        ),
-                                        "artifact_paths": artifact_paths,
-                                    }
-                                ],
-                            },
-                        )
-                        transition_failure_reported = True
-                    console.print(
-                        "[yellow]The form did not advance; the failure was recorded. "
-                        "I am still waiting for you.[/yellow]"
-                    )
-                if action == "review":
-                    break
-                step += 1
-            approval = (
-                input(
-                    f"Approve all {len(collected_answers)} non-empty long-form "
-                    "answer(s) for reuse? "
-                    "Type 'approve': "
-                )
-                .strip()
-                .casefold()
-            )
-            saved = list(collected_answers.values()) if approval == "approve" else []
-            api.complete_autofill_run(run_id, final_url=page.url, answers=saved)
-            console.print(
-                f"Review ready. Saved {len(saved)} approved answer(s). Nothing was submitted."
-            )
+                return 0
+            if outcome.get("dry_run"):
+                api.stop_autofill_run(run_id, status="abandoned")
+                console.print("Dry run: no values were changed and nothing was submitted.")
+                return 0
+            saved = list(outcome["answers"])
+            api.complete_autofill_run(run_id, final_url=str(outcome["final_url"]), answers=saved)
+            console.print(f"Done. Saved {len(saved)} answer(s) to the library for reuse.")
     except KeyboardInterrupt:
         if run_id is not None:
             api.stop_autofill_run(run_id, status="abandoned")

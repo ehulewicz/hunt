@@ -136,23 +136,8 @@ def test_resume_preview_rejects_a_payload_without_a_document() -> None:
         process_resume_preview(api, "worker-1", TASK_ID, {"application_id": "x"})
 
 
-def test_application_preparation_is_deterministic_unless_tailoring_is_explicit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_application_preparation_always_uses_the_canonical_resume() -> None:
     main_resume = {"contact": {"name": "Candidate"}}
-    bundle = {
-        "main_resume": main_resume,
-        "profile": {},
-        "approved_answers": [],
-    }
-    capture = {"description": "A posting"}
+    bundle = {"main_resume": main_resume, "profile": {}, "approved_answers": []}
 
-    def unexpected_tailor(*args: object, **kwargs: object) -> object:
-        raise AssertionError("Claude must not be called in deterministic mode")
-
-    monkeypatch.setattr("personal_os_worker.runner.tailor_resume", unexpected_tailor)
-    validation, result = prepare_resume_candidate(bundle, capture, {"tailor": False})
-
-    assert validation.candidate is main_resume
-    assert validation.changed_word_ratio == 0
-    assert result["patches"] == []
+    assert prepare_resume_candidate(bundle) == main_resume

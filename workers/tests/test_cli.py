@@ -135,11 +135,11 @@ def test_autofill_failure_commands_preserve_the_documented_syntax() -> None:
     assert (verified.failure_ref, verified.verify_listing_ref) == ("2", "9")
 
 
-def test_claude_tailoring_is_opt_in() -> None:
+def test_prep_has_no_tailoring_flag() -> None:
     plain = build_parser().parse_args(["hunt", "prep", "1"])
-    tailored = build_parser().parse_args(["hunt", "prep", "1", "--tailor"])
-    assert plain.tailor is False
-    assert tailored.tailor is True
+    assert plain.refs == ["1"]
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "prep", "1", "--tailor"])
 
 
 def test_answer_library_is_manageable_without_the_web_app() -> None:

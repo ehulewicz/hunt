@@ -390,6 +390,9 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
     script = """
         elements => elements.filter(element => {
           const type = (element.getAttribute('type') || '').toLowerCase();
+          // React-select mirrors the chosen value into an aria-hidden input that
+          // carries the required flag; the visible combobox is the real control.
+          if (element.getAttribute('aria-hidden') === 'true') return false;
           return !['hidden', 'password', 'submit', 'button', 'reset'].includes(type);
         }).map((element, index) => {
           const id = element.id;
@@ -399,7 +402,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           const legend = fieldset?.querySelector(':scope > legend');
           const group = element.closest('[role="group"], [role="radiogroup"]');
           const nearby = element.closest('[class*="field"], [class*="question"], [data-testid]');
-          const label = (
+          const rawLabel = (
               explicit?.textContent
               || wrapping?.textContent
               || element.getAttribute('aria-label')
@@ -407,6 +410,17 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
               || nearby?.querySelector('label')?.textContent
               || ''
             ).trim();
+          // A trailing asterisk marks a required field on Greenhouse boards.
+          const label = rawLabel.replace(/\s*\*\s*$/, '');
+          let shell = element.parentElement;
+          let mirroredRequired = false;
+          for (let depth = 0; shell && depth < 4; depth += 1) {
+            if (shell.querySelector('input[aria-hidden="true"][required]')) {
+              mirroredRequired = true;
+              break;
+            }
+            shell = shell.parentElement;
+          }
           const selector = id
             ? `#${CSS.escape(id)}`
             : element.getAttribute('name')
@@ -425,7 +439,10 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
               || group?.getAttribute('aria-label')
               || ''
             ).trim(),
-            required: element.required === true,
+            required: element.required === true
+              || element.getAttribute('aria-required') === 'true'
+              || /\*\s*$/.test(rawLabel)
+              || (element.getAttribute('role') === 'combobox' && mirroredRequired),
             selector,
             role: element.getAttribute('role'),
             placeholder: element.getAttribute('placeholder'),
@@ -518,6 +535,52 @@ def sanitized_evidence(
         except Error:
             continue
     return evidence
+
+
+def snapshot_values(page: Page, fields: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Read every non-empty answer on the page keyed by its question.
+
+    Choice groups report the checked option's label under the group question,
+    selects report the selected option's text, and files are skipped. This is
+    what gets saved to the answer library, so later forms can reuse it.
+    """
+    snapshot: dict[str, dict[str, Any]] = {}
+    for field in fields:
+        field_type = str(field.get("type") or "").casefold()
+        tag = str(field.get("tag") or "").casefold()
+        if field_type in {"file", "submit", "button", "reset", "hidden"} or tag == "button":
+            continue
+        label = str(field.get("label") or "").strip()
+        group = str(field.get("group") or "").strip()
+        try:
+            control = fresh_control(page, field)
+            if field_type in {"radio", "checkbox"}:
+                if not control.is_checked():
+                    continue
+                question = group or label
+                value = label or str(field.get("value") or "")
+            elif tag == "select":
+                question = label
+                value = str(
+                    control.evaluate(
+                        "element => element.selectedOptions[0]?.textContent?.trim() || ''"
+                    )
+                )
+            else:
+                question = label
+                value = str(control.input_value())
+        except (Error, RuntimeError):
+            continue
+        question = question.strip()
+        value = value.strip()
+        if not question or not value:
+            continue
+        snapshot[question] = {
+            "question": question,
+            "answer_text": value,
+            "control_kind": field_type or tag,
+        }
+    return snapshot
 
 
 def audit_filled_form(

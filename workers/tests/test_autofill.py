@@ -81,7 +81,7 @@ def test_autofill_matches_the_api_answer_shape_and_harmless_punctuation() -> Non
     assert plan.unanswered_required_questions == ()
 
 
-def test_autofill_leaves_unknown_eeo_consent_and_non_exact_answers_empty() -> None:
+def test_autofill_leaves_unknown_consent_and_non_exact_answers_empty() -> None:
     fields = [
         {
             "index": 0,
@@ -313,7 +313,7 @@ def test_autofill_never_uses_answers_for_missing_profile_facts() -> None:
     assert plan.unanswered_required_questions == (field["label"],)
 
 
-def test_autofill_blocks_sensitive_labels_names_and_groups_even_with_approved_answers() -> None:
+def test_autofill_blocks_consent_and_signature_but_reuses_demographic_answers() -> None:
     fields = [
         {
             "index": 0,
@@ -326,7 +326,7 @@ def test_autofill_blocks_sensitive_labels_names_and_groups_even_with_approved_an
         },
         {
             "index": 1,
-            "tag": "textarea",
+            "tag": "select",
             "type": None,
             "name": "latino",
             "label": "Hispanic or Latino",
@@ -358,12 +358,43 @@ def test_autofill_blocks_sensitive_labels_names_and_groups_even_with_approved_an
 
     plan = build_autofill_plan(fields, profile={}, approved_answers=answers)
 
-    assert [(item.index, item.value) for item in plan.fills] == [(3, "approved value")]
-    assert plan.unanswered_required_questions == (
-        "Pronouns",
-        "Hispanic or Latino",
-        "Your name",
-    )
+    assert [(item.index, item.value) for item in plan.fills] == [
+        (0, "approved value"),
+        (1, "approved value"),
+        (3, "approved value"),
+    ]
+    assert plan.unanswered_required_questions == ("Your name",)
+
+
+def test_autofill_checks_the_radio_whose_option_matches_the_saved_group_answer() -> None:
+    fields = [
+        {
+            "index": 0,
+            "tag": "input",
+            "type": "radio",
+            "name": "source",
+            "label": "LinkedIn",
+            "value": "linkedin",
+            "group": "How did you hear about us?",
+            "required": True,
+        },
+        {
+            "index": 1,
+            "tag": "input",
+            "type": "radio",
+            "name": "source",
+            "label": "Referral",
+            "value": "referral",
+            "group": "How did you hear about us?",
+            "required": True,
+        },
+    ]
+    answers = [{"normalized_question": "How did you hear about us?", "answer_text": "LinkedIn"}]
+
+    plan = build_autofill_plan(fields, profile={}, approved_answers=answers)
+
+    assert [(item.index, item.value) for item in plan.fills] == [(0, "LinkedIn")]
+    assert plan.unanswered_required_questions == ()
 
 
 def test_autofill_does_not_upload_resume_inside_sensitive_group() -> None:
@@ -420,7 +451,7 @@ def test_extension_audit_reports_presence_without_copying_values() -> None:
     assert audit == {
         "filled_fields": ["Email", "Veteran status"],
         "required_unfilled": ["Portfolio"],
-        "sensitive_filled": ["Veteran status"],
+        "sensitive_filled": [],
     }
 
 
