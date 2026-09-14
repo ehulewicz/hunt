@@ -189,9 +189,10 @@ APPLICATION_STATUSES = (
     "interview",
     "offer",
     "rejected",
+    "skipped",
 )
 ApplicationStatus = Literal[
-    "queued", "applied", "oa", "oa_completed", "interview", "offer", "rejected"
+    "queued", "applied", "oa", "oa_completed", "interview", "offer", "rejected", "skipped"
 ]
 
 

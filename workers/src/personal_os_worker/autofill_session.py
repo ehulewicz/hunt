@@ -62,6 +62,10 @@ class SubmittedByUser(Exception):
     """Ctrl+A: the user says the application went in."""
 
 
+class SkippedByUser(Exception):
+    """Ctrl+D: the user passes on this listing; it leaves the board without an application."""
+
+
 Drafter = Callable[..., str | None]
 ShortDrafter = Callable[..., dict[str, str]]
 
@@ -287,6 +291,8 @@ class AutofillSession:
             self.save_now()
         if "done" in pressed:
             raise SubmittedByUser
+        if "skip" in pressed:
+            raise SkippedByUser
 
     def form_is_gone(self) -> bool:
         """The page has left the form for a confirmation, so nothing on it is ours."""
@@ -715,7 +721,7 @@ class AutofillSession:
     def run(self) -> dict[str, Any]:
         console.print(
             "[dim]Ctrl+S saves picked-up answers · Ctrl+A marks submitted and ends · "
-            "Ctrl+C stops and saves[/dim]"
+            "Ctrl+D skips this listing · Ctrl+C stops and saves[/dim]"
         )
         with self.ctx.keys:
             return self._run()
@@ -749,6 +755,14 @@ class AutofillSession:
                 "final_url": self.page.url,
                 "answers": list(self.state.collected.values()),
                 "submitted": True,
+            }
+        except SkippedByUser:
+            console.print("Skipped. The listing leaves the board; 'os hunt skipped' lists it.")
+            self.save_now()
+            return {
+                "final_url": self.page.url,
+                "answers": list(self.state.collected.values()),
+                "skipped": True,
             }
         except KeyboardInterrupt:
             console.print("Stopped. The application tab stays open in the browser.")

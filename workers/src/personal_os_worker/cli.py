@@ -23,7 +23,7 @@ from personal_os_worker.resume import build_resume, watch_resume
 from personal_os_worker.service import ApiUnavailable, ChromeUnavailable
 from personal_os_worker.tables import ReferenceError, console
 
-HUNT_COMMANDS = ("today", "sync", "open", "apps", "queue", "answers", "resume", "apply")
+HUNT_COMMANDS = ("today", "sync", "open", "apps", "queue", "skipped", "answers", "resume", "apply")
 LISTING_FLAGS = ("--faang", "--quant", "--location", "--family", "--all-roles", "--ats")
 
 
@@ -129,6 +129,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Open the discovery source instead of the direct application URL",
     )
+
+    skipped = jobs_commands.add_parser(
+        "skipped", help="Listings passed over with Ctrl+D; 'restore <n>' returns one to the board"
+    )
+    skipped.add_argument("action", nargs="?", choices=["restore"])
+    skipped.add_argument("ref", nargs="?", help="Row number from the skipped table or id prefix")
 
     apps = jobs_commands.add_parser("apps", help="Track applications: list, or mark one")
     apps.add_argument("ref", nargs="?", help="Row number from the last apps table or id prefix")
@@ -283,6 +289,10 @@ def _dispatch(args: argparse.Namespace) -> int:
             return hunt.run_open_listing(args.ref, source=args.source)
         if args.hunt_command == "apps":
             return hunt.run_apps(args.ref, args.status)
+        if args.hunt_command == "skipped":
+            if args.action == "restore" and not args.ref:
+                raise RuntimeError("'skipped restore' needs a row from the skipped table")
+            return hunt.run_skipped(args.ref if args.action == "restore" else None)
         if args.hunt_command == "queue":
             if args.action == "empty":
                 if args.refs:

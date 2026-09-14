@@ -152,6 +152,7 @@ export const APPLICATION_STATUSES = [
   "interview",
   "offer",
   "rejected",
+  "skipped",
 ] as const;
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 

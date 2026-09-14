@@ -20,6 +20,7 @@ from typing import Any
 
 SAVE_KEYS = frozenset({"\x13", "s", "S"})
 DONE_KEYS = frozenset({"\x01", "a", "A"})
+SKIP_KEYS = frozenset({"\x04", "d", "D"})
 
 
 class KeyWatcher:
@@ -65,6 +66,8 @@ class KeyWatcher:
                     pressed.add("save")
                 if char in DONE_KEYS:
                     pressed.add("done")
+                if char in SKIP_KEYS:
+                    pressed.add("skip")
 
 
 class NoKeys:

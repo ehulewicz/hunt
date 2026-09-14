@@ -14,7 +14,9 @@ from personal_os_worker.tables import (
     render_listings,
 )
 
-APPLICATION_STATUSES = ("queued", "applied", "oa", "oa_completed", "interview", "offer", "rejected")
+APPLICATION_STATUSES = (
+    "queued", "applied", "oa", "oa_completed", "interview", "offer", "rejected", "skipped"
+)
 
 DEFAULT_TECHNICAL_FAMILIES = [
     "software_engineering",
@@ -137,7 +139,7 @@ def run_apps(reference: str | None = None, status: str | None = None) -> int:
     config, token = connected()
     api = WorkerApi(config, token)
     try:
-        applications = [item for item in api.applications() if item.get("status") != "queued"]
+        applications = [item for item in api.applications() if item.get("status") not in HIDDEN]
         if reference is not None:
             application = pick(applications, reference, kind="applications")
             if status is None:
@@ -146,7 +148,7 @@ def run_apps(reference: str | None = None, status: str | None = None) -> int:
             updated = api.update_application(str(application["id"]), status=status)
             console.print(f"{updated.get('company_name')}: {status}")
             applications = [
-                item for item in api.applications() if item.get("status") != "queued"
+                item for item in api.applications() if item.get("status") not in HIDDEN
             ]
     finally:
         api.close()
@@ -154,6 +156,34 @@ def run_apps(reference: str | None = None, status: str | None = None) -> int:
         console.print("Nothing applied yet. 'os hunt apply <row>' records one when it goes in.")
         return 0
     render_applications(applications)
+    return 0
+
+
+# Queued rows live in `queue`, skipped ones in `skipped`; `apps` is the lifecycle.
+HIDDEN = frozenset({"queued", "skipped"})
+
+
+def run_skipped(restore: str | None = None) -> int:
+    """Listings passed over with Ctrl+D; `restore <n>` puts one back on the board."""
+    config, token = connected()
+    api = WorkerApi(config, token)
+    try:
+        skipped = [item for item in api.applications() if item.get("status") == "skipped"]
+        if restore is not None:
+            application = pick(skipped, restore, kind="skipped listings")
+            # Archiving the application is what the board ignores, so the listing returns.
+            api.archive_application(str(application["id"]))
+            console.print(
+                f"Restored {application.get('company_name')} — {application.get('title')} "
+                "to the board."
+            )
+            skipped = [item for item in api.applications() if item.get("status") == "skipped"]
+    finally:
+        api.close()
+    if not skipped:
+        console.print("Nothing skipped. Ctrl+D during 'os hunt apply' skips a listing.")
+        return 0
+    render_applications(skipped, title="Skipped")
     return 0
 
 
@@ -278,7 +308,8 @@ def _empty_queue() -> int:
             f"[bold]Queue {position}/{len(queued)}:[/bold] {item.get('company_name')} — "
             f"{item.get('title')}"
         )
-        if not apply_posting(str(item["posting_id"]), dry_run=False, no_claude=False):
+        outcome = apply_posting(str(item["posting_id"]), dry_run=False, no_claude=False)
+        if outcome == "stopped":
             console.print("Not submitted; it stays in the queue. Stopping here.")
             return 0
     console.print("Queue emptied.")
@@ -362,8 +393,8 @@ def run_mark_applied(reference: str) -> int:
     return 0
 
 
-def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> bool:
-    """Run one interactive apply session; True when the page reported a submission."""
+def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> str:
+    """Run one interactive apply session: "submitted", "skipped", or "stopped"."""
     from personal_os_worker.adapters import adapter_version, detect_ats, failure_signature
     from personal_os_worker.autofill_session import AutofillSession, SessionContext
     from personal_os_worker.browser import VisibleBrowser, inspect_fields, sanitized_evidence
@@ -545,7 +576,7 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> bool:
             if outcome.get("dry_run"):
                 api.stop_autofill_run(run_id, status="abandoned")
                 console.print("Dry run: no values were changed and nothing was submitted.")
-                return False
+                return "stopped"
             saved = list(outcome["answers"])
             api.complete_autofill_run(run_id, final_url=str(outcome["final_url"]), answers=saved)
             verb = "Stopped" if outcome.get("interrupted") else "Done"
@@ -553,7 +584,11 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> bool:
             if outcome.get("submitted"):
                 api.update_application(str(run["application_id"]), status="applied")
                 console.print(f"Marked {expected_company} as applied.")
-                return True
+                return "submitted"
+            if outcome.get("skipped"):
+                api.update_application(str(run["application_id"]), status="skipped")
+                console.print(f"Skipped {expected_company}; 'os hunt skipped restore' undoes it.")
+                return "skipped"
     except KeyboardInterrupt:
         if run_id is not None:
             api.stop_autofill_run(run_id, status="abandoned")
@@ -564,7 +599,7 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> bool:
         raise
     finally:
         api.close()
-    return False
+    return "stopped"
 
 
 def _failure_claude(issue: dict[str, object], *, patch: bool) -> str:

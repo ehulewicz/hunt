@@ -102,7 +102,7 @@ def test_hunt_help_lists_only_the_public_commands(capsys: pytest.CaptureFixture[
     assert exit_info.value.code == 0
     output = capsys.readouterr().out
     assert "os hunt [N]" in output
-    assert "{today,sync,open,apps,queue,answers,resume,apply}" in output
+    assert "{today,sync,open,apps,queue,skipped,answers,resume,apply}" in output
     assert "{list," not in output and "\n    list " not in output
 
 
@@ -322,6 +322,36 @@ def test_bare_apply_and_apply_today_use_the_first_row_on_a_supported_or_chosen_a
         main(["hunt", "apply", "3", "--ats", "ashby"])
     with pytest.raises(SystemExit, match="needs a listing row"):
         main(["hunt", "apply", "--done"])
+
+
+def test_skipped_lists_and_restores_by_row(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, object]] = []
+
+    class FakeApi:
+        def __init__(self, config: object, token: str) -> None:
+            self.rows = [
+                {"id": "app-1", "status": "applied", "company_name": "Acme", "title": "A"},
+                {"id": "app-2", "status": "skipped", "company_name": "Beta", "title": "B"},
+            ]
+
+        def applications(self) -> list[dict[str, object]]:
+            return list(self.rows)
+
+        def archive_application(self, application_id: str) -> None:
+            calls.append(("archive", application_id))
+            self.rows = [row for row in self.rows if row["id"] != application_id]
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(hunt, "connected", lambda: ("config", "token"))
+    monkeypatch.setattr(hunt, "WorkerApi", FakeApi)
+    assert build_parser().parse_args(["hunt", "skipped"]).action is None
+    assert main(["hunt", "skipped"]) == 0
+    assert main(["hunt", "skipped", "restore", "1"]) == 0
+    assert calls == [("archive", "app-2")]
+    with pytest.raises(SystemExit, match="needs a row"):
+        main(["hunt", "skipped", "restore"])
 
 
 def test_apply_done_records_an_application_made_elsewhere() -> None:

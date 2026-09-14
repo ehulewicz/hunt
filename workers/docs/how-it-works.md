@@ -138,7 +138,10 @@ control by its question, echoes anything the user typed or chose as `picked up`,
 and reports when it sees a visible Submit control. Required-field completeness,
 Next, and Submit are left to the user in the browser. Answers are saved to the
 library as approved when the page moves on after Submit, when the user presses
-Ctrl+S (or `s`) in the terminal, or when Ctrl+C stops the run; a later save of
+Ctrl+S (or `s`) in the terminal, or when Ctrl+C stops the run, and also when
+Ctrl+D (or `d`) skips the listing — that marks its application `skipped`, which
+the board hides and a resync leaves alone; `os hunt skipped restore <n>` archives
+the row so the listing comes back; a later save of
 the same question overwrites the earlier value. The terminal is put in cbreak
 mode with XOFF disabled for the run so Ctrl+S reaches the worker. Closing Chrome or the last usable application tab also
 ends the run cleanly and preserves answers captured so far. Short answers reuse

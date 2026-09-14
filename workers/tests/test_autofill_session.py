@@ -249,6 +249,39 @@ def test_session_stops_cleanly_when_browser_or_application_tab_closes(
     assert outcome == {"final_url": page.url, "answers": [], "submitted": False}
 
 
+def test_ctrl_d_skips_the_listing_and_still_saves_what_was_picked_up(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
+    browser_page.set_content((FIXTURES / "greenhouse.html").read_text())
+    browser_page.fill("#why", "Half an answer.")
+    api = FakeApi()
+    context = SessionContext(
+        api=api,  # type: ignore[arg-type]
+        run_id="run-skip",
+        adapter_name="greenhouse",
+        browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
+        page=browser_page,
+        console_errors=[],
+        profile={"legal_name": "Alex Example", "email": "ethan@example.com"},
+        answers=[],
+        scoped=[],
+        resume_json={},
+        resume_pdf=tmp_path / "main.pdf",
+        company="Acme",
+        title="Backend Engineer Intern",
+        description=None,
+        drafter=lambda **_: None,
+        use_claude=False,
+        poll_seconds=0.01,
+        keys=ScriptedKeys([set(), {"skip"}]),
+    )
+    (tmp_path / "main.pdf").write_bytes(b"%PDF-1.4\n%%EOF")
+    outcome = AutofillSession(context).run()
+    assert outcome["skipped"] is True and "submitted" not in outcome
+    assert api.library["Why this team?"]["answer_text"] == "Half an answer."
+
+
 def test_session_seeds_long_form_saves_every_answer_and_ends_on_submit(
     browser_page,  # type: ignore[no-untyped-def]
     tmp_path: Path,

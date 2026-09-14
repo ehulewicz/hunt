@@ -402,7 +402,9 @@ async def test_application_status_is_the_new_lifecycle_only(
         return store
 
     app.dependency_overrides[get_jobs_store] = override_store
-    for status in ("queued", "applied", "oa", "oa_completed", "interview", "offer", "rejected"):
+    for status in (
+        "queued", "applied", "oa", "oa_completed", "interview", "offer", "rejected", "skipped"
+    ):
         response = await client.patch(
             f"/v1/jobs/applications/{APPLICATION_ID}",
             headers={"Authorization": "Bearer approved"},

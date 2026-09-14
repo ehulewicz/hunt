@@ -33,6 +33,8 @@ os hunt queue add 3 7
 os hunt queue empty
 os hunt apps
 os hunt apps 1 oa
+os hunt skipped               # listings passed over with Ctrl+D
+os hunt skipped restore 2     # back on the board
 
 os hunt apply 1 --dry-run
 os hunt apply 1
@@ -103,7 +105,9 @@ controls take their agreeing option. Each step ends with a **Left for you**
 list of the required controls still empty. In the
 terminal, Ctrl+S saves what has been picked up so
 far, Ctrl+A saves and marks the application applied when you have submitted
-it yourself, and Ctrl+C stops and saves. Whatever profile facts and exact answers leave unfilled goes
+it yourself, Ctrl+D skips the listing (it leaves the board as `skipped`, a
+resync cannot bring it back, and `os hunt skipped restore <n>` can), and
+Ctrl+C stops and saves. Whatever profile facts and exact answers leave unfilled goes
 through library and built-in pattern rules, then one bounded local Claude pass
 per page step over the remaining short and choice questions; `--no-claude`
 skips that last pass.
