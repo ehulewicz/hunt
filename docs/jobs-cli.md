@@ -72,8 +72,9 @@ compiles the canonical resume unchanged.
 The editable source and generated PDF are both portable Git artifacts:
 
 ```text
-artifacts/resume/main.json
-artifacts/resume/Alex_Example.pdf
+artifacts/career/main.json
+artifacts/career/Alex_Example.pdf
+artifacts/career/Transcript.pdf
 ```
 
 ## Headed apply
@@ -85,7 +86,7 @@ os hunt apply 12
 ```
 
 The command verifies the company/role, saves the tracked run/application context,
-attaches the tracked `artifacts/resume/Alex_Example.pdf` unchanged, follows one unambiguous Apply
+attaches the tracked `artifacts/career/Alex_Example.pdf` unchanged, follows one unambiguous Apply
 control when the ATS starts on a job-description page, fills the current step,
 then pauses. Edit the real page, answer the one incorrect-field prompt, and
 either type `review` or press Enter to authorize one exact Next/Continue click.

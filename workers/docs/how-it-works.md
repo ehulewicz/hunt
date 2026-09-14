@@ -38,7 +38,7 @@ iframe inspection. Ashby renders a boolean question as two `aria-pressed`
 buttons plus a hidden checkbox with no usable label; the worker reports it as
 a `yesno` control with the sibling question text and `Yes`/`No` options,
 clicks the matching button, and verifies `aria-pressed` rather than the
-checkbox, plus `artifacts/Transcript.pdf` for a file control asking for a
+checkbox, plus `artifacts/career/Transcript.pdf` for a file control asking for a
 transcript, when that file exists. Profile facts and exact library answers fill deterministically,
 including selects, comboboxes, and radio groups matched by their question text.
 For a How did you hear choice, the deterministic planner selects the first

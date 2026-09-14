@@ -21,8 +21,14 @@ def valid_resume() -> str:
 
 
 def test_default_resume_artifacts_live_together_in_the_repository() -> None:
-    assert resume.canonical_resume_path().parts[-3:] == ("artifacts", "resume", "main.json")
-    assert resume.default_pdf_path().parts[-3:] == ("artifacts", "resume", "Alex_Example.pdf")
+    assert resume.canonical_resume_path().parts[-3:] == ("artifacts", "career", "main.json")
+    assert resume.default_pdf_path().parts[-3:] == ("artifacts", "career", "Alex_Example.pdf")
+    assert resume.transcript_pdf_path() is not None
+    assert resume.transcript_pdf_path().parts[-3:] == (
+        "artifacts",
+        "career",
+        "Transcript.pdf",
+    )
 
 
 def test_latex_build_environment_is_reproducible(monkeypatch: pytest.MonkeyPatch) -> None:

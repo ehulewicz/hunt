@@ -14,7 +14,7 @@ COPY pyproject.toml uv.lock ./
 COPY backend/pyproject.toml backend/README.md ./backend/
 COPY workers/pyproject.toml workers/README.md ./workers/
 COPY backend/src ./backend/src
-COPY artifacts/resume/main.json ./artifacts/resume/main.json
+COPY artifacts/career/main.json ./artifacts/career/main.json
 RUN uv sync --frozen --no-dev --package personal-os-backend
 
 ENV PATH="/app/.venv/bin:$PATH"

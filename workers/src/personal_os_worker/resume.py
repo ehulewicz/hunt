@@ -43,7 +43,7 @@ def canonical_resume_path() -> Path:
     configured = os.environ.get("PERSONAL_OS_RESUME_JSON")
     if configured:
         return Path(configured).expanduser().resolve()
-    return repository_root() / "artifacts" / "resume" / "main.json"
+    return repository_root() / "artifacts" / "career" / "main.json"
 
 
 RESUME_PDF_NAME = "Alex_Example.pdf"
@@ -56,7 +56,7 @@ def default_pdf_path() -> Path:
 
 def transcript_pdf_path() -> Path | None:
     """The tracked transcript beside the resume, when there is one."""
-    path = repository_root() / "artifacts" / "Transcript.pdf"
+    path = repository_root() / "artifacts" / "career" / "Transcript.pdf"
     return path if path.exists() else None
 
 

@@ -17,11 +17,11 @@ def canonical_resume_path() -> Path:
     if configured:
         return Path(configured).expanduser().resolve()
     for parent in Path(__file__).resolve().parents:
-        candidate = parent / "artifacts" / "resume" / "main.json"
+        candidate = parent / "artifacts" / "career" / "main.json"
         if candidate.is_file():
             return candidate
     raise RuntimeError(
-        "Canonical resume not found; expected artifacts/resume/main.json "
+        "Canonical resume not found; expected artifacts/career/main.json "
         "or PERSONAL_OS_RESUME_JSON"
     )
 

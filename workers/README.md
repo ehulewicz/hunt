@@ -26,8 +26,8 @@ os hunt apply 1
 os hunt apply failures list
 ```
 
-Edit `artifacts/resume/main.json`; `os hunt resume watch --open` keeps the
-Git-tracked `artifacts/resume/Alex_Example.pdf` beside it up to date.
+Edit `artifacts/career/main.json`; `os hunt resume watch --open` keeps the
+Git-tracked `artifacts/career/Alex_Example.pdf` beside it up to date.
 
 The CLI launches local FastAPI and the dedicated native Windows Chrome profile
 as needed. It never accesses Postgres directly and never submits an application.

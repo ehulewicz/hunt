@@ -30,7 +30,7 @@ workers/.chrome-profile/
 .logs/
 
 # Resume build intermediary; JSON and PDF in this directory are tracked.
-artifacts/resume/*.tex
+artifacts/career/*.tex
 
 # Sam Kim reference fixture renders. The fixture JSON is tracked; its build
 # output is not, because bin/Sam_Kim_resume_dec2027.pdf is already the tracked
@@ -53,10 +53,9 @@ testing/
 .env*.local
 
 # LaTeX build residue beside the canonical resume
-artifacts/resume/*.aux
-artifacts/resume/*.fdb_latexmk
-artifacts/resume/*.fls
-artifacts/resume/*.log
-artifacts/resume/*.out
-artifacts/resume/*.synctex.gz
-artifacts/resume/*.tex
+artifacts/career/*.aux
+artifacts/career/*.fdb_latexmk
+artifacts/career/*.fls
+artifacts/career/*.log
+artifacts/career/*.out
+artifacts/career/*.synctex.gz
