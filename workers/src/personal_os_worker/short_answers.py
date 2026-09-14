@@ -82,6 +82,11 @@ the answer; otherwise report `low`. Never invent numbers, dates, preferences, or
 authorization status that the facts do not state.
 Never choose an option that declines to answer, such as "Prefer not to answer" or
 "Decline to self-identify". If the facts do not support another option, report `low`.
+A question about experience at a particular kind of employer, industry, or role
+(for example "at a proprietary trading firm", "in healthcare", "as a team lead") is
+answered Yes only when the resume names such an employer or role outright. Adjacent
+or transferable experience does not count: when the resume shows none, answer No with
+`high` confidence rather than stretching "relevant".
 
 QUESTIONS: {json.dumps(payload, default=str)[:30000]}
 POSTING: {json.dumps(posting, default=str)[:30000]}

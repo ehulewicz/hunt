@@ -12,10 +12,12 @@ from personal_os_worker.adapters import failure_signature, option_match
 from personal_os_worker.autofill import (
     FILE_KINDS,
     AutofillPlan,
+    affirmative_option,
     build_autofill_plan,
     choose_option,
     is_sensitive_field,
     normalize_question,
+    preferred_source_option,
 )
 
 # Playwright auto-waits 30s for a control before an action fails; a control that
@@ -266,6 +268,7 @@ def apply_autofill(
 ) -> dict[str, Any]:
     filled_labels: list[str] = []
     skipped: list[str] = []
+    applied: dict[int, str] = {}  # what a menu-driven choice actually picked
     unanswered = list(plan.unanswered_required_questions)
     failures: list[dict[str, Any]] = []
     documents = {"resume": resume_path, "transcript": transcript_path}
@@ -299,6 +302,9 @@ def apply_autofill(
                 if matched is None:
                     raise RuntimeError("no unambiguous select option")
                 control.select_option(label=matched, timeout=CONTROL_TIMEOUT_MS)
+            elif field.get("role") == "combobox" and fill.chooser is not None:
+                expected = choose_combobox_option(page, control, fill.chooser, question=label)
+                applied[fill.index] = expected
             elif field.get("role") == "combobox" and fill.value is not None:
                 expected = select_combobox_option(page, control, fill.value)
             elif field.get("type") == "yesno" and fill.value is not None:
@@ -377,6 +383,7 @@ def apply_autofill(
         "captured_url": page.url,
         "filled_fields": filled_labels,
         "skipped_fields": skipped,
+        "applied": applied,
         "unanswered_required_questions": list(dict.fromkeys(unanswered)),
         "failures": failures,
         "submitted": False,
@@ -467,6 +474,26 @@ def combobox_options(page: Page, control: Any) -> list[str]:
         texts = list(dict.fromkeys(text for text in _visible_texts(options)[1] if text))
     control.press("Escape", timeout=CONTROL_TIMEOUT_MS)
     return texts
+
+
+def choose_combobox_option(page: Page, control: Any, chooser: str, *, question: str) -> str:
+    """Open a typeahead and pick by standing policy: the how-heard source or the consent."""
+    control.click(timeout=CONTROL_TIMEOUT_MS)
+    options = _menu_options(control)
+    if not _await_options(page, options, COMBOBOX_LIST_TIMEOUT_MS):
+        control.press("Escape", timeout=CONTROL_TIMEOUT_MS)
+        raise RuntimeError(f"no unambiguous combobox option for {chooser} (none listed)")
+    visible, texts = _visible_texts(options)
+    distinct = list(dict.fromkeys(text for text in texts if text))
+    if chooser == "consent":
+        chosen = affirmative_option(distinct)
+    else:
+        chosen = preferred_source_option(question, distinct)
+    if chosen is None:
+        control.press("Escape", timeout=CONTROL_TIMEOUT_MS)
+        raise RuntimeError(f"no unambiguous combobox option for {chooser}")
+    options.nth(visible[texts.index(chosen)]).click()
+    return chosen
 
 
 def select_combobox_option(page: Page, control: Any, value: str) -> str:

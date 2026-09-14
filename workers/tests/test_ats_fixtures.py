@@ -575,6 +575,60 @@ box.addEventListener('blur', () => setTimeout(() => { menu.innerHTML = ''; }, 0)
 </script>
 """
 
+REACT_SELECT_POLICY = """
+<div class="select">
+  <label for="source">How did you hear about DV Trading?</label>
+  <div class="select__control"><div class="select__value-container">
+    <input id="source" class="select__input" role="combobox" aria-required="true">
+  </div></div>
+  <div class="select__menu"></div>
+</div>
+<div class="select">
+  <label for="terms">Terms and Conditions</label>
+  <div class="select__control"><div class="select__value-container">
+    <input id="terms" class="select__input" role="combobox" aria-required="true">
+  </div></div>
+  <div class="select__menu"></div>
+</div>
+<script>
+(() => {
+const menus = {
+  source: ['LinkedIn', 'Handshake', 'DV Website', 'Referral', 'Other'],
+  terms: ["Yes, I have read and agree to DV Trading's privacy policy"],
+};
+for (const [id, choices] of Object.entries(menus)) {
+  const box = document.getElementById(id);
+  const wrapper = box.closest('.select');
+  const holder = wrapper.querySelector('.select__value-container');
+  const menu = wrapper.querySelector('.select__menu');
+  const render = () => {
+    const needle = box.value.toLowerCase();
+    menu.innerHTML = '';
+    choices.filter(c => c.toLowerCase().includes(needle)).forEach(choice => {
+      const option = document.createElement('div');
+      option.setAttribute('role', 'option');
+      option.textContent = choice;
+      option.addEventListener('mousedown', () => {
+        holder.querySelector('.select__single-value')?.remove();
+        const chosen = document.createElement('div');
+        chosen.className = 'select__single-value';
+        chosen.textContent = choice;
+        holder.prepend(chosen);
+        box.value = '';
+        menu.innerHTML = '';
+      });
+      menu.appendChild(option);
+    });
+  };
+  box.addEventListener('click', render);
+  box.addEventListener('input', render);
+  box.addEventListener('keydown', e => { if (e.key === 'Escape') menu.innerHTML = ''; });
+  box.addEventListener('blur', () => setTimeout(() => { menu.innerHTML = ''; }, 0));
+}
+})();
+</script>
+"""
+
 PLACES_CITY = """
 <div class="field">
   <label for="city">Location (City)</label>
@@ -631,6 +685,31 @@ def test_react_select_is_picked_by_prefix_and_read_back_from_its_rendered_choice
         "Country": {"question": "Country", "answer_text": "+1", "control_kind": "input"}
     }
     assert audit_filled_form(refreshed)["required_unfilled"] == []
+
+
+def test_how_heard_and_consent_typeaheads_are_chosen_from_the_live_menu(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(REACT_SELECT_POLICY)
+    fields = inspect_fields(browser_page)
+    plan = build_autofill_plan(fields, profile={}, approved_answers=[])
+    assert [(fill.value, fill.chooser) for fill in plan.fills] == [
+        (None, "source"),
+        (None, "consent"),
+    ]
+    result = apply_autofill(
+        browser_page, fields, plan, resume_path=None, assert_active=lambda: None
+    )
+
+    assert result["failures"] == []
+    assert result["filled_fields"] == ["How did you hear about DV Trading?", "Terms and Conditions"]
+    assert result["applied"] == {
+        0: "DV Website",
+        1: "Yes, I have read and agree to DV Trading's privacy policy",
+    }
+    shown = [el.inner_text() for el in browser_page.locator(".select__single-value").all()]
+    assert shown == ["DV Website", "Yes, I have read and agree to DV Trading's privacy policy"]
+    assert audit_filled_form(inspect_fields(browser_page))["required_unfilled"] == []
 
 
 def test_places_city_typeahead_is_filled_by_the_location_rule(

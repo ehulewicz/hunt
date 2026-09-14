@@ -15,6 +15,9 @@ class FormFill:
     index: int
     kind: str
     value: str | None
+    # A choice made against the live menu rather than planned up front: "source"
+    # (how did you hear) or "consent" (terms, privacy, attestations).
+    chooser: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,10 +78,10 @@ PROFILE_LABELS = {
     "are you authorized to work in the united states?": "work_authorization_status",
 }
 
-# The worker never attests, consents, or signs on the user's behalf. Demographic
-# questions are ordinary saved answers for a single user and are no longer
-# blocked from reuse.
-BLOCKED_LABEL_WORDS = frozenset(
+# Consent, terms, and attestation controls are always answered affirmatively
+# (decided 2026-09-14); only a signature is left to the user. Demographic
+# questions are ordinary saved answers for a single user and are not blocked.
+CONSENT_WORDS = frozenset(
     {
         "agree",
         "agreement",
@@ -89,10 +92,15 @@ BLOCKED_LABEL_WORDS = frozenset(
         "attest",
         "terms",
         "privacy",
-        "signature",
-        "electronic signature",
     }
 )
+SIGNATURE_WORDS = frozenset({"signature", "electronic signature"})
+BLOCKED_LABEL_WORDS = CONSENT_WORDS | SIGNATURE_WORDS
+NEGATION = re.compile(r"\b(not|no|don t|do not|decline|disagree|reject|refuse)\b")
+AFFIRMATION = re.compile(
+    r"\b(yes|agree|accept|acknowledge|consent|confirm|i have read|understood)\b"
+)
+JOB_BOARD = re.compile(r"\b(job\s+boards?|linkedin|indeed|handshake|glassdoor|wellfound|dice)\b")
 
 HOW_HEARD = re.compile(
     r"\bhow did you (?:first )?hear\b|\bwhere did you (?:first )?hear\b|"
@@ -110,6 +118,16 @@ def normalize_answer_question(value: str) -> str:
     return re.sub(r"[^a-z0-9+#]+", " ", value.casefold()).strip()
 
 
+def _is_company_site(value: str) -> bool:
+    """"Company Website", "DV Website", "Careers page": the employer's own site."""
+    words = set(value.split())
+    if not words & {"website", "site", "careers", "career", "webpage"}:
+        return False
+    if JOB_BOARD.search(value):
+        return False
+    return "job" not in words or "company" in words
+
+
 def preferred_source_option(question: str, options: list[str]) -> str | None:
     """The user's standing source choice, ranked by the options actually offered."""
     if not HOW_HEARD.search(question):
@@ -117,8 +135,7 @@ def preferred_source_option(question: str, options: list[str]) -> str | None:
 
     normalized = [(option, normalize_answer_question(option)) for option in options]
     preferences = (
-        lambda value: "company" in value.split()
-        and any(word in value.split() for word in ("website", "site")),
+        _is_company_site,
         lambda value: re.search(r"\bjob\s+boards?\b", value) is not None,
         lambda value: value == "other" or value.startswith("other "),
     )
@@ -149,13 +166,42 @@ def is_transcript_field(field: dict[str, Any]) -> bool:
     return "transcript" in hints
 
 
-def is_sensitive_field(field: dict[str, Any]) -> bool:
-    context = normalize_question(
+def _field_context(field: dict[str, Any]) -> str:
+    return normalize_question(
         " ".join(str(field.get(key) or "") for key in ("label", "name", "group"))
     )
-    return any(
-        re.search(rf"(?<!\w){re.escape(word)}(?!\w)", context) for word in BLOCKED_LABEL_WORDS
-    )
+
+
+def _mentions(context: str, words: frozenset[str]) -> bool:
+    return any(re.search(rf"(?<!\w){re.escape(word)}(?!\w)", context) for word in words)
+
+
+def is_sensitive_field(field: dict[str, Any]) -> bool:
+    """Consent, attestation, or signature: never drafted, never put to Claude."""
+    return _mentions(_field_context(field), BLOCKED_LABEL_WORDS)
+
+
+def is_consent_field(field: dict[str, Any]) -> bool:
+    """A consent or attestation control the worker answers affirmatively; not a signature."""
+    context = _field_context(field)
+    return _mentions(context, CONSENT_WORDS) and not _mentions(context, SIGNATURE_WORDS)
+
+
+def affirmative_option(options: list[str]) -> str | None:
+    """The one option that agrees: "Yes", "I agree", "Yes, I have read and accept ..."."""
+    candidates = [
+        option
+        for option in options
+        if option.strip()
+        and not is_non_answer_option(option)
+        and not NEGATION.search(normalize_answer_question(option))
+    ]
+    agreeing = [
+        option for option in candidates if AFFIRMATION.search(normalize_answer_question(option))
+    ]
+    if len(agreeing) == 1:
+        return agreeing[0]
+    return candidates[0] if len(candidates) == 1 and not agreeing else None
 
 
 def build_autofill_plan(
@@ -239,9 +285,20 @@ def build_autofill_plan(
             continue
 
         value: str | None = None
+        chooser: str | None = None
         kind = "text"
         if sensitive:
-            pass
+            if is_consent_field(field) and field_type != "file":
+                own = str(field.get("label") or field.get("value") or "")
+                if field_type in {"radio", "checkbox"}:
+                    options = group_options.get(normalized) or [own]
+                    chosen = own if len(options) == 1 else affirmative_option(options)
+                    value = own if chosen == own else None
+                elif field.get("role") == "combobox":
+                    chooser = "consent"
+                elif tag == "select":
+                    options = [str(option) for option in field.get("options") or []]
+                    value = affirmative_option(options)
         elif field_type == "file" and index in resume_candidates and len(resume_candidates) == 1:
             kind = "resume"
         elif (
@@ -257,6 +314,9 @@ def build_autofill_plan(
                 else [str(option) for option in field.get("options") or []]
             )
             value = preferred_source_option(question_label, options)
+            if value is None and not options and HOW_HEARD.search(question_label):
+                # A typeahead shows its choices only once opened; rank them then.
+                chooser = "source" if field.get("role") == "combobox" else None
             profile_key = PROFILE_LABELS.get(normalized)
             if str(field.get("section") or "") == "education":
                 profile_key = {
@@ -271,6 +331,7 @@ def build_autofill_plan(
                     value = str(profile_value).strip()
                 elif profile_key is None and answer_question in answers:
                     value = answers[answer_question]
+                    chooser = None
                 elif profile_key is None and fallback is not None and question_label:
                     value = fallback(question_label)
 
@@ -291,8 +352,8 @@ def build_autofill_plan(
                     if chosen is None or chosen != own:
                         value = None
 
-        if kind in FILE_KINDS or value is not None:
-            fills.append(FormFill(index=index, kind=kind, value=value))
+        if kind in FILE_KINDS or value is not None or chooser is not None:
+            fills.append(FormFill(index=index, kind=kind, value=value, chooser=chooser))
             if field_type in {"radio", "checkbox"} and group:
                 answered_groups.add(normalized)
         elif required and label:

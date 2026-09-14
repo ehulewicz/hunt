@@ -1,4 +1,4 @@
-from personal_os_worker.autofill import build_autofill_plan, choose_option
+from personal_os_worker.autofill import affirmative_option, build_autofill_plan, choose_option
 from personal_os_worker.browser import audit_filled_form
 
 
@@ -81,7 +81,7 @@ def test_autofill_matches_the_api_answer_shape_and_harmless_punctuation() -> Non
     assert plan.unanswered_required_questions == ()
 
 
-def test_autofill_leaves_unknown_consent_and_non_exact_answers_empty() -> None:
+def test_autofill_affirms_consent_and_leaves_non_exact_answers_empty() -> None:
     fields = [
         {
             "index": 0,
@@ -128,12 +128,66 @@ def test_autofill_leaves_unknown_consent_and_non_exact_answers_empty() -> None:
         ],
     )
 
-    assert plan.fills == ()
-    assert plan.unanswered_required_questions == (
-        "Gender",
-        "I certify this is true",
-        "Why do you want this role?",
+    # A lone consent checkbox is checked; nothing else here can be answered.
+    assert [(fill.index, fill.value) for fill in plan.fills] == [(1, "I certify this is true")]
+    assert plan.unanswered_required_questions == ("Gender", "Why do you want this role?")
+
+
+def test_consent_controls_take_the_affirmative_option_and_signatures_stay_manual() -> None:
+    assert affirmative_option(["Select...", "Yes, I have read and agree", "No"]) == (
+        "Yes, I have read and agree"
     )
+    assert affirmative_option(["I agree", "I do not agree"]) == "I agree"
+    assert affirmative_option(["Accept", "Decline"]) == "Accept"
+    assert affirmative_option(["Option A", "Option B"]) is None
+    fields = [
+        {
+            "index": 0,
+            "tag": "select",
+            "type": None,
+            "label": "Terms and Conditions",
+            "options": ["Select...", "Yes, I have read and agree to the privacy policy"],
+            "required": True,
+        },
+        {
+            "index": 1,
+            "tag": "input",
+            "type": "text",
+            "role": "combobox",
+            "label": "Privacy consent",
+            "required": True,
+        },
+        {
+            "index": 2,
+            "tag": "input",
+            "type": "radio",
+            "label": "Yes - I consent",
+            "group": "Do you consent to text updates?",
+            "required": True,
+        },
+        {
+            "index": 3,
+            "tag": "input",
+            "type": "radio",
+            "label": "No - I do not consent",
+            "group": "Do you consent to text updates?",
+            "required": True,
+        },
+        {
+            "index": 4,
+            "tag": "input",
+            "type": "text",
+            "label": "Electronic signature",
+            "required": True,
+        },
+    ]
+    plan = build_autofill_plan(fields, profile={}, approved_answers=[])
+    assert [(fill.index, fill.value, fill.chooser) for fill in plan.fills] == [
+        (0, "Yes, I have read and agree to the privacy policy", None),
+        (1, None, "consent"),
+        (2, "Yes - I consent", None),
+    ]
+    assert plan.unanswered_required_questions == ("Electronic signature",)
 
 
 def test_autofill_maps_boolean_application_facts_without_using_answer_rows() -> None:
@@ -425,6 +479,34 @@ def test_how_heard_uses_the_first_available_standing_source_preference() -> None
     assert chosen(["LinkedIn", "Other", "Online Job Board"]) == "Online Job Board"
     assert chosen(["LinkedIn", "Other (please specify)"]) == "Other (please specify)"
     assert chosen(["LinkedIn", "Referral"]) == "LinkedIn"
+    # The employer's own site under its own name still counts as the company website.
+    assert chosen(["LinkedIn", "Handshake", "DV Website", "Other"]) == "DV Website"
+    assert chosen(["LinkedIn", "Careers page", "Other"]) == "Careers page"
+    assert chosen(["LinkedIn", "Job site", "Other"]) == "Other"
+
+
+def test_how_heard_typeahead_without_visible_options_is_chosen_from_the_live_menu() -> None:
+    fields = [
+        {
+            "index": 0,
+            "tag": "input",
+            "type": "text",
+            "role": "combobox",
+            "label": "How did you hear about DV Trading?",
+            "required": True,
+        }
+    ]
+    plan = build_autofill_plan(fields, profile={}, approved_answers=[])
+    assert [(fill.index, fill.value, fill.chooser) for fill in plan.fills] == [(0, None, "source")]
+    # An exact library answer still wins over the standing preference.
+    plan = build_autofill_plan(
+        fields,
+        profile={},
+        approved_answers=[
+            {"normalized_question": "How did you hear about DV Trading?", "answer_text": "Referral"}
+        ],
+    )
+    assert [(f.index, f.value, f.chooser) for f in plan.fills] == [(0, "Referral", None)]
 
 
 def test_autofill_does_not_upload_resume_inside_sensitive_group() -> None:

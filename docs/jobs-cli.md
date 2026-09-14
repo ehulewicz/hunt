@@ -98,7 +98,9 @@ control when the ATS starts on a job-description page, fills the current step,
 then watches while you review required fields and use Next or Submit in the
 browser. It reports a visible Submit control and rescans after navigation, but
 does not gate navigation on a required-field audit. No automated action contains
-Next, Submit, consent, signature, attestation, or captcha operations. In the
+Next, Submit, signature, or captcha operations; consent and attestation
+controls take their agreeing option. Each step ends with a **Left for you**
+list of the required controls still empty. In the
 terminal, Ctrl+S saves what has been picked up so
 far, Ctrl+A saves and marks the application applied when you have submitted
 it yourself, and Ctrl+C stops and saves. Whatever profile facts and exact answers leave unfilled goes

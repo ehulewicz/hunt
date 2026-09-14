@@ -28,6 +28,7 @@ from personal_os_worker.browser import (
     BrowserClosedError,
     VisibleBrowser,
     apply_autofill,
+    audit_filled_form,
     combobox_options,
     fresh_control,
     has_submit_control,
@@ -132,6 +133,8 @@ TAG_STYLES = {
     "library": "dim",
     "pattern": "magenta",
     "claude": "magenta",
+    "source": "dim",
+    "consent": "dim",
     "long-form": "cyan",
     "picked up": "cyan",
     "saved": "green",
@@ -398,8 +401,8 @@ class AutofillSession:
         console.print()
         console.rule(f"[bold]Step {self.state.step + 1}[/bold]", align="left")
         console.print(
-            f"  {len(fields)} controls · {len(plan.fills)} planned · "
-            f"{len(plan.unanswered_required_questions)} required left for you"
+            f"  {len(fields)} controls · {len(plan.fills)} planned deterministically · "
+            f"{len(plan.unanswered_required_questions)} required still open"
         )
         if self.ctx.dry_run:
             return {"filled_fields": [], "skipped_fields": [], "failures": [], "plan": plan}
@@ -415,9 +418,13 @@ class AutofillSession:
         for fill in plan.fills:
             question = _question_for(fields[fill.index])
             applied = _applied_value(fields[fill.index], fill)
+            if applied is None and fill.chooser is not None:
+                applied = result["applied"].get(fill.index)
             if applied is not None and question:
                 self.state.planned[question] = applied
-                if question in self.state.tier_answers:
+                if fill.chooser is not None:
+                    echo(fill.chooser, question, applied)
+                elif question in self.state.tier_answers:
                     self.state.tier_answers[question] = applied
                     echo("pattern", question, applied)
         for question in result["unanswered_required_questions"]:
@@ -628,6 +635,21 @@ class AutofillSession:
             if source == "model":
                 self.state.review.append((question, label))
 
+    def report_left(self) -> None:
+        """Name every required control still empty once all tiers have run."""
+        try:
+            audit = audit_filled_form(inspect_fields(self.page))
+        except Error:
+            return
+        left = audit["required_unfilled"]
+        if not left:
+            console.print("  [dim]every required control is filled[/dim]")
+            return
+        console.print()
+        console.print(f"  [bold]Left for you[/bold] ({len(left)} required):")
+        for question in left:
+            echo("left", question)
+
     def report_review(self) -> None:
         """List the long-form answers that came from a draft, once per step."""
         if not self.state.review:
@@ -714,6 +736,7 @@ class AutofillSession:
                 if self.ctx.use_claude:
                     self.fill_with_claude(fields, result)
                 self.fill_long_form(fields)
+                self.report_left()
                 self.report_review()
                 self.wait_and_advance(fields)
                 self.state.step += 1

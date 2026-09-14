@@ -60,7 +60,13 @@ applies the top board row on a supported ATS, or on the `--ats` given;
 `os hunt apply today` does the same over today's rows.
 The worker never selects a “Prefer not to answer,” “Decline,” or equivalent
 choice; when no factual answer is available, that question remains for the user.
-Consent stays manual, while custom radio groups now recognize and preserve a
+Consent, terms, privacy, and attestation controls are answered affirmatively
+(decided 2026-09-14): a lone checkbox is checked, a choice group or select takes
+its one agreeing option, and a typeahead is opened and its agreeing option picked
+(`affirmative_option`), echoed as `consent <question> -> <option>`. A signature
+stays manual. The same open-then-rank path answers a "How did you hear" typeahead
+(`source`), and an employer's own site under any name ("DV Website", "Careers
+page") counts as the company website. Custom radio groups recognize and preserve a
 manually checked answer. Plain text controls receive focus and a real blur after
 their input/change events so controlled ATS forms commit the displayed value.
 
@@ -137,9 +143,10 @@ the same question overwrites the earlier value. The terminal is put in cbreak
 mode with XOFF disabled for the run so Ctrl+S reaches the worker. Closing Chrome or the last usable application tab also
 ends the run cleanly and preserves answers captured so far. Short answers reuse
 exactly next time; textarea answers are stored as contextual so the next draft
-can be tailored again. The worker never clicks submission, consent, attestation,
-or captcha controls, and those consent labels are the only ones excluded from
-filling. Failure fixes still require explicit worktree mutation, replay tests, a
+can be tailored again. The worker never clicks submission, signature, or
+captcha controls; consent and attestation are filled deterministically and are
+never put to Claude or drafted. After all tiers run, every required control still
+empty is listed under **Left for you**. Failure fixes still require explicit worktree mutation, replay tests, a
 user-created commit, and headed live confirmation.
 
 ## Host prerequisites
