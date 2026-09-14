@@ -44,9 +44,16 @@ os hunt apply failures verify 1 7
 ```
 
 Displayed listing titles are clickable when the terminal supports hyperlinks.
+A listing's `#` is assigned by the database over one canonical board — every
+open listing not yet applied to, technical families first, newest first — so
+it is the same number in `os hunt`, `os hunt 9`, `os hunt today`, and every
+filtered view (filters leave gaps rather than renumbering). Listings you have
+applied to are not shown; a queued one carries a `q`. Nothing is cached on
+the machine: `open`, `queue add`, and `apply` ask the API to resolve a number
+or an id prefix at the moment you run them, and `apps`, `answers edit`, and
+`apply failures …` count rows in the list they just fetched.
 `os hunt open <row>` opens the direct company/ATS URL without creating an
-application; `--source` opens the discovery URL. `list`, `queue`, `apps`, and
-`apply` accept cached row numbers or unambiguous ID prefixes where applicable.
+application; `--source` opens the discovery URL.
 `queue add` puts listings in the queue; `queue empty` runs `apply` through it in
 order, one interactive session at a time, and stops after any that is not
 submitted. `apps` lists everything past the queue with its lifecycle status

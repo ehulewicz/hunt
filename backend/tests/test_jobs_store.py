@@ -150,3 +150,23 @@ def test_master_resume_content_accepts_the_canonical_shape() -> None:
     assert content.education.location == "Atlanta, GA"
     # Unknown keys such as meta survive so the worker template keeps its extras.
     assert "meta" in content.model_dump()
+
+
+def test_board_numbers_listings_once_before_any_filter() -> None:
+    """The row number is a window over the whole board, so every view agrees."""
+    from personal_os.jobs_store import BOARD_QUERY
+
+    board = " ".join(BOARD_QUERY.as_string(None).split())
+    assert "row_number() over ( order by case when posting.role_families && %s::text[]" in board
+    assert board.endswith(
+        "and (application.id is null or application.status = 'queued')"
+    ), "applied-to listings must leave the board"
+    assert "posting.created_at desc, posting.id )" in board, "same-day rows need a tiebreak"
+    assert 'as "row"' in board
+
+
+def test_lists_that_are_addressed_by_row_have_deterministic_order() -> None:
+    source = (Path(__file__).resolve().parents[1] / "src/personal_os/jobs_store.py").read_text()
+    assert "application.updated_at desc, application.id" in source
+    assert "order by updated_at desc, id" in source
+    assert "order by last_seen_at desc, id" in source

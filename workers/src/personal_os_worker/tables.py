@@ -1,22 +1,22 @@
 """Terminal rendering and row references.
 
-UUIDs are unusable in a terminal, so every table caches what it rendered and
-accepts either a row number from that cache or an unambiguous id prefix, the way
-git resolves short hashes. Row numbers make batch commands practical; prefixes
-keep working when the cache is stale or missing.
+UUIDs are unusable in a terminal, so every table shows a row number and every
+command that takes one resolves it against the database at that moment, the
+way the table was just drawn from it. A listing's number is assigned by the
+database over one canonical board, so it is the same in every listing view;
+the other tables are small and numbered by position in one deterministic
+query. An unambiguous id prefix works everywhere too, the way git resolves
+short hashes. Nothing is cached on this machine.
 """
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from rich import box
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
-
-from personal_os_worker.service import state_dir
 
 SHORT_ID_LENGTH = 8
 
@@ -31,76 +31,28 @@ def short_id(value: str) -> str:
     return value.replace("-", "")[:SHORT_ID_LENGTH]
 
 
-def cache_path(kind: str) -> str:
-    return str(state_dir() / f"last-{kind}.json")
-
-
-def remember(
-    kind: str, ids: list[str], *, records: list[dict[str, Any]] | None = None
-) -> None:
-    path = state_dir() / f"last-{kind}.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload: dict[str, Any] = {"ids": ids}
-    if records is not None:
-        payload["records"] = records
-    path.write_text(json.dumps(payload, indent=2) + "\n")
-
-
-def recall(kind: str) -> list[str]:
-    try:
-        data = json.loads((state_dir() / f"last-{kind}.json").read_text())
-        ids = data["ids"]
-        return [str(value) for value in ids] if isinstance(ids, list) else []
-    except (FileNotFoundError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-        return []
-
-
-def resolve(kind: str, reference: str) -> str:
-    """Resolve a row number or id prefix to exactly one id."""
-    known = recall(kind)
+def pick(items: list[dict[str, Any]], reference: str, *, kind: str) -> dict[str, Any]:
+    """The one item a row number (1-based position) or id prefix denotes."""
     if reference.isdigit():
         index = int(reference)
-        if not known:
-            raise ReferenceError(
-                f"No cached {kind} to number against. Run 'os hunt {kind}' first, "
-                "or pass an id prefix."
-            )
-        if not 1 <= index <= len(known):
-            raise ReferenceError(
-                f"Row {index} is out of range; the last {kind} result had {len(known)} rows."
-            )
-        return known[index - 1]
-
+        if not 1 <= index <= len(items):
+            raise ReferenceError(f"Row {index} is out of range; there are {len(items)} {kind}.")
+        return items[index - 1]
     normalized = reference.replace("-", "").casefold()
     if len(normalized) < 4:
         raise ReferenceError(f"Id prefix {reference!r} is too short; use at least 4 characters.")
-    matches = [value for value in known if value.replace("-", "").casefold().startswith(normalized)]
+    matches = [
+        item
+        for item in items
+        if str(item.get("id", "")).replace("-", "").casefold().startswith(normalized)
+    ]
     if len(matches) == 1:
         return matches[0]
     if len(matches) > 1:
         raise ReferenceError(
-            f"Id prefix {reference!r} matches {len(matches)} rows; use more characters."
+            f"Id prefix {reference!r} matches {len(matches)} {kind}; use more characters."
         )
-    raise ReferenceError(
-        f"Nothing in the last {kind} result matches {reference!r}. Run 'os hunt {kind}' to refresh."
-    )
-
-
-def resolve_record(kind: str, reference: str) -> dict[str, Any]:
-    """Resolve a displayed row and return its cached non-secret display data."""
-    record_id = resolve(kind, reference)
-    try:
-        data = json.loads((state_dir() / f"last-{kind}.json").read_text())
-        records = data.get("records")
-    except (FileNotFoundError, TypeError, ValueError, json.JSONDecodeError):
-        records = None
-    if isinstance(records, list):
-        for record in records:
-            if isinstance(record, dict) and str(record.get("id")) == record_id:
-                return record
-    raise ReferenceError(
-        f"The cached {kind} rows predate link support. Run 'os hunt {kind}' to refresh."
-    )
+    raise ReferenceError(f"No {kind} match {reference!r}.")
 
 
 def _age(days: Any) -> str:
@@ -112,6 +64,7 @@ def _age(days: Any) -> str:
 
 
 def render_listings(items: list[dict[str, Any]], total: int, *, title: str = "Listings") -> None:
+    """Rows carry the board number the database assigned; a `q` marks a queued one."""
     # One row must stay one line, or the table stops being scannable.
     table = Table(
         title=f"{title} ({len(items)} of {total})",
@@ -121,46 +74,32 @@ def render_listings(items: list[dict[str, Any]], total: int, *, title: str = "Li
         expand=True,
     )
     table.add_column("#", justify="right", style="dim")
-    table.add_column("id", style="dim", no_wrap=True)
     table.add_column("company", no_wrap=True, overflow="ellipsis")
     table.add_column("title", no_wrap=True, overflow="ellipsis", ratio=1)
     table.add_column("location", no_wrap=True, overflow="ellipsis")
     table.add_column("age", justify="right", no_wrap=True)
     table.add_column("cat", no_wrap=True)
-    table.add_column("app", no_wrap=True)
+    table.add_column("q", no_wrap=True)
 
-    for index, item in enumerate(items, start=1):
+    for item in items:
         category = str(item.get("source_category") or "")
-        title = str(item.get("title") or "-")
+        title_text = str(item.get("title") or "-")
         application_url = str(item.get("application_url") or "")
         rendered_title = (
-            Text(title, style=f"link {application_url}") if application_url else Text(title)
+            Text(title_text, style=f"link {application_url}")
+            if application_url
+            else Text(title_text)
         )
         table.add_row(
-            str(index),
-            short_id(str(item.get("id", ""))),
+            str(item.get("row") or "-"),
             str(item.get("company_name") or "-"),
             rendered_title,
             str(item.get("location") or "-"),
             _age(item.get("source_age_days")),
             "" if category == "other" else category,
-            "yes" if item.get("application_id") else "",
+            "q" if item.get("application_status") == "queued" else "",
         )
     console.print(table)
-    remember(
-        "listings",
-        [str(item.get("id", "")) for item in items],
-        records=[
-            {
-                "id": str(item.get("id", "")),
-                "company_name": item.get("company_name"),
-                "title": item.get("title"),
-                "application_url": item.get("application_url"),
-                "discovery_url": item.get("discovery_url"),
-            }
-            for item in items
-        ],
-    )
 
 
 def render_applications(items: list[dict[str, Any]], *, title: str = "Applications") -> None:
@@ -189,7 +128,6 @@ def render_applications(items: list[dict[str, Any]], *, title: str = "Applicatio
             applied or "-",
         )
     console.print(table)
-    remember("apps", [str(item.get("id", "")) for item in items])
 
 
 def render_answers(items: list[dict[str, Any]]) -> None:
@@ -216,4 +154,3 @@ def render_answers(items: list[dict[str, Any]]) -> None:
             str(item.get("reuse_policy") or "exact"),
         )
     console.print(table)
-    remember("answers", [str(item.get("id", "")) for item in items])

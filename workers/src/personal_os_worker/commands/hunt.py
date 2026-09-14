@@ -8,11 +8,10 @@ from personal_os_worker.doctor import run_doctor
 from personal_os_worker.service import ensure_chrome, open_external_url
 from personal_os_worker.tables import (
     console,
+    pick,
     render_answers,
     render_applications,
     render_listings,
-    resolve,
-    resolve_record,
 )
 
 APPLICATION_STATUSES = ("queued", "applied", "oa", "oa_completed", "interview", "offer", "rejected")
@@ -57,19 +56,12 @@ def run_today(*, role_families: list[str]) -> int:
     api = WorkerApi(config, token)
     try:
         page = api.listings(role_families=role_families, limit=500)
-        done = {
-            str(item["posting_id"])
-            for item in api.applications()
-            if item.get("status") != "queued"
-        }
     finally:
         api.close()
     items = [
         item
         for item in page.get("items") or []
-        if item.get("source_age_days") is not None
-        and int(item["source_age_days"]) <= 1
-        and str(item.get("id")) not in done
+        if item.get("source_age_days") is not None and int(item["source_age_days"]) <= 1
     ]
     if not items:
         console.print("Nothing new today that you have not already applied to.")
@@ -94,7 +86,12 @@ def run_sync() -> int:
 
 
 def run_open_listing(reference: str, *, source: bool) -> int:
-    record = resolve_record("listings", reference)
+    config, token = connected()
+    api = WorkerApi(config, token)
+    try:
+        record = api.listing(reference)
+    finally:
+        api.close()
     key = "discovery_url" if source else "application_url"
     url = str(record.get(key) or "").strip()
     if not url:
@@ -109,14 +106,17 @@ def run_apps(reference: str | None = None, status: str | None = None) -> int:
     config, token = connected()
     api = WorkerApi(config, token)
     try:
+        applications = [item for item in api.applications() if item.get("status") != "queued"]
         if reference is not None:
-            application_id = resolve("apps", reference)
+            application = pick(applications, reference, kind="applications")
             if status is None:
                 choices = ", ".join(APPLICATION_STATUSES)
                 raise RuntimeError(f"Give the new status, one of: {choices}")
-            updated = api.update_application(application_id, status=status)
+            updated = api.update_application(str(application["id"]), status=status)
             console.print(f"{updated.get('company_name')}: {status}")
-        applications = [item for item in api.applications() if item.get("status") != "queued"]
+            applications = [
+                item for item in api.applications() if item.get("status") != "queued"
+            ]
     finally:
         api.close()
     if not applications:
@@ -195,11 +195,11 @@ def run_answer_edit(
         changes["reuse_policy"] = reuse
     if not changes:
         raise RuntimeError("Choose a question, answer text/file, or approval change")
-    answer_id = resolve("answers", reference)
     config, token = connected()
     api = WorkerApi(config, token)
     try:
-        item = api.update_answer(answer_id, changes)
+        answer = pick(api.answers(), reference, kind="answers")
+        item = api.update_answer(str(answer["id"]), changes)
     finally:
         api.close()
     console.print(
@@ -217,7 +217,7 @@ def run_queue(references: list[str] | None = None, *, empty: bool = False) -> in
     api = WorkerApi(config, token)
     try:
         if references:
-            posting_ids = [resolve("listings", reference) for reference in references]
+            posting_ids = [str(api.listing(reference)["id"]) for reference in references]
             added = api.queue_applications(posting_ids)
             for item in added:
                 console.print(f"  queued: {item.get('company_name')} — {item.get('title')}")
@@ -263,7 +263,13 @@ def run_doctor_command() -> int:
 
 
 def run_autofill(reference: str, *, dry_run: bool, no_claude: bool = False) -> int:
-    apply_posting(resolve("listings", reference), dry_run=dry_run, no_claude=no_claude)
+    config, token = connected()
+    api = WorkerApi(config, token)
+    try:
+        listing = api.listing(reference)
+    finally:
+        api.close()
+    apply_posting(str(listing["id"]), dry_run=dry_run, no_claude=no_claude)
     return 0
 
 
@@ -504,7 +510,7 @@ def run_autofill_failure_command(
     import tempfile
     from pathlib import Path
 
-    from personal_os_worker.tables import remember, short_id
+    from personal_os_worker.tables import short_id
 
     allowed = {"list", "show", "diagnose", "draft-fix", "apply-fix", "verify"}
     if action not in allowed:
@@ -515,7 +521,6 @@ def run_autofill_failure_command(
     api = WorkerApi(config, token)
     try:
         issues = api.autofill_failures()
-        remember("autofill-failures", [str(issue.get("id")) for issue in issues])
         if action == "list":
             if not issues:
                 console.print("No autofill failures recorded.")
@@ -529,7 +534,7 @@ def run_autofill_failure_command(
             return 0
         if reference is None:
             raise RuntimeError(f"'{action}' requires a failure row or id prefix")
-        issue_id = resolve("autofill-failures", reference)
+        issue_id = str(pick(issues, reference, kind="failures")["id"])
         issue = api.autofill_failure(issue_id)
         evidence: dict[str, str] = {}
         for occurrence in list(issue.get("occurrences") or [])[:3]:

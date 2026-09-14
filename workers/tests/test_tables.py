@@ -2,92 +2,37 @@ from __future__ import annotations
 
 import pytest
 
-from personal_os_worker import tables
+from personal_os_worker.tables import ReferenceError, pick
 
-IDS = [
-    "3f2a8c91-1111-4444-8888-aaaaaaaaaaaa",
-    "3f2a8c92-2222-4444-8888-bbbbbbbbbbbb",
-    "9d4e7b05-3333-4444-8888-cccccccccccc",
+ITEMS = [
+    {"id": "3f2a8c91-1111-4444-8888-aaaaaaaaaaaa", "title": "first"},
+    {"id": "3f2a8c92-2222-4444-8888-bbbbbbbbbbbb", "title": "second"},
+    {"id": "9d4e7b05-3333-4444-8888-cccccccccccc", "title": "third"},
 ]
 
 
-@pytest.fixture(autouse=True)
-def state(tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
-    monkeypatch.setattr(tables, "state_dir", lambda: tmp_path)
-    return tmp_path
-
-
-def test_row_numbers_resolve_against_the_last_listing() -> None:
-    tables.remember("listings", IDS)
-    assert tables.resolve("listings", "1") == IDS[0]
-    assert tables.resolve("listings", "3") == IDS[2]
+def test_a_row_number_is_the_position_in_the_list_just_fetched() -> None:
+    assert pick(ITEMS, "1", kind="rows")["title"] == "first"
+    assert pick(ITEMS, "3", kind="rows")["title"] == "third"
 
 
 def test_row_number_out_of_range_says_so() -> None:
-    tables.remember("listings", IDS)
-    with pytest.raises(tables.ReferenceError, match="out of range"):
-        tables.resolve("listings", "4")
+    with pytest.raises(ReferenceError, match="out of range; there are 3 rows"):
+        pick(ITEMS, "4", kind="rows")
+    with pytest.raises(ReferenceError):
+        pick([], "1", kind="rows")
 
 
-def test_row_numbers_need_a_cache() -> None:
-    with pytest.raises(tables.ReferenceError, match="No cached"):
-        tables.resolve("listings", "1")
+def test_an_id_prefix_resolves_when_unambiguous() -> None:
+    assert pick(ITEMS, "9d4e", kind="rows")["title"] == "third"
+    assert pick(ITEMS, "3f2a-8c92", kind="rows")["title"] == "second"
+    assert pick(ITEMS, "3F2A8C91", kind="rows")["title"] == "first"
 
 
-def test_unambiguous_prefix_resolves() -> None:
-    tables.remember("listings", IDS)
-    assert tables.resolve("listings", "9d4e") == IDS[2]
-
-
-def test_ambiguous_prefix_is_refused_rather_than_guessed() -> None:
-    tables.remember("listings", IDS)
-    with pytest.raises(tables.ReferenceError, match="matches 2 rows"):
-        tables.resolve("listings", "3f2a")
-
-
-def test_longer_prefix_disambiguates() -> None:
-    tables.remember("listings", IDS)
-    assert tables.resolve("listings", "3f2a8c92") == IDS[1]
-
-
-def test_very_short_prefix_is_refused() -> None:
-    tables.remember("listings", IDS)
-    with pytest.raises(tables.ReferenceError, match="too short"):
-        tables.resolve("listings", "3f")
-
-
-def test_unknown_prefix_points_at_refreshing() -> None:
-    tables.remember("listings", IDS)
-    with pytest.raises(tables.ReferenceError, match="refresh"):
-        tables.resolve("listings", "ffffffff")
-
-
-def test_listings_and_apps_caches_are_independent() -> None:
-    tables.remember("listings", IDS[:1])
-    tables.remember("apps", IDS[1:])
-    assert tables.resolve("listings", "1") == IDS[0]
-    assert tables.resolve("apps", "1") == IDS[1]
-
-
-def test_short_id_strips_dashes() -> None:
-    assert tables.short_id(IDS[0]) == "3f2a8c91"
-
-
-def test_displayed_listing_records_keep_their_direct_and_discovery_links() -> None:
-    records = [
-        {
-            "id": IDS[0],
-            "application_url": "https://jobs.example/apply/1",
-            "discovery_url": "https://github.com/example/jobs",
-        }
-    ]
-    tables.remember("listings", IDS[:1], records=records)
-
-    assert tables.resolve_record("listings", "1") == records[0]
-
-
-def test_old_listing_cache_requests_a_refresh_before_opening() -> None:
-    tables.remember("listings", IDS[:1])
-
-    with pytest.raises(tables.ReferenceError, match="predate link support"):
-        tables.resolve_record("listings", "1")
+def test_a_short_or_shared_prefix_is_refused() -> None:
+    with pytest.raises(ReferenceError, match="too short"):
+        pick(ITEMS, "3f", kind="rows")
+    with pytest.raises(ReferenceError, match="matches 2 rows"):
+        pick(ITEMS, "3f2a", kind="rows")
+    with pytest.raises(ReferenceError, match="No rows match"):
+        pick(ITEMS, "ffffffff", kind="rows")

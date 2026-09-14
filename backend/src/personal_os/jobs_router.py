@@ -34,6 +34,7 @@ from personal_os.jobs_models import (
     AutofillStepCreate,
     JobApplication,
     JobDocument,
+    JobListing,
     JobListingPage,
     JobsProfile,
     JobsProfileUpdate,
@@ -44,7 +45,7 @@ from personal_os.jobs_models import (
 )
 from personal_os.jobs_sources import SpeedyApplySource
 from personal_os.jobs_storage import JobsDocumentStorage
-from personal_os.jobs_store import JobsStore, get_jobs_store
+from personal_os.jobs_store import AmbiguousReference, JobsStore, get_jobs_store
 from personal_os.jobs_sync import run_sync
 
 router = APIRouter(prefix="/v1/jobs", tags=["jobs"])
@@ -92,6 +93,20 @@ async def list_listings(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/listings/{reference}", response_model=JobListing)
+async def get_listing(reference: str, principal: CurrentPrincipal, store: Store) -> JobListing:
+    """A listing by its board number or by a prefix of its id."""
+    try:
+        listing = await store.get_listing(principal.user_id, reference)
+    except AmbiguousReference:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"{reference!r} matches several listings; use more characters"
+        ) from None
+    if listing is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No listing {reference!r}")
+    return listing
 
 
 @router.post("/listings/sync", response_model=ListingSyncResponse)

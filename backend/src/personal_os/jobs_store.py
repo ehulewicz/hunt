@@ -13,6 +13,7 @@ from psycopg_pool import AsyncConnectionPool
 from personal_os.config import Settings
 from personal_os.jobs_answers import answer_storage_key, normalize_answer_key
 from personal_os.jobs_models import (
+    DEFAULT_TECHNICAL_FAMILIES,
     AnswerLibraryCreate,
     AnswerLibraryItem,
     AnswerLibraryUpdate,
@@ -38,6 +39,42 @@ from personal_os.jobs_sources import SOURCE_NAME, SourceListing
 
 ANSWER_SOURCES = frozenset({"jobs_profile", "answer_library", "model", "pattern", "manual"})
 
+# Every open listing not yet applied to (queued ones stay), numbered once:
+# default technical families first, newest first, ties broken by id.
+BOARD_QUERY = sql.SQL(
+    """
+    select posting.id, company.name as company_name, posting.title,
+           posting.location, posting.salary_text, posting.application_url,
+           posting.discovery_url, posting.role_families,
+           posting.source_category, posting.normalized_locations,
+           posting.career_stage, posting.feed_region,
+           posting.source_posted_at, posting.source_age_days,
+           posting.status, application.id as application_id,
+           application.status as application_status,
+           row_number() over (
+             order by case when posting.role_families && %s::text[] then 0 else 1 end,
+                      posting.source_age_days asc nulls last,
+                      posting.source_posted_at desc nulls last,
+                      posting.created_at desc,
+                      posting.id
+           ) as "row"
+    from app.jobs_postings posting
+    join app.jobs_companies company on company.id = posting.company_id
+    left join app.jobs_applications application
+      on application.user_id = posting.user_id and application.posting_id = posting.id
+     and application.status <> 'archived'
+    where posting.user_id = %s
+      and posting.status not in ('closed', 'archived')
+      and posting.career_stage = 'internship'
+      and posting.feed_region = 'usa'
+      and (application.id is null or application.status = 'queued')
+    """
+)
+
+
+class AmbiguousReference(LookupError):
+    """An id prefix matched more than one listing."""
+
 
 class JobsStore(Protocol):
     async def get_profile(self, user_id: UUID) -> JobsProfile: ...
@@ -58,6 +95,8 @@ class JobsStore(Protocol):
         limit: int,
         offset: int,
     ) -> JobListingPage: ...
+
+    async def get_listing(self, user_id: UUID, reference: str) -> JobListing | None: ...
 
     async def queue_applications(
         self, user_id: UUID, posting_ids: Sequence[UUID]
@@ -374,13 +413,15 @@ class PostgresJobsStore:
         limit: int,
         offset: int,
     ) -> JobListingPage:
-        conditions = [
-            sql.SQL("posting.user_id = %s"),
-            sql.SQL("posting.status not in ('closed', 'archived')"),
-            sql.SQL("posting.career_stage = 'internship'"),
-            sql.SQL("posting.feed_region = 'usa'"),
-        ]
-        params: list[Any] = [user_id]
+        """Open listings not yet applied to, each carrying its canonical row number.
+
+        The number is computed over the whole board before any filter applies,
+        so a listing keeps the same number in every view; filtered views show
+        gaps. Default technical families come first so the everyday view is
+        contiguous and `--all-roles` extends it rather than reshuffling it.
+        """
+        conditions: list[sql.Composable] = []
+        params: list[Any] = [list(DEFAULT_TECHNICAL_FAMILIES), user_id]
         if category:
             conditions.append(sql.SQL("posting.source_category = %s"))
             params.append(category)
@@ -392,17 +433,15 @@ class PostgresJobsStore:
         if locations:
             conditions.append(sql.SQL("posting.normalized_locations && %s::text[]"))
             params.append(list(locations))
-        where = sql.SQL(" and ").join(conditions)
-        base = sql.SQL(
-            """
-            from app.jobs_postings posting
-            join app.jobs_companies company on company.id = posting.company_id
-            left join app.jobs_applications application
-              on application.user_id = posting.user_id and application.posting_id = posting.id
-             and application.status <> 'archived'
-            where {}
-            """
-        ).format(where)
+        where = (
+            sql.SQL("where ") + sql.SQL(" and ").join(conditions) if conditions else sql.SQL("")
+        )
+
+        def select(columns: str, tail: str = "") -> sql.Composed:
+            return sql.SQL("with board as ({}) select {} from board posting {} {}").format(
+                BOARD_QUERY, sql.SQL(columns), where, sql.SQL(tail)
+            )
+
         async with (
             self._pool.connection(timeout=self._timeout) as connection,
             connection.transaction(),
@@ -411,38 +450,27 @@ class PostgresJobsStore:
             location_cursor = await connection.execute(
                 sql.SQL(
                     """
+                    with board as ({})
                     select distinct normalized.location as location
-                    from app.jobs_postings posting
+                    from board posting
                     cross join lateral unnest(posting.normalized_locations)
                       as normalized(location)
-                    where {}
+                    {}
                     order by normalized.location
                     """
-                ).format(sql.SQL(" and ").join(facet_conditions)),
+                ).format(
+                    BOARD_QUERY,
+                    sql.SQL("where ") + sql.SQL(" and ").join(facet_conditions)
+                    if facet_conditions
+                    else sql.SQL(""),
+                ),
                 facet_params,
             )
             location_rows = await location_cursor.fetchall()
-            count_cursor = await connection.execute(
-                sql.SQL("select count(*) as total {}").format(base), params
-            )
+            count_cursor = await connection.execute(select("count(*) as total"), params)
             count = await count_cursor.fetchone()
             rows_cursor = await connection.execute(
-                sql.SQL(
-                    """
-                    select posting.id, company.name as company_name, posting.title,
-                           posting.location, posting.salary_text, posting.application_url,
-                           posting.discovery_url, posting.role_families,
-                           posting.source_category, posting.normalized_locations,
-                           posting.career_stage, posting.feed_region,
-                           posting.source_posted_at, posting.source_age_days,
-                           posting.status, application.id as application_id
-                    {}
-                    order by posting.source_age_days asc nulls last,
-                             posting.source_posted_at desc nulls last,
-                             posting.created_at desc
-                    limit %s offset %s
-                    """
-                ).format(base),
+                select("posting.*", 'order by posting."row" limit %s offset %s'),
                 (*params, limit, offset),
             )
             rows = await rows_cursor.fetchall()
@@ -453,6 +481,56 @@ class PostgresJobsStore:
             offset=offset,
             location_options=[str(row["location"]) for row in location_rows],
         )
+
+    async def get_listing(self, user_id: UUID, reference: str) -> JobListing | None:
+        """A listing by its canonical row number, or by a prefix of its id.
+
+        A row number resolves against the same board the listing views show. An
+        id prefix resolves against every listing, applied-to ones included, so
+        a hidden listing can still be opened; several matches are ambiguous.
+        """
+        async with (
+            self._pool.connection(timeout=self._timeout) as connection,
+            connection.transaction(),
+        ):
+            await connection.execute("set local role personal_os_api")
+            if reference.isdigit():
+                cursor = await connection.execute(
+                    sql.SQL("with board as ({}) select posting.* from board posting "
+                            'where posting."row" = %s').format(BOARD_QUERY),
+                    (list(DEFAULT_TECHNICAL_FAMILIES), user_id, int(reference)),
+                )
+                row = await cursor.fetchone()
+                return JobListing.model_validate(row) if row else None
+            prefix = reference.replace("-", "").casefold()
+            if len(prefix) < 4 or any(char not in "0123456789abcdef" for char in prefix):
+                return None
+            cursor = await connection.execute(
+                """
+                select posting.id, company.name as company_name, posting.title,
+                       posting.location, posting.salary_text, posting.application_url,
+                       posting.discovery_url, posting.role_families,
+                       posting.source_category, posting.normalized_locations,
+                       posting.career_stage, posting.feed_region,
+                       posting.source_posted_at, posting.source_age_days,
+                       posting.status, application.id as application_id,
+                       application.status as application_status
+                from app.jobs_postings posting
+                join app.jobs_companies company on company.id = posting.company_id
+                left join app.jobs_applications application
+                  on application.user_id = posting.user_id
+                 and application.posting_id = posting.id
+                 and application.status <> 'archived'
+                where posting.user_id = %s
+                  and replace(posting.id::text, '-', '') like %s
+                limit 2
+                """,
+                (user_id, f"{prefix}%"),
+            )
+            rows = await cursor.fetchall()
+            if len(rows) > 1:
+                raise AmbiguousReference(reference)
+            return JobListing.model_validate(rows[0]) if rows else None
 
     async def queue_applications(self, user_id: UUID, posting_ids: Sequence[UUID]) -> list[UUID]:
         """Put listings in the queue; an application already past it is left alone."""
@@ -510,7 +588,7 @@ class PostgresJobsStore:
                            when 'queued' then 0 when 'applied' then 1 when 'oa' then 2
                            when 'oa_completed' then 3 when 'interview' then 4
                            when 'offer' then 5 else 6 end,
-                         application.updated_at desc
+                         application.updated_at desc, application.id
                 """,
                 (user_id,),
             )
@@ -731,7 +809,7 @@ class PostgresJobsStore:
                        answer_text, reuse_policy, approved, updated_at
                 from app.jobs_answer_library
                 where user_id = %s and answer_type = 'long_form'
-                order by updated_at desc
+                order by updated_at desc, id
                 """,
                 (user_id,),
             )
@@ -1122,7 +1200,7 @@ class PostgresJobsStore:
                        verification_notes, occurrence_count, first_seen_at,
                        last_seen_at, updated_at
                 from app.jobs_autofill_failure_issues where user_id = %s
-                order by last_seen_at desc
+                order by last_seen_at desc, id
                 """,
                 (user_id,),
             )

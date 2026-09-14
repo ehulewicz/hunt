@@ -14,6 +14,15 @@ from pydantic import (
 )
 
 CareerStage = Literal["internship", "new_grad"]
+# The everyday view and the board's numbering start with these; the worker
+# mirrors the list for its --family choices.
+DEFAULT_TECHNICAL_FAMILIES = (
+    "software_engineering",
+    "data_engineering",
+    "ml_engineering",
+    "data_science",
+)
+
 RoleFamily = Literal[
     "software_engineering",
     "data_engineering",
@@ -137,6 +146,8 @@ class JobListing(BaseModel):
     source_age_days: int | None
     status: str
     application_id: UUID | None = None
+    application_status: str | None = None
+    row: int | None = None  # canonical number on the board; None once applied to
 
 
 class JobListingPage(BaseModel):

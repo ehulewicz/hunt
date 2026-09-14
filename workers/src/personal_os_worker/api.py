@@ -7,6 +7,7 @@ import httpx
 
 from personal_os_worker.auth import LoginError, SupabaseAuth, renewed_access_token
 from personal_os_worker.config import CliConfig
+from personal_os_worker.tables import ReferenceError
 
 
 class RenewingBearer(httpx.Auth):
@@ -74,6 +75,18 @@ class WorkerApi:
         for family in role_families or []:
             params.append(("role_families", family))
         response = self._client.get("/v1/jobs/listings", params=params)
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Listing response was invalid")
+        return payload
+
+    def listing(self, reference: str) -> dict[str, Any]:
+        """One listing by its board number or an id prefix; the API does the resolving."""
+        response = self._client.get(f"/v1/jobs/listings/{reference}")
+        if response.status_code in {404, 409}:
+            detail = response.json().get("detail") if response.content else None
+            raise ReferenceError(str(detail or f"No listing {reference!r}"))
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict):

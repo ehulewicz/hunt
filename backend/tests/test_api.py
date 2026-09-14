@@ -15,6 +15,7 @@ from personal_os.jobs_models import (
     AnswerLibraryItem,
     ApplicationUpdate,
     JobApplication,
+    JobListing,
     JobListingPage,
     ListingSyncResponse,
 )
@@ -71,6 +72,32 @@ class FakeJobsStore:
     async def list_listings(self, user_id: UUID, **filters: object) -> JobListingPage:
         self.filters = filters
         return JobListingPage(items=[], total=0, limit=200, offset=0)
+
+    async def get_listing(self, user_id: UUID, reference: str) -> JobListing | None:
+        from personal_os.jobs_store import AmbiguousReference
+
+        if reference == "1111":
+            raise AmbiguousReference(reference)
+        if reference in {"3", "22222222"}:
+            return JobListing(
+                id=POSTING_ID,
+                company_name="Acme",
+                title="Backend Engineer Intern",
+                location=None,
+                salary_text=None,
+                application_url="https://boards.example/jobs/1",
+                discovery_url=None,
+                role_families=["software_engineering"],
+                source_category="other",
+                normalized_locations=[],
+                career_stage="internship",
+                feed_region="usa",
+                source_posted_at=None,
+                source_age_days=0,
+                status="saved",
+                row=3 if reference == "3" else None,
+            )
+        return None
 
     async def sync_listings(self, user_id: UUID, listings: object) -> ListingSyncResponse:
         self.synced_count = len(listings)  # type: ignore[arg-type]
@@ -319,6 +346,24 @@ async def test_application_patch_cannot_bypass_archival_cleanup(
 
     assert response.status_code == 422
     assert store.archived_application_id is None
+
+
+async def test_a_listing_resolves_by_board_number_or_id_prefix(
+    app: FastAPI, client: httpx.AsyncClient
+) -> None:
+    store = FakeJobsStore()
+
+    async def override_store() -> FakeJobsStore:
+        return store
+
+    app.dependency_overrides[get_jobs_store] = override_store
+    headers = {"Authorization": "Bearer approved"}
+    by_row = await client.get("/v1/jobs/listings/3", headers=headers)
+    assert by_row.status_code == 200 and by_row.json()["row"] == 3
+    by_prefix = await client.get("/v1/jobs/listings/22222222", headers=headers)
+    assert by_prefix.status_code == 200 and by_prefix.json()["id"] == str(POSTING_ID)
+    assert (await client.get("/v1/jobs/listings/1111", headers=headers)).status_code == 409
+    assert (await client.get("/v1/jobs/listings/99", headers=headers)).status_code == 404
 
 
 async def test_queueing_listings_returns_the_queued_applications(
