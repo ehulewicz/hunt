@@ -76,24 +76,29 @@ def run_easy(*, role_families: list[str], limit: int) -> int:
     Temporary, until Workday and the rest are supported; numbers are the
     board's, so `apply <row>` means the same listing as everywhere else.
     """
-    from personal_os_worker.adapters import detect_ats
-
     config, token = connected()
     api = WorkerApi(config, token)
     try:
-        page = api.listings(role_families=role_families, limit=1000)
+        items = _easy_listings(api, role_families=role_families)
     finally:
         api.close()
-    items = [
-        item
-        for item in page.get("items") or []
-        if detect_ats(str(item.get("application_url") or "")).name != "generic"
-    ]
     if not items:
         console.print("No listings on a supported ATS.")
         return 0
     render_listings(items[:limit], len(items), title="Easy")
     return 0
+
+
+def _easy_listings(api: WorkerApi, *, role_families: list[str]) -> list[dict[str, object]]:
+    """The supported listings in the same canonical order shown by `hunt easy`."""
+    from personal_os_worker.adapters import detect_ats
+
+    page = api.listings(role_families=role_families, limit=1000)
+    return [
+        item
+        for item in page.get("items") or []
+        if detect_ats(str(item.get("application_url") or "")).name != "generic"
+    ]
 
 
 def run_sync() -> int:
@@ -295,6 +300,24 @@ def run_autofill(reference: str, *, dry_run: bool, no_claude: bool = False) -> i
         listing = api.listing(reference)
     finally:
         api.close()
+    apply_posting(str(listing["id"]), dry_run=dry_run, no_claude=no_claude)
+    return 0
+
+
+def run_autofill_easy(*, dry_run: bool, no_claude: bool = False) -> int:
+    """Apply the first listing shown by the default `hunt easy` view."""
+    config, token = connected()
+    api = WorkerApi(config, token)
+    try:
+        items = _easy_listings(api, role_families=list(DEFAULT_TECHNICAL_FAMILIES))
+    finally:
+        api.close()
+    if not items:
+        raise RuntimeError("No listings on a supported ATS.")
+    listing = items[0]
+    console.print(
+        f"Applying top Easy listing: {listing.get('company_name')} — {listing.get('title')}"
+    )
     apply_posting(str(listing["id"]), dry_run=dry_run, no_claude=no_claude)
     return 0
 

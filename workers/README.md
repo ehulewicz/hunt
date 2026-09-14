@@ -23,6 +23,7 @@ os hunt queue empty
 os hunt apps
 os hunt apply 1 --dry-run
 os hunt apply 1
+os hunt apply easy
 os hunt apply failures list
 ```
 

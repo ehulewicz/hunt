@@ -34,6 +34,7 @@ os hunt apps 1 oa
 
 os hunt apply 1 --dry-run
 os hunt apply 1
+os hunt apply easy          # apply the first listing shown by `os hunt easy`
 os hunt apply 1 --no-claude
 os hunt apply 1 --done       # applied outside the worker; just record it
 

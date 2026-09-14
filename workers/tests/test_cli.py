@@ -4,7 +4,7 @@ import pytest
 from personal_os_worker import cli
 from personal_os_worker.auth import LoginError, Session
 from personal_os_worker.cli import build_parser, main
-from personal_os_worker.commands import services
+from personal_os_worker.commands import hunt, services
 from personal_os_worker.config import CliConfig
 
 
@@ -210,6 +210,62 @@ def test_autofill_requires_a_saved_listing_reference_and_has_no_lentra_provider(
     assert args.ref == "7" and args.dry_run is True
     with pytest.raises(SystemExit):
         build_parser().parse_args(["hunt", "apply", "7", "--provider", "lentra"])
+
+
+def test_autofill_accepts_the_top_easy_listing_selector() -> None:
+    args = build_parser().parse_args(["hunt", "apply", "easy", "--dry-run", "--no-claude"])
+    assert args.ref == "easy" and args.dry_run is True and args.no_claude is True
+
+
+def test_apply_easy_uses_the_first_supported_listing_in_easy_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, object]] = []
+
+    class FakeApi:
+        def __init__(self, config: object, token: str) -> None:
+            calls.append(("connected", (config, token)))
+
+        def listings(self, *, role_families: list[str], limit: int) -> dict[str, object]:
+            calls.append(("listings", (role_families, limit)))
+            return {
+                "items": [
+                    {
+                        "id": "generic-first",
+                        "company_name": "Generic",
+                        "title": "Unsupported",
+                        "application_url": "https://example.com/jobs/1",
+                    },
+                    {
+                        "id": "easy-first",
+                        "company_name": "Acme",
+                        "title": "Engineer",
+                        "application_url": "https://jobs.ashbyhq.com/acme/1",
+                    },
+                    {
+                        "id": "easy-second",
+                        "company_name": "Later",
+                        "title": "Engineer",
+                        "application_url": "https://jobs.lever.co/later/2",
+                    },
+                ]
+            }
+
+        def close(self) -> None:
+            calls.append(("close", None))
+
+    monkeypatch.setattr(hunt, "connected", lambda: ("config", "token"))
+    monkeypatch.setattr(hunt, "WorkerApi", FakeApi)
+    monkeypatch.setattr(
+        hunt,
+        "apply_posting",
+        lambda posting_id, *, dry_run, no_claude: calls.append(
+            ("apply", (posting_id, dry_run, no_claude))
+        ),
+    )
+
+    assert main(["hunt", "apply", "easy", "--dry-run", "--no-claude"]) == 0
+    assert calls[-1] == ("apply", ("easy-first", True, True))
 
 
 def test_apply_done_records_an_application_made_elsewhere() -> None:

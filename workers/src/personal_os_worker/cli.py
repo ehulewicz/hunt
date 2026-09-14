@@ -187,9 +187,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     autofill = jobs_commands.add_parser(
         "apply",
-        help="Fill a saved listing in native Chrome, or manage captured failures",
+        help="Fill a saved or top Easy listing in native Chrome, or manage captured failures",
     )
-    autofill.add_argument("ref", help="Listing row/id, or the literal 'failures'")
+    autofill.add_argument("ref", help="Listing row/id, 'easy', or 'failures'")
     autofill.add_argument(
         "failure_action",
         nargs="?",
@@ -339,7 +339,13 @@ def _dispatch(args: argparse.Namespace) -> int:
             if args.done:
                 if args.dry_run or args.no_claude:
                     raise RuntimeError("--done takes no other flags")
+                if args.ref == "easy":
+                    raise RuntimeError("'apply easy' does not support --done")
                 return hunt.run_mark_applied(args.ref)
+            if args.ref == "easy":
+                return hunt.run_autofill_easy(
+                    dry_run=args.dry_run, no_claude=args.no_claude
+                )
             return hunt.run_autofill(args.ref, dry_run=args.dry_run, no_claude=args.no_claude)
     return 2
 

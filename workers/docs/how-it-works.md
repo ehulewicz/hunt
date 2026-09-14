@@ -49,6 +49,9 @@ counts as filled when its rendered choice is present even though its search
 input is empty, and a free-entry typeahead with no option for the typed text is
 committed with Enter.
 
+`os hunt apply easy` resolves the first supported listing in the default
+`os hunt easy` order before starting that same apply flow.
+
 Ashby's composite Education History control is read at the nested-field level:
 School is searched by typing the profile value, Start/End Month and Year remain
 distinct controls, and the education end date comes from the profile graduation
