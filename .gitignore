@@ -3,6 +3,10 @@
 .env.*
 !*.example
 
+# Archived Northhealth .NET build output
+/archived/neuvidion/backend/**/bin/
+/archived/neuvidion/backend/**/obj/
+
 # Python
 .venv/
 .uv-cache/
