@@ -2,8 +2,9 @@ import httpx
 import pytest
 
 from personal_os_worker import cli
-from personal_os_worker.auth import Session
+from personal_os_worker.auth import LoginError, Session
 from personal_os_worker.cli import build_parser, main
+from personal_os_worker.commands import services
 from personal_os_worker.config import CliConfig
 
 
@@ -25,17 +26,38 @@ def test_login_starts_the_automation_browser_with_cdp_first(
     session = Session("access", "refresh", 4_000_000_000)
     monkeypatch.setattr(cli, "load_cli_config", lambda: config)
     monkeypatch.setattr(
-        cli, "ensure_chrome", lambda url: calls.append(("chrome", url))
+        services, "ensure_chrome", lambda url: calls.append(("chrome", url))
     )
     monkeypatch.setattr(
-        cli,
+        services,
         "login",
         lambda auth: calls.append(("login", auth)) or session,
     )
-    monkeypatch.setattr(cli, "save_session", lambda _: tmp_path / "session.json")
+    monkeypatch.setattr(services, "save_session", lambda _: tmp_path / "session.json")
 
     assert cli.run_login() == 0
     assert [name for name, _ in calls] == ["chrome", "login"]
+
+
+def test_connected_signs_in_by_itself_when_there_is_no_usable_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    config = CliConfig("http://127.0.0.1:8000", "https://example.supabase.co", "key")
+    calls: list[str] = []
+    session = Session("fresh-token", "refresh", 4_000_000_000)
+    monkeypatch.setattr(services, "load_cli_config", lambda: config)
+    monkeypatch.setattr(services.service, "ensure_running", lambda url: calls.append("api"))
+
+    def no_session(auth: object) -> Session:
+        raise LoginError("Not signed in.")
+
+    monkeypatch.setattr(services, "active_session", no_session)
+    monkeypatch.setattr(services, "ensure_chrome", lambda url: calls.append("chrome"))
+    monkeypatch.setattr(services, "login", lambda auth: calls.append("login") or session)
+    monkeypatch.setattr(services, "save_session", lambda _: tmp_path / "session.json")
+
+    assert services.connected() == (config, "fresh-token")
+    assert calls == ["api", "chrome", "login"]
 
 
 def test_api_errors_exit_with_the_backend_detail_instead_of_a_traceback(
@@ -54,8 +76,8 @@ def test_api_errors_exit_with_the_backend_detail_instead_of_a_traceback(
 
 
 def test_jobs_live_under_the_hunt_domain() -> None:
-    args = build_parser().parse_args(["hunt", "listings", "--faang", "--limit", "5"])
-    assert (args.command, args.hunt_command) == ("hunt", "listings")
+    args = build_parser().parse_args(["hunt", "list", "--faang", "--limit", "5"])
+    assert (args.command, args.hunt_command) == ("hunt", "list")
     assert args.faang is True and args.quant is False and args.limit == 5
     assert args.all_roles is False and args.family == []
 
@@ -69,19 +91,19 @@ def test_any_displayed_listing_can_open_its_direct_or_discovery_link() -> None:
 
 
 def test_listing_limit_has_no_upper_bound_and_rejects_non_positive_values() -> None:
-    assert build_parser().parse_args(["hunt", "listings", "--limit", "500"]).limit == 500
+    assert build_parser().parse_args(["hunt", "list", "--limit", "500"]).limit == 500
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["hunt", "listings", "--limit", "0"])
+        build_parser().parse_args(["hunt", "list", "--limit", "0"])
 
 
 def test_category_filters_are_mutually_exclusive() -> None:
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["hunt", "listings", "--faang", "--quant"])
+        build_parser().parse_args(["hunt", "list", "--faang", "--quant"])
 
 
 def test_locations_accumulate() -> None:
     args = build_parser().parse_args(
-        ["hunt", "listings", "--location", "Atlanta, GA", "--location", "Remote"]
+        ["hunt", "list", "--location", "Atlanta, GA", "--location", "Remote"]
     )
     assert args.location == ["Atlanta, GA", "Remote"]
 
@@ -90,7 +112,7 @@ def test_role_families_accumulate_and_all_roles_is_explicit() -> None:
     args = build_parser().parse_args(
         [
             "hunt",
-            "listings",
+            "list",
             "--family",
             "software_engineering",
             "--family",
@@ -98,7 +120,7 @@ def test_role_families_accumulate_and_all_roles_is_explicit() -> None:
         ]
     )
     assert args.family == ["software_engineering", "ml_engineering"]
-    assert build_parser().parse_args(["hunt", "listings", "--all-roles"]).all_roles is True
+    assert build_parser().parse_args(["hunt", "list", "--all-roles"]).all_roles is True
 
 
 def test_prep_takes_several_references() -> None:

@@ -8,8 +8,17 @@ import time
 from rich.table import Table
 
 from personal_os_worker import service
-from personal_os_worker.auth import SupabaseAuth, active_session, load_session
+from personal_os_worker.auth import (
+    LoginError,
+    Session,
+    SupabaseAuth,
+    active_session,
+    load_session,
+    login,
+    save_session,
+)
 from personal_os_worker.config import CliConfig, load_cli_config
+from personal_os_worker.service import ensure_chrome
 from personal_os_worker.tables import console
 
 
@@ -107,13 +116,30 @@ def supabase_auth(config: CliConfig) -> SupabaseAuth:
     return SupabaseAuth(url=config.supabase_url, publishable_key=config.supabase_publishable_key)
 
 
+def sign_in(config: CliConfig) -> Session:
+    """Run the Google sign-in in the automation browser and store the session."""
+    # Login and autofill share one dedicated Chrome profile. Start it with CDP
+    # from the outset; opening the profile first without remote debugging makes
+    # a later `os chrome start` attach to that non-CDP process and time out.
+    ensure_chrome(config.cdp_url)
+    session = login(supabase_auth(config))
+    console.print(f"Signed in. Session stored at {save_session(session)}")
+    return session
+
+
 def connected() -> tuple[CliConfig, str]:
     """Load configuration, guarantee the API is up, and return a fresh access token.
 
-    Every command that talks to the API goes through here, so the API is a
-    dependency the CLI manages rather than a second process to remember.
+    Every command that talks to the API goes through here, so the API and the
+    session are dependencies the CLI manages rather than steps to remember:
+    with no stored session, or one that can no longer be refreshed, this signs
+    in first and then carries on with the command.
     """
     config = load_cli_config()
     service.ensure_running(config.api_url)
-    session = active_session(supabase_auth(config))
+    try:
+        session = active_session(supabase_auth(config))
+    except LoginError as error:
+        console.print(f"{error} Signing in ...")
+        session = sign_in(config)
     return config, session.access_token

@@ -13,12 +13,12 @@ from pathlib import Path
 import httpx
 
 from personal_os_worker import __version__
-from personal_os_worker.auth import LoginError, login, save_session
+from personal_os_worker.auth import LoginError
 from personal_os_worker.commands import hunt, services
 from personal_os_worker.commands.hunt import DEFAULT_TECHNICAL_FAMILIES
 from personal_os_worker.config import load_cli_config
 from personal_os_worker.resume import build_resume, watch_resume
-from personal_os_worker.service import ApiUnavailable, ChromeUnavailable, ensure_chrome
+from personal_os_worker.service import ApiUnavailable, ChromeUnavailable
 from personal_os_worker.tables import ReferenceError, console
 
 
@@ -63,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     jobs = commands.add_parser("hunt", help="Jobs: listings, applications, preparation")
     jobs_commands = jobs.add_subparsers(dest="hunt_command", required=True)
 
-    listings = jobs_commands.add_parser("listings", help="Browse open listings")
+    listings = jobs_commands.add_parser("list", help="Browse open listings")
     category = listings.add_mutually_exclusive_group()
     category.add_argument("--faang", action="store_true", help="Only FAANG+ listings")
     category.add_argument("--quant", action="store_true", help="Only quant listings")
@@ -94,7 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
     open_listing = jobs_commands.add_parser(
         "open", help="Open a displayed listing in the host browser"
     )
-    open_listing.add_argument("ref", help="Row number from the last listings table or id prefix")
+    open_listing.add_argument("ref", help="Row number from the last list table or id prefix")
     open_listing.add_argument(
         "--source",
         action="store_true",
@@ -179,13 +179,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_login() -> int:
-    config = load_cli_config()
-    # Login and autofill share one dedicated Chrome profile. Start it with CDP
-    # from the outset; opening the profile first without remote debugging makes
-    # a later `os chrome start` attach to that non-CDP process and time out.
-    ensure_chrome(config.cdp_url)
-    session = login(services.supabase_auth(config))
-    console.print(f"Signed in. Session stored at {save_session(session)}")
+    services.sign_in(load_cli_config())
     return 0
 
 
@@ -221,7 +215,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "doctor":
         return hunt.run_doctor_command()
     if args.command == "hunt":
-        if args.hunt_command == "listings":
+        if args.hunt_command == "list":
             category = "faang" if args.faang else "quant" if args.quant else None
             role_families = (
                 [] if args.all_roles else args.family or list(DEFAULT_TECHNICAL_FAMILIES)

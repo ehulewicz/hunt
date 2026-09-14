@@ -5,7 +5,7 @@ starts local FastAPI on demand, and sends authenticated requests to that API.
 FastAPI is the only process that accesses hosted Postgres.
 
 `os hunt sync` parses the approved SpeedyApply feeds deterministically. The
-database retains every valid row and its role-family tags; `os hunt listings`
+database retains every valid row and its role-family tags; `os hunt list`
 applies the user's technical-family view by default.
 
 The resume compiler reads the canonical JSON, emits the Jake Gutierrez "Jake's

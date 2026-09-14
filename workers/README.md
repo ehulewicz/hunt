@@ -13,7 +13,7 @@ The installed entry point is `os`. Jobs commands live under `os hunt`:
 ```bash
 os doctor
 os hunt sync
-os hunt listings
+os hunt list
 os hunt answers list
 os hunt resume watch --open
 os hunt prep 1

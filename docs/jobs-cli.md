@@ -7,10 +7,10 @@ All commands run from any directory after the editable worker install.
 ```bash
 os doctor
 os hunt sync
-os hunt listings
-os hunt listings --limit 500  # overshooting returns every available match
-os hunt listings --family software_engineering --location "Atlanta, GA"
-os hunt listings --all-roles
+os hunt list
+os hunt list --limit 500  # overshooting returns every available match
+os hunt list --family software_engineering --location "Atlanta, GA"
+os hunt list --all-roles
 os hunt open 12
 os hunt open 12 --source
 os hunt apps
@@ -71,7 +71,7 @@ dependency.
 
 ## Headed autofill
 
-Run `os hunt listings`, then pass a displayed row or ID prefix:
+Run `os hunt list`, then pass a displayed row or ID prefix:
 
 ```bash
 os hunt autofill 12
