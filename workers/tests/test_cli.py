@@ -76,7 +76,7 @@ def test_api_errors_exit_with_the_backend_detail_instead_of_a_traceback(
 
 
 def test_jobs_live_under_the_hunt_domain() -> None:
-    args = build_parser().parse_args(["hunt", "list", "--faang", "--limit", "5"])
+    args = build_parser().parse_args(["hunt", "list", "5", "--faang"])
     assert (args.command, args.hunt_command) == ("hunt", "list")
     assert args.faang is True and args.quant is False and args.limit == 5
     assert args.all_roles is False and args.family == []
@@ -91,9 +91,12 @@ def test_any_displayed_listing_can_open_its_direct_or_discovery_link() -> None:
 
 
 def test_listing_limit_has_no_upper_bound_and_rejects_non_positive_values() -> None:
-    assert build_parser().parse_args(["hunt", "list", "--limit", "500"]).limit == 500
+    assert build_parser().parse_args(["hunt", "list", "500"]).limit == 500
+    assert build_parser().parse_args(["hunt", "list"]).limit == 50
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["hunt", "list", "--limit", "0"])
+        build_parser().parse_args(["hunt", "list", "0"])
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "list", "--limit", "5"])
 
 
 def test_category_filters_are_mutually_exclusive() -> None:

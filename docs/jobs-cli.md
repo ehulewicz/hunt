@@ -8,7 +8,7 @@ All commands run from any directory after the editable worker install.
 os doctor
 os hunt sync
 os hunt list
-os hunt list --limit 500  # overshooting returns every available match
+os hunt list 500  # overshooting returns every available match
 os hunt list --family software_engineering --location "Atlanta, GA"
 os hunt list --all-roles
 os hunt open 12

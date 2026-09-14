@@ -83,7 +83,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Include listings classified as other",
     )
     listings.add_argument(
-        "--limit",
+        "limit",
+        nargs="?",
         type=listing_limit,
         default=50,
         help="Rows to show (1 or more; overshoots return all available)",
