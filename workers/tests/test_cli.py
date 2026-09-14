@@ -75,6 +75,22 @@ def test_api_errors_exit_with_the_backend_detail_instead_of_a_traceback(
         main(["status"])
 
 
+def test_everyday_commands_have_short_spellings() -> None:
+    from personal_os_worker.cli import expand_shorthand
+
+    assert expand_shorthand(["hunt"]) == ["hunt", "list"]
+    assert expand_shorthand(["hunt", "20"]) == ["hunt", "list", "20"]
+    assert expand_shorthand(["hunt", "--faang"]) == ["hunt", "list", "--faang"]
+    assert expand_shorthand(["hunt", "answers"]) == ["hunt", "answers", "list"]
+    assert expand_shorthand(["hunt", "resume"]) == ["hunt", "resume", "watch", "--open"]
+    # anything already spelled out is left alone
+    assert expand_shorthand(["hunt", "apply", "7"]) == ["hunt", "apply", "7"]
+    assert expand_shorthand(["hunt", "answers", "add"]) == ["hunt", "answers", "add"]
+    assert expand_shorthand(["hunt", "resume", "build"]) == ["hunt", "resume", "build"]
+    assert expand_shorthand(["status"]) == ["status"]
+    assert build_parser().parse_args(expand_shorthand(["hunt", "20"])).limit == 20
+
+
 def test_jobs_live_under_the_hunt_domain() -> None:
     args = build_parser().parse_args(["hunt", "list", "5", "--faang"])
     assert (args.command, args.hunt_command) == ("hunt", "list")

@@ -7,6 +7,7 @@ can be added later without claiming more names on PATH.
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -304,8 +305,27 @@ def _dispatch(args: argparse.Namespace) -> int:
     return 2
 
 
+def expand_shorthand(arguments: list[str]) -> list[str]:
+    """The short spellings of the everyday commands.
+
+    `hunt` is `hunt list`, `hunt 20` is `hunt list 20`, `hunt answers` is
+    `hunt answers list`, and `hunt resume` is `hunt resume watch --open`.
+    """
+    if not arguments or arguments[0] != "hunt":
+        return arguments
+    rest = arguments[1:]
+    if not rest or rest[0].isdigit() or rest[0].startswith("-"):
+        return ["hunt", "list", *rest]
+    if rest == ["answers"]:
+        return ["hunt", "answers", "list"]
+    if rest == ["resume"]:
+        return ["hunt", "resume", "watch", "--open"]
+    return arguments
+
+
 def main(arguments: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(arguments)
+    argv = list(sys.argv[1:] if arguments is None else arguments)
+    args = build_parser().parse_args(expand_shorthand(argv))
     try:
         return _dispatch(args)
     except httpx.HTTPStatusError as error:

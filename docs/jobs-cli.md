@@ -7,7 +7,8 @@ All commands run from any directory after the editable worker install.
 ```bash
 os doctor
 os hunt sync
-os hunt list
+os hunt              # = os hunt list
+os hunt 20           # = os hunt list 20
 os hunt today
 os hunt list 500  # overshooting returns every available match
 os hunt list --family software_engineering --location "Atlanta, GA"
@@ -15,14 +16,14 @@ os hunt list --all-roles
 os hunt open 12
 os hunt open 12 --source
 os hunt apps
-os hunt answers list
+os hunt answers      # = os hunt answers list
 os hunt answers add --question "Are you authorized?" --text "Yes" --reuse exact
 os hunt answers add --question "Why this company?" --file ./answer.md --reuse contextual
 os hunt answers add --question "consider me for other (job )?opportunities" --text "Yes" --reuse pattern
 os hunt answers edit 1 --file ./revised-answer.md --reuse contextual --approve
 
 os hunt resume build
-os hunt resume watch --open
+os hunt resume       # = os hunt resume watch --open
 
 os hunt queue
 os hunt queue add 3 7
