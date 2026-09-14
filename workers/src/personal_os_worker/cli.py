@@ -68,7 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
         "hunt",
         help="Jobs: listings, the queue, applications, answers, the resume",
         description=(
-            "os hunt [N] lists open listings (N rows, default 50). "
+            "os hunt [N] lists open listings (N rows, default 10). "
             "os hunt answers lists the answer library; os hunt resume watches the resume."
         ),
         usage="os hunt [N] [--faang | --quant] [--location L] [--family F] [--all-roles]\n"
@@ -102,7 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
         "limit",
         nargs="?",
         type=listing_limit,
-        default=50,
+        default=10,
         help="Rows to show (1 or more; overshoots return all available)",
     )
 
@@ -116,7 +116,7 @@ def build_parser() -> argparse.ArgumentParser:
     easy = jobs_commands.add_parser(
         "easy", help="Listings on an ATS the worker can fill today (Greenhouse, Ashby, Lever)"
     )
-    easy.add_argument("limit", nargs="?", type=listing_limit, default=50, help="Rows to show")
+    easy.add_argument("limit", nargs="?", type=listing_limit, default=10, help="Rows to show")
     easy.add_argument(
         "--all-roles", action="store_true", help="Include listings classified as other"
     )

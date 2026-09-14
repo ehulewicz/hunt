@@ -119,7 +119,7 @@ def test_today_is_a_listing_view_with_only_the_roles_switch() -> None:
 
 
 def test_easy_takes_a_row_limit_like_the_board() -> None:
-    assert build_parser().parse_args(["hunt", "easy"]).limit == 50
+    assert build_parser().parse_args(["hunt", "easy"]).limit == 10
     assert build_parser().parse_args(["hunt", "easy", "12"]).limit == 12
 
 
@@ -133,7 +133,7 @@ def test_any_displayed_listing_can_open_its_direct_or_discovery_link() -> None:
 
 def test_listing_limit_has_no_upper_bound_and_rejects_non_positive_values() -> None:
     assert build_parser().parse_args(["hunt", "list", "500"]).limit == 500
-    assert build_parser().parse_args(["hunt", "list"]).limit == 50
+    assert build_parser().parse_args(["hunt", "list"]).limit == 10
     with pytest.raises(SystemExit):
         build_parser().parse_args(["hunt", "list", "0"])
     with pytest.raises(SystemExit):
