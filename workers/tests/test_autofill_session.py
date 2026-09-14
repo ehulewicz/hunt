@@ -9,7 +9,6 @@ from playwright.sync_api import Error, sync_playwright
 
 from personal_os_worker.autofill_session import AutofillSession, SessionContext
 from personal_os_worker.browser import BrowserClosedError, VisibleBrowser, inspect_fields
-from personal_os_worker.drafts import DIVIDER, parse_draft
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -80,18 +79,6 @@ class FakeBrowser:
         return self.page
 
 
-class ClosedTab:
-    """A `code --wait` process that already exited; the edit is applied on open."""
-
-    def __init__(self, path: Path, edit: str | None) -> None:
-        if edit is not None:
-            below = path.read_text().split(DIVIDER, 1)[1]
-            path.write_text(f"{edit}\n\n{DIVIDER}{below}")
-
-    def poll(self) -> int:
-        return 0
-
-
 def test_visible_submit_bypasses_the_application_form_heuristic(
     browser_page,  # type: ignore[no-untyped-def]
     tmp_path: Path,
@@ -118,7 +105,6 @@ def test_visible_submit_bypasses_the_application_form_heuristic(
         company="Acme",
         title="Engineer",
         description=None,
-        draft_dir=tmp_path / "drafts",
     )
 
     fields = AutofillSession(context).wait_for_form()
@@ -174,7 +160,6 @@ def test_session_stops_when_page_closes_during_form_inspection(
         company="Acme",
         title="Backend Engineer Intern",
         description=None,
-        draft_dir=tmp_path / "drafts",
     )
 
     outcome = AutofillSession(context).run()
@@ -215,7 +200,6 @@ def test_session_reraises_unrelated_playwright_error_that_mentions_target_closed
         company="Acme",
         title="Backend Engineer Intern",
         description=None,
-        draft_dir=tmp_path / "drafts",
     )
 
     with pytest.raises(Error, match="Target closed"):
@@ -257,7 +241,6 @@ def test_session_stops_cleanly_when_browser_or_application_tab_closes(
         company="Acme",
         title="Backend Engineer Intern",
         description=None,
-        draft_dir=tmp_path / "drafts",
     )
 
     outcome = AutofillSession(context).run()
@@ -266,19 +249,14 @@ def test_session_stops_cleanly_when_browser_or_application_tab_closes(
     assert outcome == {"final_url": page.url, "answers": [], "submitted": False}
 
 
-def test_session_fills_from_closed_tabs_saves_every_answer_and_ends_on_submit(
+def test_session_seeds_long_form_saves_every_answer_and_ends_on_submit(
     browser_page,  # type: ignore[no-untyped-def]
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     browser_page.set_content((FIXTURES / "greenhouse.html").read_text())
     api = FakeApi()
-    opened: list[Path] = []
     drafted: list[str] = []
-
-    def opener(path: Path) -> ClosedTab:
-        opened.append(path)
-        return ClosedTab(path, "Because the edge network is the product.")
 
     def drafter(**kwargs: Any) -> str:
         drafted.append(str(kwargs["question"]))
@@ -308,8 +286,6 @@ def test_session_fills_from_closed_tabs_saves_every_answer_and_ends_on_submit(
         company="Acme",
         title="Backend Engineer Intern",
         description="Build things.",
-        draft_dir=tmp_path / "drafts",
-        opener=opener,
         drafter=drafter,
         use_claude=False,
         poll_seconds=0.05,
@@ -317,12 +293,14 @@ def test_session_fills_from_closed_tabs_saves_every_answer_and_ends_on_submit(
     )
     session = AutofillSession(context)
     polls = {"count": 0}
+    seen: dict[str, str] = {}
     original_sleep = session.sleep
 
     def sleep_then_submit() -> None:
         # The user picks a country, then presses Submit; the confirmation page appears.
         polls["count"] += 1
         if polls["count"] == 2:
+            seen["why"] = browser_page.input_value("#why")
             browser_page.select_option("#country", label="Canada")
         if polls["count"] == 4:
             browser_page.set_content("<h1>Thank you for applying to Acme!</h1>")
@@ -333,13 +311,10 @@ def test_session_fills_from_closed_tabs_saves_every_answer_and_ends_on_submit(
     outcome = session.run()
 
     assert drafted == ["Why this team?"]
-    assert len(opened) == 1 and opened[0].name == "03-why-this-team.md"
-    draft_text = opened[0].read_text()
-    assert "Similar, not exact." in draft_text
-    assert parse_draft(draft_text) == "Because the edge network is the product."
+    assert seen["why"] == "Claude's tailored draft."
     saved = {item["question"]: item for item in outcome["answers"]}
-    assert saved["Why this team?"]["answer_text"] == "Because the edge network is the product."
-    assert saved["Why this team?"]["source"] == "manual"
+    assert saved["Why this team?"]["answer_text"] == "Claude's tailored draft."
+    assert saved["Why this team?"]["source"] == "model"
     assert saved["Why this team?"]["reuse_policy"] == "contextual"
     assert saved["Country"] == {
         "question": "Country",
@@ -352,14 +327,16 @@ def test_session_fills_from_closed_tabs_saves_every_answer_and_ends_on_submit(
     assert "dry_run" not in outcome
     assert outcome["submitted"] is True
     printed = capsys.readouterr().out
-    assert "picked up: Country -> Canada" in printed
+    assert "long-form  Why this team?" in printed and "(claude draft)" in printed
+    assert "Review before submitting" in printed
+    assert "picked up  Country" in printed and "-> Canada" in printed
     # The scripted Ctrl+S landed after the country was chosen and pushed it to the library.
     assert api.library["Country"]["answer_text"] == "Canada"
     assert api.library["Country"]["approved"] is True
-    assert "saved: Country -> Canada" in printed
+    assert "saved      Country" in printed
     assert set(api.library) == {"Country", "Why this team?"}  # profile fills are not re-saved
-    assert printed.count("picked up: Country") == 1
-    assert "picked up: Why this team?" not in printed  # the tab already reported it
+    assert printed.count("picked up  Country") == 1
+    assert "picked up  Why this team?" not in printed  # the seed already reported it
     assert "picked up: First name" not in printed  # the worker filled it
 
 
@@ -419,7 +396,6 @@ def test_session_resolves_pattern_and_claude_tiers_for_unfilled_fields(
         company="Acme",
         title="Backend Engineer Intern",
         description=None,
-        draft_dir=tmp_path / "drafts",
         short_drafter=short_drafter,
         poll_seconds=0.05,
         keys=ScriptedKeys([{"save"}]),
@@ -459,9 +435,9 @@ def test_session_resolves_pattern_and_claude_tiers_for_unfilled_fields(
         "reuse_policy": "exact",
     }
     printed = capsys.readouterr().out
-    assert "pattern: Consider me for other roles? -> Yes" in printed
-    assert "pattern: Have you ever worked for Acme? -> No - never" in printed
-    assert "claude: What school are you attending? -> Example Institute of Technology" in printed
+    assert "pattern    Consider me for other roles?" in printed and "-> Yes" in printed
+    assert "pattern    Have you ever worked for Acme?" in printed and "-> No - never" in printed
+    assert "claude     What school are you attending?" in printed
     assert api.library["Consider me for other roles?"]["reuse_policy"] == "exact"
     assert api.library["What school are you attending?"]["answer_text"] == (
         "Example Institute of Technology"
@@ -488,9 +464,7 @@ def test_dry_run_plans_without_opening_tabs_or_writing(
         company="Acme",
         title="Backend Engineer Intern",
         description=None,
-        draft_dir=tmp_path / "drafts",
         dry_run=True,
-        opener=lambda path: pytest.fail("dry run must not open tabs"),
         drafter=lambda **_: pytest.fail("dry run must not call Claude"),
     )
     outcome = AutofillSession(context).run()
@@ -520,8 +494,6 @@ def test_ctrl_c_ends_cleanly_with_the_answers_picked_up_so_far(
         company="Acme",
         title="Backend Engineer Intern",
         description=None,
-        draft_dir=tmp_path / "drafts",
-        opener=lambda path: ClosedTab(path, None),
         drafter=lambda **_: None,
         use_claude=False,
         poll_seconds=0.01,
@@ -569,7 +541,6 @@ def test_claude_is_asked_about_a_question_once_per_run(
         company="Acme",
         title="Backend Engineer Intern",
         description=None,
-        draft_dir=tmp_path / "drafts",
         short_drafter=short_drafter,
     )
     session = AutofillSession(context)
@@ -617,7 +588,6 @@ def test_ctrl_a_saves_marks_submitted_and_ends(
         company="Acme",
         title="Backend Engineer Intern",
         description=None,
-        draft_dir=tmp_path / "drafts",
         use_claude=False,
         poll_seconds=0.01,
         keys=ScriptedKeys([set(), {"done"}]),
@@ -658,7 +628,6 @@ def test_submitting_during_the_claude_pass_ends_the_session_promptly(
         company="Acme",
         title="Backend Engineer Intern",
         description=None,
-        draft_dir=tmp_path / "drafts",
         short_drafter=short_drafter,
         poll_seconds=0.01,
         keys=InterruptingKeys([set()] * 20),

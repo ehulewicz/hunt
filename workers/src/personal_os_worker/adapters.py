@@ -12,6 +12,7 @@ ADAPTER_VERSION = "personal-os-autofill-v1"
 @dataclass(frozen=True, slots=True)
 class AtsAdapter:
     name: str
+    supported: bool = True
     resume_first: bool = False
     skip_choices_for_captcha: bool = False
 
@@ -20,8 +21,10 @@ ADAPTERS = {
     "greenhouse": AtsAdapter("greenhouse", resume_first=True),
     "ashby": AtsAdapter("ashby", resume_first=True),
     "lever": AtsAdapter("lever", skip_choices_for_captcha=True),
-    "generic": AtsAdapter("generic"),
+    "workday": AtsAdapter("workday", supported=False),
+    "generic": AtsAdapter("generic", supported=False),
 }
+ATS_NAMES = tuple(ADAPTERS)
 
 
 def adapter_version() -> str:
@@ -64,6 +67,8 @@ def detect_ats(url: str) -> AtsAdapter:
         return ADAPTERS["ashby"]
     if "lever.co" in host:
         return ADAPTERS["lever"]
+    if "myworkdayjobs.com" in host or "myworkdaysite.com" in host:
+        return ADAPTERS["workday"]
     return ADAPTERS["generic"]
 
 

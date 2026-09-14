@@ -5,7 +5,11 @@ def test_supported_ats_detection_is_host_based() -> None:
     assert detect_ats("https://boards.greenhouse.io/acme/jobs/1").name == "greenhouse"
     assert detect_ats("https://jobs.ashbyhq.com/acme/1").name == "ashby"
     assert detect_ats("https://jobs.lever.co/acme/1").name == "lever"
-    assert detect_ats("https://example.com/jobs/1").name == "generic"
+    workday = detect_ats("https://big.wd5.myworkdayjobs.com/en-US/careers/job/1")
+    assert workday.name == "workday" and workday.supported is False
+    generic = detect_ats("https://example.com/jobs/1")
+    assert generic.name == "generic" and generic.supported is False
+    assert detect_ats("https://jobs.lever.co/acme/1").supported is True
 
 
 def test_choice_matching_requires_one_clear_option() -> None:

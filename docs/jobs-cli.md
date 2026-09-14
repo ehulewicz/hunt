@@ -10,7 +10,7 @@ os hunt sync
 os hunt              # = os hunt list
 os hunt 20           # = os hunt list 20
 os hunt today
-os hunt easy 20      # only Greenhouse/Ashby/Lever listings (temporary, until the rest are supported)
+os hunt today --ats greenhouse   # one form type: greenhouse | ashby | lever | workday | generic
 os hunt list 500  # overshooting returns every available match
 os hunt list --family software_engineering --location "Atlanta, GA"
 os hunt list --all-roles
@@ -34,7 +34,8 @@ os hunt apps 1 oa
 
 os hunt apply 1 --dry-run
 os hunt apply 1
-os hunt apply easy          # apply the first listing shown by `os hunt easy`
+os hunt apply today               # first listing of `os hunt today` on a supported ATS
+os hunt apply today --ats greenhouse
 os hunt apply 1 --no-claude
 os hunt apply 1 --done       # applied outside the worker; just record it
 

@@ -53,8 +53,10 @@ counts as filled when its rendered choice is present even though its search
 input is empty, and a free-entry typeahead with no option for the typed text is
 committed with Enter.
 
-`os hunt apply easy` resolves the first supported listing in the default
-`os hunt easy` order before starting that same apply flow.
+`os hunt today` shows listings at most a day old; `--ats greenhouse|ashby|lever|workday|generic`
+narrows the view to one form type, detected from the direct application URL,
+and the board shows that type in its `ats` column. `os hunt apply today` applies
+the first listing in that order on a supported ATS, or on the `--ats` given.
 The worker never selects a “Prefer not to answer,” “Decline,” or equivalent
 choice; when no factual answer is available, that question remains for the user.
 Consent stays manual, while custom radio groups now recognize and preserve a
@@ -115,17 +117,16 @@ others. This never changes how an explicit "expected graduation date" form
 question is answered; that stays the true date from the profile,
 deterministically.
 
-Every long-form textarea becomes a Markdown file under the state directory and
-opens as its own VS Code tab through `code --wait`. The text above the divider is
-the seed: an exact library answer when one exists, otherwise a local `claude -p`
-draft grounded in the posting, the canonical resume, the profile, and the most
-similar library answers, otherwise blank. Below the divider sit the question, the
-company and role, where the seed came from, and the similar answers for
-reference. Closing the tab fills the textarea with whatever is above the divider;
-an empty top section leaves the field alone. Claude is only ever called for a
-textarea without an exact answer.
+Every long-form textarea is seeded directly on the page: an exact library
+answer when one exists, otherwise a local `claude -p` draft grounded in the
+posting, the canonical resume, the profile, and the most similar library
+answers. A textarea that already holds text is kept, and one with nothing to
+offer is left alone. Each is echoed as `long-form <question> -> <text> (library|claude draft)`,
+and the step ends with a **Review before submitting** list of the drafted ones
+so you can edit them in the browser. Claude is only ever called for a textarea
+without an exact answer.
 
-After the tabs close the worker polls the page. It snapshots every non-empty
+The worker then polls the page. It snapshots every non-empty
 control by its question, echoes anything the user typed or chose as `picked up`,
 and reports when it sees a visible Submit control. Required-field completeness,
 Next, and Submit are left to the user in the browser. Answers are saved to the

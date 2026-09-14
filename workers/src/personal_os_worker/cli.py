@@ -14,6 +14,7 @@ from pathlib import Path
 import httpx
 
 from personal_os_worker import __version__
+from personal_os_worker.adapters import ATS_NAMES
 from personal_os_worker.auth import LoginError
 from personal_os_worker.commands import hunt, services
 from personal_os_worker.commands.hunt import APPLICATION_STATUSES, DEFAULT_TECHNICAL_FAMILIES
@@ -22,7 +23,7 @@ from personal_os_worker.resume import build_resume, watch_resume
 from personal_os_worker.service import ApiUnavailable, ChromeUnavailable
 from personal_os_worker.tables import ReferenceError, console
 
-HUNT_COMMANDS = ("today", "easy", "sync", "open", "apps", "queue", "answers", "resume", "apply")
+HUNT_COMMANDS = ("today", "sync", "open", "apps", "queue", "answers", "resume", "apply")
 LISTING_FLAGS = ("--faang", "--quant", "--location", "--family", "--all-roles")
 
 
@@ -112,14 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
     today.add_argument(
         "--all-roles", action="store_true", help="Include listings classified as other"
     )
-
-    easy = jobs_commands.add_parser(
-        "easy", help="Listings on an ATS the worker can fill today (Greenhouse, Ashby, Lever)"
-    )
-    easy.add_argument("limit", nargs="?", type=listing_limit, default=10, help="Rows to show")
-    easy.add_argument(
-        "--all-roles", action="store_true", help="Include listings classified as other"
-    )
+    today.add_argument("--ats", choices=ATS_NAMES, help="Only this form type")
 
     jobs_commands.add_parser("sync", help="Deterministically sync the configured listing feeds")
 
@@ -187,9 +181,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     autofill = jobs_commands.add_parser(
         "apply",
-        help="Fill a saved or top Easy listing in native Chrome, or manage captured failures",
+        help="Fill a listing in native Chrome, or manage captured failures",
     )
-    autofill.add_argument("ref", help="Listing row/id, 'easy', or 'failures'")
+    autofill.add_argument("ref", help="Listing row/id, 'today', or 'failures'")
+    autofill.add_argument("--ats", choices=ATS_NAMES, help="With 'today': only this form type")
     autofill.add_argument(
         "failure_action",
         nargs="?",
@@ -269,12 +264,8 @@ def _dispatch(args: argparse.Namespace) -> int:
             )
         if args.hunt_command == "today":
             return hunt.run_today(
-                role_families=[] if args.all_roles else list(DEFAULT_TECHNICAL_FAMILIES)
-            )
-        if args.hunt_command == "easy":
-            return hunt.run_easy(
                 role_families=[] if args.all_roles else list(DEFAULT_TECHNICAL_FAMILIES),
-                limit=args.limit,
+                ats=args.ats,
             )
         if args.hunt_command == "sync":
             return hunt.run_sync()
@@ -339,13 +330,15 @@ def _dispatch(args: argparse.Namespace) -> int:
             if args.done:
                 if args.dry_run or args.no_claude:
                     raise RuntimeError("--done takes no other flags")
-                if args.ref == "easy":
-                    raise RuntimeError("'apply easy' does not support --done")
+                if args.ref == "today":
+                    raise RuntimeError("'apply today' does not support --done")
                 return hunt.run_mark_applied(args.ref)
-            if args.ref == "easy":
-                return hunt.run_autofill_easy(
-                    dry_run=args.dry_run, no_claude=args.no_claude
+            if args.ref == "today":
+                return hunt.run_autofill_today(
+                    ats=args.ats, dry_run=args.dry_run, no_claude=args.no_claude
                 )
+            if args.ats:
+                raise RuntimeError("--ats only applies to 'apply today'")
             return hunt.run_autofill(args.ref, dry_run=args.dry_run, no_claude=args.no_claude)
     return 2
 

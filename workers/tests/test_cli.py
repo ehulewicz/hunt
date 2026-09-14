@@ -100,7 +100,7 @@ def test_hunt_help_lists_only_the_public_commands(capsys: pytest.CaptureFixture[
     assert exit_info.value.code == 0
     output = capsys.readouterr().out
     assert "os hunt [N]" in output
-    assert "{today,easy,sync,open,apps,queue,answers,resume,apply}" in output
+    assert "{today,sync,open,apps,queue,answers,resume,apply}" in output
     assert "{list," not in output and "\n    list " not in output
 
 
@@ -111,16 +111,17 @@ def test_jobs_live_under_the_hunt_domain() -> None:
     assert args.all_roles is False and args.family == []
 
 
-def test_today_is_a_listing_view_with_only_the_roles_switch() -> None:
-    assert build_parser().parse_args(["hunt", "today"]).all_roles is False
+def test_today_is_a_listing_view_with_roles_and_ats_switches() -> None:
+    args = build_parser().parse_args(["hunt", "today"])
+    assert args.all_roles is False and args.ats is None
     assert build_parser().parse_args(["hunt", "today", "--all-roles"]).all_roles is True
+    assert build_parser().parse_args(["hunt", "today", "--ats", "greenhouse"]).ats == "greenhouse"
     with pytest.raises(SystemExit):
         build_parser().parse_args(["hunt", "today", "5"])
-
-
-def test_easy_takes_a_row_limit_like_the_board() -> None:
-    assert build_parser().parse_args(["hunt", "easy"]).limit == 10
-    assert build_parser().parse_args(["hunt", "easy", "12"]).limit == 12
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "today", "--ats", "icims"])
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "easy"])
 
 
 def test_any_displayed_listing_can_open_its_direct_or_discovery_link() -> None:
@@ -214,12 +215,18 @@ def test_autofill_requires_a_saved_listing_reference_and_has_no_lentra_provider(
         build_parser().parse_args(["hunt", "apply", "7", "--provider", "lentra"])
 
 
-def test_autofill_accepts_the_top_easy_listing_selector() -> None:
-    args = build_parser().parse_args(["hunt", "apply", "easy", "--dry-run", "--no-claude"])
-    assert args.ref == "easy" and args.dry_run is True and args.no_claude is True
+def test_autofill_accepts_today_with_an_ats_filter() -> None:
+    args = build_parser().parse_args(
+        ["hunt", "apply", "today", "--ats", "greenhouse", "--dry-run", "--no-claude"]
+    )
+    assert args.ref == "today" and args.ats == "greenhouse"
+    assert args.dry_run is True and args.no_claude is True
+    assert build_parser().parse_args(["hunt", "apply", "today"]).ats is None
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "apply", "today", "--ats", "icims"])
 
 
-def test_apply_easy_uses_the_first_supported_listing_in_easy_order(
+def test_apply_today_uses_the_first_listing_of_today_on_a_supported_or_chosen_ats(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[str, object]] = []
@@ -233,22 +240,39 @@ def test_apply_easy_uses_the_first_supported_listing_in_easy_order(
             return {
                 "items": [
                     {
+                        "id": "old-greenhouse",
+                        "company_name": "Stale",
+                        "title": "Engineer",
+                        "application_url": "https://boards.greenhouse.io/stale/jobs/9",
+                        "source_age_days": 4,
+                    },
+                    {
                         "id": "generic-first",
                         "company_name": "Generic",
                         "title": "Unsupported",
                         "application_url": "https://example.com/jobs/1",
+                        "source_age_days": 0,
                     },
                     {
-                        "id": "easy-first",
+                        "id": "workday-first",
+                        "company_name": "Big",
+                        "title": "Engineer",
+                        "application_url": "https://big.wd5.myworkdayjobs.com/en-US/jobs/1",
+                        "source_age_days": 0,
+                    },
+                    {
+                        "id": "ashby-first",
                         "company_name": "Acme",
                         "title": "Engineer",
                         "application_url": "https://jobs.ashbyhq.com/acme/1",
+                        "source_age_days": 1,
                     },
                     {
-                        "id": "easy-second",
+                        "id": "greenhouse-first",
                         "company_name": "Later",
                         "title": "Engineer",
-                        "application_url": "https://jobs.lever.co/later/2",
+                        "application_url": "https://job-boards.greenhouse.io/later/jobs/2",
+                        "source_age_days": 1,
                     },
                 ]
             }
@@ -266,12 +290,18 @@ def test_apply_easy_uses_the_first_supported_listing_in_easy_order(
         ),
     )
 
-    assert main(["hunt", "apply", "easy", "--dry-run", "--no-claude"]) == 0
+    assert main(["hunt", "apply", "today", "--dry-run", "--no-claude"]) == 0
     assert calls[1] == (
         "listings",
-        (["software_engineering", "data_engineering", "ml_engineering"], 1000),
+        (["software_engineering", "data_engineering", "ml_engineering"], 500),
     )
-    assert calls[-1] == ("apply", ("easy-first", True, True))
+    assert calls[-1] == ("apply", ("ashby-first", True, True))
+
+    assert main(["hunt", "apply", "today", "--ats", "greenhouse", "--dry-run"]) == 0
+    assert calls[-1] == ("apply", ("greenhouse-first", True, False))
+
+    with pytest.raises(SystemExit, match="Nothing new today on lever"):
+        main(["hunt", "apply", "today", "--ats", "lever"])
 
 
 def test_apply_done_records_an_application_made_elsewhere() -> None:

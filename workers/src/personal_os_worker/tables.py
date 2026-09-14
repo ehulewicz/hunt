@@ -18,6 +18,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from personal_os_worker.adapters import detect_ats
+
 SHORT_ID_LENGTH = 8
 
 console = Console()
@@ -55,6 +57,12 @@ def pick(items: list[dict[str, Any]], reference: str, *, kind: str) -> dict[str,
     raise ReferenceError(f"No {kind} match {reference!r}.")
 
 
+def _ats(application_url: str) -> str:
+    """The form type behind the direct URL; blank when it is nothing we recognize."""
+    name = detect_ats(application_url).name
+    return "" if name == "generic" else name
+
+
 def _age(days: Any) -> str:
     if not isinstance(days, int):
         return "-"
@@ -78,6 +86,7 @@ def render_listings(items: list[dict[str, Any]], total: int, *, title: str = "Li
     table.add_column("title", no_wrap=True, overflow="ellipsis", ratio=1)
     table.add_column("location", no_wrap=True, overflow="ellipsis")
     table.add_column("age", justify="right", no_wrap=True)
+    table.add_column("ats", no_wrap=True, style="dim")
     table.add_column("cat", no_wrap=True)
     table.add_column("q", no_wrap=True)
 
@@ -96,6 +105,7 @@ def render_listings(items: list[dict[str, Any]], total: int, *, title: str = "Li
             rendered_title,
             str(item.get("location") or "-"),
             _age(item.get("source_age_days")),
+            _ats(application_url),
             "" if category == "other" else category,
             "q" if item.get("application_status") == "queued" else "",
         )

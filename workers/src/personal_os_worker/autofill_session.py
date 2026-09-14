@@ -1,11 +1,12 @@
 """The interactive part of `os hunt apply`, without any terminal prompts.
 
-The terminal only reports. Long-form answers are edited in VS Code tabs and
-filled when each tab closes. Everything else the deterministic planner could
-not fill is typed on the page by the user; the worker polls the page, saves
-every answer it can see, and watches for a visible Submit control. The user owns
-Next and Submit; the run ends when the page reports submission or when the user
-interrupts, and both paths save the collected answers.
+The terminal only reports. Every textarea is seeded on the page with its best
+answer and the ones that came from a Claude draft are listed for review.
+Everything else the deterministic planner could not fill is typed on the page
+by the user; the worker polls the page, saves every answer it can see, and
+watches for a visible Submit control. The user owns Next and Submit; the run
+ends when the page reports submission or when the user interrupts, and both
+paths save the collected answers.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from playwright.sync_api import Error, Page
+from rich.markup import escape
 
 from personal_os_worker.adapters import failure_signature
 from personal_os_worker.answers import answer_match, draft_contextual_answer
@@ -39,15 +41,7 @@ from personal_os_worker.browser import (
     snapshot_values,
     verify_control,
 )
-from personal_os_worker.drafts import (
-    Draft,
-    DraftOpener,
-    DraftProcess,
-    default_opener,
-    parse_draft,
-    similar_answers,
-    write_draft,
-)
+from personal_os_worker.drafts import similar_answers
 from personal_os_worker.keys import KeyWatcher, NoKeys
 from personal_os_worker.patterns import resolve_pattern_answer
 from personal_os_worker.short_answers import ShortQuestion, draft_short_answers
@@ -87,10 +81,8 @@ class SessionContext:
     company: str
     title: str
     description: str | None
-    draft_dir: Path
     transcript_pdf: Path | None = None
     dry_run: bool = False
-    opener: DraftOpener = default_opener
     drafter: Drafter = draft_contextual_answer
     short_drafter: ShortDrafter = draft_short_answers
     use_claude: bool = True
@@ -100,6 +92,7 @@ class SessionContext:
 
 @dataclass
 class SessionState:
+    review: list[tuple[str, str]] = field(default_factory=list)  # (question, source) long-form
     collected: dict[str, dict[str, Any]] = field(default_factory=dict)
     seeds: dict[str, tuple[str, str]] = field(default_factory=dict)  # question -> (text, source)
     planned: dict[str, str] = field(default_factory=dict)  # question -> planned value
@@ -128,6 +121,38 @@ def preview(value: str, *, limit: int = 100) -> str:
     """One terminal line of a value, however long the textarea answer is."""
     flat = " ".join(value.split())
     return flat if len(flat) <= limit else flat[: limit - 3].rstrip() + "..."
+
+
+TAG_WIDTH = 10
+QUESTION_WIDTH = 42
+VALUE_WIDTH = 60
+
+TAG_STYLES = {
+    "profile": "dim",
+    "library": "dim",
+    "pattern": "magenta",
+    "claude": "magenta",
+    "long-form": "cyan",
+    "picked up": "cyan",
+    "saved": "green",
+    "kept": "dim",
+    "left": "yellow",
+    "review": "yellow",
+    "failed": "red",
+}
+
+
+def echo(tag: str, question: str, value: str | None = None, *, note: str | None = None) -> None:
+    """One aligned line: `  tag  question  -> value  (note)`."""
+    style = TAG_STYLES.get(tag, "")
+    label = f"[{style}]{tag:<{TAG_WIDTH}}[/{style}]" if style else f"{tag:<{TAG_WIDTH}}"
+    text = preview(question, limit=QUESTION_WIDTH)
+    line = f"  {label} {escape(text):<{QUESTION_WIDTH}}"
+    if value is not None:
+        line += f" -> {escape(preview(value, limit=VALUE_WIDTH))}"
+    if note:
+        line += f"  [dim]({escape(note)})[/dim]"
+    console.print(line)
 
 
 def _question_for(field: dict[str, Any]) -> str:
@@ -286,11 +311,9 @@ class AutofillSession:
                 reuse_policy=str(item["reuse_policy"]),
             )
             self.state.saved[str(item["question"])] = str(item["answer_text"])
-            console.print(
-                f"  [green]saved:[/green] {item['question']} -> {preview(str(item['answer_text']))}"
-            )
+            echo("saved", str(item["question"]), str(item["answer_text"]))
         if not pending:
-            console.print("  Nothing new to save.")
+            console.print("  [dim]nothing new to save[/dim]")
         return len(pending)
 
     # ----- form discovery --------------------------------------------------
@@ -367,14 +390,16 @@ class AutofillSession:
         for item in fields:
             item["ats"] = self.ctx.adapter_name
         if not self.ctx.dry_run:
-            # Textareas go through VS Code tabs, so they are not written here.
+            # Textareas are seeded by fill_long_form, which knows their source.
             plan = type(plan)(
                 tuple(fill for fill in plan.fills if fields[fill.index].get("tag") != "textarea"),
                 plan.unanswered_required_questions,
             )
+        console.print()
+        console.rule(f"[bold]Step {self.state.step + 1}[/bold]", align="left")
         console.print(
-            f"Step {self.state.step + 1}: {len(fields)} controls, {len(plan.fills)} planned, "
-            f"{len(plan.unanswered_required_questions)} required left for you."
+            f"  {len(fields)} controls · {len(plan.fills)} planned · "
+            f"{len(plan.unanswered_required_questions)} required left for you"
         )
         if self.ctx.dry_run:
             return {"filled_fields": [], "skipped_fields": [], "failures": [], "plan": plan}
@@ -394,7 +419,7 @@ class AutofillSession:
                 self.state.planned[question] = applied
                 if question in self.state.tier_answers:
                     self.state.tier_answers[question] = applied
-                    console.print(f"  [magenta]pattern:[/magenta] {question} -> {applied}")
+                    echo("pattern", question, applied)
         for question in result["unanswered_required_questions"]:
             item = next(
                 (
@@ -478,7 +503,7 @@ class AutofillSession:
             and not is_sensitive_field(item)
         ]
         if pending:
-            console.print(f"Reading the options of {len(pending)} dropdown(s) ...")
+            console.print(f"  [dim]reading the options of {len(pending)} dropdown(s)[/dim]")
         for item in pending:
             try:
                 item["options"] = combobox_options(self.page, fresh_control(self.page, item))
@@ -496,7 +521,7 @@ class AutofillSession:
         if not questions:
             return
         self.state.asked_claude.update(question.question for question in questions)
-        console.print(f"Asking Claude about {len(questions)} question(s) ...")
+        console.print(f"  [dim]asking Claude about {len(questions)} question(s)[/dim]")
         drafted = self.ctx.short_drafter(
             questions,
             posting={
@@ -509,7 +534,7 @@ class AutofillSession:
             library=self.ctx.answers,
         )
         if not drafted:
-            console.print("Claude had no confident answers.")
+            console.print("  [dim]Claude had no confident answers[/dim]")
             return
         if self.form_is_gone():
             return
@@ -525,7 +550,7 @@ class AutofillSession:
             if applied is not None and question in drafted:
                 self.state.tier_answers[question] = applied
                 self.state.tier_source[question] = "model"
-                console.print(f"  [magenta]claude:[/magenta] {question} -> {applied}")
+                echo("claude", question, applied)
         result["failures"].extend(claude_result["failures"])
 
     # ----- long-form drafts ------------------------------------------------
@@ -565,72 +590,53 @@ class AutofillSession:
             return base, "answer_library", "contextual library answer; claude draft failed", similar
         return "", "empty", "no library match and no claude draft; write from scratch", similar
 
-    def open_drafts(self, fields: list[dict[str, Any]]) -> list[tuple[Draft, DraftProcess]]:
-        opened: list[tuple[Draft, DraftProcess]] = []
+    def fill_long_form(self, fields: list[dict[str, Any]]) -> None:
+        """Seed every textarea with its best answer and say which ones deserve a look.
+
+        An exact library answer goes in as is. Otherwise a Claude draft grounded
+        in the posting goes in and is flagged for review. A textarea that
+        already holds text is kept, and one with nothing to offer is left alone.
+        """
         for item in fields:
             if item.get("tag") != "textarea" or is_sensitive_field(item):
                 continue
             question = str(item.get("label") or "").strip()
             if not question:
                 continue
-            seed, source, note, similar = self.seed_for(question)
-            draft = write_draft(
-                self.ctx.draft_dir / f"step-{self.state.step + 1}",
-                field_index=int(item["index"]),
-                question=question,
-                seed=seed,
-                seed_source=source,
-                company=self.ctx.company,
-                role=self.ctx.title,
-                source_note=note,
-                similar=similar,
-            )
+            if item.get("filled") is True:
+                echo("kept", question, note="already has text")
+                continue
+            seed, source, note, _similar = self.seed_for(question)
             self.state.seeds[question] = (seed, source)
-            opened.append((draft, self.ctx.opener(draft.path)))
-            console.print(f"  [cyan]tab:[/cyan] {question} ({note.split(' (', 1)[0]})")
-        if opened:
-            console.print(
-                f"Opened {len(opened)} question tab(s) in VS Code. Close each (:wq) to fill it."
-            )
-        return opened
+            if not seed:
+                echo("left", question, note=note.split(";", 1)[0])
+                continue
+            try:
+                set_registered_value(fresh_control(self.page, item), seed)
+                ok = verify_control(self.page, item, seed)
+            except (Error, RuntimeError) as error:
+                ok = False
+                echo("failed", question, note=str(error))
+            if not ok:
+                self.report_page_failure(
+                    "readback_mismatch", f"Long-form answer for {question!r} did not register"
+                )
+                continue
+            self.state.announced[question] = seed
+            label = "claude draft" if source == "model" else "library"
+            echo("long-form", question, seed, note=label)
+            if source == "model":
+                self.state.review.append((question, label))
 
-    def fill_from_draft(self, fields: list[dict[str, Any]], draft: Draft) -> None:
-        text = parse_draft(draft.path.read_text())
-        if not text:
-            console.print(f"  [yellow]left empty:[/yellow] {draft.question}")
+    def report_review(self) -> None:
+        """List the long-form answers that came from a draft, once per step."""
+        if not self.state.review:
             return
-        item = next((f for f in fields if int(f["index"]) == draft.field_index), None)
-        if item is None:
-            console.print(f"  [red]lost control:[/red] {draft.question}")
-            return
-        try:
-            set_registered_value(fresh_control(self.page, item), text)
-            ok = verify_control(self.page, item, text)
-        except (Error, RuntimeError) as error:
-            ok = False
-            console.print(f"  [red]fill failed:[/red] {draft.question}: {error}")
-        if ok:
-            self.state.announced[draft.question] = text
-            console.print(f"  [green]filled:[/green] {draft.question}")
-        else:
-            self.report_page_failure(
-                "readback_mismatch", f"Draft for {draft.question!r} did not register"
-            )
-
-    def await_drafts(
-        self, fields: list[dict[str, Any]], opened: list[tuple[Draft, DraftProcess]]
-    ) -> None:
-        pending = list(opened)
-        while pending:
-            still_open: list[tuple[Draft, DraftProcess]] = []
-            for draft, process in pending:
-                if process.poll() is None:
-                    still_open.append((draft, process))
-                else:
-                    self.fill_from_draft(fields, draft)
-            pending = still_open
-            if pending:
-                self.sleep()
+        console.print()
+        console.print("  [bold]Review before submitting[/bold] (edit in the browser if you like):")
+        for question, label in self.state.review:
+            echo("review", question, note=label)
+        self.state.review.clear()
 
     # ----- manual completion, capture, and advance --------------------------
 
@@ -662,7 +668,7 @@ class AutofillSession:
             # Echo what the user typed or chose so they can see it was picked up.
             if source == "manual" and self.state.announced.get(question) != value:
                 self.state.announced[question] = value
-                console.print(f"  [cyan]picked up:[/cyan] {question} -> {preview(value)}")
+                echo("picked up", question, value)
 
     def wait_and_advance(self, fields: list[dict[str, Any]]) -> None:
         """Collect manual answers while the user owns page navigation and submission."""
@@ -677,7 +683,8 @@ class AutofillSession:
                 return
             self.record_snapshot(current)
             if has_submit_control(self.page) and not submit_reported:
-                console.print("  Submit found. Press it in the browser when ready.")
+                console.print()
+                console.print("  [bold]Submit found[/bold] — press it in the browser when ready.")
                 submit_reported = True
             self.sleep()
 
@@ -685,8 +692,8 @@ class AutofillSession:
 
     def run(self) -> dict[str, Any]:
         console.print(
-            "[dim]Ctrl+S saves picked-up answers now; Ctrl+A marks it submitted and ends; "
-            "Ctrl+C stops and saves.[/dim]"
+            "[dim]Ctrl+S saves picked-up answers · Ctrl+A marks submitted and ends · "
+            "Ctrl+C stops and saves[/dim]"
         )
         with self.ctx.keys:
             return self._run()
@@ -706,8 +713,8 @@ class AutofillSession:
                     return {"final_url": self.page.url, "answers": [], "dry_run": True}
                 if self.ctx.use_claude:
                     self.fill_with_claude(fields, result)
-                opened = self.open_drafts(fields)
-                self.await_drafts(fields, opened)
+                self.fill_long_form(fields)
+                self.report_review()
                 self.wait_and_advance(fields)
                 self.state.step += 1
         except BrowserClosedError:

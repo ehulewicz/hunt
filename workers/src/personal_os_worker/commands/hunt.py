@@ -45,59 +45,45 @@ def run_listings(
     return 0
 
 
-def run_today(*, role_families: list[str]) -> int:
-    """Listings from the last day, same rows and numbering as `list`.
+def today_listings(
+    api: WorkerApi, *, role_families: list[str], ats: str | None
+) -> list[dict[str, object]]:
+    """Listings at most a day old, same rows and numbering as `list`, newest board order.
 
     The feed dates postings by day and syncs once a morning, so "today" is
     anything at most a day old; at 0d only, the view is empty every morning.
+    `ats` narrows to one form type by the direct application URL.
     """
-    config, token = connected()
-    api = WorkerApi(config, token)
-    try:
-        page = api.listings(role_families=role_families, limit=500)
-    finally:
-        api.close()
+    from personal_os_worker.adapters import detect_ats
+
+    page = api.listings(role_families=role_families, limit=500)
     items = [
         item
         for item in page.get("items") or []
         if item.get("source_age_days") is not None and int(item["source_age_days"]) <= 1
     ]
-    if not items:
-        console.print("Nothing new today that you have not already applied to.")
-        return 0
-    render_listings(items, len(items), title="Today")
-    return 0
+    if ats:
+        items = [
+            item
+            for item in items
+            if detect_ats(str(item.get("application_url") or "")).name == ats
+        ]
+    return items
 
 
-def run_easy(*, role_families: list[str], limit: int) -> int:
-    """Listings on an ATS the worker can drive today (Greenhouse, Ashby, Lever).
-
-    Temporary, until Workday and the rest are supported; numbers are the
-    board's, so `apply <row>` means the same listing as everywhere else.
-    """
+def run_today(*, role_families: list[str], ats: str | None) -> int:
     config, token = connected()
     api = WorkerApi(config, token)
     try:
-        items = _easy_listings(api, role_families=role_families)
+        items = today_listings(api, role_families=role_families, ats=ats)
     finally:
         api.close()
     if not items:
-        console.print("No listings on a supported ATS.")
+        where = f" on {ats}" if ats else ""
+        console.print(f"Nothing new today{where} that you have not already applied to.")
         return 0
-    render_listings(items[:limit], len(items), title="Easy")
+    render_listings(items, len(items), title=f"Today · {ats}" if ats else "Today")
     return 0
-
-
-def _easy_listings(api: WorkerApi, *, role_families: list[str]) -> list[dict[str, object]]:
-    """The supported listings in the same canonical order shown by `hunt easy`."""
-    from personal_os_worker.adapters import detect_ats
-
-    page = api.listings(role_families=role_families, limit=1000)
-    return [
-        item
-        for item in page.get("items") or []
-        if detect_ats(str(item.get("application_url") or "")).name != "generic"
-    ]
 
 
 def run_sync() -> int:
@@ -303,19 +289,28 @@ def run_autofill(reference: str, *, dry_run: bool, no_claude: bool = False) -> i
     return 0
 
 
-def run_autofill_easy(*, dry_run: bool, no_claude: bool = False) -> int:
-    """Apply the first listing shown by the default `hunt easy` view."""
+def run_autofill_today(*, ats: str | None, dry_run: bool, no_claude: bool = False) -> int:
+    """Apply the first listing `hunt today` shows, on the given ATS or any supported one."""
+    from personal_os_worker.adapters import detect_ats
+
     config, token = connected()
     api = WorkerApi(config, token)
     try:
-        items = _easy_listings(api, role_families=list(DEFAULT_TECHNICAL_FAMILIES))
+        items = today_listings(api, role_families=list(DEFAULT_TECHNICAL_FAMILIES), ats=ats)
     finally:
         api.close()
+    if ats is None:
+        items = [
+            item
+            for item in items
+            if detect_ats(str(item.get("application_url") or "")).supported
+        ]
     if not items:
-        raise RuntimeError("No listings on a supported ATS.")
+        where = f"on {ats}" if ats else "on a supported ATS"
+        raise RuntimeError(f"Nothing new today {where}.")
     listing = items[0]
     console.print(
-        f"Applying top Easy listing: {listing.get('company_name')} — {listing.get('title')}"
+        f"Applying first of today: {listing.get('company_name')} — {listing.get('title')}"
     )
     apply_posting(str(listing["id"]), dry_run=dry_run, no_claude=no_claude)
     return 0
@@ -346,8 +341,6 @@ def run_mark_applied(reference: str) -> int:
 
 def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> bool:
     """Run one interactive apply session; True when the page reported a submission."""
-    from pathlib import Path
-
     from personal_os_worker.adapters import adapter_version, detect_ats, failure_signature
     from personal_os_worker.autofill_session import AutofillSession, SessionContext
     from personal_os_worker.browser import VisibleBrowser, inspect_fields, sanitized_evidence
@@ -360,10 +353,6 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> bool:
         with_graduation,
     )
     from personal_os_worker.resume_selection import requires_later_graduation
-    from personal_os_worker.service import state_dir
-
-    def draft_directory(run_id: str) -> Path:
-        return state_dir() / "drafts" / run_id
 
     resume = ensure_resume()
     resume_json = load_resume(resume.source)
@@ -379,7 +368,7 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> bool:
         run_id = str(run["run_id"])
         direct_url = str(run["application_url"])
         adapter = detect_ats(direct_url)
-        if adapter.name == "generic":
+        if not adapter.supported:
             fingerprint = f"unsupported-ats|{direct_url.split('?', 1)[0]}"
             api.persist_autofill_step(
                 run_id,
@@ -389,7 +378,7 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> bool:
                     "failures": [
                         {
                             "signature": failure_signature(
-                                "generic", "unsupported_ats", fingerprint
+                                adapter.name, "unsupported_ats", fingerprint
                             ),
                             "category": "unsupported_ats",
                             "field_fingerprint": fingerprint,
@@ -496,7 +485,9 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> bool:
             ):
                 report_page_failure("closed_posting", "The live posting appears closed")
                 raise RuntimeError("The live posting appears closed; nothing was filled")
-            console.print(f"Verified {expected_company} — {expected_title} on {adapter.name}.")
+            console.print(
+                f"[bold]{expected_company}[/bold] — {expected_title}  [dim]({adapter.name})[/dim]"
+            )
             resume_pdf = resume.pdf
             if not no_claude and requires_later_graduation(body):
                 resume_pdf = later_graduation_resume_pdf()
@@ -505,7 +496,7 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> bool:
                     f"Posting requires graduating after December 2027; "
                     f"using the {LATER_GRADUATION} resume."
                 )
-            console.print(f"Context saved. Resume ready: {resume_pdf}")
+            console.print(f"  [dim]resume  {resume_pdf}[/dim]")
             session = AutofillSession(
                 SessionContext(
                     api=api,
@@ -522,7 +513,6 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> bool:
                     company=expected_company,
                     title=expected_title,
                     description=body,
-                    draft_dir=draft_directory(run_id),
                     transcript_pdf=transcript_pdf_path(),
                     dry_run=dry_run,
                     use_claude=not no_claude,
