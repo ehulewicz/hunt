@@ -126,6 +126,19 @@ def build_resume(source: Path | None = None, output: Path | None = None) -> Resu
     return ResumeBuild(source=resolved_source, pdf=resolved_output, tex=tex_output)
 
 
+def ensure_resume() -> ResumeBuild:
+    """The tracked PDF as it is, compiling only when it does not exist yet.
+
+    Nothing tailors the resume any more, so the checked-in PDF is the one to
+    attach; `os hunt resume build|watch` is where it gets regenerated.
+    """
+    source = canonical_resume_path()
+    pdf = default_pdf_path()
+    if pdf.exists():
+        return ResumeBuild(source=source, pdf=pdf, tex=pdf.with_suffix(".tex"))
+    return build_resume(source, pdf)
+
+
 class _PreviewServer:
     def __init__(self, pdf: Path) -> None:
         self.pdf = pdf

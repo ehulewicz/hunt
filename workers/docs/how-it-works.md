@@ -26,7 +26,8 @@ and always compiles the canonical resume unchanged. Resume tailoring was retired
 the canonical resume already carries the breadth it needs, and the effort goes
 into answers instead.
 
-`os hunt apply <listing-ref>` rebuilds the canonical PDF, opens the stored
+`os hunt apply <listing-ref>` attaches the tracked PDF as it is (compiling only
+if it is missing; `os hunt resume build|watch` is where it changes), opens the stored
 direct URL in native Windows Chrome, and then runs without a single terminal
 prompt. Greenhouse, Ashby, and Lever adapters use fresh locators, native events,
 strict option matching, readback, resume-first rerender handling, and same-origin

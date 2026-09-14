@@ -209,14 +209,14 @@ def run_autofill(reference: str, *, dry_run: bool, no_claude: bool = False) -> i
     from personal_os_worker.adapters import adapter_version, detect_ats, failure_signature
     from personal_os_worker.autofill_session import AutofillSession, SessionContext
     from personal_os_worker.browser import VisibleBrowser, inspect_fields, sanitized_evidence
-    from personal_os_worker.resume import build_resume, load_resume
+    from personal_os_worker.resume import ensure_resume, load_resume
     from personal_os_worker.service import state_dir
 
     def draft_directory(run_id: str) -> Path:
         return state_dir() / "drafts" / run_id
 
     posting_id = resolve("listings", reference)
-    resume = build_resume()
+    resume = ensure_resume()
     resume_json = load_resume(resume.source)
     config, token = connected()
     ensure_chrome(config.cdp_url)

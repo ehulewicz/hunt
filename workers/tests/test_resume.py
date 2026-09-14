@@ -103,6 +103,33 @@ def test_build_resume_atomically_publishes_pdf_and_tex(
     assert not list(output.parent.glob("*.tmp"))
 
 
+def test_ensure_resume_compiles_only_when_the_tracked_pdf_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "main.json"
+    source.write_text(valid_resume())
+    monkeypatch.setenv("PERSONAL_OS_RESUME_JSON", str(source))
+    compiles: list[Path] = []
+
+    def fake_compile(_payload: object, directory: Path) -> Path:
+        compiles.append(directory)
+        (directory / "resume.tex").write_text("latex")
+        pdf = directory / "resume.pdf"
+        pdf.write_bytes(b"%PDF-built")
+        return pdf
+
+    monkeypatch.setattr(resume, "compile_resume", fake_compile)
+
+    first = resume.ensure_resume()
+    assert first.pdf == tmp_path / resume.RESUME_PDF_NAME
+    assert first.pdf.read_bytes() == b"%PDF-built" and len(compiles) == 1
+
+    first.pdf.write_bytes(b"%PDF-edited-by-hand")
+    again = resume.ensure_resume()
+    assert again.pdf == first.pdf
+    assert again.pdf.read_bytes() == b"%PDF-edited-by-hand" and len(compiles) == 1
+
+
 def test_preview_server_serves_pdf_and_auto_refresh_shell(tmp_path: Path) -> None:
     pdf = tmp_path / "main.pdf"
     pdf.write_bytes(b"%PDF-preview")
