@@ -59,6 +59,10 @@ PROFILE_LABELS = {
     "degree": "degree_type",
     "field of study": "field_of_study",
     "gpa": "gpa",
+    "graduation month": "graduation_month",
+    "graduation year": "graduation_year",
+    "graduation date month": "graduation_month",
+    "graduation date year": "graduation_year",
     "years of professional experience": "years_professional_experience",
     "how many years of experience do you have?": "years_professional_experience",
     "earliest start date": "earliest_start",
@@ -223,6 +227,11 @@ def build_autofill_plan(
             kind = "transcript"
         elif field_type != "file":
             profile_key = PROFILE_LABELS.get(normalized)
+            if str(field.get("section") or "") == "education":
+                profile_key = {
+                    "end date month": "graduation_month",
+                    "end date year": "graduation_year",
+                }.get(normalized, profile_key)
             profile_value = resolve_profile_value(profile, profile_key)
             if isinstance(profile_value, bool):
                 value = "Yes" if profile_value else "No"
@@ -400,4 +409,28 @@ def resolve_profile_value(profile: dict[str, Any], profile_key: str | None) -> A
     if profile_key == "country":
         country = str(profile.get("country") or "").strip()
         return "United States" if country.casefold().startswith("united stat") else country
+    if profile_key in {"graduation_month", "graduation_year"}:
+        graduation = str(profile.get("graduation_date") or "").strip()
+        matched = re.match(r"^(\d{4})-(\d{2})(?:-\d{2})?$", graduation)
+        if matched is None:
+            return None
+        if profile_key == "graduation_year":
+            return matched.group(1)
+        month = int(matched.group(2))
+        months = (
+            "",
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+        )
+        return months[month] if 1 <= month <= 12 else None
     return profile.get(profile_key) if profile_key else None

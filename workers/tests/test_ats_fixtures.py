@@ -232,6 +232,115 @@ def test_ashby_combobox_label_comes_from_the_field_entry_not_the_placeholder(
     assert labels == [("Location", True), ("Preferred first name", False)]
 
 
+def test_ashby_education_controls_use_nested_labels_and_search_for_school(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(
+        """
+        <div class="ashby-application-form-field-entry">
+          <label class="_required_outer" for="education">Education History</label>
+          <div class="ashby-application-form-input-education-entry">
+            <div class="stack vertical">
+              <label class="_required_nested" for="school-without-a-matching-id">School</label>
+              <div><input placeholder="Search schools..." role="combobox"></div>
+            </div>
+            <div class="dates">
+              <div class="date-field">
+                <label>Start Date</label>
+                <div>
+                  <select>
+                    <option value="">Month...</option><option value="8">August</option>
+                  </select>
+                  <select>
+                    <option value="">Year...</option><option value="2024">2024</option>
+                  </select>
+                </div>
+              </div>
+              <div class="date-field">
+                <label>End Date</label>
+                <div>
+                  <select>
+                    <option value="">Month...</option><option value="12">December</option>
+                  </select>
+                  <select>
+                    <option value="">Year...</option><option value="2027">2027</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="school-menu"></div>
+        <script>
+        (() => {
+          const schools = ['Yeshiva University', 'Example Institute of Technology'];
+          const box = document.querySelector('input[role="combobox"]');
+          const menu = document.querySelector('#school-menu');
+          const render = () => {
+            const needle = box.value.toLowerCase();
+            menu.innerHTML = '';
+            schools.filter(school => !needle || school.toLowerCase().includes(needle))
+              .forEach(school => {
+                const option = document.createElement('div');
+                option.setAttribute('role', 'option');
+                option.textContent = school === 'Example Institute of Technology'
+                  ? school + '\\nUnited States\\ngatech.edu' : school;
+                option.addEventListener('click', () => {
+                  box.value = school;
+                  menu.innerHTML = '';
+                });
+                menu.appendChild(option);
+              });
+          };
+          box.addEventListener('click', render);
+          box.addEventListener('input', render);
+          box.addEventListener('keydown', event => {
+            if (event.key === 'Escape') menu.innerHTML = '';
+          });
+        })();
+        </script>
+        """
+    )
+
+    fields = inspect_fields(browser_page)
+    assert [(field["label"], field["required"]) for field in fields] == [
+        ("School", True),
+        ("Start Date Month", False),
+        ("Start Date Year", False),
+        ("End Date Month", False),
+        ("End Date Year", False),
+    ]
+    assert [field["options"] for field in fields[1:]] == [
+        ["August"],
+        ["2024"],
+        ["December"],
+        ["2027"],
+    ]
+
+    plan = build_autofill_plan(
+        fields,
+        profile={
+            "school_name": "Example Institute of Technology",
+            "graduation_date": "2027-12-15",
+        },
+        approved_answers=[],
+    )
+    assert [(fill.index, fill.value) for fill in plan.fills] == [
+        (0, "Example Institute of Technology"),
+        (3, "December"),
+        (4, "2027"),
+    ]
+    result = apply_autofill(
+        browser_page, fields, plan, resume_path=None, assert_active=lambda: None
+    )
+    assert result["failures"] == []
+    assert browser_page.locator('input[role="combobox"]').input_value() == (
+        "Example Institute of Technology"
+    )
+    assert browser_page.locator("select").nth(2).input_value() == "12"
+    assert browser_page.locator("select").nth(3).input_value() == "2027"
+
+
 def test_ashby_radio_groups_take_their_question_from_the_heading_label(
     browser_page,  # type: ignore[no-untyped-def]
 ) -> None:

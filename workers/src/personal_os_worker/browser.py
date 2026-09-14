@@ -521,7 +521,7 @@ def combobox_shows(control: Any, expected: str) -> bool:
     """
     held = combobox_value(control)
     return bool(held) and (
-        held.casefold() == expected.strip().casefold()
+        _pick([expected], held) is not None
         or control.evaluate(
             "element => !String(element.value || '').trim()", timeout=CONTROL_TIMEOUT_MS
         )
@@ -595,6 +595,19 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           );
           const group = element.closest('[role="group"], [role="radiogroup"]');
           const nearby = element.closest('[class*="field"], [class*="question"], [data-testid]');
+          // Composite controls (notably Ashby's Education History widget) do
+          // not associate every nested input with its label. Walk outward for
+          // the nearest label that is a direct child of a control-local
+          // wrapper before falling back to the outer field/section heading.
+          let localLabel = null;
+          let localWrapper = element.parentElement;
+          for (let depth = 0; localWrapper && depth < 5; depth += 1) {
+            localLabel = [...localWrapper.children].find(
+              child => child.tagName === 'LABEL' && !child.contains(element)
+            ) || null;
+            if (localLabel) break;
+            localWrapper = localWrapper.parentElement;
+          }
           const labelledBy = element.getAttribute('aria-labelledby');
           const referenced = labelledBy
             ? labelledBy.split(/\\s+/).map(id => document.getElementById(id)?.textContent || '')
@@ -604,6 +617,9 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           // that mirrors their state; the question lives on a sibling label, not
           // on the checkbox itself.
           const yesnoContainer = element.closest('.ashby-application-form-input-yesno');
+          const educationEntry = element.closest(
+            '.ashby-application-form-input-education-entry'
+          );
           const yesnoLabel = yesnoContainer?.parentElement?.querySelector(
             'label.ashby-application-form-question-title'
           ) || null;
@@ -615,16 +631,28 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           const finalType = yesnoContainer ? 'yesno' : element.getAttribute('type');
           // A placeholder such as "Start typing..." is the last resort; Ashby
           // comboboxes have no id, so their question lives on the field's label.
-          const rawLabel = (
+          const baseLabel = (
               yesnoLabel?.textContent
               || explicit?.textContent
               || wrapping?.textContent
               || element.getAttribute('aria-label')
               || referenced
+              || localLabel?.textContent
               || nearby?.querySelector('label')?.textContent
               || element.getAttribute('placeholder')
               || ''
             ).trim();
+          // A pair of native selects under one date label is otherwise
+          // indistinguishable. Its empty first option supplies the missing
+          // Month/Year part of the label, but is not itself a valid answer.
+          const selectPart = element.tagName === 'SELECT'
+            ? String(element.options[0]?.textContent || '').trim().replace(/\\.{2,}$/, '')
+            : '';
+          const rawLabel = (
+            selectPart && /^(month|year)$/i.test(selectPart)
+              && !baseLabel.toLowerCase().split(/\\s+/).includes(selectPart.toLowerCase())
+              ? `${baseLabel} ${selectPart}` : baseLabel
+          ).trim();
           // A trailing asterisk marks a required field on Greenhouse boards.
           const label = rawLabel.replace(/\\s*\\*\\s*$/, '');
           let shell = element.parentElement;
@@ -673,6 +701,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
             ).trim().replace(/\\s*\\*\\s*$/, ''),
             required: element.required === true
               || element.getAttribute('aria-required') === 'true'
+              || Boolean(localLabel && /required/i.test(String(localLabel.className)))
               || /\\*\\s*$/.test(rawLabel)
               || (['radio', 'checkbox'].includes(element.type) && groupRequired)
               || (element.getAttribute('role') === 'combobox' && mirroredRequired)
@@ -681,10 +710,13 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
             role: element.getAttribute('role'),
             placeholder: element.getAttribute('placeholder'),
             autocomplete: element.getAttribute('autocomplete'),
+            section: educationEntry ? 'education' : null,
             options: yesnoContainer
               ? ['Yes', 'No']
               : element.tagName === 'SELECT'
-                ? [...element.options].map(option => option.textContent.trim()).filter(Boolean)
+                ? [...element.options]
+                    .filter(option => option.value !== '' && !option.disabled)
+                    .map(option => option.textContent.trim()).filter(Boolean)
                 : [],
             value: yesnoContainer
               ? (yesnoPressed ? yesnoPressed.textContent.trim() : null)
@@ -740,6 +772,7 @@ def sanitized_evidence(
                 "role",
                 "placeholder",
                 "autocomplete",
+                "section",
                 "options",
                 "fingerprint",
             )

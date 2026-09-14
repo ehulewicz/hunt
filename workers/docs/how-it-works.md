@@ -46,6 +46,12 @@ counts as filled when its rendered choice is present even though its search
 input is empty, and a free-entry typeahead with no option for the typed text is
 committed with Enter.
 
+Ashby's composite Education History control is read at the nested-field level:
+School is searched by typing the profile value, Start/End Month and Year remain
+distinct controls, and the education end date comes from the profile graduation
+date. Empty Month... and Year... select placeholders are never treated as
+answer options.
+
 Whatever is still unfilled after that goes through two more tiers, in order.
 Library rows with `reuse_policy = 'pattern'` are case-insensitive regular
 expressions matched against the question, holding standing policy answers
