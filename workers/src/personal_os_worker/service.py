@@ -7,6 +7,7 @@ commands that need it start it on demand and leave it running for the next one.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -96,14 +97,28 @@ class ServiceRecord:
     pid: int
     port: str
     started_at: float
+    source: str | None = None  # fingerprint of the code the process was started from
 
 
-def record_service(name: str, pid: int, port: str) -> None:
+def backend_source_fingerprint() -> str:
+    """A digest of the backend source tree, so a pull is visible to the CLI."""
+    root = Path(__file__).resolve().parents[3] / "backend" / "src"
+    digest = hashlib.sha256()
+    for path in sorted(root.rglob("*.py")):
+        stat = path.stat()
+        digest.update(f"{path.relative_to(root)}:{stat.st_size}:{stat.st_mtime_ns}\n".encode())
+    return digest.hexdigest()
+
+
+def record_service(name: str, pid: int, port: str, *, source: str | None = None) -> None:
     """Track a service we started, so stopping it never has to guess."""
     path = registry_path(name)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps({"name": name, "pid": pid, "port": port, "started_at": time.time()}, indent=2)
+        json.dumps(
+            {"name": name, "pid": pid, "port": port, "started_at": time.time(), "source": source},
+            indent=2,
+        )
         + "\n"
     )
 
@@ -116,6 +131,7 @@ def read_service(name: str) -> ServiceRecord | None:
             pid=int(data["pid"]),
             port=str(data["port"]),
             started_at=float(data["started_at"]),
+            source=str(data["source"]) if data.get("source") else None,
         )
     except (FileNotFoundError, KeyError, TypeError, ValueError, json.JSONDecodeError):
         return None
@@ -139,9 +155,20 @@ def _port_of(api_url: str) -> str:
 
 
 def ensure_running(api_url: str, *, quiet: bool = False) -> bool:
-    """Return True when the API had to be started, False when it was already up."""
+    """Return True when the API had to be started, False when it was already up.
+
+    An API we started from older source is restarted: it runs the checked-out
+    backend, so after a pull the old process would query tables and columns
+    that no longer exist.
+    """
+    source = backend_source_fingerprint()
     if is_running(api_url):
-        return False
+        record = read_service("api")
+        if record is None or record.source is None or record.source == source:
+            return False
+        if not quiet:
+            print("The backend source changed; restarting the local API ...")
+        stop_api(api_url)
 
     executable = shutil.which(API_EXECUTABLE)
     if executable is None:
@@ -165,7 +192,7 @@ def ensure_running(api_url: str, *, quiet: bool = False) -> bool:
         )
     finally:
         handle.close()
-    record_service("api", process.pid, port)
+    record_service("api", process.pid, port, source=source)
 
     if not quiet:
         print(f"Starting the local API ... (log: {destination})")

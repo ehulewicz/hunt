@@ -15,6 +15,44 @@ def test_already_running_api_is_not_started_again(monkeypatch: pytest.MonkeyPatc
     assert service.ensure_running("http://127.0.0.1:8000") is False
 
 
+def test_api_started_from_older_backend_source_is_restarted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(service, "state_dir", lambda: tmp_path)
+    monkeypatch.setattr(service, "log_path", lambda: tmp_path / "api.log")
+    monkeypatch.setattr(service.shutil, "which", lambda _: "/usr/bin/personal-os-api")
+    monkeypatch.setattr(service, "backend_source_fingerprint", lambda: "after-pull")
+    service.record_service("api", 4242, "8000", source="before-pull")
+    events: list[str] = []
+    monkeypatch.setattr(
+        service, "stop_api", lambda url, **_: events.append("stop") or True
+    )
+
+    def fake_popen(command: list[str], **kwargs: object) -> object:
+        events.append("start")
+        return type("P", (), {"pid": 4343})()
+
+    monkeypatch.setattr(service.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(service, "is_running", lambda *a, **k: True)
+
+    assert service.ensure_running("http://127.0.0.1:8000", quiet=True) is True
+    assert events == ["stop", "start"]
+    record = service.read_service("api")
+    assert record is not None and record.source == "after-pull" and record.pid == 4343
+
+
+def test_api_started_from_the_current_source_is_left_alone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(service, "state_dir", lambda: tmp_path)
+    monkeypatch.setattr(service, "backend_source_fingerprint", lambda: "same")
+    service.record_service("api", 4242, "8000", source="same")
+    monkeypatch.setattr(service, "is_running", lambda *a, **k: True)
+    monkeypatch.setattr(service, "stop_api", lambda *a, **k: pytest.fail("must not restart"))
+
+    assert service.ensure_running("http://127.0.0.1:8000") is False
+
+
 def test_missing_executable_explains_how_to_install(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(service, "is_running", lambda *a, **k: False)
     monkeypatch.setattr(service.shutil, "which", lambda _: None)

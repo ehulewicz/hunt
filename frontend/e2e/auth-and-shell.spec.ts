@@ -58,7 +58,7 @@ test("authenticated shell persists across Jobs navigation and logs out", async (
   await page.setViewportSize({ width: 800, height: 900 });
   await expect(page.getByRole("heading", { name: "Job listings" })).toBeAttached();
   await expect(page.getByRole("region", { name: "Listing filters" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Prepare selected (0)" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Queue selected (0)" })).toBeVisible();
   expect(await page.getByRole("region", { name: "Listing filters" }).evaluate(
     (toolbar) => toolbar.scrollWidth <= toolbar.clientWidth,
   )).toBe(true);
