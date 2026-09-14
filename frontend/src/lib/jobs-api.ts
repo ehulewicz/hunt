@@ -50,10 +50,6 @@ export type JobApplication = {
   notes: string | null;
   created_at: string;
   updated_at: string;
-  preparation_status: string | null;
-  preparation_error: string | null;
-  autofill_status: string | null;
-  autofill_error: string | null;
   unanswered_required_questions: string[];
 };
 
@@ -123,14 +119,6 @@ export type AnswerLibraryItem = {
   updated_at: string;
 };
 
-export type JobDocumentReview = {
-  document: JobDocument;
-  source_document: JobDocument;
-  resume_patch: Record<string, unknown>[];
-  changed_paths: string[];
-  changed_word_ratio: string | null;
-};
-
 export type WorkerCredential = {
   id: string;
   name: string;
@@ -156,12 +144,22 @@ export async function getListings(
   return apiRequest<ListingPage>(`/v1/jobs/listings?${params}`, accessToken);
 }
 
-export function batchPrepare(accessToken: string, postingIds: string[]) {
-  return apiRequest<{ application_ids: string[]; queued_task_ids: string[] }>(
-    "/v1/jobs/applications/batch-prepare",
-    accessToken,
-    { method: "POST", body: JSON.stringify({ posting_ids: postingIds }) },
-  );
+export const APPLICATION_STATUSES = [
+  "queued",
+  "applied",
+  "oa",
+  "oa_completed",
+  "interview",
+  "offer",
+  "rejected",
+] as const;
+export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
+
+export function queueApplications(accessToken: string, postingIds: string[]) {
+  return apiRequest<JobApplication[]>("/v1/jobs/applications/queue", accessToken, {
+    method: "POST",
+    body: JSON.stringify({ posting_ids: postingIds }),
+  });
 }
 
 export function getApplications(accessToken: string) {
@@ -185,14 +183,6 @@ export function deleteApplication(accessToken: string, applicationId: string) {
   });
 }
 
-export function queueAutofill(accessToken: string, applicationId: string) {
-  return apiRequest<{ task_id: string; status: "queued" }>(
-    `/v1/jobs/applications/${applicationId}/autofill`,
-    accessToken,
-    { method: "POST" },
-  );
-}
-
 export function getJobsProfile(accessToken: string) {
   return apiRequest<JobsProfile>("/v1/jobs/profile", accessToken);
 }
@@ -212,13 +202,6 @@ export function approveDocument(accessToken: string, documentId: string) {
   return apiRequest<JobDocument>(`/v1/jobs/documents/${documentId}/approve`, accessToken, {
     method: "POST",
   });
-}
-
-export function getDocumentReview(accessToken: string, documentId: string) {
-  return apiRequest<JobDocumentReview>(
-    `/v1/jobs/documents/${documentId}/review`,
-    accessToken,
-  );
 }
 
 export function getDocumentPdf(accessToken: string, documentId: string) {
@@ -241,14 +224,6 @@ export function updateMasterResumeDraft(
     `/v1/jobs/documents/${documentId}/master-resume`,
     accessToken,
     { method: "PUT", body: JSON.stringify(content) },
-  );
-}
-
-export function queueResumePreview(accessToken: string, documentId: string) {
-  return apiRequest<{ task_id: string }>(
-    `/v1/jobs/documents/${documentId}/preview`,
-    accessToken,
-    { method: "POST" },
   );
 }
 

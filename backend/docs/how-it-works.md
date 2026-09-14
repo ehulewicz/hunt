@@ -19,9 +19,9 @@ optional EEO values are not inferred.
 
 ## Jobs boundary
 
-`/v1/jobs/*` owns profile editing, listing filtering, application preparation,
+`/v1/jobs/*` owns profile editing, listing filtering, the application queue and lifecycle,
 document review, answer-library management, synchronous autofill runs, failure
-history, and task leasing.
+and history.
 The scheduled SpeedyApply importer reads only the US `README.md` internship files
 from the 2027 SWE and AI/ML repositories. It accepts visible `City, ST`, US-wide,
 and US remote forms, rejects visibly international primary locations and titles

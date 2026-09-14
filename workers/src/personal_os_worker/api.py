@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
-from uuid import UUID
 
 import httpx
 
@@ -110,6 +108,16 @@ class WorkerApi:
             raise RuntimeError("Application response was invalid")
         return payload
 
+    def queue_applications(self, posting_ids: list[str]) -> list[dict[str, Any]]:
+        response = self._client.post(
+            "/v1/jobs/applications/queue", json={"posting_ids": posting_ids}
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, list):
+            raise RuntimeError("Queue response was invalid")
+        return payload
+
     def archive_application(self, application_id: str) -> None:
         response = self._client.delete(f"/v1/jobs/applications/{application_id}")
         response.raise_for_status()
@@ -200,94 +208,7 @@ class WorkerApi:
             raise RuntimeError("Updated autofill failure response was invalid")
         return value
 
-    def batch_prepare(self, posting_ids: list[str]) -> dict[str, Any]:
-        response = self._client.post(
-            "/v1/jobs/applications/batch-prepare",
-            json={"posting_ids": posting_ids, "tailor": False},
-        )
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise RuntimeError("Batch prepare response was invalid")
-        return payload
-
-    def claim(self, worker_id: str) -> dict[str, Any] | None:
-        response = self._client.post("/v1/jobs/worker/tasks/claim", json={"worker_id": worker_id})
-        response.raise_for_status()
-        payload = response.json()
-        task = payload.get("task")
-        return task if isinstance(task, dict) else None
-
-    def bundle(self, application_id: UUID) -> dict[str, Any]:
-        response = self._client.get(f"/v1/jobs/worker/applications/{application_id}/bundle")
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise RuntimeError("Application bundle response was invalid")
-        return payload
-
-    def heartbeat(self, task_id: UUID, worker_id: str) -> None:
-        response = self._client.post(
-            f"/v1/jobs/worker/tasks/{task_id}/heartbeat",
-            json={"worker_id": worker_id},
-        )
-        response.raise_for_status()
-
-    def upload_pdf(self, task_id: UUID, worker_id: str, path: Path) -> str:
-        with path.open("rb") as handle:
-            response = self._client.post(
-                f"/v1/jobs/worker/tasks/{task_id}/pdf",
-                files={"document": (path.name, handle, "application/pdf")},
-                data={"worker_id": worker_id},
-            )
-        response.raise_for_status()
-        storage_path = response.json().get("storage_path")
-        if not isinstance(storage_path, str):
-            raise RuntimeError("PDF upload did not return a storage path")
-        return storage_path
-
-    def download_resume(self, application_id: UUID, destination: Path) -> Path:
-        response = self._client.get(f"/v1/jobs/worker/applications/{application_id}/resume")
-        response.raise_for_status()
-        if not response.content.startswith(b"%PDF-"):
-            raise RuntimeError("Approved resume response was not a PDF")
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(response.content)
-        return destination
-
-    def document(self, document_id: UUID) -> dict[str, Any]:
-        response = self._client.get(f"/v1/jobs/worker/documents/{document_id}")
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise RuntimeError("Main resume draft response was invalid")
-        return payload
-
     def doctor(self) -> None:
         response = self._client.get("/v1/jobs/worker/doctor")
         response.raise_for_status()
 
-    def complete(self, task_id: UUID, worker_id: str, result: dict[str, Any]) -> None:
-        response = self._client.post(
-            f"/v1/jobs/worker/tasks/{task_id}/complete",
-            json={"worker_id": worker_id, "result": result},
-        )
-        response.raise_for_status()
-
-    def fail(
-        self,
-        task_id: UUID,
-        worker_id: str,
-        error_message: str,
-        *,
-        retry: bool,
-    ) -> None:
-        response = self._client.post(
-            f"/v1/jobs/worker/tasks/{task_id}/fail",
-            json={
-                "worker_id": worker_id,
-                "error_message": error_message[:4000],
-                "retry": retry,
-            },
-        )
-        response.raise_for_status()

@@ -163,10 +163,9 @@ def render_listings(items: list[dict[str, Any]], total: int) -> None:
     )
 
 
-def render_applications(items: list[dict[str, Any]]) -> None:
-    """What has been applied to, and when."""
+def render_applications(items: list[dict[str, Any]], *, title: str = "Applications") -> None:
     table = Table(
-        title=f"Applied ({len(items)})",
+        title=f"{title} ({len(items)})",
         header_style="bold",
         box=box.SIMPLE_HEAD,
         padding=(0, 1),
@@ -176,6 +175,7 @@ def render_applications(items: list[dict[str, Any]]) -> None:
     table.add_column("id", style="dim", no_wrap=True)
     table.add_column("company", no_wrap=True, overflow="ellipsis")
     table.add_column("title", no_wrap=True, overflow="ellipsis", ratio=1)
+    table.add_column("status", no_wrap=True)
     table.add_column("applied", no_wrap=True)
 
     for index, item in enumerate(items, start=1):
@@ -185,6 +185,7 @@ def render_applications(items: list[dict[str, Any]]) -> None:
             short_id(str(item.get("id", ""))),
             str(item.get("company_name") or "-"),
             str(item.get("title") or "-"),
+            str(item.get("status") or "-").replace("_", " "),
             applied or "-",
         )
     console.print(table)

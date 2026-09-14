@@ -17,24 +17,19 @@ vi.mock("@/lib/jobs-api", async (importOriginal) => {
       title: "Software Engineer Intern",
       location: "Atlanta, GA",
       application_url: "https://example.com/jobs/1",
-      status: "ready",
+      status: "applied",
       applied_at: null,
       next_action: "Review and submit manually",
       next_action_at: null,
       notes: null,
       created_at: "2026-08-13T00:00:00Z",
       updated_at: "2026-08-13T00:00:00Z",
-      preparation_status: "completed",
-      preparation_error: null,
-      autofill_status: "failed",
-      autofill_error: "Required fields still need answers",
       unanswered_required_questions: ["Why this team?"],
     }]),
-    queueAutofill: vi.fn().mockResolvedValue({ task_id: "task-1", status: "queued" }),
   };
 });
 
-test("applications link the title, show task state, and confirm recoverable deletion", async () => {
+test("applications link the title, show the lifecycle status, and confirm recoverable deletion", async () => {
   vi.spyOn(window, "confirm").mockReturnValue(true);
   render(<ApplicationsWorkspace />);
 
@@ -42,7 +37,11 @@ test("applications link the title, show task state, and confirm recoverable dele
     "href",
     "https://example.com/jobs/1",
   );
-  expect(screen.getByText("Autofill: failed")).toBeInTheDocument();
+  const status = screen.getByRole("combobox", { name: /Status for/ }) as HTMLSelectElement;
+  expect([...status.options].map((option) => option.value)).toEqual([
+    "queued", "applied", "oa", "oa_completed", "interview", "offer", "rejected",
+  ]);
+  expect(screen.queryByRole("button", { name: /Autofill again/ })).not.toBeInTheDocument();
   expect(screen.getByText(/Needs answers: Why this team/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 

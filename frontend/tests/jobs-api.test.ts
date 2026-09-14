@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 
-import { createAnswer, deleteApplication, getListings, queueAutofill } from "@/lib/jobs-api";
+import { createAnswer, deleteApplication, getListings, queueApplications } from "@/lib/jobs-api";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -28,27 +28,29 @@ test("listing requests send one category and every selected normalized location"
   );
 });
 
-test("application archival and autofill retry use the lifecycle endpoints", async () => {
+test("application archival and queueing use the lifecycle endpoints", async () => {
   vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
   const fetchSpy = vi.fn()
     .mockResolvedValueOnce(new Response(null, { status: 204 }))
-    .mockResolvedValueOnce(new Response(JSON.stringify({ task_id: "task-1", status: "queued" }), {
-      status: 202,
+    .mockResolvedValueOnce(new Response(JSON.stringify([{ id: "application-1", status: "queued" }]), {
+      status: 200,
       headers: { "Content-Type": "application/json" },
     }));
   vi.stubGlobal("fetch", fetchSpy);
 
   await deleteApplication("approved", "application-1");
-  await queueAutofill("approved", "application-1");
+  const queued = await queueApplications("approved", ["posting-1"]);
 
   expect(fetchSpy).toHaveBeenNthCalledWith(1, "https://api.test/v1/jobs/applications/application-1", {
     method: "DELETE",
     headers: { Authorization: "Bearer approved" },
   });
-  expect(fetchSpy).toHaveBeenNthCalledWith(2, "https://api.test/v1/jobs/applications/application-1/autofill", {
+  expect(fetchSpy).toHaveBeenNthCalledWith(2, "https://api.test/v1/jobs/applications/queue", {
     method: "POST",
-    headers: { Authorization: "Bearer approved" },
+    headers: { Authorization: "Bearer approved", "Content-Type": "application/json" },
+    body: JSON.stringify({ posting_ids: ["posting-1"] }),
   });
+  expect(queued.map((item) => item.status)).toEqual(["queued"]);
 });
 
 test("long-form answer creation sends no client key", async () => {

@@ -15,7 +15,7 @@ import httpx
 from personal_os_worker import __version__
 from personal_os_worker.auth import LoginError
 from personal_os_worker.commands import hunt, services
-from personal_os_worker.commands.hunt import DEFAULT_TECHNICAL_FAMILIES
+from personal_os_worker.commands.hunt import APPLICATION_STATUSES, DEFAULT_TECHNICAL_FAMILIES
 from personal_os_worker.config import load_cli_config
 from personal_os_worker.resume import build_resume, watch_resume
 from personal_os_worker.service import ApiUnavailable, ChromeUnavailable
@@ -102,7 +102,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Open the discovery source instead of the direct application URL",
     )
 
-    jobs_commands.add_parser("apps", help="Show applications and their progress")
+    apps = jobs_commands.add_parser("apps", help="Track applications: list, or mark one")
+    apps.add_argument("ref", nargs="?", help="Row number from the last apps table or id prefix")
+    apps.add_argument(
+        "status",
+        nargs="?",
+        choices=[status for status in APPLICATION_STATUSES if status != "queued"],
+        help="New status for that application",
+    )
+
+    queue = jobs_commands.add_parser("queue", help="Listings waiting to be applied to")
+    queue.add_argument(
+        "action", nargs="?", choices=["add", "empty"], help="add rows, or apply through the queue"
+    )
+    queue.add_argument("refs", nargs="*", help="Row numbers from the last list, or id prefixes")
 
     answers = jobs_commands.add_parser("answers", help="Manage reusable long-form answers")
     answer_commands = answers.add_subparsers(dest="answer_command", required=True)
@@ -141,9 +154,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     resume_watch.add_argument("--interval", type=float, default=0.5)
 
-    prep = jobs_commands.add_parser("prep", help="Queue preparation for listings")
-    prep.add_argument("refs", nargs="+", help="Row numbers from the last listing, or id prefixes")
-
     autofill = jobs_commands.add_parser(
         "apply",
         help="Fill a saved listing in native Chrome, or manage captured failures",
@@ -170,12 +180,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip the bounded Claude pass over remaining short and choice questions",
     )
 
-    run = jobs_commands.add_parser("run", help="Run every queued task, then exit")
-    run_mode = run.add_mutually_exclusive_group()
-    run_mode.add_argument("--once", action="store_true", help="Stop after a single task")
-    run_mode.add_argument(
-        "--watch", action="store_true", help="Keep polling for new tasks instead of exiting"
-    )
     return parser
 
 
@@ -232,7 +236,17 @@ def _dispatch(args: argparse.Namespace) -> int:
         if args.hunt_command == "open":
             return hunt.run_open_listing(args.ref, source=args.source)
         if args.hunt_command == "apps":
-            return hunt.run_apps()
+            return hunt.run_apps(args.ref, args.status)
+        if args.hunt_command == "queue":
+            if args.action == "empty":
+                if args.refs:
+                    raise RuntimeError("'queue empty' takes no rows")
+                return hunt.run_queue(empty=True)
+            if args.action == "add" and not args.refs:
+                raise RuntimeError("'queue add' needs at least one row")
+            if args.action is None and args.refs:
+                raise RuntimeError("Use 'queue add <rows>'")
+            return hunt.run_queue(args.refs)
         if args.hunt_command == "answers":
             if args.answer_command == "list":
                 return hunt.run_answers()
@@ -268,8 +282,6 @@ def _dispatch(args: argparse.Namespace) -> int:
                     open_preview=args.open,
                 )
                 return 0
-        if args.hunt_command == "prep":
-            return hunt.run_prep(args.refs)
         if args.hunt_command == "apply":
             if args.ref == "failures":
                 return hunt.run_autofill_failure_command(
@@ -280,8 +292,6 @@ def _dispatch(args: argparse.Namespace) -> int:
             if args.failure_action or args.failure_ref or args.verify_listing_ref:
                 raise RuntimeError("Unexpected autofill arguments")
             return hunt.run_autofill(args.ref, dry_run=args.dry_run, no_claude=args.no_claude)
-        if args.hunt_command == "run":
-            return hunt.run_tasks(once=args.once, watch=args.watch)
     return 2
 
 

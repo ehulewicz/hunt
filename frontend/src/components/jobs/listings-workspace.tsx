@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { useAccessToken } from "@/components/workspace";
 import {
-  batchPrepare,
+  queueApplications,
   getListings,
   type JobListing,
   type SourceCategory,
@@ -82,8 +82,8 @@ export function ListingsWorkspace() {
     setPreparing(true);
     setError(null);
     try {
-      const result = await batchPrepare(accessToken, [...selected]);
-      setNotice(`Queued ${result.application_ids.length} application preparations.`);
+      const queued = await queueApplications(accessToken, [...selected]);
+      setNotice(`Queued ${queued.length} listing${queued.length === 1 ? "" : "s"}. Apply through them with \`os hunt queue empty\`.`);
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Applications could not be queued.");
@@ -177,7 +177,7 @@ export function ListingsWorkspace() {
           onClick={handlePrepare}
         >
           <BriefcaseBusiness aria-hidden="true" size={15} />
-          {preparing ? "Queueing…" : `Prepare selected (${selected.size})`}
+          {preparing ? "Queueing…" : `Queue selected (${selected.size})`}
         </button>
       </section>
 

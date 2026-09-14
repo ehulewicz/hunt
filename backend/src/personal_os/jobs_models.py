@@ -154,21 +154,6 @@ class ListingSyncResponse(BaseModel):
     synced_at: datetime
 
 
-class BatchPrepareRequest(BaseModel):
-    posting_ids: list[UUID] = Field(min_length=1, max_length=100)
-    tailor: bool = False
-
-
-class BatchPrepareResponse(BaseModel):
-    application_ids: list[UUID]
-    queued_task_ids: list[UUID]
-
-
-class AutofillQueueResponse(BaseModel):
-    task_id: UUID
-    status: Literal["queued"] = "queued"
-
-
 class JobApplication(BaseModel):
     id: UUID
     posting_id: UUID
@@ -181,28 +166,31 @@ class JobApplication(BaseModel):
     next_action: str | None
     next_action_at: datetime | None
     notes: str | None
-    preparation_status: str | None = None
-    preparation_error: str | None = None
-    autofill_status: str | None = None
-    autofill_error: str | None = None
     unanswered_required_questions: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
 
+APPLICATION_STATUSES = (
+    "queued",
+    "applied",
+    "oa",
+    "oa_completed",
+    "interview",
+    "offer",
+    "rejected",
+)
+ApplicationStatus = Literal[
+    "queued", "applied", "oa", "oa_completed", "interview", "offer", "rejected"
+]
+
+
+class QueueApplicationsRequest(BaseModel):
+    posting_ids: list[UUID] = Field(min_length=1, max_length=200)
+
+
 class ApplicationUpdate(BaseModel):
-    status: (
-        Literal[
-            "preparing",
-            "ready",
-            "submitted",
-            "interviewing",
-            "offer",
-            "rejected",
-            "withdrawn",
-        ]
-        | None
-    ) = None
+    status: ApplicationStatus | None = None
     next_action: str | None = Field(default=None, max_length=1000)
     next_action_at: datetime | None = None
     notes: str | None = Field(default=None, max_length=10000)
@@ -276,18 +264,6 @@ class MasterResumeContent(BaseModel):
     research: list[ResumeEntry] = Field(default_factory=list, max_length=20)
     projects: list[ResumeEntry] = Field(default_factory=list, max_length=20)
     skills: list[ResumeSkill] = Field(default_factory=list, max_length=20)
-
-
-class ResumePreviewResponse(BaseModel):
-    task_id: UUID
-
-
-class JobDocumentReview(BaseModel):
-    document: JobDocument
-    source_document: JobDocument
-    resume_patch: list[dict[str, Any]] = Field(default_factory=list)
-    changed_paths: list[str] = Field(default_factory=list)
-    changed_word_ratio: Decimal | None = None
 
 
 def validate_pattern(reuse_policy: str | None, question: str | None) -> None:
@@ -369,49 +345,6 @@ class AnswerLibraryUpdate(BaseModel):
         if not self.model_fields_set:
             raise ValueError("at least one field is required")
         return self
-
-
-class WorkerTask(BaseModel):
-    id: UUID
-    task_type: str
-    payload: dict[str, Any]
-    attempts: int
-    max_attempts: int
-    lease_expires_at: datetime | None
-
-
-class WorkerClaimRequest(BaseModel):
-    worker_id: str = Field(min_length=1, max_length=120)
-
-
-class WorkerClaimResponse(BaseModel):
-    task: WorkerTask | None
-
-
-class WorkerHeartbeatRequest(BaseModel):
-    worker_id: str = Field(min_length=1, max_length=120)
-
-
-class WorkerTaskResult(BaseModel):
-    worker_id: str = Field(min_length=1, max_length=120)
-    result: dict[str, Any] = Field(default_factory=dict)
-
-
-class WorkerTaskFailure(BaseModel):
-    worker_id: str = Field(min_length=1, max_length=120)
-    error_message: str = Field(min_length=1, max_length=4000)
-    retry: bool = True
-
-
-class WorkerApplicationBundle(BaseModel):
-    application_id: UUID
-    application_url: str
-    company_name: str
-    title: str
-    description_text: str | None
-    profile: dict[str, Any]
-    main_resume: dict[str, Any]
-    approved_answers: list[dict[str, Any]]
 
 
 class AutofillRunCreate(BaseModel):

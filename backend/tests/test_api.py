@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -13,6 +13,8 @@ from personal_os.database import BootstrapStore, get_bootstrap_store
 from personal_os.jobs_models import (
     AnswerLibraryCreate,
     AnswerLibraryItem,
+    ApplicationUpdate,
+    JobApplication,
     JobListingPage,
     ListingSyncResponse,
 )
@@ -23,7 +25,7 @@ from personal_os.models import Principal
 
 USER_ID = UUID("c3c8d239-162d-4e5e-a2a1-4ac0d1b3695f")
 APPLICATION_ID = UUID("11111111-1111-4111-8111-111111111111")
-TASK_ID = UUID("22222222-2222-4222-8222-222222222222")
+POSTING_ID = UUID("22222222-2222-4222-8222-222222222222")
 ANSWER_ID = UUID("33333333-3333-4333-8333-333333333333")
 
 
@@ -60,7 +62,8 @@ class FakeJobsStore:
     def __init__(self) -> None:
         self.filters: dict[str, object] = {}
         self.archived_application_id: UUID | None = None
-        self.autofill_application_id: UUID | None = None
+        self.queued_posting_ids: list[UUID] = []
+        self.application_update: tuple[UUID, ApplicationUpdate] | None = None
         self.answer_create: AnswerLibraryCreate | None = None
         self.answer_update: tuple[UUID, object] | None = None
         self.synced_count = 0
@@ -82,9 +85,35 @@ class FakeJobsStore:
         self.archived_application_id = application_id
         return application_id == APPLICATION_ID
 
-    async def queue_autofill(self, user_id: UUID, application_id: UUID) -> UUID | None:
-        self.autofill_application_id = application_id
-        return TASK_ID if application_id == APPLICATION_ID else None
+    async def queue_applications(self, user_id: UUID, posting_ids: list[UUID]) -> list[UUID]:
+        self.queued_posting_ids = list(posting_ids)
+        return [APPLICATION_ID] if POSTING_ID in posting_ids else []
+
+    async def list_applications(self, user_id: UUID) -> list[JobApplication]:
+        return [
+            JobApplication(
+                id=APPLICATION_ID,
+                posting_id=POSTING_ID,
+                company_name="Acme",
+                title="Backend Engineer Intern",
+                location=None,
+                application_url="https://boards.example/jobs/1",
+                status="queued",
+                applied_at=None,
+                next_action=None,
+                next_action_at=None,
+                notes=None,
+                created_at=datetime(2026, 9, 14, tzinfo=UTC),
+                updated_at=datetime(2026, 9, 14, tzinfo=UTC),
+                unanswered_required_questions=[],
+            )
+        ]
+
+    async def update_application(
+        self, user_id: UUID, application_id: UUID, update: ApplicationUpdate
+    ) -> JobApplication | None:
+        self.application_update = (application_id, update)
+        return (await self.list_applications(user_id))[0]
 
     async def create_answer(self, user_id: UUID, item: AnswerLibraryCreate) -> AnswerLibraryItem:
         self.answer_create = item
@@ -292,7 +321,7 @@ async def test_application_patch_cannot_bypass_archival_cleanup(
     assert store.archived_application_id is None
 
 
-async def test_application_autofill_retry_returns_the_queued_task(
+async def test_queueing_listings_returns_the_queued_applications(
     app: FastAPI, client: httpx.AsyncClient
 ) -> None:
     store = FakeJobsStore()
@@ -302,13 +331,46 @@ async def test_application_autofill_retry_returns_the_queued_task(
 
     app.dependency_overrides[get_jobs_store] = override_store
     response = await client.post(
-        f"/v1/jobs/applications/{APPLICATION_ID}/autofill",
+        "/v1/jobs/applications/queue",
         headers={"Authorization": "Bearer approved"},
+        json={"posting_ids": [str(POSTING_ID)]},
     )
 
-    assert response.status_code == 202
-    assert response.json() == {"task_id": str(TASK_ID), "status": "queued"}
-    assert store.autofill_application_id == APPLICATION_ID
+    assert response.status_code == 200
+    assert [item["status"] for item in response.json()] == ["queued"]
+    assert store.queued_posting_ids == [POSTING_ID]
+
+    nothing = await client.post(
+        "/v1/jobs/applications/queue",
+        headers={"Authorization": "Bearer approved"},
+        json={"posting_ids": [str(uuid4())]},
+    )
+    assert nothing.status_code == 404
+
+
+async def test_application_status_is_the_new_lifecycle_only(
+    app: FastAPI, client: httpx.AsyncClient
+) -> None:
+    store = FakeJobsStore()
+
+    async def override_store() -> FakeJobsStore:
+        return store
+
+    app.dependency_overrides[get_jobs_store] = override_store
+    for status in ("queued", "applied", "oa", "oa_completed", "interview", "offer", "rejected"):
+        response = await client.patch(
+            f"/v1/jobs/applications/{APPLICATION_ID}",
+            headers={"Authorization": "Bearer approved"},
+            json={"status": status},
+        )
+        assert response.status_code == 200, status
+    for retired in ("preparing", "ready", "submitted", "interviewing", "withdrawn"):
+        response = await client.patch(
+            f"/v1/jobs/applications/{APPLICATION_ID}",
+            headers={"Authorization": "Bearer approved"},
+            json={"status": retired},
+        )
+        assert response.status_code == 422, retired
 
 
 async def test_long_form_answers_are_created_without_a_client_key(

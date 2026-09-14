@@ -16,8 +16,9 @@ os hunt sync
 os hunt list
 os hunt answers list
 os hunt resume watch --open
-os hunt prep 1
-os hunt run
+os hunt queue add 1
+os hunt queue empty
+os hunt apps
 os hunt apply 1 --dry-run
 os hunt apply 1
 os hunt apply failures list

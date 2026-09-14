@@ -1,13 +1,13 @@
 "use client";
 
-import { RotateCcw, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { useAccessToken } from "@/components/workspace";
 import {
+  APPLICATION_STATUSES,
   deleteApplication,
   getApplications,
-  queueAutofill,
   type JobApplication,
   updateApplication,
 } from "@/lib/jobs-api";
@@ -59,15 +59,6 @@ export function ApplicationsWorkspace() {
     }
   }
 
-  async function autofillAgain(application: JobApplication) {
-    try {
-      await queueAutofill(accessToken, application.id);
-      await load();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Autofill could not be queued.");
-    }
-  }
-
   return (
     <div className="jobs-page">
       <header className="page-header">
@@ -85,17 +76,14 @@ export function ApplicationsWorkspace() {
               <div className="listing-main">
                 {application.application_url ? <a className="listing-title-link" href={application.application_url} rel="noreferrer" target="_blank">{application.title}</a> : <strong>{application.title}</strong>}
                 <p>{application.company_name} · {application.location ?? "Location not listed"}</p>
-                <div className="tag-list"><span className="tag">{application.status}</span>{application.preparation_status ? <span className="tag">Prepare: {application.preparation_status}</span> : null}{application.autofill_status ? <span className="tag">Autofill: {application.autofill_status}</span> : null}</div>
-                {application.preparation_error ? <p className="task-error">Preparation: {application.preparation_error}</p> : null}
-                {application.autofill_error ? <p className="task-error">Autofill: {application.autofill_error}</p> : null}
+                <div className="tag-list"><span className={application.status === "applied" ? "tag tag-success" : "tag"}>{application.status.replaceAll("_", " ")}</span>{application.applied_at ? <span className="tag">Applied {application.applied_at.slice(0, 10)}</span> : null}</div>
                 {application.unanswered_required_questions.length ? <p className="task-warning">Needs answers: {application.unanswered_required_questions.join(" · ")}</p> : null}
                 {application.next_action ? <p>{application.next_action}</p> : null}
               </div>
               <div className="listing-actions">
                 <select aria-label={`Status for ${application.title}`} onChange={(event) => void changeStatus(application, event.target.value)} value={application.status}>
-                  <option value="preparing">Preparing</option><option value="ready">Ready</option><option value="submitted">Submitted</option><option value="interviewing">Interviewing</option><option value="offer">Offer</option><option value="rejected">Rejected</option><option value="withdrawn">Withdrawn</option>
+                  {APPLICATION_STATUSES.map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}
                 </select>
-                {application.status === "ready" && (application.autofill_status === "failed" || application.unanswered_required_questions.length > 0) ? <button className="text-button" onClick={() => void autofillAgain(application)} type="button"><RotateCcw aria-hidden="true" size={12} />Autofill again</button> : null}
                 <button className="text-button danger-action" onClick={() => void remove(application)} type="button"><Trash2 aria-hidden="true" size={12} />Delete</button>
               </div>
             </article>

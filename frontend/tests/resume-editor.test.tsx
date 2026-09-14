@@ -5,7 +5,6 @@ import { ResumeEditor } from "@/components/jobs/resume-editor";
 import {
   createMasterResumeDraft,
   getDocuments,
-  queueResumePreview,
   updateMasterResumeDraft,
 } from "@/lib/jobs-api";
 
@@ -35,7 +34,6 @@ vi.mock("@/lib/jobs-api", async (importOriginal) => {
     getDocuments: vi.fn().mockResolvedValue([]),
     createMasterResumeDraft: vi.fn(),
     updateMasterResumeDraft: vi.fn(),
-    queueResumePreview: vi.fn().mockResolvedValue({ task_id: "task" }),
     getDocumentPdf: vi.fn(),
   };
 });
@@ -47,7 +45,6 @@ function pressSave() {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getDocuments).mockResolvedValue([]);
-  vi.mocked(queueResumePreview).mockResolvedValue({ task_id: "task" });
 });
 
 test("Ctrl+S on the approved resume creates the working draft", async () => {
@@ -67,7 +64,7 @@ test("Ctrl+S on the approved resume creates the working draft", async () => {
     contact: { name: "Updated" },
   }));
   expect(updateMasterResumeDraft).not.toHaveBeenCalled();
-  await waitFor(() => expect(queueResumePreview).toHaveBeenCalled());
+  expect(await screen.findByText("Saved draft version 2.")).toBeInTheDocument();
 });
 
 test("a second Ctrl+S updates the same draft instead of stacking versions", async () => {
@@ -115,9 +112,8 @@ test("invalid JSON is refused before any request is made", async () => {
   expect(createMasterResumeDraft).not.toHaveBeenCalled();
 });
 
-test("the PDF pane is marked stale while the worker recompiles", async () => {
+test("saving no longer waits on a worker to recompile", async () => {
   vi.mocked(createMasterResumeDraft).mockResolvedValue({ ...DRAFT });
-  vi.mocked(getDocuments).mockResolvedValue([]);
 
   render(
     <ResumeEditor accessToken="approved" onClose={() => {}} onSaved={() => {}} source={APPROVED} />,
@@ -125,5 +121,6 @@ test("the PDF pane is marked stale while the worker recompiles", async () => {
 
   pressSave();
 
-  expect(await screen.findByText("Recompiling…")).toBeInTheDocument();
+  expect(await screen.findByText("Saved draft version 2.")).toBeInTheDocument();
+  expect(screen.queryByText("Recompiling…")).not.toBeInTheDocument();
 });

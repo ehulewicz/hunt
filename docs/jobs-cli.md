@@ -23,8 +23,11 @@ os hunt answers edit 1 --file ./revised-answer.md --reuse contextual --approve
 os hunt resume build
 os hunt resume watch --open
 
-os hunt prep 1
-os hunt run
+os hunt queue
+os hunt queue add 3 7
+os hunt queue empty
+os hunt apps
+os hunt apps 1 oa
 
 os hunt apply 1 --dry-run
 os hunt apply 1
@@ -40,8 +43,13 @@ os hunt apply failures verify 1 7
 
 Displayed listing titles are clickable when the terminal supports hyperlinks.
 `os hunt open <row>` opens the direct company/ATS URL without creating an
-application; `--source` opens the discovery URL. `listings`, `apps`, and `prep`
-accept cached row numbers or unambiguous ID prefixes where applicable. Answer edits update the hosted canonical library
+application; `--source` opens the discovery URL. `list`, `queue`, `apps`, and
+`apply` accept cached row numbers or unambiguous ID prefixes where applicable.
+`queue add` puts listings in the queue; `queue empty` runs `apply` through it in
+order, one interactive session at a time, and stops after any that is not
+submitted. `apps` lists everything past the queue with its lifecycle status
+(`applied`, `oa`, `oa_completed`, `interview`, `offer`, `rejected`); `apps
+<row> <status>` moves one along. Answer edits update the hosted canonical library
 immediately; Git is not a second answer store. `exact` answers are reused
 unchanged. `pattern` rows hold a case-insensitive regular expression as the
 question and answer any autofill question it matches, standing in for the
@@ -56,18 +64,6 @@ The editable source and generated PDF are both portable Git artifacts:
 artifacts/resume/main.json
 artifacts/resume/Alex_Example.pdf
 ```
-
-## Explicit AI command
-
-```bash
-os hunt prep 1 --tailor
-os hunt run
-```
-
-Only `--tailor` authorizes Claude for resume preparation. Claude or Codex may
-invoke the same shell commands, but must not add `--tailor` unless the user asks
-for tailoring. Sync, ranking filters, rendering, and form mapping have no model
-dependency.
 
 ## Headed apply
 

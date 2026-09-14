@@ -9,7 +9,6 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
-    Form,
     HTTPException,
     Query,
     Request,
@@ -28,30 +27,20 @@ from personal_os.jobs_models import (
     AutofillFailureDetail,
     AutofillFailureIssue,
     AutofillFailureUpdate,
-    AutofillQueueResponse,
     AutofillRunComplete,
     AutofillRunContext,
     AutofillRunCreate,
     AutofillRunStop,
     AutofillStepCreate,
-    BatchPrepareRequest,
-    BatchPrepareResponse,
     JobApplication,
     JobDocument,
-    JobDocumentReview,
     JobListingPage,
     JobsProfile,
     JobsProfileUpdate,
     ListingSyncResponse,
     MasterResumeContent,
-    ResumePreviewResponse,
+    QueueApplicationsRequest,
     RoleFamily,
-    WorkerApplicationBundle,
-    WorkerClaimRequest,
-    WorkerClaimResponse,
-    WorkerHeartbeatRequest,
-    WorkerTaskFailure,
-    WorkerTaskResult,
 )
 from personal_os.jobs_sources import SpeedyApplySource
 from personal_os.jobs_storage import JobsDocumentStorage
@@ -118,25 +107,20 @@ async def sync_listings(principal: CurrentPrincipal, store: Store) -> ListingSyn
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(error)) from error
 
 
-@router.post(
-    "/applications/batch-prepare",
-    response_model=BatchPrepareResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-)
-async def batch_prepare(
-    request: BatchPrepareRequest, principal: CurrentPrincipal, store: Store
-) -> BatchPrepareResponse:
-    response = await store.prepare_applications(
-        principal.user_id, request.posting_ids, tailor=request.tailor
-    )
-    if not response.application_ids:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "No eligible listings were selected")
-    return response
-
-
 @router.get("/applications", response_model=list[JobApplication])
 async def list_applications(principal: CurrentPrincipal, store: Store) -> list[JobApplication]:
     return await store.list_applications(principal.user_id)
+
+
+@router.post("/applications/queue", response_model=list[JobApplication])
+async def queue_applications(
+    request: QueueApplicationsRequest, principal: CurrentPrincipal, store: Store
+) -> list[JobApplication]:
+    queued = set(await store.queue_applications(principal.user_id, request.posting_ids))
+    if not queued:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No eligible listings were selected")
+    applications = await store.list_applications(principal.user_id)
+    return [item for item in applications if item.id in queued]
 
 
 @router.patch("/applications/{application_id}", response_model=JobApplication)
@@ -159,23 +143,6 @@ async def archive_application(
     if not await store.archive_application(principal.user_id, application_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-@router.post(
-    "/applications/{application_id}/autofill",
-    response_model=AutofillQueueResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-)
-async def queue_application_autofill(
-    application_id: UUID, principal: CurrentPrincipal, store: Store
-) -> AutofillQueueResponse:
-    task_id = await store.queue_autofill(principal.user_id, application_id)
-    if task_id is None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Application needs an approved tailored resume before autofill",
-        )
-    return AutofillQueueResponse(task_id=task_id)
 
 
 @router.get("/documents", response_model=list[JobDocument])
@@ -208,16 +175,6 @@ async def update_master_resume_draft(
     if document is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Draft main resume not found")
     return document
-
-
-@router.post("/documents/{document_id}/preview", response_model=ResumePreviewResponse)
-async def queue_resume_preview(
-    document_id: UUID, principal: CurrentPrincipal, store: Store
-) -> ResumePreviewResponse:
-    task_id = await store.queue_resume_preview(principal.user_id, document_id)
-    if task_id is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Draft main resume not found")
-    return ResumePreviewResponse(task_id=task_id)
 
 
 @router.post("/documents/{document_id}/approve", response_model=JobDocument)
@@ -255,16 +212,6 @@ async def download_document(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}.pdf"'},
     )
-
-
-@router.get("/documents/{document_id}/review", response_model=JobDocumentReview)
-async def get_document_review(
-    document_id: UUID, principal: CurrentPrincipal, store: Store
-) -> JobDocumentReview:
-    review = await store.get_document_review(principal.user_id, document_id)
-    if review is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tailored resume review not found")
-    return review
 
 
 @router.get("/answers", response_model=list[AnswerLibraryItem])
@@ -450,148 +397,8 @@ async def update_autofill_failure(
     return issue
 
 
-@router.post("/worker/tasks/claim", response_model=WorkerClaimResponse)
-async def claim_worker_task(
-    payload: WorkerClaimRequest, principal: CurrentPrincipal, store: Store
-) -> WorkerClaimResponse:
-    return WorkerClaimResponse(task=await store.claim_task(principal.user_id, payload.worker_id))
-
-
-@router.get(
-    "/worker/applications/{application_id}/bundle",
-    response_model=WorkerApplicationBundle,
-)
-async def get_worker_application_bundle(
-    application_id: UUID, principal: CurrentPrincipal, store: Store
-) -> WorkerApplicationBundle:
-    bundle = await store.get_worker_application_bundle(principal.user_id, application_id)
-    if bundle is None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Application is missing an approved main resume or company URL",
-        )
-    return bundle
-
-
 @router.get("/worker/doctor")
 async def worker_doctor(principal: CurrentPrincipal) -> dict[str, str]:
     return {"status": "ok", "user_id": str(principal.user_id)}
 
 
-@router.get("/worker/applications/{application_id}/resume")
-async def download_worker_resume(
-    application_id: UUID,
-    request: Request,
-    principal: CurrentPrincipal,
-    store: Store,
-) -> Response:
-    stored = await store.get_approved_resume_storage_path(principal.user_id, application_id)
-    if stored is None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Approved tailored resume not found")
-    path, title = stored
-    try:
-        content = await JobsDocumentStorage(request.app.state.settings).download_pdf(path)
-    except RuntimeError:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "Document storage unavailable"
-        ) from None
-    except httpx.HTTPError:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Document download failed") from None
-    filename = re.sub(r"[^A-Za-z0-9._-]+", "_", title).strip("_") or "resume"
-    return Response(
-        content,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}.pdf"'},
-    )
-
-
-@router.get("/worker/documents/{document_id}")
-async def get_worker_document(
-    document_id: UUID, principal: CurrentPrincipal, store: Store
-) -> Response:
-    content = await store.get_master_resume_draft_content(principal.user_id, document_id)
-    if content is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Main resume draft not found")
-    return Response(content, media_type="application/json")
-
-
-@router.post("/worker/tasks/{task_id}/pdf")
-async def upload_worker_pdf(
-    task_id: UUID,
-    request: Request,
-    principal: CurrentPrincipal,
-    store: Store,
-    document: Annotated[UploadFile, File()],
-    worker_id: Annotated[str, Form(min_length=1, max_length=120)],
-) -> dict[str, str]:
-    application_id = await store.get_worker_task_application_id(
-        principal.user_id, task_id, worker_id
-    )
-    preview_document_id = (
-        None
-        if application_id is not None
-        else await store.get_worker_task_document_id(principal.user_id, task_id, worker_id)
-    )
-    if application_id is None and preview_document_id is None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Worker task is no longer active")
-    content = await document.read(5 * 1024 * 1024 + 1)
-    if len(content) > 5 * 1024 * 1024:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "PDF exceeds 5 MiB")
-    if document.content_type != "application/pdf" or not content.startswith(b"%PDF-"):
-        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "Only PDF files are accepted")
-    path = (
-        f"{principal.user_id}/applications/{application_id}/{task_id}.pdf"
-        if application_id is not None
-        else f"{principal.user_id}/resumes/{preview_document_id}/{task_id}.pdf"
-    )
-    try:
-        await JobsDocumentStorage(request.app.state.settings).upload_pdf(path, content)
-    except RuntimeError:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "Document storage unavailable"
-        ) from None
-    except httpx.HTTPError:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Document upload failed") from None
-    return {"storage_path": path}
-
-
-@router.post("/worker/tasks/{task_id}/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
-async def heartbeat_worker_task(
-    task_id: UUID,
-    payload: WorkerHeartbeatRequest,
-    principal: CurrentPrincipal,
-    store: Store,
-) -> Response:
-    if not await store.heartbeat_task(principal.user_id, task_id, payload.worker_id):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Worker task lease is no longer active")
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-@router.post("/worker/tasks/{task_id}/complete", status_code=status.HTTP_204_NO_CONTENT)
-async def complete_worker_task(
-    task_id: UUID,
-    payload: WorkerTaskResult,
-    principal: CurrentPrincipal,
-    store: Store,
-) -> Response:
-    if not await store.complete_task(principal.user_id, task_id, payload.worker_id, payload.result):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Worker task is no longer active")
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-@router.post("/worker/tasks/{task_id}/fail", status_code=status.HTTP_204_NO_CONTENT)
-async def fail_worker_task(
-    task_id: UUID,
-    payload: WorkerTaskFailure,
-    principal: CurrentPrincipal,
-    store: Store,
-) -> Response:
-    if not await store.fail_task(
-        principal.user_id,
-        task_id,
-        payload.worker_id,
-        payload.error_message,
-        retry=payload.retry,
-    ):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Worker task is no longer active")
-    return Response(status_code=status.HTTP_204_NO_CONTENT)

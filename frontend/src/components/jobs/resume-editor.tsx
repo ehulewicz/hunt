@@ -5,14 +5,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createMasterResumeDraft,
   getDocumentPdf,
-  getDocuments,
-  queueResumePreview,
   updateMasterResumeDraft,
   type JobDocument,
 } from "@/lib/jobs-api";
-
-const POLL_INTERVAL_MS = 2000;
-const POLL_TIMEOUT_MS = 120000;
 
 function formatJson(text: string): string {
   try {
@@ -39,55 +34,9 @@ export function ResumeEditor({
   );
   const [text, setText] = useState(() => formatJson(source.content_text ?? ""));
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [stale, setStale] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pdfUrlRef = useRef<string | null>(null);
-  const pollRef = useRef<number | null>(null);
-
-  const stopPolling = useCallback(() => {
-    if (pollRef.current !== null) {
-      window.clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-  }, []);
-
-  const showPdf = useCallback(async (documentId: string) => {
-    const blob = await getDocumentPdf(accessToken, documentId);
-    if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current);
-    const url = URL.createObjectURL(blob);
-    pdfUrlRef.current = url;
-    setPdfUrl(url);
-  }, [accessToken]);
-
-  // Saving clears storage_path, so a non-null path means this preview finished.
-  const waitForPreview = useCallback((documentId: string) => {
-    stopPolling();
-    const startedAt = Date.now();
-    pollRef.current = window.setInterval(() => {
-      void (async () => {
-        if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
-          stopPolling();
-          setStale(false);
-          setStatus(null);
-          setError("Preview did not finish. Check that the paired worker is running.");
-          return;
-        }
-        try {
-          const documents = await getDocuments(accessToken);
-          const current = documents.find((item) => item.id === documentId);
-          if (current?.storage_path) {
-            stopPolling();
-            await showPdf(documentId);
-            setStale(false);
-            setStatus("Preview updated.");
-          }
-        } catch {
-          // Keep polling through transient failures; the timeout ends it.
-        }
-      })();
-    }, POLL_INTERVAL_MS);
-  }, [accessToken, showPdf, stopPolling]);
 
   const save = useCallback(async () => {
     let parsed: unknown;
@@ -103,15 +52,12 @@ export function ResumeEditor({
         ? await updateMasterResumeDraft(accessToken, draftId, parsed)
         : await createMasterResumeDraft(accessToken, parsed);
       setDraftId(saved.id);
-      setStale(true);
-      setStatus(`Saved draft version ${saved.version}. Recompiling…`);
-      await queueResumePreview(accessToken, saved.id);
-      waitForPreview(saved.id);
+      setStatus(`Saved draft version ${saved.version}.`);
       onSaved();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Draft could not be saved.");
     }
-  }, [accessToken, draftId, onSaved, text, waitForPreview]);
+  }, [accessToken, draftId, onSaved, text]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -139,9 +85,8 @@ export function ResumeEditor({
   }, [accessToken, source.id, source.storage_path]);
 
   useEffect(() => () => {
-    stopPolling();
     if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current);
-  }, [stopPolling]);
+  }, []);
 
   return (
     <section className="resume-editor">
@@ -173,22 +118,17 @@ export function ResumeEditor({
         <div className="resume-editor-pane">
           <div className="pane-heading">
             <span className="field-label">Compiled PDF</span>
-            {stale ? <span className="tag">Recompiling…</span> : null}
           </div>
           {pdfUrl ? (
-            <iframe
-              className={stale ? "document-preview document-preview-stale" : "document-preview"}
-              src={pdfUrl}
-              title="Main resume preview"
-            />
+            <iframe className="document-preview" src={pdfUrl} title="Main resume preview" />
           ) : (
-            <div className="panel-state">Press Ctrl+S to compile a preview.</div>
+            <div className="panel-state">The PDF is compiled with `os hunt resume build`.</div>
           )}
         </div>
       </div>
       <div className="listing-actions">
         <button className="button button-primary" onClick={() => void save()} type="button">
-          Save &amp; recompile
+          Save draft
         </button>
       </div>
     </section>

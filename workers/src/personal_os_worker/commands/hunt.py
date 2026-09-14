@@ -1,11 +1,10 @@
-"""The Jobs domain: browse listings, inspect applications, queue preparation."""
+"""The Jobs domain: browse listings, queue and apply to them, track what went in."""
 
 from __future__ import annotations
 
 from personal_os_worker.api import WorkerApi
 from personal_os_worker.commands.services import connected
 from personal_os_worker.doctor import run_doctor
-from personal_os_worker.runner import run_worker
 from personal_os_worker.service import ensure_chrome, open_external_url
 from personal_os_worker.tables import (
     console,
@@ -15,6 +14,8 @@ from personal_os_worker.tables import (
     resolve,
     resolve_record,
 )
+
+APPLICATION_STATUSES = ("queued", "applied", "oa", "oa_completed", "interview", "offer", "rejected")
 
 DEFAULT_TECHNICAL_FAMILIES = [
     "software_engineering",
@@ -73,11 +74,18 @@ def run_open_listing(reference: str, *, source: bool) -> int:
     return 0
 
 
-def run_apps() -> int:
+def run_apps(reference: str | None = None, status: str | None = None) -> int:
     config, token = connected()
     api = WorkerApi(config, token)
     try:
-        applications = [item for item in api.applications() if item.get("applied_at")]
+        if reference is not None:
+            application_id = resolve("apps", reference)
+            if status is None:
+                choices = ", ".join(APPLICATION_STATUSES)
+                raise RuntimeError(f"Give the new status, one of: {choices}")
+            updated = api.update_application(application_id, status=status)
+            console.print(f"{updated.get('company_name')}: {status}")
+        applications = [item for item in api.applications() if item.get("status") != "queued"]
     finally:
         api.close()
     if not applications:
@@ -170,29 +178,49 @@ def run_answer_edit(
     return 0
 
 
-def run_prep(references: list[str]) -> int:
+def run_queue(references: list[str] | None = None, *, empty: bool = False) -> int:
+    """`queue` lists it, `queue add <rows>` fills it, `queue empty` applies through it."""
+    if empty:
+        return _empty_queue()
     config, token = connected()
-    posting_ids = [resolve("listings", reference) for reference in references]
     api = WorkerApi(config, token)
     try:
-        result = api.batch_prepare(posting_ids)
+        if references:
+            posting_ids = [resolve("listings", reference) for reference in references]
+            added = api.queue_applications(posting_ids)
+            for item in added:
+                console.print(f"  queued: {item.get('company_name')} — {item.get('title')}")
+        queued = [item for item in api.applications() if item.get("status") == "queued"]
     finally:
         api.close()
-    queued = result.get("queued_task_ids") or []
-    console.print(
-        f"Queued {len(queued)} preparation task(s) for "
-        f"{len(result.get('application_ids') or [])} application(s)."
-    )
-    console.print("Run 'os hunt run' to execute them.")
-    console.print("The canonical resume will be compiled unchanged.")
+    if not queued:
+        console.print("The queue is empty. 'os hunt queue add <rows>' fills it.")
+        return 0
+    render_applications(queued, title="Queue")
     return 0
 
 
-def run_tasks(*, once: bool, watch: bool = False) -> int:
+def _empty_queue() -> int:
+    """Apply through the queue in order; Ctrl+C stops after the current one."""
     config, token = connected()
-    # Tasks drive the visible browser, so Chrome is a dependency too.
-    ensure_chrome(config.cdp_url)
-    return run_worker(config, token, once=once, watch=watch)
+    api = WorkerApi(config, token)
+    try:
+        queued = [item for item in api.applications() if item.get("status") == "queued"]
+    finally:
+        api.close()
+    if not queued:
+        console.print("The queue is empty.")
+        return 0
+    for position, item in enumerate(queued, start=1):
+        console.print(
+            f"[bold]Queue {position}/{len(queued)}:[/bold] {item.get('company_name')} — "
+            f"{item.get('title')}"
+        )
+        if not apply_posting(str(item["posting_id"]), dry_run=False, no_claude=False):
+            console.print("Not submitted; it stays in the queue. Stopping here.")
+            return 0
+    console.print("Queue emptied.")
+    return 0
 
 
 def run_doctor_command() -> int:
@@ -204,6 +232,12 @@ def run_doctor_command() -> int:
 
 
 def run_autofill(reference: str, *, dry_run: bool, no_claude: bool = False) -> int:
+    apply_posting(resolve("listings", reference), dry_run=dry_run, no_claude=no_claude)
+    return 0
+
+
+def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> bool:
+    """Run one interactive apply session; True when the page reported a submission."""
     from pathlib import Path
 
     from personal_os_worker.adapters import adapter_version, detect_ats, failure_signature
@@ -215,7 +249,6 @@ def run_autofill(reference: str, *, dry_run: bool, no_claude: bool = False) -> i
     def draft_directory(run_id: str) -> Path:
         return state_dir() / "drafts" / run_id
 
-    posting_id = resolve("listings", reference)
     resume = ensure_resume()
     resume_json = load_resume(resume.source)
     config, token = connected()
@@ -378,14 +411,15 @@ def run_autofill(reference: str, *, dry_run: bool, no_claude: bool = False) -> i
             if outcome.get("dry_run"):
                 api.stop_autofill_run(run_id, status="abandoned")
                 console.print("Dry run: no values were changed and nothing was submitted.")
-                return 0
+                return False
             saved = list(outcome["answers"])
             api.complete_autofill_run(run_id, final_url=str(outcome["final_url"]), answers=saved)
             verb = "Stopped" if outcome.get("interrupted") else "Done"
             console.print(f"{verb}. Saved {len(saved)} answer(s) to the library for reuse.")
             if outcome.get("submitted"):
-                api.update_application(str(run["application_id"]), status="submitted")
+                api.update_application(str(run["application_id"]), status="applied")
                 console.print(f"Marked {expected_company} as applied.")
+                return True
     except KeyboardInterrupt:
         if run_id is not None:
             api.stop_autofill_run(run_id, status="abandoned")
@@ -396,7 +430,7 @@ def run_autofill(reference: str, *, dry_run: bool, no_claude: bool = False) -> i
         raise
     finally:
         api.close()
-    return 0
+    return False
 
 
 def _failure_claude(issue: dict[str, object], *, patch: bool) -> str:

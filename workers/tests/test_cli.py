@@ -126,12 +126,30 @@ def test_role_families_accumulate_and_all_roles_is_explicit() -> None:
     assert build_parser().parse_args(["hunt", "list", "--all-roles"]).all_roles is True
 
 
-def test_prep_takes_several_references() -> None:
-    assert build_parser().parse_args(["hunt", "prep", "3", "7", "a1b2c3d4"]).refs == [
-        "3",
-        "7",
-        "a1b2c3d4",
-    ]
+def test_queue_lists_adds_and_empties() -> None:
+    bare = build_parser().parse_args(["hunt", "queue"])
+    added = build_parser().parse_args(["hunt", "queue", "add", "3", "7", "a1b2c3d4"])
+    emptied = build_parser().parse_args(["hunt", "queue", "empty"])
+    assert (bare.action, bare.refs) == (None, [])
+    assert (added.action, added.refs) == ("add", ["3", "7", "a1b2c3d4"])
+    assert (emptied.action, emptied.refs) == ("empty", [])
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "prep", "1"])
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "run"])
+
+
+def test_apps_lists_or_marks_one_with_a_lifecycle_status() -> None:
+    listed = build_parser().parse_args(["hunt", "apps"])
+    marked = build_parser().parse_args(["hunt", "apps", "2", "oa"])
+    assert (listed.ref, listed.status) == (None, None)
+    assert (marked.ref, marked.status) == ("2", "oa")
+    for status in ("applied", "oa_completed", "interview", "offer", "rejected"):
+        assert build_parser().parse_args(["hunt", "apps", "1", status]).status == status
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "apps", "1", "queued"])
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "apps", "1", "submitted"])
 
 
 def test_resume_build_and_watch_are_cli_commands() -> None:
@@ -163,13 +181,6 @@ def test_autofill_failure_commands_preserve_the_documented_syntax() -> None:
     verified = build_parser().parse_args(["hunt", "apply", "failures", "verify", "2", "9"])
     assert (listed.ref, listed.failure_action) == ("failures", "list")
     assert (verified.failure_ref, verified.verify_listing_ref) == ("2", "9")
-
-
-def test_prep_has_no_tailoring_flag() -> None:
-    plain = build_parser().parse_args(["hunt", "prep", "1"])
-    assert plain.refs == ["1"]
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(["hunt", "prep", "1", "--tailor"])
 
 
 def test_answer_library_is_manageable_without_the_web_app() -> None:

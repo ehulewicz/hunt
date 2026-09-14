@@ -2,14 +2,14 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 
 import { ListingsWorkspace } from "@/components/jobs/listings-workspace";
-import { batchPrepare, getListings } from "@/lib/jobs-api";
+import { getListings, queueApplications, type JobApplication } from "@/lib/jobs-api";
 
 vi.mock("@/components/workspace", () => ({ useAccessToken: () => "approved" }));
 vi.mock("@/lib/jobs-api", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/jobs-api")>();
   return {
     ...original,
-    batchPrepare: vi.fn(),
+    queueApplications: vi.fn(),
     getListings: vi.fn().mockResolvedValue({
       items: [],
       total: 0,
@@ -37,7 +37,7 @@ test("listings start with one unlabeled control bar and no results header", asyn
   render(<ListingsWorkspace />);
 
   await waitFor(() => expect(screen.getByText("No internship or co-op listings match.")));
-  const prepare = screen.getByRole("button", { name: "Prepare selected (0)" });
+  const prepare = screen.getByRole("button", { name: "Queue selected (0)" });
   const toolbar = prepare.closest(".jobs-toolbar");
 
   expect(toolbar).not.toBeNull();
@@ -51,15 +51,11 @@ test("listings start with one unlabeled control bar and no results header", asyn
   expect(screen.queryByText(/SpeedyApply's SWE and AI\/ML college lists/)).not.toBeInTheDocument();
 });
 
-test("listing filters stay fixed while preparation is in flight", async () => {
-  let finishPreparation!: (value: {
-    application_ids: string[];
-    queued_task_ids: string[];
-  }) => void;
-  const pendingPreparation = new Promise<{
-    application_ids: string[];
-    queued_task_ids: string[];
-  }>((resolve) => { finishPreparation = resolve; });
+test("listing filters stay fixed while queueing is in flight", async () => {
+  let finishPreparation!: (value: JobApplication[]) => void;
+  const pendingPreparation = new Promise<JobApplication[]>((resolve) => {
+    finishPreparation = resolve;
+  });
   let finishReload!: (value: Awaited<ReturnType<typeof getListings>>) => void;
   const pendingReload = new Promise<Awaited<ReturnType<typeof getListings>>>(
     (resolve) => { finishReload = resolve; },
@@ -88,23 +84,23 @@ test("listing filters stay fixed while preparation is in flight", async () => {
     offset: 0,
     location_options: ["Remote"],
   }).mockReturnValueOnce(pendingReload);
-  vi.mocked(batchPrepare).mockReturnValueOnce(pendingPreparation);
+  vi.mocked(queueApplications).mockReturnValueOnce(pendingPreparation);
   render(<ListingsWorkspace />);
 
   fireEvent.click(await screen.findByRole("checkbox", { name: /Select Software Engineering/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Prepare selected (1)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Queue selected (1)" }));
 
   await waitFor(() => expect(screen.getByRole("radio", { name: "All" })).toBeDisabled());
   expect(screen.getByRole("checkbox", { name: "Remote" })).toBeDisabled();
 
   const listingCallCount = vi.mocked(getListings).mock.calls.length;
-  finishPreparation({ application_ids: ["application-1"], queued_task_ids: ["task-1"] });
+  finishPreparation([]);
   await waitFor(() => expect(vi.mocked(getListings).mock.calls).toHaveLength(listingCallCount + 1));
   expect(screen.getByRole("radio", { name: "All" })).toBeDisabled();
   expect(screen.getByRole("checkbox", { name: "Remote" })).toBeDisabled();
 
   finishReload({ items: [], total: 0, limit: 200, offset: 0, location_options: ["Remote"] });
-  await waitFor(() => expect(screen.getByRole("button", { name: "Prepare selected (0)" })).toBeDisabled());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Queue selected (0)" })).toBeDisabled());
 });
 
 test("listing title is the company link and company plus normalized location stay visible", async () => {

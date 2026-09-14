@@ -21,10 +21,13 @@ rendering and the reference fixture preserve the distinction. Watch mode compile
 and atomically replaces the PDF only after success so an open viewer never loses
 its last good document.
 
-Preparation captures the real application form in visible native Windows Chrome
-and always compiles the canonical resume unchanged. Resume tailoring was retired:
-the canonical resume already carries the breadth it needs, and the effort goes
-into answers instead.
+There is no task worker any more. `os hunt queue add <rows>` records listings as
+`queued` applications; `os hunt queue empty` runs `os hunt apply` through them
+in order and stops after any that is not submitted, which stays queued. An
+application that goes in is marked `applied`, and `os hunt apps <row> <status>`
+carries it through `oa`, `oa_completed`, `interview`, `offer`, or `rejected`.
+Resume tailoring was retired: the canonical resume already carries the breadth
+it needs, and the effort goes into answers instead.
 
 `os hunt apply <listing-ref>` attaches the tracked PDF as it is (compiling only
 if it is missing; `os hunt resume build|watch` is where it changes), opens the stored

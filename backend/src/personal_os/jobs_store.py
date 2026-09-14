@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, Protocol
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import Request
 from psycopg import sql
@@ -26,20 +25,18 @@ from personal_os.jobs_models import (
     AutofillRunCreate,
     AutofillRunStop,
     AutofillStepCreate,
-    BatchPrepareResponse,
     JobApplication,
     JobDocument,
-    JobDocumentReview,
     JobListing,
     JobListingPage,
     JobsProfile,
     JobsProfileUpdate,
     ListingSyncResponse,
     MasterResumeContent,
-    WorkerApplicationBundle,
-    WorkerTask,
 )
 from personal_os.jobs_sources import SOURCE_NAME, SourceListing
+
+ANSWER_SOURCES = frozenset({"jobs_profile", "answer_library", "model", "pattern", "manual"})
 
 
 class JobsStore(Protocol):
@@ -62,9 +59,9 @@ class JobsStore(Protocol):
         offset: int,
     ) -> JobListingPage: ...
 
-    async def prepare_applications(
-        self, user_id: UUID, posting_ids: Sequence[UUID], *, tailor: bool
-    ) -> BatchPrepareResponse: ...
+    async def queue_applications(
+        self, user_id: UUID, posting_ids: Sequence[UUID]
+    ) -> list[UUID]: ...
 
     async def list_applications(self, user_id: UUID) -> list[JobApplication]: ...
 
@@ -73,8 +70,6 @@ class JobsStore(Protocol):
     ) -> JobApplication | None: ...
 
     async def archive_application(self, user_id: UUID, application_id: UUID) -> bool: ...
-
-    async def queue_autofill(self, user_id: UUID, application_id: UUID) -> UUID | None: ...
 
     async def list_documents(self, user_id: UUID) -> list[JobDocument]: ...
 
@@ -86,24 +81,10 @@ class JobsStore(Protocol):
         self, user_id: UUID, document_id: UUID, content: MasterResumeContent
     ) -> JobDocument | None: ...
 
-    async def queue_resume_preview(self, user_id: UUID, document_id: UUID) -> UUID | None: ...
-
-    async def get_master_resume_draft_content(
-        self, user_id: UUID, document_id: UUID
-    ) -> str | None: ...
-
     async def approve_document(self, user_id: UUID, document_id: UUID) -> JobDocument | None: ...
 
     async def get_document_storage_path(
         self, user_id: UUID, document_id: UUID
-    ) -> tuple[str, str] | None: ...
-
-    async def get_document_review(
-        self, user_id: UUID, document_id: UUID
-    ) -> JobDocumentReview | None: ...
-
-    async def get_approved_resume_storage_path(
-        self, user_id: UUID, application_id: UUID
     ) -> tuple[str, str] | None: ...
 
     async def list_answers(self, user_id: UUID) -> list[AnswerLibraryItem]: ...
@@ -147,37 +128,6 @@ class JobsStore(Protocol):
     async def update_autofill_failure(
         self, user_id: UUID, issue_id: UUID, item: AutofillFailureUpdate
     ) -> AutofillFailureIssue | None: ...
-
-    async def claim_task(self, user_id: UUID, worker_id: str) -> WorkerTask | None: ...
-
-    async def get_worker_application_bundle(
-        self, user_id: UUID, application_id: UUID
-    ) -> WorkerApplicationBundle | None: ...
-
-    async def get_worker_task_application_id(
-        self, user_id: UUID, task_id: UUID, worker_id: str
-    ) -> UUID | None: ...
-
-    async def get_worker_task_document_id(
-        self, user_id: UUID, task_id: UUID, worker_id: str
-    ) -> UUID | None: ...
-
-    async def heartbeat_task(self, user_id: UUID, task_id: UUID, worker_id: str) -> bool: ...
-
-    async def complete_task(
-        self, user_id: UUID, task_id: UUID, worker_id: str, result: dict[str, Any]
-    ) -> bool: ...
-
-    async def fail_task(
-        self,
-        user_id: UUID,
-        task_id: UUID,
-        worker_id: str,
-        error_message: str,
-        *,
-        retry: bool,
-    ) -> bool: ...
-
 
 PROFILE_COLUMNS = (
     "legal_name",
@@ -504,68 +454,32 @@ class PostgresJobsStore:
             location_options=[str(row["location"]) for row in location_rows],
         )
 
-    async def prepare_applications(
-        self, user_id: UUID, posting_ids: Sequence[UUID], *, tailor: bool
-    ) -> BatchPrepareResponse:
-        application_ids: list[UUID] = []
-        task_ids: list[UUID] = []
+    async def queue_applications(self, user_id: UUID, posting_ids: Sequence[UUID]) -> list[UUID]:
+        """Put listings in the queue; an application already past it is left alone."""
+        queued: list[UUID] = []
         async with (
             self._pool.connection(timeout=self._timeout) as connection,
             connection.transaction(),
         ):
             await connection.execute("set local role personal_os_api")
             for posting_id in dict.fromkeys(posting_ids):
-                application_cursor = await connection.execute(
+                cursor = await connection.execute(
                     """
                     insert into app.jobs_applications (user_id, posting_id)
                     select %s, id from app.jobs_postings
                     where id = %s and user_id = %s and application_url is not null
                     on conflict (user_id, posting_id) do update set
-                      updated_at = now(), status = 'preparing', applied_at = null,
-                      next_action = null, next_action_at = null
-                    returning id
+                      updated_at = now(),
+                      status = case when app.jobs_applications.status = 'archived'
+                                    then 'queued' else app.jobs_applications.status end
+                    returning id, status
                     """,
                     (user_id, posting_id, user_id),
                 )
-                application = await application_cursor.fetchone()
-                if application is None:
-                    continue
-                application_id = application["id"]
-                application_ids.append(application_id)
-                existing_cursor = await connection.execute(
-                    """
-                    select id from app.worker_tasks
-                    where user_id = %s and domain = 'jobs'
-                      and task_type = 'prepare_application'
-                      and payload->>'application_id' = %s
-                      and status in ('queued', 'running')
-                    limit 1
-                    """,
-                    (user_id, str(application_id)),
-                )
-                existing = await existing_cursor.fetchone()
-                if existing:
-                    task_ids.append(existing["id"])
-                    continue
-                task_id = uuid4()
-                await connection.execute(
-                    """
-                    insert into app.worker_tasks (id, user_id, domain, task_type, payload)
-                    values (
-                      %s, %s, 'jobs', 'prepare_application',
-                      jsonb_build_object(
-                        'application_id', %s::text,
-                        'tailor', %s::boolean
-                      )
-                    )
-                    """,
-                    (task_id, user_id, application_id, tailor),
-                )
-                task_ids.append(task_id)
-        return BatchPrepareResponse(
-            application_ids=application_ids,
-            queued_task_ids=task_ids,
-        )
+                row = await cursor.fetchone()
+                if row is not None and row["status"] == "queued":
+                    queued.append(UUID(str(row["id"])))
+        return queued
 
     async def list_applications(self, user_id: UUID) -> list[JobApplication]:
         async with (
@@ -580,31 +494,11 @@ class PostgresJobsStore:
                        application.status, application.applied_at, application.next_action,
                        application.next_action_at, application.notes,
                        application.created_at, application.updated_at,
-                       preparation.status as preparation_status,
-                       left(preparation.error_message, 1000) as preparation_error,
-                       autofill.status as autofill_status,
-                       left(autofill.error_message, 1000) as autofill_error,
                        coalesce(questions.items, array[]::text[])
                          as unanswered_required_questions
                 from app.jobs_applications application
                 join app.jobs_postings posting on posting.id = application.posting_id
                 join app.jobs_companies company on company.id = posting.company_id
-                left join lateral (
-                  select status, error_message
-                  from app.worker_tasks
-                  where user_id = application.user_id and domain = 'jobs'
-                    and task_type = 'prepare_application'
-                    and payload->>'application_id' = application.id::text
-                  order by created_at desc limit 1
-                ) preparation on true
-                left join lateral (
-                  select status, error_message
-                  from app.worker_tasks
-                  where user_id = application.user_id and domain = 'jobs'
-                    and task_type = 'autofill_application'
-                    and payload->>'application_id' = application.id::text
-                  order by created_at desc limit 1
-                ) autofill on true
                 left join lateral (
                   select array_agg(question_text order by display_order, created_at) as items
                   from app.jobs_application_questions
@@ -612,7 +506,11 @@ class PostgresJobsStore:
                     and application_id = application.id and status = 'unanswered'
                 ) questions on true
                 where application.user_id = %s and application.status <> 'archived'
-                order by application.updated_at desc
+                order by case application.status
+                           when 'queued' then 0 when 'applied' then 1 when 'oa' then 2
+                           when 'oa_completed' then 3 when 'interview' then 4
+                           when 'offer' then 5 else 6 end,
+                         application.updated_at desc
                 """,
                 (user_id,),
             )
@@ -623,8 +521,10 @@ class PostgresJobsStore:
         self, user_id: UUID, application_id: UUID, update: ApplicationUpdate
     ) -> JobApplication | None:
         values = update.model_dump(exclude_unset=True)
-        if values.get("status") == "submitted":
+        if values.get("status") == "applied":
             values["applied_at"] = datetime.now(UTC)
+        elif values.get("status") == "queued":
+            values["applied_at"] = None
         if values:
             assignments = sql.SQL(", ").join(
                 sql.SQL("{} = %s").format(sql.Identifier(key)) for key in values
@@ -659,18 +559,6 @@ class PostgresJobsStore:
             )
             if await application_cursor.fetchone() is None:
                 return False
-            await connection.execute(
-                """
-                update app.worker_tasks
-                set status = 'cancelled', completed_at = now(), lease_expires_at = null,
-                    error_message = 'Application archived'
-                where user_id = %s and domain = 'jobs'
-                  and task_type in ('prepare_application', 'autofill_application')
-                  and payload->>'application_id' = %s
-                  and status in ('queued', 'running')
-                """,
-                (user_id, str(application_id)),
-            )
             cursor = await connection.execute(
                 """
                 update app.jobs_applications
@@ -682,66 +570,6 @@ class PostgresJobsStore:
             if int(cursor.rowcount) != 1:
                 return False
         return True
-
-    async def queue_autofill(self, user_id: UUID, application_id: UUID) -> UUID | None:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            eligible_cursor = await connection.execute(
-                """
-                select application.id
-                from app.jobs_applications application
-                where application.id = %s and application.user_id = %s
-                  and application.status = 'ready'
-                  and exists (
-                    select 1 from app.jobs_documents document
-                    where document.user_id = application.user_id
-                      and document.application_id = application.id
-                      and document.document_type = 'tailored_resume'
-                      and document.status = 'approved' and document.is_current
-                      and document.storage_path is not null
-                  )
-                for update
-                """,
-                (application_id, user_id),
-            )
-            if await eligible_cursor.fetchone() is None:
-                return None
-            task_id = uuid4()
-            task_cursor = await connection.execute(
-                """
-                insert into app.worker_tasks (id, user_id, domain, task_type, payload)
-                values (
-                  %s, %s, 'jobs', 'autofill_application',
-                  jsonb_build_object('application_id', %s::text)
-                )
-                on conflict (user_id, (payload ->> 'application_id'))
-                where domain = 'jobs'
-                  and task_type = 'autofill_application'
-                  and status in ('queued', 'running')
-                do nothing
-                returning id
-                """,
-                (task_id, user_id, application_id),
-            )
-            inserted = await task_cursor.fetchone()
-            if inserted is not None:
-                return UUID(str(inserted["id"]))
-            existing_cursor = await connection.execute(
-                """
-                select id from app.worker_tasks
-                where user_id = %s and domain = 'jobs'
-                  and task_type = 'autofill_application'
-                  and payload->>'application_id' = %s
-                  and status in ('queued', 'running')
-                order by created_at desc limit 1
-                """,
-                (user_id, str(application_id)),
-            )
-            existing = await existing_cursor.fetchone()
-            return UUID(str(existing["id"])) if existing is not None else None
 
     async def list_documents(self, user_id: UUID) -> list[JobDocument]:
         async with (
@@ -830,66 +658,6 @@ class PostgresJobsStore:
             row = await cursor.fetchone()
         return JobDocument.model_validate(row) if row is not None else None
 
-    async def queue_resume_preview(self, user_id: UUID, document_id: UUID) -> UUID | None:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            document_cursor = await connection.execute(
-                """
-                select id from app.jobs_documents
-                where id = %s and user_id = %s
-                  and document_type = 'master_resume' and status = 'draft'
-                for update
-                """,
-                (document_id, user_id),
-            )
-            if await document_cursor.fetchone() is None:
-                return None
-            existing_cursor = await connection.execute(
-                """
-                select id from app.worker_tasks
-                where user_id = %s and domain = 'jobs' and task_type = 'preview_resume'
-                  and status in ('queued', 'running')
-                  and payload->>'document_id' = %s
-                """,
-                (user_id, str(document_id)),
-            )
-            existing = await existing_cursor.fetchone()
-            if existing is not None:
-                return UUID(str(existing["id"]))
-            task_id = uuid4()
-            await connection.execute(
-                """
-                insert into app.worker_tasks (id, user_id, domain, task_type, payload)
-                values (
-                  %s, %s, 'jobs', 'preview_resume',
-                  jsonb_build_object('document_id', %s::text)
-                )
-                """,
-                (task_id, user_id, document_id),
-            )
-        return task_id
-
-    async def get_master_resume_draft_content(self, user_id: UUID, document_id: UUID) -> str | None:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                """
-                select content_text from app.jobs_documents
-                where id = %s and user_id = %s and document_type = 'master_resume'
-                """,
-                (document_id, user_id),
-            )
-            row = await cursor.fetchone()
-        if row is None or not row["content_text"]:
-            return None
-        return str(row["content_text"])
-
     async def approve_document(self, user_id: UUID, document_id: UUID) -> JobDocument | None:
         async with (
             self._pool.connection(timeout=self._timeout) as connection,
@@ -928,40 +696,6 @@ class PostgresJobsStore:
                 """,
                 (document_id, user_id),
             )
-            application_cursor = await connection.execute(
-                """
-                update app.jobs_applications application
-                set status = 'ready'
-                from app.jobs_documents document
-                where document.id = %s and document.user_id = %s
-                  and document.document_type = 'tailored_resume'
-                  and application.id = document.application_id
-                  and application.status in ('preparing', 'ready')
-                returning application.id
-                """,
-                (document_id, user_id),
-            )
-            if (
-                int(application_cursor.rowcount) == 1
-                and selected["document_type"] == "tailored_resume"
-                and selected["application_id"]
-            ):
-                application_id = UUID(str(selected["application_id"]))
-                await connection.execute(
-                    """
-                    insert into app.worker_tasks (user_id, domain, task_type, payload)
-                    values (
-                      %s, 'jobs', 'autofill_application',
-                      jsonb_build_object('application_id', %s::text)
-                    )
-                    on conflict (user_id, (payload ->> 'application_id'))
-                    where domain = 'jobs'
-                      and task_type = 'autofill_application'
-                      and status in ('queued', 'running')
-                    do nothing
-                    """,
-                    (user_id, application_id),
-                )
         documents = await self.list_documents(user_id)
         return next((item for item in documents if item.id == document_id), None)
 
@@ -979,69 +713,6 @@ class PostgresJobsStore:
                 where id = %s and user_id = %s and storage_path is not null
                 """,
                 (document_id, user_id),
-            )
-            row = await cursor.fetchone()
-        if row is None:
-            return None
-        return str(row["storage_path"]), str(row["title"])
-
-    async def get_document_review(
-        self, user_id: UUID, document_id: UUID
-    ) -> JobDocumentReview | None:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                """
-                select to_jsonb(document) - 'user_id' as document,
-                       to_jsonb(source) - 'user_id' as source_document,
-                       run.changed_word_ratio,
-                       coalesce(
-                         case
-                           when jsonb_typeof(run.diff_json->'patch') = 'array'
-                             then run.diff_json->'patch'
-                           else run.diff_json->'patch'->'patches'
-                         end,
-                         '[]'::jsonb
-                       ) as resume_patch,
-                       coalesce(run.diff_json->'changed_paths', '[]'::jsonb) as changed_paths
-                from app.jobs_documents document
-                join app.jobs_documents source on source.id = document.source_document_id
-                  and source.user_id = document.user_id
-                left join lateral (
-                  select changed_word_ratio, diff_json
-                  from app.jobs_tailoring_runs
-                  where user_id = document.user_id and output_document_id = document.id
-                  order by completed_at desc nulls last, created_at desc limit 1
-                ) run on true
-                where document.id = %s and document.user_id = %s
-                  and document.document_type = 'tailored_resume'
-                """,
-                (document_id, user_id),
-            )
-            row = await cursor.fetchone()
-        return JobDocumentReview.model_validate(row) if row else None
-
-    async def get_approved_resume_storage_path(
-        self, user_id: UUID, application_id: UUID
-    ) -> tuple[str, str] | None:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                """
-                select storage_path, title
-                from app.jobs_documents
-                where user_id = %s and application_id = %s
-                  and document_type = 'tailored_resume'
-                  and status = 'approved' and is_current and storage_path is not null
-                order by version desc limit 1
-                """,
-                (user_id, application_id),
             )
             row = await cursor.fetchone()
         if row is None:
@@ -1407,20 +1078,10 @@ class PostgresJobsStore:
                         question,
                         normalized_key,
                         answer_text,
-                        source
-                        if source in {"jobs_profile", "answer_library", "model", "manual"}
-                        else "manual",
+                        source if source in ANSWER_SOURCES else "manual",
                         library["id"] if library else None,
                     ),
                 )
-            await connection.execute(
-                """
-                update app.jobs_applications
-                set status = 'ready', next_action = 'Review and submit the application manually'
-                where id = %s and user_id = %s
-                """,
-                (run["application_id"], user_id),
-            )
         return True
 
     async def owns_autofill_run(self, user_id: UUID, run_id: UUID) -> bool:
@@ -1579,464 +1240,6 @@ class PostgresJobsStore:
             )
             row = await cursor.fetchone()
         return AutofillFailureIssue.model_validate(row) if row else None
-
-    async def claim_task(self, user_id: UUID, worker_id: str) -> WorkerTask | None:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                """
-                with candidate as (
-                  select id from app.worker_tasks
-                  where user_id = %s and domain = 'jobs'
-                    and attempts < max_attempts
-                    and available_at <= now()
-                    and (
-                      status = 'queued'
-                      or (status = 'running' and lease_expires_at < now())
-                    )
-                  order by available_at, created_at
-                  for update skip locked
-                  limit 1
-                )
-                update app.worker_tasks task
-                set status = 'running', claimed_by = %s, claimed_at = now(),
-                    heartbeat_at = now(), lease_expires_at = now() + interval '5 minutes',
-                    attempts = attempts + 1, error_message = null
-                from candidate
-                where task.id = candidate.id
-                returning task.id, task.task_type, task.payload, task.attempts,
-                          task.max_attempts, task.lease_expires_at
-                """,
-                (user_id, worker_id),
-            )
-            row = await cursor.fetchone()
-        return WorkerTask.model_validate(row) if row else None
-
-    async def get_worker_application_bundle(
-        self, user_id: UUID, application_id: UUID
-    ) -> WorkerApplicationBundle | None:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            application_cursor = await connection.execute(
-                """
-                select application.id as application_id, posting.application_url,
-                       company.name as company_name, posting.title, posting.description_text
-                from app.jobs_applications application
-                join app.jobs_postings posting on posting.id = application.posting_id
-                join app.jobs_companies company on company.id = posting.company_id
-                where application.id = %s and application.user_id = %s
-                  and application.status <> 'archived'
-                  and posting.application_url is not null
-                """,
-                (application_id, user_id),
-            )
-            application = await application_cursor.fetchone()
-            if application is None:
-                return None
-            profile_cursor = await connection.execute(
-                """
-                select to_jsonb(profile) - 'user_id' as profile
-                from app.jobs_profile profile where user_id = %s
-                """,
-                (user_id,),
-            )
-            profile_row = await profile_cursor.fetchone()
-            resume_cursor = await connection.execute(
-                """
-                select content_text from app.jobs_documents
-                where user_id = %s and document_type = 'master_resume'
-                  and status = 'approved' and is_current
-                order by version desc limit 1
-                """,
-                (user_id,),
-            )
-            resume_row = await resume_cursor.fetchone()
-            answers_cursor = await connection.execute(
-                """
-                select normalized_question, answer_text
-                from app.jobs_answer_library
-                where user_id = %s and approved and answer_type = 'long_form'
-                order by updated_at desc
-                """,
-                (user_id,),
-            )
-            answers = await answers_cursor.fetchall()
-        if profile_row is None or resume_row is None or not resume_row["content_text"]:
-            return None
-        try:
-            main_resume = json.loads(resume_row["content_text"])
-        except (TypeError, json.JSONDecodeError):
-            return None
-        return WorkerApplicationBundle(
-            **application,
-            profile=profile_row["profile"],
-            main_resume=main_resume,
-            approved_answers=[dict(answer) for answer in answers],
-        )
-
-    async def get_worker_task_application_id(
-        self, user_id: UUID, task_id: UUID, worker_id: str
-    ) -> UUID | None:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                """
-                select payload->>'application_id' as application_id
-                from app.worker_tasks
-                where id = %s and user_id = %s and domain = 'jobs' and status = 'running'
-                  and claimed_by = %s and lease_expires_at > now()
-                """,
-                (task_id, user_id, worker_id),
-            )
-            row = await cursor.fetchone()
-        if row is None:
-            return None
-        try:
-            return UUID(str(row["application_id"]))
-        except (TypeError, ValueError):
-            return None
-
-    async def get_worker_task_document_id(
-        self, user_id: UUID, task_id: UUID, worker_id: str
-    ) -> UUID | None:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                """
-                select payload->>'document_id' as document_id
-                from app.worker_tasks
-                where id = %s and user_id = %s and domain = 'jobs' and status = 'running'
-                  and claimed_by = %s and lease_expires_at > now()
-                """,
-                (task_id, user_id, worker_id),
-            )
-            row = await cursor.fetchone()
-        if row is None:
-            return None
-        try:
-            return UUID(str(row["document_id"]))
-        except (TypeError, ValueError):
-            return None
-
-    async def heartbeat_task(self, user_id: UUID, task_id: UUID, worker_id: str) -> bool:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                """
-                update app.worker_tasks
-                set heartbeat_at = now(), lease_expires_at = now() + interval '5 minutes'
-                where id = %s and user_id = %s and status = 'running'
-                  and claimed_by = %s and lease_expires_at > now()
-                """,
-                (task_id, user_id, worker_id),
-            )
-        return int(cursor.rowcount) == 1
-
-    async def complete_task(
-        self, user_id: UUID, task_id: UUID, worker_id: str, result: dict[str, Any]
-    ) -> bool:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            task_cursor = await connection.execute(
-                """
-                select task_type, payload from app.worker_tasks
-                where id = %s and user_id = %s and status = 'running' and claimed_by = %s
-                  and lease_expires_at > now()
-                for update
-                """,
-                (task_id, user_id, worker_id),
-            )
-            task_row = await task_cursor.fetchone()
-            if task_row is None:
-                return False
-
-            # Preview tasks carry a document_id instead of an application_id.
-            if task_row["task_type"] == "preview_resume":
-                storage_path = result.get("storage_path")
-                document_id_text = task_row["payload"].get("document_id")
-                if not isinstance(storage_path, str) or not storage_path.strip():
-                    return False
-                try:
-                    document_id = UUID(str(document_id_text))
-                except (TypeError, ValueError):
-                    return False
-                await connection.execute(
-                    """
-                    update app.jobs_documents
-                    set storage_path = %s, updated_at = now()
-                    where id = %s and user_id = %s
-                      and document_type = 'master_resume' and status = 'draft'
-                    """,
-                    (storage_path, document_id, user_id),
-                )
-                preview_cursor = await connection.execute(
-                    """
-                    update app.worker_tasks
-                    set status = 'completed', result = %s, completed_at = now(),
-                        lease_expires_at = null, heartbeat_at = now()
-                    where id = %s and user_id = %s and status = 'running'
-                      and claimed_by = %s and lease_expires_at > now()
-                    """,
-                    (Jsonb(result), task_id, user_id, worker_id),
-                )
-                return int(preview_cursor.rowcount) == 1
-
-            application_id_text = task_row["payload"].get("application_id")
-            try:
-                application_id = UUID(str(application_id_text))
-            except (TypeError, ValueError):
-                return False
-
-            if task_row["task_type"] == "autofill_application":
-                missing = result.get("unanswered_required_questions", [])
-                if not isinstance(missing, list) or not all(
-                    isinstance(item, str) for item in missing
-                ):
-                    return False
-                labels = [item.strip() for item in missing if item.strip()]
-                await connection.execute(
-                    """
-                    update app.jobs_application_questions
-                    set status = 'approved'
-                    where user_id = %s and application_id = %s
-                    """,
-                    (user_id, application_id),
-                )
-                for position, label in enumerate(dict.fromkeys(labels)):
-                    updated_cursor = await connection.execute(
-                        """
-                        update app.jobs_application_questions
-                        set status = 'unanswered', display_order = %s
-                        where user_id = %s and application_id = %s and question_text = %s
-                        """,
-                        (position, user_id, application_id, label),
-                    )
-                    if int(updated_cursor.rowcount) == 0:
-                        await connection.execute(
-                            """
-                            insert into app.jobs_application_questions (
-                              user_id, application_id, question_text, status, display_order
-                            ) values (%s, %s, %s, 'unanswered', %s)
-                            """,
-                            (user_id, application_id, label, position),
-                        )
-                await connection.execute(
-                    """
-                    update app.jobs_applications
-                    set status = 'ready',
-                        next_action = 'Review the autofilled application and submit manually',
-                        next_action_at = null
-                    where id = %s and user_id = %s and status <> 'archived'
-                    """,
-                    (application_id, user_id),
-                )
-
-            description = result.get("posting_description")
-            if isinstance(description, str) and description.strip():
-                await connection.execute(
-                    """
-                    update app.jobs_postings posting
-                    set description_text = %s
-                    from app.jobs_applications application
-                    where application.id = %s and application.user_id = %s
-                      and posting.id = application.posting_id
-                    """,
-                    (description[:100000], application_id, user_id),
-                )
-
-            form_fields = result.get("form_fields")
-            if isinstance(form_fields, list):
-                for position, field in enumerate(form_fields):
-                    if not isinstance(field, dict) or not field.get("required"):
-                        continue
-                    label = str(field.get("label", "")).strip()
-                    if not label:
-                        continue
-                    await connection.execute(
-                        """
-                        insert into app.jobs_application_questions (
-                          user_id, application_id, question_text, status, display_order
-                        )
-                        select %s, %s, %s, 'unanswered', %s
-                        where not exists (
-                          select 1 from app.jobs_application_questions
-                          where user_id = %s and application_id = %s and question_text = %s
-                        )
-                        """,
-                        (
-                            user_id,
-                            application_id,
-                            label,
-                            position,
-                            user_id,
-                            application_id,
-                            label,
-                        ),
-                    )
-
-            tailored_resume = result.get("tailored_resume")
-            if isinstance(tailored_resume, dict):
-                storage_path = result.get("storage_path")
-                if not isinstance(storage_path, str) or not storage_path.strip():
-                    return False
-                source_cursor = await connection.execute(
-                    """
-                    select id from app.jobs_documents
-                    where user_id = %s and document_type = 'master_resume'
-                      and status = 'approved' and is_current
-                    order by version desc limit 1
-                    """,
-                    (user_id,),
-                )
-                source_document = await source_cursor.fetchone()
-                family_cursor = await connection.execute(
-                    """
-                    select family_id, coalesce(max(version), 0) as version
-                    from app.jobs_documents
-                    where user_id = %s and application_id = %s
-                      and document_type = 'tailored_resume'
-                    group by family_id order by max(version) desc limit 1
-                    """,
-                    (user_id, application_id),
-                )
-                family = await family_cursor.fetchone()
-                family_id = family["family_id"] if family else uuid4()
-                version = int(family["version"] if family else 0) + 1
-                await connection.execute(
-                    """
-                    update app.jobs_documents set is_current = false
-                    where user_id = %s and family_id = %s and is_current
-                    """,
-                    (user_id, family_id),
-                )
-                company_cursor = await connection.execute(
-                    """
-                    select company.name from app.jobs_applications application
-                    join app.jobs_postings posting on posting.id = application.posting_id
-                    join app.jobs_companies company on company.id = posting.company_id
-                    where application.id = %s and application.user_id = %s
-                    """,
-                    (application_id, user_id),
-                )
-                company = await company_cursor.fetchone()
-                document_id = uuid4()
-                await connection.execute(
-                    """
-                    insert into app.jobs_documents (
-                      id, user_id, application_id, document_type, title,
-                      family_id, version, source_document_id, content_text, storage_path,
-                      mime_type, status, is_current
-                    ) values (
-                      %s, %s, %s, 'tailored_resume', %s,
-                      %s, %s, %s, %s, %s,
-                      'application/json', 'draft', true
-                    )
-                    """,
-                    (
-                        document_id,
-                        user_id,
-                        application_id,
-                        f"Tailored resume — {company['name'] if company else 'Application'}",
-                        family_id,
-                        version,
-                        source_document["id"] if source_document else None,
-                        json.dumps(tailored_resume, ensure_ascii=False),
-                        storage_path,
-                    ),
-                )
-                changed_ratio = result.get("changed_word_ratio")
-                await connection.execute(
-                    """
-                    insert into app.jobs_tailoring_runs (
-                      user_id, application_id, worker_task_id, run_type, status,
-                      provider, model, prompt_version, input_document_id,
-                      output_document_id, changed_word_ratio, diff_json, validation_json,
-                      started_at, completed_at
-                    ) values (
-                      %s, %s, %s, 'resume', 'completed',
-                      'claude-code', 'subscription', 'minimal-patch-v1', %s,
-                      %s, %s, %s, %s,
-                      now(), now()
-                    )
-                    """,
-                    (
-                        user_id,
-                        application_id,
-                        task_id,
-                        source_document["id"] if source_document else None,
-                        document_id,
-                        changed_ratio if isinstance(changed_ratio, int | float) else None,
-                        Jsonb(
-                            {
-                                "patch": result.get("resume_patch"),
-                                "changed_paths": result.get("changed_paths", []),
-                            }
-                        ),
-                        Jsonb({"approval_required": True, "submitted": False}),
-                    ),
-                )
-            cursor = await connection.execute(
-                """
-                update app.worker_tasks
-                set status = 'completed', result = %s, completed_at = now(),
-                    lease_expires_at = null, heartbeat_at = now()
-                where id = %s and user_id = %s and status = 'running' and claimed_by = %s
-                  and lease_expires_at > now()
-                """,
-                (Jsonb(result), task_id, user_id, worker_id),
-            )
-        return int(cursor.rowcount) == 1
-
-    async def fail_task(
-        self,
-        user_id: UUID,
-        task_id: UUID,
-        worker_id: str,
-        error_message: str,
-        *,
-        retry: bool,
-    ) -> bool:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                """
-                update app.worker_tasks
-                set status = case
-                      when %s and attempts < max_attempts then 'queued' else 'failed'
-                    end,
-                    available_at = case
-                      when %s then now() + interval '30 seconds' else available_at
-                    end,
-                    error_message = %s, lease_expires_at = null,
-                    completed_at = case when %s and attempts < max_attempts then null else now() end
-                where id = %s and user_id = %s and status = 'running' and claimed_by = %s
-                  and lease_expires_at > now()
-                """,
-                (retry, retry, error_message, retry, task_id, user_id, worker_id),
-            )
-        return int(cursor.rowcount) == 1
-
 
 async def get_jobs_store(request: Request) -> JobsStore:
     settings: Settings = request.app.state.settings

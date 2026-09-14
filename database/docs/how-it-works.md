@@ -9,15 +9,16 @@ and assumes `personal_os_api`. Every user-owned row references `auth.users`; the
 API derives the UUID from a verified JWT and never accepts it in a body.
 
 The Jobs tables hold structured profile facts, source listings, recoverably
-archived applications, immutable versioned documents, long-form answers,
-tailoring audits, synchronous autofill runs, deduplicated failure issues,
-failure occurrences, and worker task leases. A partial unique index permits only one
-queued/running autofill task per application. `jobs_worker_credentials` stores
+archived applications with a lifecycle status (`queued`, `applied`, `oa`,
+`oa_completed`, `interview`, `offer`, `rejected`, `archived`), immutable
+versioned documents, long-form answers, synchronous autofill runs, deduplicated
+failure issues, and failure occurrences. The worker task queue and tailoring
+audit tables were dropped when the task worker was retired. `jobs_worker_credentials` stores
 only SHA-256 token hashes plus scope,
 expiry, use, and revocation timestamps. Listing source metadata keeps discovery and
 direct application URLs separate, records FAANG+/Quant/general source sections,
 and stores normalized location arrays for match-any filtering. Composite, partial,
-and GIN indexes support newest-first discovery, application task state, unanswered
+and GIN indexes support newest-first discovery, unanswered
 questions, and location overlap.
 
 The private `jobs-documents` Storage bucket accepts PDFs up to 5 MiB. The private
