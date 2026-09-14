@@ -122,6 +122,25 @@ def test_safe_next_clicks_next_but_never_submit(browser_page) -> None:  # type: 
     assert browser_page.locator("#submit").get_attribute("data-clicked") is None
 
 
+def test_snapshot_joins_every_checked_box_of_a_group(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(
+        """
+        <form>
+          <label for="email">Email</label><input id="email" type="email" value="a@b.c">
+          <fieldset><legend>Technologies you have used</legend>
+            <label><input type="checkbox" name="t" value="py" checked>Python</label>
+            <label><input type="checkbox" name="t" value="go">Go</label>
+            <label><input type="checkbox" name="t" value="ts" checked>Typescript</label>
+          </fieldset>
+        </form>
+        """
+    )
+    snapshot = snapshot_values(browser_page, inspect_fields(browser_page))
+    assert snapshot["Technologies you have used"]["answer_text"] == "Python, Typescript"
+
+
 def test_snapshot_values_reads_text_choices_and_selects_by_question(
     browser_page,  # type: ignore[no-untyped-def]
 ) -> None:

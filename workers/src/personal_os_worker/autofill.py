@@ -213,9 +213,14 @@ def build_autofill_plan(
             if field_type in {"radio", "checkbox"} and value is not None:
                 own = str(field.get("label") or field.get("value") or "")
                 options = group_options.get(normalized) or [own]
-                chosen = choose_option(options, value)
-                if chosen is None or chosen != own:
-                    value = None
+                if field_type == "checkbox" and len(options) > 1 and "," in value:
+                    # A comma-joined answer to a checkbox group is a multi-select:
+                    # check every option named in it, by name, never by prefix.
+                    value = own if any(same_name(own, part) for part in value.split(",")) else None
+                else:
+                    chosen = choose_option(options, value)
+                    if chosen is None or chosen != own:
+                        value = None
 
         if kind == "resume" or value is not None:
             fills.append(FormFill(index=index, kind=kind, value=value))
@@ -232,6 +237,16 @@ def build_autofill_plan(
         label for group_key, label in pending_choices if group_key not in answered_groups
     )
     return AutofillPlan(tuple(fills), tuple(dict.fromkeys(unanswered)))
+
+
+def same_name(option: str, answer: str) -> bool:
+    """Whether two technology names are the same ("Typescript"/"TypeScript", "React"/"React.js")."""
+
+    def key(value: str) -> str:
+        text = normalize_answer_question(value).replace(" ", "")
+        return text.removesuffix("js") if len(text) > 3 else text
+
+    return key(option) == key(answer)
 
 
 def choose_option(options: list[str], answer: str) -> str | None:

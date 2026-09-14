@@ -101,6 +101,17 @@ def _race(context: RuleContext) -> str | None:
     return None
 
 
+def _skills(context: RuleContext) -> str | None:
+    """Every entry of the resume's Skills section, comma-joined, in order."""
+    names: list[str] = []
+    for group in context.resume.get("skills") or []:
+        for item in str(group.get("items") or "").split(","):
+            name = item.strip()
+            if name and name not in names:
+                names.append(name)
+    return ", ".join(names) if names else None
+
+
 def _rule(name: str, pattern: str, resolve: Resolver) -> BuiltinRule:
     return BuiltinRule(name, re.compile(pattern, re.IGNORECASE | re.DOTALL), resolve)
 
@@ -202,6 +213,14 @@ BUILTIN_RULES: tuple[BuiltinRule, ...] = (
     _rule("hispanic", r"\bhispanic\b|\blatin[oax]\b", _hispanic),
     _rule("race", r"\b(race|ethnicity)\b", _race),
     _rule("veteran", r"\bveteran\b", lambda c: _text(c.profile, "eeo_veteran_status")),
+    _rule(
+        "skills",
+        r"\b(technolog(y|ies)|tech(nology)? stacks?|programming languages|languages|"
+        r"frameworks|tools|skills)\b.*\b(experience|familiar|proficien|comfortable|know|"
+        r"used|worked)|\b(experience|familiar|proficien|comfortable)\w*\b.*\b(technolog|"
+        r"languages|frameworks|tools|stacks?|skills)",
+        _skills,
+    ),
     _rule("disability", r"\bdisabilit", lambda c: _text(c.profile, "eeo_disability_status")),
 )
 

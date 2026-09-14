@@ -696,3 +696,19 @@ def test_gender_answer_matches_the_forms_wording() -> None:
     assert choose_option(["Man", "Male"], "Male") == "Male"  # exact wins over the synonym
     assert choose_option(["Transgender man", "Woman"], "Male") is None
     assert choose_option(["Man", "Woman"], "Prefer not to say") is None
+
+
+def test_a_comma_joined_answer_checks_every_matching_box_in_a_checkbox_group() -> None:
+    group = "I have experience with the following technology stacks:"
+    fields = [
+        {"index": i, "tag": "input", "type": "checkbox", "label": label, "group": group}
+        for i, label in enumerate(["Python", "Go", "Typescript", "React", "Google Cloud"])
+    ]
+    plan = build_autofill_plan(
+        fields,
+        profile={},
+        approved_answers=[],
+        fallback=lambda _: "Python, Java, TypeScript, React.js, Docker",
+    )
+    assert [fill.index for fill in plan.fills] == [0, 2, 3]  # Go is not a prefix match for Google
+    assert plan.unanswered_required_questions == ()

@@ -96,3 +96,25 @@ def test_resume_organizations_reads_every_entry_org() -> None:
         "projects": [{"org": ""}],
     }
     assert resume_organizations(resume) == frozenset({"merchlogix", "dream lab, uic"})
+
+
+def test_technology_questions_answer_with_the_whole_skills_section() -> None:
+    resume = {
+        "skills": [
+            {"category": "Languages", "items": "Python, Java, TypeScript"},
+            {"category": "Tools", "items": "Docker, Python"},
+        ]
+    }
+    skills = "Python, Java, TypeScript, Docker"
+
+    def answer(question: str) -> str | None:
+        return resolve_pattern_answer(question, rules=[], profile={}, resume=resume, company="A")
+
+    for question in (
+        "I have experience with the following technology stacks from a previous internship:",
+        "Which programming languages are you proficient in?",
+        "Are you comfortable with the following technologies?",
+    ):
+        assert answer(question) == skills, question
+    for question in ("Years of professional experience", "Why do you want this internship?"):
+        assert answer(question) is None, question

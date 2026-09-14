@@ -54,7 +54,11 @@ profile facts or the canonical resume for questions of a general shape
 country-of-citizenship split from a sanctioned-country check, and "have you
 worked here before" from whether the company appears on the resume). Exactly
 one matching rule answers a question; zero or several leave it for the next
-tier. Choice groups match the answer to the single option that equals,
+tier. A question about technologies, languages, frameworks, tools, or skills
+you have experience with answers with the resume's whole Skills section; on a
+checkbox group that means every box whose name is in the list (by name, never
+by prefix, so `Go` does not match `Google Cloud`), and the boxes checked are
+saved back as one comma-joined answer. Choice groups match the answer to the single option that equals,
 starts with, is a prefix of, or contains every word of it, then a number to
 the one range containing it, then a gender identity to its synonyms (`Male`
 picks `Man`, `Cisgender man`, or `Man (he/him)`); several "Yes - …" options

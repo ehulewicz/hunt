@@ -823,6 +823,9 @@ def snapshot_values(page: Page, fields: list[dict[str, Any]]) -> dict[str, dict[
         value = value.strip()
         if not question or not value:
             continue
+        if field_type == "checkbox" and question in snapshot:
+            # Several boxes checked in one group are one multi-select answer.
+            value = f"{snapshot[question]['answer_text']}, {value}"
         snapshot[question] = {
             "question": question,
             "answer_text": value,
