@@ -246,7 +246,53 @@ def choose_option(options: list[str], answer: str) -> str | None:
         if normalize_question(option).startswith(target)
         or target.startswith(normalize_question(option))
     ]
-    return prefixed[0] if len(prefixed) == 1 else None
+    if len(prefixed) == 1:
+        return prefixed[0]
+    return choose_numeric_range(options, answer)
+
+
+NUMBER = r"(\d+(?:\.\d+)?)"
+RANGE_PATTERNS: tuple[tuple[re.Pattern[str], Callable[[float, float, float], bool]], ...] = (
+    (re.compile(rf"^{NUMBER}\s*(?:-|\u2013|to)\s*{NUMBER}\b"), lambda v, lo, hi: lo <= v <= hi),
+    (
+        re.compile(rf"^{NUMBER}\s*(?:\+|or (?:above|higher|more|greater)|and (?:above|up))"),
+        lambda v, lo, _: v >= lo,
+    ),
+    (
+        re.compile(rf"^(?:above|over|more than|greater than)\s*{NUMBER}"),
+        lambda v, lo, _: v > lo,
+    ),
+    (
+        re.compile(rf"^(?:below|under|less than)\s*{NUMBER}"),
+        lambda v, hi, _: v < hi,
+    ),
+    (
+        re.compile(rf"^{NUMBER}\s*(?:or (?:below|less|lower)|and (?:below|under))"),
+        lambda v, hi, _: v <= hi,
+    ),
+)
+
+
+def choose_numeric_range(options: list[str], answer: str) -> str | None:
+    """The single range option a number falls in ("3.78" -> "3.6-3.8"), else None."""
+    try:
+        value = float(re.sub(r"[^\d.]", "", answer.strip()) or "x")
+    except ValueError:
+        return None
+    hits: list[str] = []
+    for option in options:
+        text = normalize_question(option)
+        for pattern, holds in RANGE_PATTERNS:
+            found = pattern.match(text)
+            if found is None:
+                continue
+            bounds = [float(group) for group in found.groups() if group is not None]
+            low = bounds[0]
+            high = bounds[1] if len(bounds) > 1 else bounds[0]
+            if holds(value, low, high):
+                hits.append(option)
+            break
+    return hits[0] if len(hits) == 1 else None
 
 
 def resolve_profile_value(profile: dict[str, Any], profile_key: str | None) -> Any:

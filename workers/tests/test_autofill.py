@@ -1,4 +1,4 @@
-from personal_os_worker.autofill import build_autofill_plan
+from personal_os_worker.autofill import build_autofill_plan, choose_option
 from personal_os_worker.browser import audit_filled_form
 
 
@@ -670,3 +670,15 @@ def test_filled_controls_and_answered_groups_are_never_planned_again() -> None:
         (1, "text", "ethan@example.com")
     ]
     assert plan.unanswered_required_questions == ()
+
+
+def test_a_number_picks_the_single_range_that_contains_it() -> None:
+    gpa = ["3.9 or above", "3.6-3.8", "Below 3.6"]
+    assert choose_option(gpa, "3.78") == "3.6-3.8"
+    assert choose_option(gpa, "3.95") == "3.9 or above"
+    assert choose_option(gpa, "2.0") == "Below 3.6"
+    assert choose_option(gpa, "3.85") is None  # falls between ranges
+    years = ["0-1 years", "2-4 years", "5+ years"]
+    assert choose_option(years, "3") == "2-4 years"
+    assert choose_option(years, "7 years") == "5+ years"
+    assert choose_option(["Yes", "No"], "3.78") is None

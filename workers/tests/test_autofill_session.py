@@ -276,6 +276,7 @@ def test_session_fills_from_closed_tabs_saves_every_answer_and_ends_on_submit(
         draft_dir=tmp_path / "drafts",
         opener=opener,
         drafter=drafter,
+        use_claude=False,
         poll_seconds=0.05,
         keys=ScriptedKeys([set(), set(), {"save"}]),
     )
@@ -486,6 +487,7 @@ def test_ctrl_c_ends_cleanly_with_the_answers_picked_up_so_far(
         draft_dir=tmp_path / "drafts",
         opener=lambda path: ClosedTab(path, None),
         drafter=lambda **_: None,
+        use_claude=False,
         poll_seconds=0.01,
         keys=InterruptingKeys([set()]),
     )

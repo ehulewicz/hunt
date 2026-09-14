@@ -363,42 +363,82 @@ def set_registered_value(control: Any, value: str) -> None:
 
 
 COMBOBOX_SETTLE_MS = 300
+COMBOBOX_LIST_TIMEOUT_MS = 1_200
 COMBOBOX_OPTIONS_TIMEOUT_MS = 4_000
 
 
-def select_combobox_option(page: Page, control: Any, value: str) -> str:
-    """Type into a typeahead, pick the one option the answer denotes, return its text.
-
-    Keystrokes rather than a synthetic value: react-select and Google Places
-    both key their menus off real input events and close on blur. Options are
-    fetched asynchronously, so wait for the first one before matching.
-    """
-    control.click()
-    control.fill("")
-    control.press_sequentially(value, delay=20)
+def _menu_options(control: Any) -> Any:
     # Scope to the control's own document so a form inside an iframe works too.
-    options = control.locator("xpath=ancestor::body").get_by_role("option")
-    try:
-        options.first.wait_for(state="visible", timeout=COMBOBOX_OPTIONS_TIMEOUT_MS)
-    except Error as error:
-        # A free-entry typeahead (Greenhouse's GPA question) offers nothing to
-        # pick; Enter is what commits the typed text.
-        control.press("Enter")
-        if combobox_value(control).casefold() == value.strip().casefold():
-            return value.strip()
-        raise RuntimeError("no unambiguous combobox option (none appeared)") from error
-    page.wait_for_timeout(COMBOBOX_SETTLE_MS)
+    return control.locator("xpath=ancestor::body").get_by_role("option")
+
+
+def _visible_texts(options: Any) -> tuple[list[int], list[str]]:
     # Pages keep other listboxes in the DOM (Greenhouse's phone-code list has
     # every country as a hidden option); only what the menu shows is a choice.
     visible = [index for index in range(options.count()) if options.nth(index).is_visible()]
-    texts = [str(options.nth(index).inner_text()).strip() for index in visible]
+    return visible, [str(options.nth(index).inner_text()).strip() for index in visible]
+
+
+def _pick(texts: list[str], value: str) -> str | None:
     distinct = list(dict.fromkeys(text for text in texts if text))
     chosen = choose_option(distinct, value)
     if chosen is None:
         target = normalize_question(value)
         containing = [text for text in distinct if target and target in normalize_question(text)]
         chosen = containing[0] if len(containing) == 1 else None
+    return chosen
+
+
+def _await_options(page: Page, options: Any, timeout_ms: int) -> bool:
+    try:
+        options.first.wait_for(state="visible", timeout=timeout_ms)
+    except Error:
+        return False
+    page.wait_for_timeout(COMBOBOX_SETTLE_MS)
+    return True
+
+
+def combobox_options(page: Page, control: Any) -> list[str]:
+    """What a typeahead offers before anything is typed; empty for a search box."""
+    control.click()
+    options = _menu_options(control)
+    texts: list[str] = []
+    if _await_options(page, options, COMBOBOX_LIST_TIMEOUT_MS):
+        texts = list(dict.fromkeys(text for text in _visible_texts(options)[1] if text))
+    control.press("Escape")
+    return texts
+
+
+def select_combobox_option(page: Page, control: Any, value: str) -> str:
+    """Pick the one option a typeahead offers for the answer and return its text.
+
+    Open the menu first: a fixed list (Yes/No, GPA ranges) is matched as it
+    is, since typing "3.78" into a list of ranges filters it down to nothing.
+    Only when nothing is listed, or nothing listed fits, is the answer typed,
+    which is how a search box (Google Places) or a long list is queried.
+    Keystrokes rather than a synthetic value: react-select and Places key
+    their menus off real input events and close on blur.
+    """
+    control.click()
+    options = _menu_options(control)
+    if _await_options(page, options, COMBOBOX_LIST_TIMEOUT_MS):
+        visible, texts = _visible_texts(options)
+        chosen = _pick(texts, value)
+        if chosen is not None:
+            options.nth(visible[texts.index(chosen)]).click()
+            return chosen
+    control.fill("")
+    control.press_sequentially(value, delay=20)
+    if not _await_options(page, options, COMBOBOX_OPTIONS_TIMEOUT_MS):
+        # A free-entry typeahead offers nothing to pick; Enter commits the text.
+        control.press("Enter")
+        if combobox_value(control).casefold() == value.strip().casefold():
+            return value.strip()
+        raise RuntimeError("no unambiguous combobox option (none appeared)")
+    visible, texts = _visible_texts(options)
+    chosen = _pick(texts, value)
     if chosen is None:
+        control.press("Escape")
         raise RuntimeError("no unambiguous combobox option")
     options.nth(visible[texts.index(chosen)]).click()
     return chosen

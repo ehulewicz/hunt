@@ -28,6 +28,7 @@ from personal_os_worker.browser import (
     apply_autofill,
     audit_filled_form,
     click_safe_transition,
+    combobox_options,
     fresh_control,
     inspect_fields,
     is_browser_closed_error,
@@ -149,7 +150,8 @@ def _claude_questions(fields: list[dict[str, Any]]) -> list[ShortQuestion]:
     """Unfilled, non-sensitive, non-textarea, non-file controls left for Claude.
 
     Radio/checkbox groups with no option checked (options = the group's option
-    labels), selects (their options), and required text inputs (no options).
+    labels), selects and typeaheads with a known menu (their options), and
+    required text inputs (no options).
     """
     groups: dict[str, list[dict[str, Any]]] = {}
     questions: dict[str, ShortQuestion] = {}
@@ -173,7 +175,7 @@ def _claude_questions(fields: list[dict[str, Any]]) -> list[ShortQuestion]:
         label = str(item.get("label") or "").strip()
         if not label:
             continue
-        if tag == "select":
+        if tag == "select" or item.get("options"):
             questions[label] = ShortQuestion(
                 label, tuple(str(option) for option in item.get("options") or [])
             )
@@ -443,6 +445,18 @@ class AutofillSession:
     def fill_with_claude(self, fields: list[dict[str, Any]], result: dict[str, Any]) -> None:
         """One bounded pass asking Claude about whatever is still unfilled."""
         current = inspect_fields(self.page)
+        # A typeahead hides its choices until opened; Claude should pick from
+        # them verbatim rather than guess at the wording.
+        for item in current:
+            if (
+                item.get("role") == "combobox"
+                and item.get("filled") is not True
+                and not is_sensitive_field(item)
+            ):
+                try:
+                    item["options"] = combobox_options(self.page, fresh_control(self.page, item))
+                except (Error, RuntimeError):
+                    item["options"] = []
         questions = _claude_questions(current)
         if not questions:
             return

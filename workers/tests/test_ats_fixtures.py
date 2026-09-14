@@ -8,6 +8,7 @@ from personal_os_worker.browser import (
     apply_autofill,
     audit_filled_form,
     click_safe_transition,
+    combobox_options,
     inspect_fields,
     reveal_application_form,
     snapshot_values,
@@ -471,3 +472,72 @@ def test_free_entry_typeahead_commits_the_typed_value_with_enter(
         refreshed, profile={}, approved_answers=[], fallback=lambda _: "4.0"
     )
     assert replan.fills == ()
+
+
+GPA_RANGES = """
+<div class="select">
+  <label for="gpa">What is your current cumulative GPA (on a 4.0 scale)?</label>
+  <div class="select__control"><div class="select__value-container">
+    <input id="gpa" class="select__input" role="combobox" aria-required="true" autocomplete="off">
+  </div></div>
+  <div class="select__menu"></div>
+</div>
+<script>
+(() => {
+const ranges = ['3.9 or above', '3.6-3.8', 'Below 3.6'];
+const box = document.querySelector('#gpa');
+const holder = document.querySelector('.select__value-container');
+const menu = document.querySelector('.select__menu');
+const render = () => {
+  const needle = box.value.toLowerCase();
+  menu.innerHTML = '';
+  ranges.filter(range => range.toLowerCase().includes(needle)).forEach(range => {
+    const option = document.createElement('div');
+    option.setAttribute('role', 'option');
+    option.textContent = range;
+    option.addEventListener('mousedown', () => {
+      const chosen = document.createElement('div');
+      chosen.className = 'select__single-value';
+      chosen.textContent = range;
+      holder.prepend(chosen);
+      box.value = '';
+      menu.innerHTML = '';
+    });
+    menu.appendChild(option);
+  });
+};
+box.addEventListener('focus', render);
+box.addEventListener('click', render);
+box.addEventListener('input', render);
+box.addEventListener('keydown', event => { if (event.key === 'Escape') menu.innerHTML = ''; });
+})();
+</script>
+"""
+
+
+def test_gpa_number_picks_the_listed_range_without_typing_it_away(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(GPA_RANGES)
+    fields = inspect_fields(browser_page)
+    assert combobox_options(browser_page, browser_page.locator("#gpa")) == [
+        "3.9 or above",
+        "3.6-3.8",
+        "Below 3.6",
+    ]
+    assert browser_page.locator("[role=option]").count() == 0  # menu closed again
+
+    plan = build_autofill_plan(
+        fields,
+        profile={},
+        approved_answers=[],
+        fallback=lambda asked: resolve_pattern_answer(
+            asked, rules=[], profile={"gpa": "3.78"}, resume={}, company="Acme"
+        ),
+    )
+    result = apply_autofill(
+        browser_page, fields, plan, resume_path=None, assert_active=lambda: None
+    )
+
+    assert result["failures"] == []
+    assert browser_page.locator(".select__single-value").inner_text() == "3.6-3.8"
