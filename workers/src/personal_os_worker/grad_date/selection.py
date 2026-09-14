@@ -1,5 +1,7 @@
 """Whether a posting's stated graduation requirement calls for the later resume.
 
+Parked; see README.md in this package. Nothing in the apply path calls this.
+
 Most postings say nothing about graduation timing, or are compatible with the
 canonical resume's December 2027. A few state a requirement it does not meet
 ("must graduate after December 2027", "class of 2028 or later"); those call
@@ -19,7 +21,7 @@ import json
 import subprocess
 from collections.abc import Callable
 
-from personal_os_worker.resume import CANONICAL_GRADUATION
+from personal_os_worker.grad_date.variants import CANONICAL_GRADUATION
 
 SCHEMA = {
     "type": "object",

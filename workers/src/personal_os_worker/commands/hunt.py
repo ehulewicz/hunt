@@ -398,15 +398,7 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> str:
     from personal_os_worker.adapters import adapter_version, detect_ats, failure_signature
     from personal_os_worker.autofill_session import AutofillSession, SessionContext
     from personal_os_worker.browser import VisibleBrowser, inspect_fields, sanitized_evidence
-    from personal_os_worker.resume import (
-        LATER_GRADUATION,
-        ensure_resume,
-        later_graduation_resume_pdf,
-        load_resume,
-        transcript_pdf_path,
-        with_graduation,
-    )
-    from personal_os_worker.resume_selection import requires_later_graduation
+    from personal_os_worker.resume import ensure_resume, load_resume, transcript_pdf_path
 
     resume = ensure_resume()
     resume_json = load_resume(resume.source)
@@ -543,13 +535,6 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> str:
                 f"[bold]{expected_company}[/bold] — {expected_title}  [dim]({adapter.name})[/dim]"
             )
             resume_pdf = resume.pdf
-            if not no_claude and requires_later_graduation(body):
-                resume_pdf = later_graduation_resume_pdf()
-                resume_json = with_graduation(resume_json, LATER_GRADUATION)
-                console.print(
-                    f"Posting requires graduating after December 2027; "
-                    f"using the {LATER_GRADUATION} resume."
-                )
             console.print(f"  [dim]resume  {resume_pdf}[/dim]")
             session = AutofillSession(
                 SessionContext(

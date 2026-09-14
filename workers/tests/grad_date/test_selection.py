@@ -1,7 +1,7 @@
 import json
 from typing import Any
 
-from personal_os_worker.resume_selection import requires_later_graduation
+from personal_os_worker.grad_date.selection import requires_later_graduation
 
 
 def scripted(payload: dict[str, Any]) -> Any:

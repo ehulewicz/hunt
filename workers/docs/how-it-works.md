@@ -111,18 +111,10 @@ skips this pass entirely.
 The posting text these tiers see is the direct-URL page's visible text,
 captured once at the start of `apply_posting` (the same capture already used
 to verify the live page matches the intended company and role) — not
-`jobs_postings.description_text`, which nothing populates. The same text
-feeds one more bounded call, `resume_selection.requires_later_graduation`:
-the canonical resume states graduating December 2027; a posting that
-explicitly requires graduating later (a minimum class year, "must graduate
-after X") gets `resume.later_graduation_resume_pdf()` attached instead — a
-variant with only the graduation date changed, compiled on demand and cached
-under `state_dir()/resume-variants/`, rebuilt when the canonical source
-changes — and the resume facts passed to the other tiers are patched to
-match. `--no-claude` skips this too, since it is a `claude -p` call like the
-others. This never changes how an explicit "expected graduation date" form
-question is answered; that stays the true date from the profile,
-deterministically.
+`jobs_postings.description_text`, which nothing populates. The canonical
+December 2027 resume is always the one attached; graduation-date tailoring
+(a posting that requires graduating later, and the May 2028 variant) is
+parked in `grad_date/` with its own README and is not called.
 
 Every long-form textarea is seeded directly on the page: an exact library
 answer when one exists, otherwise a local `claude -p` draft grounded in the
