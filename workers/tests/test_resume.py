@@ -1,3 +1,5 @@
+import json
+import time
 from pathlib import Path
 
 import httpx
@@ -134,6 +136,53 @@ def test_ensure_resume_compiles_only_when_the_tracked_pdf_is_missing(
     again = resume.ensure_resume()
     assert again.pdf == first.pdf
     assert again.pdf.read_bytes() == b"%PDF-edited-by-hand" and len(compiles) == 1
+
+
+def test_later_graduation_resume_is_cached_and_rebuilt_when_the_source_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from personal_os_worker import service
+
+    source = tmp_path / "main.json"
+    source.write_text(valid_resume())
+    monkeypatch.setenv("PERSONAL_OS_RESUME_JSON", str(source))
+    state = tmp_path / "state"
+    monkeypatch.setattr(service, "state_dir", lambda: state)
+    seen_graduations: list[str] = []
+
+    def fake_compile(payload: dict[str, object], directory: Path) -> Path:
+        seen_graduations.append(payload["education"]["graduation"])  # type: ignore[index]
+        (directory / "resume.tex").write_text("latex")
+        pdf = directory / "resume.pdf"
+        pdf.write_bytes(b"%PDF-later")
+        return pdf
+
+    monkeypatch.setattr(resume, "compile_resume", fake_compile)
+
+    first = resume.later_graduation_resume_pdf()
+    assert first == state / "resume-variants" / "later-graduation.pdf"
+    assert first.read_bytes() == b"%PDF-later"
+    assert seen_graduations == [resume.LATER_GRADUATION]
+
+    # Unchanged source: cached, no recompile.
+    again = resume.later_graduation_resume_pdf()
+    assert again == first and seen_graduations == [resume.LATER_GRADUATION]
+
+    # The canonical source on disk is untouched by the patch.
+    assert "graduation" not in json.loads(source.read_text())["education"]
+
+    # A newer source triggers a rebuild.
+    time.sleep(0.01)
+    source.write_text(valid_resume())
+    rebuilt = resume.later_graduation_resume_pdf()
+    assert rebuilt == first and seen_graduations == [resume.LATER_GRADUATION] * 2
+
+
+def test_with_graduation_replaces_only_the_graduation_field() -> None:
+    original = {"education": {"school": "School", "graduation": "May 2028"}, "other": 1}
+    patched = resume.with_graduation(original, "December 2027")
+    assert patched == {"education": {"school": "School", "graduation": "December 2027"}, "other": 1}
+    assert original["education"]["graduation"] == "May 2028"  # not mutated
 
 
 def test_preview_server_serves_pdf_and_auto_refresh_shell(tmp_path: Path) -> None:

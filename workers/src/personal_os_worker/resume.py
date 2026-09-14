@@ -145,6 +145,40 @@ def ensure_resume() -> ResumeBuild:
     return build_resume(source, pdf)
 
 
+# The canonical resume states this graduation date. A few postings state a
+# requirement it does not meet ("must graduate after December 2027"); the
+# only thing that changes for those is which of these two dates is on the
+# resume, decided by `personal_os_worker.resume_selection`.
+CANONICAL_GRADUATION = "December 2027"
+LATER_GRADUATION = "May 2028"
+
+
+def with_graduation(resume: dict[str, Any], graduation: str) -> dict[str, Any]:
+    return {**resume, "education": {**resume["education"], "graduation": graduation}}
+
+
+def later_graduation_resume_pdf() -> Path:
+    """A resume compiled with `LATER_GRADUATION`, for a posting that requires it.
+
+    Cached under the state directory; rebuilt whenever the canonical source is
+    newer than the cached copy, the same staleness rule `ensure_resume` uses
+    for the canonical PDF.
+    """
+    from personal_os_worker.service import state_dir
+
+    source = canonical_resume_path()
+    cached = state_dir() / "resume-variants" / "later-graduation.pdf"
+    if cached.exists() and cached.stat().st_mtime >= source.stat().st_mtime:
+        return cached
+    resume = with_graduation(load_resume(source), LATER_GRADUATION)
+    cached.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="resume-variant-", dir=cached.parent) as raw:
+        temporary_source = Path(raw) / "main.json"
+        temporary_source.write_text(json.dumps(resume))
+        build_resume(temporary_source, cached)
+    return cached
+
+
 class _PreviewServer:
     def __init__(self, pdf: Path) -> None:
         self.pdf = pdf

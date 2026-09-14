@@ -351,7 +351,15 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> bool:
     from personal_os_worker.adapters import adapter_version, detect_ats, failure_signature
     from personal_os_worker.autofill_session import AutofillSession, SessionContext
     from personal_os_worker.browser import VisibleBrowser, inspect_fields, sanitized_evidence
-    from personal_os_worker.resume import ensure_resume, load_resume, transcript_pdf_path
+    from personal_os_worker.resume import (
+        LATER_GRADUATION,
+        ensure_resume,
+        later_graduation_resume_pdf,
+        load_resume,
+        transcript_pdf_path,
+        with_graduation,
+    )
+    from personal_os_worker.resume_selection import requires_later_graduation
     from personal_os_worker.service import state_dir
 
     def draft_directory(run_id: str) -> Path:
@@ -489,7 +497,15 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> bool:
                 report_page_failure("closed_posting", "The live posting appears closed")
                 raise RuntimeError("The live posting appears closed; nothing was filled")
             console.print(f"Verified {expected_company} — {expected_title} on {adapter.name}.")
-            console.print(f"Context saved. Canonical resume ready: {resume.pdf}")
+            resume_pdf = resume.pdf
+            if not no_claude and requires_later_graduation(body):
+                resume_pdf = later_graduation_resume_pdf()
+                resume_json = with_graduation(resume_json, LATER_GRADUATION)
+                console.print(
+                    f"Posting requires graduating after December 2027; "
+                    f"using the {LATER_GRADUATION} resume."
+                )
+            console.print(f"Context saved. Resume ready: {resume_pdf}")
             session = AutofillSession(
                 SessionContext(
                     api=api,
@@ -502,14 +518,10 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> bool:
                     answers=answers,
                     scoped=scoped,
                     resume_json=resume_json,
-                    resume_pdf=resume.pdf,
+                    resume_pdf=resume_pdf,
                     company=expected_company,
                     title=expected_title,
-                    description=(
-                        str(run.get("description_text"))
-                        if run.get("description_text")
-                        else None
-                    ),
+                    description=body,
                     draft_dir=draft_directory(run_id),
                     transcript_pdf=transcript_pdf_path(),
                     dry_run=dry_run,

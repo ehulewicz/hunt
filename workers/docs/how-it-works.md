@@ -99,6 +99,22 @@ for textarea drafts. Kept answers fill the same way as the other tiers and
 are echoed as `claude: <question> -> <value>`. `os hunt apply --no-claude`
 skips this pass entirely.
 
+The posting text these tiers see is the direct-URL page's visible text,
+captured once at the start of `apply_posting` (the same capture already used
+to verify the live page matches the intended company and role) — not
+`jobs_postings.description_text`, which nothing populates. The same text
+feeds one more bounded call, `resume_selection.requires_later_graduation`:
+the canonical resume states graduating December 2027; a posting that
+explicitly requires graduating later (a minimum class year, "must graduate
+after X") gets `resume.later_graduation_resume_pdf()` attached instead — a
+variant with only the graduation date changed, compiled on demand and cached
+under `state_dir()/resume-variants/`, rebuilt when the canonical source
+changes — and the resume facts passed to the other tiers are patched to
+match. `--no-claude` skips this too, since it is a `claude -p` call like the
+others. This never changes how an explicit "expected graduation date" form
+question is answered; that stays the true date from the profile,
+deterministically.
+
 Every long-form textarea becomes a Markdown file under the state directory and
 opens as its own VS Code tab through `code --wait`. The text above the divider is
 the seed: an exact library answer when one exists, otherwise a local `claude -p`
