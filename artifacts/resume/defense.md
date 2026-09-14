@@ -5,7 +5,7 @@ rendered line, so each one compresses far more than it states. This file records
 what was compressed, what the honest expanded answer is, and what must not be
 claimed without checking sources first.
 
-Pairs with `context.md` (writing-pass state and constraints).
+The writing pass is complete; its decisions are reflected in `main.json` and AGENTS.md.
 
 Last updated: 2026-09-11.
 
@@ -92,7 +92,7 @@ overhaul shipped, the API routes are mid-migration.
   rather than measurements and cannot be litigated.
 - "Alongside two other teams" was chosen over naming frontend and database
   teams. The seam is still open: what those teams actually delivered on the SOWs
-  has never been recorded. See `context.md` open question 1.
+  has never been recorded. This was left unrecorded when the writing pass closed.
 
 Anticipated probes:
 

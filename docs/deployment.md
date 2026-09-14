@@ -14,7 +14,7 @@ and Google OAuth client credentials remain in GCP Secret Manager.
 
 ## One-time Google login bootstrap
 
-The current blocker and verification state live in `docs/current.md`. To create
+The current blocker and verification state live in `CURRENT.md` at the repository root. To create
 the missing provider credentials:
 
 1. Open Google Auth Platform for GCP project `example-gcp-project`.
