@@ -424,7 +424,9 @@ class AutofillSession:
         ).encode()
         self.evidence = {**before, **{f"after-{k}": v for k, v in after.items()}}
         artifact_paths: dict[str, str] = {}
-        if result["failures"]:
+        # A field left for the user is expected; only a fill that went wrong
+        # earns the page evidence, which is twenty uploads.
+        if any(failure["category"] != "required_field_empty" for failure in result["failures"]):
             artifact_paths = self.upload_evidence(self.evidence)
             for failure in result["failures"]:
                 failure["artifact_paths"] = artifact_paths
@@ -448,16 +450,20 @@ class AutofillSession:
         current = inspect_fields(self.page)
         # A typeahead hides its choices until opened; Claude should pick from
         # them verbatim rather than guess at the wording.
-        for item in current:
-            if (
-                item.get("role") == "combobox"
-                and item.get("filled") is not True
-                and not is_sensitive_field(item)
-            ):
-                try:
-                    item["options"] = combobox_options(self.page, fresh_control(self.page, item))
-                except (Error, RuntimeError):
-                    item["options"] = []
+        pending = [
+            item
+            for item in current
+            if item.get("role") == "combobox"
+            and item.get("filled") is not True
+            and not is_sensitive_field(item)
+        ]
+        if pending:
+            console.print(f"Reading the options of {len(pending)} dropdown(s) ...")
+        for item in pending:
+            try:
+                item["options"] = combobox_options(self.page, fresh_control(self.page, item))
+            except (Error, RuntimeError):
+                item["options"] = []
         # Once per question per run: a re-render that restarts the step, or a
         # later step showing the same question, must not ask again.
         questions = [

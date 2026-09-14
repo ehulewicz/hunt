@@ -60,3 +60,28 @@ def test_active_session_without_a_stored_one_is_a_login_error(tmp_path, monkeypa
     monkeypatch.setenv("PERSONAL_OS_SESSION_FILE", str(tmp_path / "none.json"))
     with pytest.raises(auth.LoginError):
         auth.active_session(auth.SupabaseAuth("https://example.supabase.co", "key"))
+
+
+def test_api_renews_the_token_once_on_401_and_retries(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import httpx
+
+    from personal_os_worker.api import WorkerApi
+    from personal_os_worker.config import CliConfig
+
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers["Authorization"])
+        if request.headers["Authorization"] == "Bearer stale":
+            return httpx.Response(401, json={"detail": "Invalid access token"})
+        return httpx.Response(200, json=[])
+
+    config = CliConfig("http://api.test", "https://example.supabase.co", "key")
+    api = WorkerApi(config, "stale", renew=lambda: "fresh")
+    api._client = httpx.Client(
+        base_url=config.api_url, auth=api._client.auth, transport=httpx.MockTransport(handler)
+    )
+
+    assert api.applications() == []
+    assert seen == ["Bearer stale", "Bearer fresh"]
+    assert api.applications() == [] and seen[-1] == "Bearer fresh"  # renewed token is kept

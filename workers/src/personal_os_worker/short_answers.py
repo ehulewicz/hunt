@@ -1,11 +1,13 @@
 """One bounded Claude pass over the short and choice questions a page left empty.
 
-Called at most once per page step, never per field. The model sees every
-remaining question at once, plus the posting, resume, profile, and approved
-library answers (including pattern rows), and must answer only from those
-facts. A row is kept only when the model reports `high` confidence, a choice
-answer is exactly one of the question's visible options, and a free-text
-answer passes the same fabrication guard used for textarea drafts.
+Called at most once per page step. Each remaining question is its own
+`claude -p` call, and the calls run concurrently so the pass takes as long as
+one question rather than the sum; every call sees the posting, resume,
+profile, and approved library answers (including pattern rows), and must
+answer only from those facts. A row is kept only when the model reports `high`
+confidence, a choice answer is exactly one of the question's visible options,
+and a free-text answer passes the same fabrication guard used for textarea
+drafts.
 """
 
 from __future__ import annotations
@@ -13,11 +15,13 @@ from __future__ import annotations
 import json
 import subprocess
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
 from personal_os_worker.answers import clean_answer_text, valid_generated_answer
 
+MAX_CONCURRENT_CALLS = 6
 SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -84,6 +88,18 @@ APPROVED LIBRARY ANSWERS: {json.dumps(library, default=str)[:15000]}
     """.strip()
 
 
+def _answers_in(output: str) -> list[Any]:
+    try:
+        payload = json.loads(output)
+        structured = payload.get("structured_output", payload)
+        items = structured["answers"]
+        if not isinstance(items, list):
+            raise TypeError
+    except (json.JSONDecodeError, AttributeError, KeyError, TypeError):
+        return []
+    return items
+
+
 def draft_short_answers(
     questions: list[ShortQuestion],
     *,
@@ -95,28 +111,25 @@ def draft_short_answers(
 ) -> dict[str, str]:
     if not questions:
         return {}
-    argv = [
-        "claude",
-        "-p",
-        "--safe-mode",
-        "--tools",
-        "",
-        "--no-session-persistence",
-        "--output-format",
-        "json",
-        "--json-schema",
-        json.dumps(SCHEMA, separators=(",", ":")),
-        _prompt(questions, posting=posting, resume=resume, profile=profile, library=library),
-    ]
-    output = runner(argv)
-    try:
-        payload = json.loads(output)
-        structured = payload.get("structured_output", payload)
-        items = structured["answers"]
-        if not isinstance(items, list):
-            raise TypeError
-    except (json.JSONDecodeError, AttributeError, KeyError, TypeError):
-        return {}
+
+    def argv_for(question: ShortQuestion) -> list[str]:
+        return [
+            "claude",
+            "-p",
+            "--safe-mode",
+            "--tools",
+            "",
+            "--no-session-persistence",
+            "--output-format",
+            "json",
+            "--json-schema",
+            json.dumps(SCHEMA, separators=(",", ":")),
+            _prompt([question], posting=posting, resume=resume, profile=profile, library=library),
+        ]
+
+    with ThreadPoolExecutor(max_workers=min(len(questions), MAX_CONCURRENT_CALLS)) as pool:
+        outputs = list(pool.map(lambda question: runner(argv_for(question)), questions))
+    items = [item for output in outputs for item in _answers_in(output)]
 
     by_question = {question.question: question for question in questions}
     fact_text = json.dumps(

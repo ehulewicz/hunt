@@ -363,7 +363,7 @@ def set_registered_value(control: Any, value: str) -> None:
 
 
 COMBOBOX_SETTLE_MS = 300
-COMBOBOX_LIST_TIMEOUT_MS = 1_200
+COMBOBOX_LIST_TIMEOUT_MS = 600
 COMBOBOX_OPTIONS_TIMEOUT_MS = 4_000
 
 

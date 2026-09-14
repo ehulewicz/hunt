@@ -1,19 +1,52 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Generator
 from typing import Any
 
 import httpx
 
+from personal_os_worker.auth import LoginError, SupabaseAuth, renewed_access_token
 from personal_os_worker.config import CliConfig
+
+
+class RenewingBearer(httpx.Auth):
+    """Bearer auth that renews the token once and retries when the API says 401.
+
+    An apply session can run longer than an access token lives; renewing in
+    place means the answers it collected are still saved at the end.
+    """
+
+    requires_response_body = False
+
+    def __init__(self, access_token: str, renew: Callable[[], str]) -> None:
+        self._token = access_token
+        self._renew = renew
+
+    def auth_flow(self, request: httpx.Request) -> Generator[httpx.Request, httpx.Response]:
+        request.headers["Authorization"] = f"Bearer {self._token}"
+        response = yield request
+        if response.status_code != 401:
+            return
+        try:
+            self._token = self._renew()
+        except LoginError:
+            return
+        request.headers["Authorization"] = f"Bearer {self._token}"
+        yield request
 
 
 class WorkerApi:
     """Client for the local API, authenticated with the signed-in Google session."""
 
-    def __init__(self, config: CliConfig, access_token: str) -> None:
+    def __init__(
+        self, config: CliConfig, access_token: str, *, renew: Callable[[], str] | None = None
+    ) -> None:
+        auth = SupabaseAuth(
+            url=config.supabase_url, publishable_key=config.supabase_publishable_key
+        )
         self._client = httpx.Client(
             base_url=config.api_url,
-            headers={"Authorization": f"Bearer {access_token}"},
+            auth=RenewingBearer(access_token, renew or (lambda: renewed_access_token(auth))),
             timeout=30.0,
             follow_redirects=True,
         )

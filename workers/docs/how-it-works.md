@@ -61,8 +61,9 @@ options against a bare "Yes" stay unfilled. Every pattern fill is echoed as
 
 Whatever is still unfilled and not a textarea, consent, or file control goes
 through one bounded Claude pass per page step: every remaining required text
-input, select, and unchecked radio/checkbox group becomes one question in a
-single `claude -p` call alongside the posting, the canonical resume, the
+input, select, typeahead (its menu is opened to read the options), and
+unchecked radio/checkbox group becomes its own `claude -p` call, and the calls
+run concurrently, each alongside the posting, the canonical resume, the
 profile, and the full approved library (patterns included). Only `high`
 confidence rows are kept, a choice answer must be one of the visible options
 verbatim, and a free-text answer must pass the same fabrication guard used

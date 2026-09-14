@@ -103,13 +103,39 @@ def test_empty_question_list_never_calls_the_runner() -> None:
     assert ask([], runner) == {}
 
 
-def test_one_runner_call_covers_the_whole_batch() -> None:
+def test_each_question_is_its_own_call_and_the_answers_merge() -> None:
+    import threading
+    import time
+
     questions = [
         ShortQuestion("What school are you attending?", ()),
         ShortQuestion("Consider me for other roles?", ("Yes", "No")),
     ]
-    runner, calls = scripted({"answers": []})
-    ask(questions, runner)
-    assert len(calls) == 1
-    assert "What school are you attending?" in calls[0][-1]
-    assert "Consider me for other roles?" in calls[0][-1]
+    started: list[float] = []
+    lock = threading.Lock()
+
+    def runner(argv: list[str]) -> str:
+        with lock:
+            started.append(time.monotonic())
+        time.sleep(0.2)
+        prompt = argv[-1]
+        if "Consider me" in prompt:
+            answer = {"question": questions[1].question, "answer": "Yes", "confidence": "high"}
+        else:
+            answer = {
+                "question": questions[0].question,
+                "answer": "Example Institute of Technology",
+                "confidence": "high",
+            }
+        return json.dumps({"answers": [answer]})
+
+    begun = time.monotonic()
+    answers = ask(questions, runner)
+    elapsed = time.monotonic() - begun
+
+    assert answers == {
+        questions[0].question: "Example Institute of Technology",
+        questions[1].question: "Yes",
+    }
+    assert len(started) == 2
+    assert elapsed < 0.35  # the two 0.2s calls overlapped

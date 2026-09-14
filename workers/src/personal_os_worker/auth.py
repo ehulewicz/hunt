@@ -250,6 +250,21 @@ def active_session(auth: SupabaseAuth) -> Session:
     return refreshed
 
 
+def renewed_access_token(auth: SupabaseAuth) -> str:
+    """Trade the stored refresh token for a new access token and keep the result.
+
+    Access tokens last an hour at most (Supabase caps them at a week); the
+    refresh token does not expire, so a run that outlives its token renews
+    rather than fails.
+    """
+    session = load_session()
+    if session is None:
+        raise LoginError("Not signed in.")
+    refreshed = refresh(auth, session)
+    save_session(refreshed)
+    return refreshed.access_token
+
+
 def port_is_free(port: int = CALLBACK_PORT) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
