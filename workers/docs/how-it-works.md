@@ -125,6 +125,22 @@ and the step ends with a **Review before submitting** list of the drafted ones
 so you can edit them in the browser. Claude is only ever called for a textarea
 without an exact answer.
 
+A cover letter is the one thing that opens an editor. When a page has a
+cover-letter control (a textarea or file input whose label, name, or id says
+"cover letter"), the worker loads `artifacts/career/cover_letter.md` — fixed
+prose with `{{slots}}` plus named proof modules written from the resume —
+fills `{{date}}`, `{{company}}`, and `{{role}}` from the listing, and makes one
+bounded `claude -p` call for the posting-dependent slots: `hiring_manager`
+(when the posting names one), `hook`, `why_this`, `tie`, and which module(s)
+to use. Under `--no-claude`, or when the answer is unusable, the slots stay as
+bracketed prompts. The rendered letter is written to
+`state_dir()/cover-letters/<run>/cover_letter.md` and opened with `code --wait`;
+closing the tab is the signal. Whatever the file then holds fills the textarea
+(saved to the library as `contextual`) and, for a file input, is compiled
+through the resume's LaTeX preamble and header into a one-page
+`Alex_Example_Cover_Letter.pdf` and uploaded. The draft happens once per run;
+a re-rendered step reuses the edited text.
+
 The worker then polls the page. It snapshots every non-empty
 control by its question, echoes anything the user typed or chose as `picked up`,
 and reports when it sees a visible Submit control. Required-field completeness,

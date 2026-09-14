@@ -23,7 +23,12 @@ from rich.markup import escape
 from personal_os_worker.adapters import failure_signature
 from personal_os_worker.answers import answer_match, draft_contextual_answer
 from personal_os_worker.api import WorkerApi
-from personal_os_worker.autofill import FormFill, is_resume_field, is_sensitive_field
+from personal_os_worker.autofill import (
+    FormFill,
+    is_cover_letter_field,
+    is_resume_field,
+    is_sensitive_field,
+)
 from personal_os_worker.browser import (
     BrowserClosedError,
     VisibleBrowser,
@@ -41,6 +46,16 @@ from personal_os_worker.browser import (
     set_registered_value,
     snapshot_values,
     verify_control,
+)
+from personal_os_worker.cover_letter import (
+    LetterSlots,
+    LetterTemplate,
+    draft_slots,
+    edit_in_vscode,
+    letter_pdf,
+    load_template,
+    placeholder_slots,
+    render_letter,
 )
 from personal_os_worker.drafts import similar_answers
 from personal_os_worker.keys import KeyWatcher, NoKeys
@@ -68,6 +83,8 @@ class SkippedByUser(Exception):
 
 Drafter = Callable[..., str | None]
 ShortDrafter = Callable[..., dict[str, str]]
+LetterDrafter = Callable[..., LetterSlots | None]
+LetterRenderer = Callable[..., Path]
 
 
 @dataclass
@@ -90,6 +107,11 @@ class SessionContext:
     dry_run: bool = False
     drafter: Drafter = draft_contextual_answer
     short_drafter: ShortDrafter = draft_short_answers
+    letter_drafter: LetterDrafter = draft_slots
+    letter_template: Callable[[], LetterTemplate] = load_template
+    editor: Callable[[Path], None] = edit_in_vscode
+    letter_renderer: LetterRenderer = letter_pdf
+    letter_dir: Path | None = None  # where the editable letter and its PDF live
     use_claude: bool = True
     poll_seconds: float = 1.0
     keys: KeyWatcher | NoKeys = field(default_factory=KeyWatcher)
@@ -98,6 +120,7 @@ class SessionContext:
 @dataclass
 class SessionState:
     review: list[tuple[str, str]] = field(default_factory=list)  # (question, source) long-form
+    cover_letter: str | None = None  # the edited letter, once per run
     collected: dict[str, dict[str, Any]] = field(default_factory=dict)
     seeds: dict[str, tuple[str, str]] = field(default_factory=dict)  # question -> (text, source)
     planned: dict[str, str] = field(default_factory=dict)  # question -> planned value
@@ -140,6 +163,7 @@ TAG_STYLES = {
     "source": "dim",
     "consent": "dim",
     "long-form": "cyan",
+    "letter": "cyan",
     "picked up": "cyan",
     "saved": "green",
     "kept": "dim",
@@ -613,6 +637,8 @@ class AutofillSession:
         for item in fields:
             if item.get("tag") != "textarea" or is_sensitive_field(item):
                 continue
+            if is_cover_letter_field(item):
+                continue  # fill_cover_letter owns it
             question = str(item.get("label") or "").strip()
             if not question:
                 continue
@@ -640,6 +666,90 @@ class AutofillSession:
             echo("long-form", question, seed, note=label)
             if source == "model":
                 self.state.review.append((question, label))
+
+    # ----- cover letter ----------------------------------------------------
+
+    def letter_directory(self) -> Path:
+        if self.ctx.letter_dir is not None:
+            return self.ctx.letter_dir
+        from personal_os_worker.service import state_dir
+
+        return state_dir() / "cover-letters" / self.ctx.run_id
+
+    def cover_letter_text(self) -> str:
+        """Draft the slots once, open the letter in VS Code, and keep what the user left."""
+        if self.state.cover_letter is not None:
+            return self.state.cover_letter
+        template = self.ctx.letter_template()
+        posting = {
+            "company": self.ctx.company,
+            "role": self.ctx.title,
+            "description": self.ctx.description,
+        }
+        slots = None
+        if self.ctx.use_claude:
+            console.print("  [dim]drafting the cover letter slots[/dim]")
+            slots = self.ctx.letter_drafter(template, posting=posting, resume=self.ctx.resume_json)
+        if slots is None:
+            slots = placeholder_slots(template)
+            note = "slots left as [prompts]; fill them in"
+        else:
+            note = f"{slots.primary_module}" + (
+                f" + {slots.secondary_module}" if slots.secondary_module else ""
+            )
+        text = render_letter(template, slots, company=self.ctx.company, role=self.ctx.title)
+        directory = self.letter_directory()
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / "cover_letter.md"
+        path.write_text(text, encoding="utf-8")
+        echo("letter", "Cover letter", note=note)
+        console.print("  [bold]Cover letter open in VS Code[/bold] — close the tab to continue.")
+        self.ctx.editor(path)
+        self.state.cover_letter = path.read_text(encoding="utf-8").strip() + "\n"
+        return self.state.cover_letter
+
+    def fill_cover_letter(self, fields: list[dict[str, Any]]) -> None:
+        """Fill every cover-letter control on the page: textareas get the text, uploads the PDF."""
+        targets = [
+            item
+            for item in fields
+            if is_cover_letter_field(item) and item.get("filled") is not True
+        ]
+        if not targets:
+            return
+        text = self.cover_letter_text()
+        if not text.strip():
+            echo("left", "Cover letter", note="the file was empty")
+            return
+        for item in targets:
+            question = str(item.get("label") or "Cover letter").strip()
+            try:
+                if str(item.get("type") or "").casefold() == "file":
+                    pdf = self.ctx.letter_renderer(
+                        self.ctx.resume_json.get("contact", {}),
+                        text,
+                        self.letter_directory(),
+                        company=self.ctx.company,
+                    )
+                    fresh_control(self.page, item).set_input_files(str(pdf))
+                    self.page.wait_for_timeout(750)
+                    ok = verify_control(self.page, item, None, resume=True, filename=pdf.name)
+                    shown = pdf.name
+                else:
+                    set_registered_value(fresh_control(self.page, item), text)
+                    ok = verify_control(self.page, item, text)
+                    shown = text.strip()
+                    self.state.seeds[question] = (shown, "model")
+            except (Error, RuntimeError) as error:
+                ok = False
+                echo("failed", question, note=str(error)[:120])
+            if ok:
+                self.state.announced[question] = shown
+                echo("letter", question, shown)
+            else:
+                self.report_page_failure(
+                    "readback_mismatch", f"Cover letter for {question!r} did not register"
+                )
 
     def report_left(self) -> None:
         """Name every required control still empty once all tiers have run."""
@@ -675,7 +785,7 @@ class AutofillSession:
             matched = answer_match(question, self.ctx.answers)
             if question in self.state.tier_answers and value == self.state.tier_answers[question]:
                 source = self.state.tier_source[question]
-            elif seed_source in {"answer_library", "model"} and value == seed:
+            elif seed_source in {"answer_library", "model"} and value == seed.strip():
                 source = seed_source
             elif matched is not None and value == str(matched.get("answer_text") or "").strip():
                 source = "answer_library"
@@ -742,6 +852,7 @@ class AutofillSession:
                 if self.ctx.use_claude:
                     self.fill_with_claude(fields, result)
                 self.fill_long_form(fields)
+                self.fill_cover_letter(fields)
                 self.report_left()
                 self.report_review()
                 self.wait_and_advance(fields)

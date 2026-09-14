@@ -102,7 +102,9 @@ browser. It reports a visible Submit control and rescans after navigation, but
 does not gate navigation on a required-field audit. No automated action contains
 Next, Submit, signature, or captcha operations; consent and attestation
 controls take their agreeing option. Each step ends with a **Left for you**
-list of the required controls still empty. In the
+list of the required controls still empty. A cover-letter control opens the
+letter (from `artifacts/career/cover_letter.md`, slots drafted by Claude) in VS
+Code; close the tab to fill or upload it. In the
 terminal, Ctrl+S saves what has been picked up so
 far, Ctrl+A saves and marks the application applied when you have submitted
 it yourself, Ctrl+D skips the listing (it leaves the board as `skipped`, a

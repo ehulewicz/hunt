@@ -176,6 +176,18 @@ def _mentions(context: str, words: frozenset[str]) -> bool:
     return any(re.search(rf"(?<!\w){re.escape(word)}(?!\w)", context) for word in words)
 
 
+def is_cover_letter_field(field: dict[str, Any]) -> bool:
+    """A textarea or file control asking for the cover letter, by label, name, or id."""
+    if str(field.get("tag") or "").casefold() != "textarea" and (
+        str(field.get("type") or "").casefold() != "file"
+    ):
+        return False
+    hints = normalize_question(
+        " ".join(str(field.get(key) or "") for key in ("label", "name", "selector"))
+    )
+    return re.search(r"cover[\s_-]*letter", hints) is not None
+
+
 def is_sensitive_field(field: dict[str, Any]) -> bool:
     """Consent, attestation, or signature: never drafted, never put to Claude."""
     return _mentions(_field_context(field), BLOCKED_LABEL_WORDS)

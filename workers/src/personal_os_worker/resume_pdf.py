@@ -147,9 +147,14 @@ def latex_environment() -> dict[str, str]:
 
 
 def compile_resume(resume: dict[str, Any], output_directory: Path) -> Path:
+    return compile_pdf(build_latex(resume), output_directory, "resume", pages=MAXIMUM_PAGES)
+
+
+def compile_pdf(latex: str, output_directory: Path, stem: str, *, pages: int | None) -> Path:
+    """Run latexmk on `latex` as `<stem>.tex` and verify the page budget."""
     output_directory.mkdir(parents=True, exist_ok=True)
-    source = output_directory / "resume.tex"
-    source.write_text(build_latex(resume), encoding="utf-8")
+    source = output_directory / f"{stem}.tex"
+    source.write_text(latex, encoding="utf-8")
     process = subprocess.run(
         [
             "latexmk",
@@ -165,19 +170,17 @@ def compile_resume(resume: dict[str, Any], output_directory: Path) -> Path:
         text=True,
         timeout=120,
     )
-    pdf = output_directory / "resume.pdf"
+    pdf = output_directory / f"{stem}.pdf"
     if process.returncode != 0 or not pdf.exists():
         raise RuntimeError((process.stdout + "\n" + process.stderr)[-2000:])
     page_check = subprocess.run(
         ["pdfinfo", str(pdf)], check=False, capture_output=True, text=True, timeout=15
     )
-    pages = re.search(r"^Pages:\s+(\d+)$", page_check.stdout, re.MULTILINE)
-    if page_check.returncode != 0 or pages is None:
-        raise RuntimeError("Could not verify the generated resume page count")
-    if MAXIMUM_PAGES is not None and int(pages.group(1)) > MAXIMUM_PAGES:
-        raise RuntimeError(
-            f"Resume must stay within {MAXIMUM_PAGES} page(s); generated {pages.group(1)}"
-        )
+    found = re.search(r"^Pages:\s+(\d+)$", page_check.stdout, re.MULTILINE)
+    if page_check.returncode != 0 or found is None:
+        raise RuntimeError(f"Could not verify the generated {stem} page count")
+    if pages is not None and int(found.group(1)) > pages:
+        raise RuntimeError(f"{stem} must stay within {pages} page(s); generated {found.group(1)}")
     return pdf
 
 
