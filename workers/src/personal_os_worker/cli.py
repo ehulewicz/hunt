@@ -90,6 +90,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Rows to show (1 or more; overshoots return all available)",
     )
 
+    today = jobs_commands.add_parser("today", help="Listings posted today or yesterday")
+    today.add_argument(
+        "--all-roles", action="store_true", help="Include listings classified as other"
+    )
+
     jobs_commands.add_parser("sync", help="Deterministically sync the configured listing feeds")
 
     open_listing = jobs_commands.add_parser(
@@ -230,6 +235,10 @@ def _dispatch(args: argparse.Namespace) -> int:
                 locations=args.location,
                 role_families=role_families,
                 limit=args.limit,
+            )
+        if args.hunt_command == "today":
+            return hunt.run_today(
+                role_families=[] if args.all_roles else list(DEFAULT_TECHNICAL_FAMILIES)
             )
         if args.hunt_command == "sync":
             return hunt.run_sync()

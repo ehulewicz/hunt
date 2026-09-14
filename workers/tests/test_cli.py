@@ -82,6 +82,13 @@ def test_jobs_live_under_the_hunt_domain() -> None:
     assert args.all_roles is False and args.family == []
 
 
+def test_today_is_a_listing_view_with_only_the_roles_switch() -> None:
+    assert build_parser().parse_args(["hunt", "today"]).all_roles is False
+    assert build_parser().parse_args(["hunt", "today", "--all-roles"]).all_roles is True
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "today", "5"])
+
+
 def test_any_displayed_listing_can_open_its_direct_or_discovery_link() -> None:
     direct = build_parser().parse_args(["hunt", "open", "12"])
     source = build_parser().parse_args(["hunt", "open", "12", "--source"])

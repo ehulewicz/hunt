@@ -111,10 +111,10 @@ def _age(days: Any) -> str:
     return f"{days}d"
 
 
-def render_listings(items: list[dict[str, Any]], total: int) -> None:
+def render_listings(items: list[dict[str, Any]], total: int, *, title: str = "Listings") -> None:
     # One row must stay one line, or the table stops being scannable.
     table = Table(
-        title=f"Listings ({len(items)} of {total})",
+        title=f"{title} ({len(items)} of {total})",
         header_style="bold",
         box=box.SIMPLE_HEAD,
         padding=(0, 1),

@@ -47,6 +47,30 @@ def run_listings(
     return 0
 
 
+def run_today(*, role_families: list[str]) -> int:
+    """Listings from the last day, same rows and numbering as `list`.
+
+    The feed dates postings by day and syncs once a morning, so "today" is
+    anything at most a day old; at 0d only, the view is empty every morning.
+    """
+    config, token = connected()
+    api = WorkerApi(config, token)
+    try:
+        page = api.listings(role_families=role_families, limit=500)
+    finally:
+        api.close()
+    items = [
+        item
+        for item in page.get("items") or []
+        if item.get("source_age_days") is not None and int(item["source_age_days"]) <= 1
+    ]
+    if not items:
+        console.print("Nothing new today.")
+        return 0
+    render_listings(items, len(items), title="Today")
+    return 0
+
+
 def run_sync() -> int:
     config, token = connected()
     api = WorkerApi(config, token)
