@@ -57,15 +57,22 @@ def run_today(*, role_families: list[str]) -> int:
     api = WorkerApi(config, token)
     try:
         page = api.listings(role_families=role_families, limit=500)
+        done = {
+            str(item["posting_id"])
+            for item in api.applications()
+            if item.get("status") != "queued"
+        }
     finally:
         api.close()
     items = [
         item
         for item in page.get("items") or []
-        if item.get("source_age_days") is not None and int(item["source_age_days"]) <= 1
+        if item.get("source_age_days") is not None
+        and int(item["source_age_days"]) <= 1
+        and str(item.get("id")) not in done
     ]
     if not items:
-        console.print("Nothing new today.")
+        console.print("Nothing new today that you have not already applied to.")
         return 0
     render_listings(items, len(items), title="Today")
     return 0

@@ -91,7 +91,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Rows to show (1 or more; overshoots return all available)",
     )
 
-    today = jobs_commands.add_parser("today", help="Listings posted today or yesterday")
+    today = jobs_commands.add_parser(
+        "today", help="Listings posted today or yesterday that you have not applied to"
+    )
     today.add_argument(
         "--all-roles", action="store_true", help="Include listings classified as other"
     )
