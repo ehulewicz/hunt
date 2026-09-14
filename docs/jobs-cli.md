@@ -17,6 +17,7 @@ os hunt apps
 os hunt answers list
 os hunt answers add --question "Are you authorized?" --text "Yes" --reuse exact
 os hunt answers add --question "Why this company?" --file ./answer.md --reuse contextual
+os hunt answers add --question "consider me for other (job )?opportunities" --text "Yes" --reuse pattern
 os hunt answers edit 1 --file ./revised-answer.md --reuse contextual --approve
 
 os hunt resume build
@@ -27,6 +28,7 @@ os hunt run
 
 os hunt autofill 1 --dry-run
 os hunt autofill 1
+os hunt autofill 1 --no-claude
 
 os hunt autofill failures list
 os hunt autofill failures show 1
@@ -41,7 +43,10 @@ Displayed listing titles are clickable when the terminal supports hyperlinks.
 application; `--source` opens the discovery URL. `listings`, `apps`, and `prep`
 accept cached row numbers or unambiguous ID prefixes where applicable. Answer edits update the hosted canonical library
 immediately; Git is not a second answer store. `exact` answers are reused
-unchanged. `contextual` and unmatched long-form questions invoke local Claude,
+unchanged. `pattern` rows hold a case-insensitive regular expression as the
+question and answer any autofill question it matches, standing in for the
+user's policy on things like "willing to relocate" without one row per exact
+wording. `contextual` and unmatched long-form questions invoke local Claude,
 with the 20 percent guard applied whenever a base exists. Preparation without another flag
 compiles the canonical resume unchanged.
 
@@ -81,7 +86,10 @@ If that is unsafe or unavailable, the CLI says `Hit a wall` and keeps waiting
 while you advance the visible browser manually. The CLI rescans after navigation.
 At final review, type `approve` to reread and persist non-empty long-form answers.
 No action vocabulary contains Next, Submit, consent, signature, attestation, or
-captcha operations.
+captcha operations. Whatever profile facts and exact answers leave unfilled goes
+through library and built-in pattern rules, then one bounded local Claude pass
+per page step over the remaining short and choice questions; `--no-claude`
+skips that last pass.
 
 Failure diagnosis and fix drafting use subscription-authenticated local Claude.
 `apply-fix` requires the literal confirmation `apply`, changes only worker or

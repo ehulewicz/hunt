@@ -171,6 +171,31 @@ def test_answer_library_is_manageable_without_the_web_app() -> None:
     assert edited.ref == "2" and edited.approved is True
 
 
+def test_answer_reuse_choices_include_pattern() -> None:
+    added = build_parser().parse_args(
+        [
+            "hunt",
+            "answers",
+            "add",
+            "--question",
+            r"consider me for other (job )?opportunities",
+            "--text",
+            "Yes",
+            "--reuse",
+            "pattern",
+        ]
+    )
+    edited = build_parser().parse_args(
+        ["hunt", "answers", "edit", "3", "--reuse", "pattern"]
+    )
+    assert added.reuse == "pattern"
+    assert edited.reuse == "pattern"
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            ["hunt", "answers", "add", "--question", "Q", "--text", "A", "--reuse", "bogus"]
+        )
+
+
 def test_stop_defaults_to_everything_and_is_not_forced() -> None:
     args = build_parser().parse_args(["stop"])
     assert args.target == "all" and args.force is False

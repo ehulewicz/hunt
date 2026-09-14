@@ -30,8 +30,37 @@ into answers instead.
 direct URL in native Windows Chrome, and then runs without a single terminal
 prompt. Greenhouse, Ashby, and Lever adapters use fresh locators, native events,
 strict option matching, readback, resume-first rerender handling, and same-origin
-iframe inspection. Profile facts and exact library answers fill deterministically,
+iframe inspection. Ashby renders a boolean question as two `aria-pressed`
+buttons plus a hidden checkbox with no usable label; the worker reports it as
+a `yesno` control with the sibling question text and `Yes`/`No` options,
+clicks the matching button, and verifies `aria-pressed` rather than the
+checkbox. Profile facts and exact library answers fill deterministically,
 including selects, comboboxes, and radio groups matched by their question text.
+
+Whatever is still unfilled after that goes through two more tiers, in order.
+Library rows with `reuse_policy = 'pattern'` are case-insensitive regular
+expressions matched against the question, holding standing policy answers
+("consider me for other roles?" → Yes). Built-in pattern rules answer from
+profile facts or the canonical resume for questions of a general shape
+(preferred name, LinkedIn, school, degree, authorization, sponsorship, a
+country-of-citizenship split from a sanctioned-country check, and "have you
+worked here before" from whether the company appears on the resume). Exactly
+one matching rule answers a question; zero or several leave it for the next
+tier. Choice groups match the answer to the single option that equals,
+starts with, is a prefix of, or contains every word of it; several "Yes - …"
+options against a bare "Yes" stay unfilled. Every pattern fill is echoed as
+`pattern: <question> -> <value>`.
+
+Whatever is still unfilled and not a textarea, consent, or file control goes
+through one bounded Claude pass per page step: every remaining required text
+input, select, and unchecked radio/checkbox group becomes one question in a
+single `claude -p` call alongside the posting, the canonical resume, the
+profile, and the full approved library (patterns included). Only `high`
+confidence rows are kept, a choice answer must be one of the visible options
+verbatim, and a free-text answer must pass the same fabrication guard used
+for textarea drafts. Kept answers fill the same way as the other tiers and
+are echoed as `claude: <question> -> <value>`. `os hunt autofill --no-claude`
+skips this pass entirely.
 
 Every long-form textarea becomes a Markdown file under the state directory and
 opens as its own VS Code tab through `code --wait`. The text above the divider is

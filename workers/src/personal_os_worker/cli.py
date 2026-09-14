@@ -112,7 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     answer_add_input.add_argument("--text", help="Answer wording")
     answer_add_input.add_argument("--file", help="Read answer wording from a UTF-8 file")
     answer_add.add_argument("--draft", action="store_true", help="Save unapproved")
-    answer_add.add_argument("--reuse", choices=["exact", "contextual"], default="exact")
+    answer_add.add_argument("--reuse", choices=["exact", "contextual", "pattern"], default="exact")
     answer_edit = answer_commands.add_parser("edit", help="Edit a listed answer")
     answer_edit.add_argument("ref", help="Row number from answers list or id prefix")
     answer_edit.add_argument("--question")
@@ -123,7 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
     answer_approval.add_argument("--approve", action="store_const", const=True, dest="approved")
     answer_approval.add_argument("--draft", action="store_const", const=False, dest="approved")
     answer_edit.set_defaults(approved=None)
-    answer_edit.add_argument("--reuse", choices=["exact", "contextual"])
+    answer_edit.add_argument("--reuse", choices=["exact", "contextual", "pattern"])
 
     resume = jobs_commands.add_parser("resume", help="Build or watch the canonical one-page resume")
     resume_commands = resume.add_subparsers(dest="resume_command", required=True)
