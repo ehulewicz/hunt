@@ -6,6 +6,7 @@ from playwright.sync_api import Error, sync_playwright
 from personal_os_worker.autofill import build_autofill_plan
 from personal_os_worker.browser import (
     apply_autofill,
+    audit_filled_form,
     click_safe_transition,
     inspect_fields,
     reveal_application_form,
@@ -288,21 +289,24 @@ def test_ashby_yesno_control_is_fillable_by_the_sanctioned_country_rule(
 
 
 REACT_SELECT_COUNTRY = """
-<div class="field">
+<div class="select">
   <label for="country">Country</label>
-  <div class="control">
-    <span class="chosen"></span>
-    <input id="country" role="combobox" autocomplete="off">
-    <input aria-hidden="true" tabindex="-1" required>
+  <div class="select__control">
+    <div class="select__value-container">
+      <input id="country" class="select__input" role="combobox" autocomplete="off">
+    </div>
   </div>
-  <div class="menu"></div>
+  <div class="select__menu"></div>
 </div>
+<ul class="iti__country-list" style="display: none">
+  <li role="option">United States+1</li><li role="option">United Kingdom+44</li>
+</ul>
 <script>
 (() => {
 const codes = ['United Kingdom (+44)', 'United States (+1)', 'Canada (+1)'];
 const box = document.querySelector('#country');
-const menu = document.querySelector('.menu');
-const mirror = document.querySelector('input[aria-hidden="true"]');
+const holder = document.querySelector('.select__value-container');
+const menu = document.querySelector('.select__menu');
 box.addEventListener('input', () => {
   const needle = box.value.toLowerCase();
   menu.innerHTML = '';
@@ -311,8 +315,11 @@ box.addEventListener('input', () => {
     option.setAttribute('role', 'option');
     option.textContent = code;
     option.addEventListener('mousedown', () => {
-      mirror.value = code.slice(-4, -1);
-      document.querySelector('.chosen').textContent = code;
+      holder.querySelector('.select__single-value')?.remove();
+      const chosen = document.createElement('div');
+      chosen.className = 'select__single-value';
+      chosen.textContent = code.replace(/^.* \\(/, '').replace(')', '');
+      holder.prepend(chosen);
       box.value = '';
       menu.innerHTML = '';
     });
@@ -354,13 +361,13 @@ box.addEventListener('input', () => {
 """
 
 
-def test_react_select_country_is_picked_by_prefix_and_verified_through_its_mirror(
+def test_react_select_is_picked_by_prefix_and_read_back_from_its_rendered_choice(
     browser_page,  # type: ignore[no-untyped-def]
 ) -> None:
     browser_page.set_content(REACT_SELECT_COUNTRY)
     fields = inspect_fields(browser_page)
     assert [(f["label"], f["role"], f["required"], f["filled"]) for f in fields] == [
-        ("Country", "combobox", True, False)
+        ("Country", "combobox", False, False)
     ]
 
     plan = build_autofill_plan(fields, profile={"country": "United Stat"}, approved_answers=[])
@@ -369,10 +376,17 @@ def test_react_select_country_is_picked_by_prefix_and_verified_through_its_mirro
         browser_page, fields, plan, resume_path=None, assert_active=lambda: None
     )
 
+    # The menu said "United States (+1)"; the control now shows only "+1".
     assert result["failures"] == []
     assert result["filled_fields"] == ["Country"]
-    assert browser_page.locator(".chosen").inner_text() == "United States (+1)"
-    assert inspect_fields(browser_page)[0]["filled"] is True
+    assert browser_page.locator(".select__single-value").inner_text() == "+1"
+    assert browser_page.locator("#country").input_value() == ""
+    refreshed = inspect_fields(browser_page)
+    assert refreshed[0]["filled"] is True
+    assert snapshot_values(browser_page, refreshed) == {
+        "Country": {"question": "Country", "answer_text": "+1", "control_kind": "input"}
+    }
+    assert audit_filled_form(refreshed)["required_unfilled"] == []
 
 
 def test_places_city_typeahead_is_filled_by_the_location_rule(

@@ -383,7 +383,10 @@ def select_combobox_option(page: Page, control: Any, value: str) -> str:
     except Error as error:
         raise RuntimeError("no unambiguous combobox option (none appeared)") from error
     page.wait_for_timeout(COMBOBOX_SETTLE_MS)
-    texts = [str(options.nth(index).inner_text()).strip() for index in range(options.count())]
+    # Pages keep other listboxes in the DOM (Greenhouse's phone-code list has
+    # every country as a hidden option); only what the menu shows is a choice.
+    visible = [index for index in range(options.count()) if options.nth(index).is_visible()]
+    texts = [str(options.nth(index).inner_text()).strip() for index in visible]
     distinct = list(dict.fromkeys(text for text in texts if text))
     chosen = choose_option(distinct, value)
     if chosen is None:
@@ -392,7 +395,7 @@ def select_combobox_option(page: Page, control: Any, value: str) -> str:
         chosen = containing[0] if len(containing) == 1 else None
     if chosen is None:
         raise RuntimeError("no unambiguous combobox option")
-    options.nth(texts.index(chosen)).click()
+    options.nth(visible[texts.index(chosen)]).click()
     return chosen
 
 
@@ -421,32 +424,45 @@ def verify_control(
         return False
 
 
-def combobox_shows(control: Any, expected: str) -> bool:
-    """Whether a typeahead now holds `expected`, wherever the widget keeps it.
+COMBOBOX_VALUE_SCRIPT = """
+    element => {
+      const own = String(element.value || '').trim();
+      if (own) return own;
+      let shell = element.parentElement;
+      for (let depth = 0; shell && depth < 4; depth += 1) {
+        const chosen = shell.querySelector('[class*="single-value"], [class*="multi-value"]');
+        if (chosen && chosen.textContent.trim()) return chosen.textContent.trim();
+        const mirror = shell.querySelector('input[aria-hidden="true"]');
+        if (mirror && String(mirror.value || '').trim()) return String(mirror.value).trim();
+        shell = shell.parentElement;
+      }
+      return '';
+    }
+"""
 
-    Google Places leaves the chosen text in the input. react-select empties the
-    search input, renders the choice as a sibling, and mirrors the value into
-    an aria-hidden input; either of those counts.
+
+def combobox_value(control: Any) -> str:
+    """What a typeahead currently holds, wherever the widget keeps it.
+
+    A plain typeahead leaves the chosen text in the input. react-select
+    empties the search input and renders the choice in a sibling
+    `single-value`/`multi-value` element, or mirrors it into an aria-hidden
+    input. Whichever is present is the value.
     """
-    return bool(
-        control.evaluate(
-            """
-            (element, expected) => {
-              const norm = text => String(text || '').replace(/\\s+/g, ' ').trim().toLowerCase();
-              const want = norm(expected);
-              if (want && norm(element.value) === want) return true;
-              let shell = element.parentElement;
-              for (let depth = 0; shell && depth < 4; depth += 1) {
-                const mirror = shell.querySelector('input[aria-hidden="true"]');
-                if (mirror && norm(mirror.value)) return true;
-                if (want && norm(shell.textContent).includes(want)) return true;
-                shell = shell.parentElement;
-              }
-              return false;
-            }
-            """,
-            expected,
-        )
+    return str(control.evaluate(COMBOBOX_VALUE_SCRIPT)).strip()
+
+
+def combobox_shows(control: Any, expected: str) -> bool:
+    """Whether a typeahead holds the picked option.
+
+    The option was clicked by its text, so a rendered choice is the evidence;
+    its display text may differ from the menu text (Greenhouse's phone-code
+    picker lists "United States +1" but shows a flag and "+1").
+    """
+    held = combobox_value(control)
+    return bool(held) and (
+        held.casefold() == expected.strip().casefold()
+        or control.evaluate("element => !String(element.value || '').trim()")
     )
 
 
@@ -562,6 +578,19 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
             shell = shell.parentElement;
           }
           const isCombobox = element.getAttribute('role') === 'combobox';
+          // react-select empties its search input after a pick and renders the
+          // choice in a sibling; that sibling is the value of the control.
+          let chosenText = '';
+          if (isCombobox) {
+            let holder = element.parentElement;
+            for (let depth = 0; holder && depth < 4; depth += 1) {
+              const chosen = holder.querySelector(
+                '[class*="single-value"], [class*="multi-value"]'
+              );
+              if (chosen) { chosenText = chosen.textContent.trim(); break; }
+              holder = holder.parentElement;
+            }
+          }
           const selector = id
             ? `#${CSS.escape(id)}`
             : element.getAttribute('name')
@@ -609,7 +638,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
                 : ['checkbox', 'radio'].includes(element.type)
                   ? element.checked === true
                   : String(element.value || '').trim().length > 0
-                    || (isCombobox && mirroredValue.length > 0),
+                    || (isCombobox && (mirroredValue.length > 0 || chosenText.length > 0)),
           };
         })
         """
@@ -724,6 +753,9 @@ def snapshot_values(page: Page, fields: list[dict[str, Any]]) -> dict[str, dict[
                         "element => element.selectedOptions[0]?.textContent?.trim() || ''"
                     )
                 )
+            elif field.get("role") == "combobox":
+                question = label
+                value = combobox_value(control)
             else:
                 question = label
                 value = str(control.input_value())
