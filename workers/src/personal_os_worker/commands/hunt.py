@@ -273,6 +273,29 @@ def run_autofill(reference: str, *, dry_run: bool, no_claude: bool = False) -> i
     return 0
 
 
+def run_mark_applied(reference: str) -> int:
+    """`apply <row> --done`: you applied outside the worker; record it as applied."""
+    config, token = connected()
+    api = WorkerApi(config, token)
+    try:
+        listing = api.listing(reference)
+        posting_id = str(listing["id"])
+        application = next(
+            (item for item in api.applications() if str(item.get("posting_id")) == posting_id),
+            None,
+        )
+        if application is None:
+            queued = api.queue_applications([posting_id])
+            if not queued:
+                raise RuntimeError("This listing cannot be applied to (no application URL)")
+            application = queued[0]
+        updated = api.update_application(str(application["id"]), status="applied")
+    finally:
+        api.close()
+    console.print(f"Marked {updated.get('company_name')} — {updated.get('title')} as applied.")
+    return 0
+
+
 def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> bool:
     """Run one interactive apply session; True when the page reported a submission."""
     from pathlib import Path

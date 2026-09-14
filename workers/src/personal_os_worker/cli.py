@@ -202,6 +202,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip the bounded Claude pass over remaining short and choice questions",
     )
+    autofill.add_argument(
+        "--done",
+        action="store_true",
+        help="Do not fill anything; record that you applied to this listing yourself",
+    )
 
     return parser
 
@@ -318,6 +323,10 @@ def _dispatch(args: argparse.Namespace) -> int:
                 )
             if args.failure_action or args.failure_ref or args.verify_listing_ref:
                 raise RuntimeError("Unexpected autofill arguments")
+            if args.done:
+                if args.dry_run or args.no_claude:
+                    raise RuntimeError("--done takes no other flags")
+                return hunt.run_mark_applied(args.ref)
             return hunt.run_autofill(args.ref, dry_run=args.dry_run, no_claude=args.no_claude)
     return 2
 

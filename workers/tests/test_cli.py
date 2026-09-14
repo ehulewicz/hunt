@@ -207,6 +207,11 @@ def test_autofill_requires_a_saved_listing_reference_and_has_no_lentra_provider(
         build_parser().parse_args(["hunt", "apply", "7", "--provider", "lentra"])
 
 
+def test_apply_done_records_an_application_made_elsewhere() -> None:
+    assert build_parser().parse_args(["hunt", "apply", "1", "--done"]).done is True
+    assert build_parser().parse_args(["hunt", "apply", "1"]).done is False
+
+
 def test_autofill_no_claude_flag_defaults_off() -> None:
     assert build_parser().parse_args(["hunt", "apply", "7"]).no_claude is False
     assert build_parser().parse_args(["hunt", "apply", "7", "--no-claude"]).no_claude is True
