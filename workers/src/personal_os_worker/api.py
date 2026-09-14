@@ -110,6 +110,10 @@ class WorkerApi:
             raise RuntimeError("Application response was invalid")
         return payload
 
+    def archive_application(self, application_id: str) -> None:
+        response = self._client.delete(f"/v1/jobs/applications/{application_id}")
+        response.raise_for_status()
+
     def update_application(self, application_id: str, **fields: Any) -> dict[str, Any]:
         response = self._client.patch(f"/v1/jobs/applications/{application_id}", json=fields)
         response.raise_for_status()

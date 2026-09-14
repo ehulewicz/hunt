@@ -164,9 +164,9 @@ def render_listings(items: list[dict[str, Any]], total: int) -> None:
 
 
 def render_applications(items: list[dict[str, Any]]) -> None:
-    """Which applications are in, and which are still open."""
+    """What has been applied to, and when."""
     table = Table(
-        title=f"Applications ({len(items)})",
+        title=f"Applied ({len(items)})",
         header_style="bold",
         box=box.SIMPLE_HEAD,
         padding=(0, 1),
@@ -185,7 +185,7 @@ def render_applications(items: list[dict[str, Any]]) -> None:
             short_id(str(item.get("id", ""))),
             str(item.get("company_name") or "-"),
             str(item.get("title") or "-"),
-            f"[green]{applied}[/green]" if applied else "-",
+            applied or "-",
         )
     console.print(table)
     remember("apps", [str(item.get("id", "")) for item in items])

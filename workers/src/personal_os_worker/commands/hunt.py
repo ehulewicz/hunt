@@ -77,11 +77,11 @@ def run_apps() -> int:
     config, token = connected()
     api = WorkerApi(config, token)
     try:
-        applications = api.applications()
+        applications = [item for item in api.applications() if item.get("applied_at")]
     finally:
         api.close()
     if not applications:
-        console.print("No applications yet. Start one with 'os hunt apply <row>'.")
+        console.print("Nothing applied yet. 'os hunt apply <row>' records one when it goes in.")
         return 0
     render_applications(applications)
     return 0
