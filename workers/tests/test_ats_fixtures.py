@@ -828,3 +828,146 @@ def test_a_transcript_upload_takes_the_tracked_transcript(
         browser_page, fields, plan, resume_path=resume, assert_active=lambda: None
     )
     assert without["skipped_fields"] == ["Unofficial Transcript (no transcript provided)"]
+
+
+LEVER_CUSTOM_QUESTIONS = """
+<ul>
+  <li class="application-question custom-question">
+    <div>
+      <div class="application-label full-width text">
+        <div class="text">Please state your full legal name:<span class="required">✱</span></div>
+      </div>
+      <div class="application-field full-width required-field">
+        <input required="required" class="card-field-input" type="text"
+          placeholder="Type your response" name="cards[a][field0]">
+      </div>
+    </div>
+  </li>
+  <li class="application-question custom-question">
+    <div>
+      <div class="application-label full-width multiple-choice">
+        <div class="text">How did you hear about us?<span class="required">✱</span></div>
+      </div>
+      <div class="application-field full-width required-field">
+        <ul data-qa="multiple-choice">
+          <li><label><input type="radio" name="cards[b][field0]" required="required">
+            <span class="application-answer-alternative">Campus visit</span></label></li>
+          <li><label><input type="radio" name="cards[b][field0]" required="required">
+            <span class="application-answer-alternative">Referral</span></label></li>
+        </ul>
+      </div>
+    </div>
+  </li>
+  <li class="application-question custom-question">
+    <div>
+      <div class="application-label full-width multiple-select">
+        <div class="text">Which degrees have you already completed, if any?</div>
+      </div>
+      <div class="application-field full-width">
+        <ul data-qa="checkboxes">
+          <li><label><input type="checkbox" name="cards[c][field0]">
+            <span class="application-answer-alternative">Associate degree</span></label></li>
+          <li><label><input type="checkbox" name="cards[c][field0]">
+            <span class="application-answer-alternative">Bachelor's degree</span></label></li>
+        </ul>
+      </div>
+    </div>
+  </li>
+</ul>
+"""
+
+LEVER_EEO_RACE = """
+<div class="application-question">
+  <label>
+    <div class="application-label multiple-choice">Race</div>
+    <div class="application-field">
+      <ul data-qa="multiple-choice">
+        <li><label><input type="radio" name="eeo[race]">
+          <span class="eeo-option-text application-answer-alternative">Hispanic or Latino</span>
+          <div class="eeo-option-description">A person of Cuban, Mexican origin.</div>
+        </label></li>
+        <li><label><input type="radio" name="eeo[race]">
+          <span class="eeo-option-text application-answer-alternative">White</span>
+          <div class="eeo-option-description">A person having origins in Europe.</div>
+        </label></li>
+      </ul>
+    </div>
+  </label>
+</div>
+"""
+
+LEVER_BUILTIN_FULL_NAME = """
+<li class="application-question">
+  <label>
+    <div class="application-label">Full name<span class="required">✱</span></div>
+    <div class="application-field"><input type="text" name="name" required></div>
+  </label>
+</li>
+"""
+
+
+def test_lever_custom_question_groups_and_single_field_label_are_recognized(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(LEVER_CUSTOM_QUESTIONS)
+    fields = {f["label"] or f["group"]: f for f in inspect_fields(browser_page)}
+
+    assert fields["Please state your full legal name:"]["group"] == ""
+    assert fields["Please state your full legal name:"]["required"] is True
+
+    assert fields["Campus visit"]["group"] == "How did you hear about us?"
+    assert fields["Referral"]["group"] == "How did you hear about us?"
+    assert fields["Campus visit"]["required"] is True
+
+    assert fields["Associate degree"]["group"] == (
+        "Which degrees have you already completed, if any?"
+    )
+    assert fields["Associate degree"]["type"] == "checkbox"
+
+
+def test_lever_custom_radio_group_fills_through_the_fallback_tier(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(LEVER_CUSTOM_QUESTIONS)
+    fields = inspect_fields(browser_page)
+    plan = build_autofill_plan(
+        fields,
+        profile={},
+        approved_answers=[],
+        fallback=lambda question: {
+            "Please state your full legal name:": "Alex Example",
+            "How did you hear about us?": "Referral",
+        }.get(question),
+    )
+    result = apply_autofill(
+        browser_page, fields, plan, resume_path=None, assert_active=lambda: None
+    )
+
+    assert result["failures"] == []
+    assert browser_page.locator('input[name="cards[a][field0]"]').input_value() == (
+        "Alex Example"
+    )
+    referral = browser_page.get_by_text("Referral", exact=True).locator(
+        "xpath=preceding-sibling::input"
+    )
+    assert referral.is_checked()
+
+
+def test_lever_eeo_race_group_reports_the_clean_option_text(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(LEVER_EEO_RACE)
+    fields = inspect_fields(browser_page)
+    assert [(f["label"], f["group"]) for f in fields] == [
+        ("Hispanic or Latino", "Race"),
+        ("White", "Race"),
+    ]
+
+
+def test_lever_builtin_field_label_is_unaffected(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(LEVER_BUILTIN_FULL_NAME)
+    fields = inspect_fields(browser_page)
+    assert fields[0]["label"] == "Full name✱"
+    assert fields[0]["group"] == ""

@@ -661,6 +661,20 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
             ? labelledBy.split(/\\s+/).map(id => document.getElementById(id)?.textContent || '')
                 .join(' ')
             : '';
+          // Lever's custom questions and its EEO section put the question text
+          // in a sibling `.application-label`, never associated with the control
+          // by id or by wrapping it together with a single-input field; a radio
+          // or checkbox is additionally wrapped in its own tiny label holding
+          // only that option's text, which is what `wrapping` above already
+          // captures and must keep winning for those.
+          const leverQuestion = element.closest('.application-question');
+          const leverQuestionText = (
+            leverQuestion?.querySelector('.application-label')?.textContent || ''
+          ).replace(/[*\\u2731]\\s*$/, '').trim() || null;
+          // The EEO section nests a long description inside the same label as
+          // the option text; this span is the option's own text alone.
+          const leverOptionLabel = wrapping
+            ?.querySelector('.application-answer-alternative')?.textContent?.trim() || null;
           // Ashby renders a boolean question as two buttons plus a hidden checkbox
           // that mirrors their state; the question lives on a sibling label, not
           // on the checkbox itself.
@@ -682,7 +696,9 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           const baseLabel = (
               yesnoLabel?.textContent
               || explicit?.textContent
+              || leverOptionLabel
               || wrapping?.textContent
+              || leverQuestionText
               || element.getAttribute('aria-label')
               || referenced
               || localLabel?.textContent
@@ -746,6 +762,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
               legend?.textContent
               || group?.getAttribute('aria-label')
               || nearbyQuestion?.textContent
+              || (['radio', 'checkbox'].includes(element.type) ? leverQuestionText : null)
               || ''
             ).trim().replace(/\\s*\\*\\s*$/, ''),
             required: element.required === true
