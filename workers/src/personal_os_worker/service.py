@@ -164,7 +164,7 @@ def ensure_running(api_url: str, *, quiet: bool = False) -> bool:
     source = backend_source_fingerprint()
     if is_running(api_url):
         record = read_service("api")
-        if record is None or record.source is None or record.source == source:
+        if record is None or record.source == source:
             return False
         if not quiet:
             print("The backend source changed; restarting the local API ...")
