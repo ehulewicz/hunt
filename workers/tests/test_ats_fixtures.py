@@ -9,6 +9,7 @@ from personal_os_worker.browser import (
     audit_filled_form,
     click_safe_transition,
     combobox_options,
+    has_submit_control,
     inspect_fields,
     reveal_application_form,
     set_registered_value,
@@ -120,6 +121,17 @@ def test_safe_next_clicks_next_but_never_submit(browser_page) -> None:  # type: 
 
     assert click_safe_transition(browser_page, kind="next") == "Continue"
     assert browser_page.locator("#next").get_attribute("data-clicked") == "yes"
+    assert browser_page.locator("#submit").get_attribute("data-clicked") is None
+
+
+def test_submit_control_is_detected_without_clicking_it(browser_page) -> None:  # type: ignore[no-untyped-def]
+    browser_page.set_content(
+        """
+        <button>Continue</button>
+        <button id="submit" onclick="this.dataset.clicked = 'yes'">Submit application</button>
+        """
+    )
+    assert has_submit_control(browser_page) is True
     assert browser_page.locator("#submit").get_attribute("data-clicked") is None
 
 

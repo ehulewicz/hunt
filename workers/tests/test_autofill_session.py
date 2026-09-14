@@ -92,6 +92,41 @@ class ClosedTab:
         return 0
 
 
+def test_visible_submit_bypasses_the_application_form_heuristic(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    browser_page.set_content(
+        """
+        <label for="email">Email</label><input id="email" type="email">
+        <button type="submit">Submit application</button>
+        """
+    )
+    context = SessionContext(
+        api=FakeApi(),  # type: ignore[arg-type]
+        run_id="run-submit",
+        adapter_name="greenhouse",
+        browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
+        page=browser_page,
+        console_errors=[],
+        profile={},
+        answers=[],
+        scoped=[],
+        resume_json={},
+        resume_pdf=tmp_path / "resume.pdf",
+        company="Acme",
+        title="Engineer",
+        description=None,
+        draft_dir=tmp_path / "drafts",
+    )
+
+    fields = AutofillSession(context).wait_for_form()
+
+    assert fields is not None
+    assert "Hit a wall" not in capsys.readouterr().out
+
+
 def test_active_page_rejects_a_closed_session_page_when_another_web_tab_remains(
     browser_page,  # type: ignore[no-untyped-def]
 ) -> None:

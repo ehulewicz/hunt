@@ -3,9 +3,9 @@
 The terminal only reports. Long-form answers are edited in VS Code tabs and
 filled when each tab closes. Everything else the deterministic planner could
 not fill is typed on the page by the user; the worker polls the page, saves
-every answer it can see, and advances through the one safe Next control. It
-never clicks Submit. The run ends when the page leaves the form after the user
-submits, or when the user interrupts, and both paths save the collected answers.
+every answer it can see, and watches for a visible Submit control. The user owns
+Next and Submit; the run ends when the page reports submission or when the user
+interrupts, and both paths save the collected answers.
 """
 
 from __future__ import annotations
@@ -26,10 +26,9 @@ from personal_os_worker.browser import (
     BrowserClosedError,
     VisibleBrowser,
     apply_autofill,
-    audit_filled_form,
-    click_safe_transition,
     combobox_options,
     fresh_control,
+    has_submit_control,
     inspect_fields,
     is_browser_closed_error,
     looks_like_application_form,
@@ -303,7 +302,7 @@ class AutofillSession:
             self.page = self.ctx.browser.active_page(self.page)
             reveal_application_form(self.page)
             fields = inspect_fields(self.page)
-            if looks_like_application_form(fields):
+            if looks_like_application_form(fields) or has_submit_control(self.page):
                 for item in fields:
                     item["ats"] = self.ctx.adapter_name
                 return fields
@@ -665,15 +664,10 @@ class AutofillSession:
                 self.state.announced[question] = value
                 console.print(f"  [cyan]picked up:[/cyan] {question} -> {preview(value)}")
 
-    def wait_and_advance(
-        self, fields: list[dict[str, Any]], artifact_paths: dict[str, str]
-    ) -> None:
-        """Poll until required fields are complete, then follow one safe Next or Submit."""
+    def wait_and_advance(self, fields: list[dict[str, Any]]) -> None:
+        """Collect manual answers while the user owns page navigation and submission."""
         prior = page_signature(self.page, fields)
-        last_missing: tuple[str, ...] | None = None
-        clicked_next = False
-        transition_reported = False
-        idle_polls = 0
+        submit_reported = False
         while True:
             self.page = self.ctx.browser.active_page(self.page)
             current = inspect_fields(self.page)
@@ -682,38 +676,9 @@ class AutofillSession:
             if not looks_like_application_form(current) and looks_submitted(self.page):
                 return
             self.record_snapshot(current)
-            missing = tuple(audit_filled_form(current)["required_unfilled"])
-            if missing != last_missing:
-                if missing:
-                    console.print("  [yellow]left for you:[/yellow]")
-                    for question in missing:
-                        console.print(f"    - {question}")
-                else:
-                    console.print(
-                        "  All required fields are filled. Press Submit in the browser when ready."
-                        if clicked_next or self.ctx.adapter_name == "greenhouse"
-                        else "  All required fields are filled."
-                    )
-                last_missing = missing
-            if not missing and not clicked_next:
-                clicked = click_safe_transition(self.page, kind="next")
-                if clicked is not None:
-                    console.print(f"Clicked {clicked}. Waiting for the next step ...")
-                    clicked_next = True
-                    idle_polls = 0
-            elif clicked_next:
-                idle_polls += 1
-                if idle_polls >= 15 and not transition_reported:
-                    self.report_page_failure(
-                        "page_transition_failure",
-                        "URL and visible control fingerprints did not change after navigation",
-                        artifact_paths=artifact_paths or None,
-                    )
-                    transition_reported = True
-                    console.print(
-                        "[yellow]The form did not advance; the failure was recorded. "
-                        "Use the browser to move on; I am still watching.[/yellow]"
-                    )
+            if has_submit_control(self.page) and not submit_reported:
+                console.print("  Submit found. Press it in the browser when ready.")
+                submit_reported = True
             self.sleep()
 
     # ----- driver ----------------------------------------------------------
@@ -743,7 +708,7 @@ class AutofillSession:
                     self.fill_with_claude(fields, result)
                 opened = self.open_drafts(fields)
                 self.await_drafts(fields, opened)
-                self.wait_and_advance(fields, result.get("artifact_paths") or {})
+                self.wait_and_advance(fields)
                 self.state.step += 1
         except BrowserClosedError:
             console.print("The browser or application tab was closed. Ending autofill.")

@@ -89,13 +89,11 @@ os hunt apply 12
 The command verifies the company/role, saves the tracked run/application context,
 attaches the tracked `artifacts/career/Alex_Example.pdf` unchanged, follows one unambiguous Apply
 control when the ATS starts on a job-description page, fills the current step,
-then pauses. Edit the real page, answer the one incorrect-field prompt, and
-either type `review` or press Enter to authorize one exact Next/Continue click.
-If that is unsafe or unavailable, the CLI says `Hit a wall` and keeps waiting
-while you advance the visible browser manually. The CLI rescans after navigation.
-At final review, type `approve` to reread and persist non-empty long-form answers.
-No action vocabulary contains Next, Submit, consent, signature, attestation, or
-captcha operations. In the terminal, Ctrl+S saves what has been picked up so
+then watches while you review required fields and use Next or Submit in the
+browser. It reports a visible Submit control and rescans after navigation, but
+does not gate navigation on a required-field audit. No automated action contains
+Next, Submit, consent, signature, attestation, or captcha operations. In the
+terminal, Ctrl+S saves what has been picked up so
 far, Ctrl+A saves and marks the application applied when you have submitted
 it yourself, and Ctrl+C stops and saves. Whatever profile facts and exact answers leave unfilled goes
 through library and built-in pattern rules, then one bounded local Claude pass

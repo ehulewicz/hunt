@@ -183,6 +183,25 @@ def click_safe_transition(page: Page, *, kind: str) -> str | None:
     return None
 
 
+SUBMIT_CONTROL = re.compile(
+    r"^\s*submit\s*$|\b(?:submit|send|complete|finish)\b.*\b(?:application|form)\b",
+    re.IGNORECASE,
+)
+
+
+def has_submit_control(page: Page) -> bool:
+    """Whether the current page visibly offers the user's final submit action."""
+    for frame in page.frames:
+        locator = frame.get_by_role("button", name=SUBMIT_CONTROL)
+        for index in range(locator.count()):
+            try:
+                if locator.nth(index).is_visible():
+                    return True
+            except Error:
+                continue
+    return False
+
+
 def reveal_application_form(page: Page, *, timeout_ms: int = 15_000) -> bool:
     """Click through to the form when a posting hides it behind an Apply step.
 

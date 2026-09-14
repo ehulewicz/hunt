@@ -105,12 +105,10 @@ reference. Closing the tab fills the textarea with whatever is above the divider
 an empty top section leaves the field alone. Claude is only ever called for a
 textarea without an exact answer.
 
-After the tabs close the worker polls the page. It prints the required fields
-still empty and waits for the user to fill them on the page. Once none remain it
-follows the single safe Next/Continue control if one exists, and otherwise keeps
-watching until the user presses Submit and the page leaves the form. On every
-poll it snapshots every non-empty control on the page by its question and echoes
-anything the user typed or chose as `picked up`. Answers are saved to the
+After the tabs close the worker polls the page. It snapshots every non-empty
+control by its question, echoes anything the user typed or chose as `picked up`,
+and reports when it sees a visible Submit control. Required-field completeness,
+Next, and Submit are left to the user in the browser. Answers are saved to the
 library as approved when the page moves on after Submit, when the user presses
 Ctrl+S (or `s`) in the terminal, or when Ctrl+C stops the run; a later save of
 the same question overwrites the earlier value. The terminal is put in cbreak
