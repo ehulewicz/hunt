@@ -147,6 +147,19 @@ class VisibleBrowser:
         )
 
 
+def _distinct_destinations(candidates: list[Any]) -> list[Any]:
+    """Collapse several links to the same href into the first of them."""
+    hrefs: set[str | None] = set()
+    for candidate in candidates:
+        try:
+            hrefs.add(candidate.get_attribute("href"))
+        except Error:
+            return candidates
+    if None not in hrefs and len(hrefs) == 1:
+        return candidates[:1]
+    return candidates
+
+
 def click_safe_transition(page: Page, *, kind: str) -> str | None:
     """Click one unambiguous non-submission navigation control."""
     patterns = {
@@ -173,6 +186,11 @@ def click_safe_transition(page: Page, *, kind: str) -> str | None:
                     candidates.append(candidate)
             except Error:
                 continue
+        if role == "link" and len(candidates) > 1:
+            # Lever and others repeat the same Apply link at the top and bottom
+            # of the posting; several links to the identical destination are
+            # one control, not an ambiguous choice.
+            candidates = _distinct_destinations(candidates)
         if len(candidates) > 1:
             return None
         if len(candidates) == 1:

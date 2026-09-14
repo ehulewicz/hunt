@@ -111,6 +111,48 @@ def test_ashby_landing_page_apply_control_reveals_the_form(browser_page) -> None
     assert any(field.get("type") == "file" for field in inspect_fields(browser_page))
 
 
+def test_lever_style_duplicate_apply_links_to_the_same_page_are_not_ambiguous(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    """Lever repeats the Apply link at the top and bottom of the posting."""
+    browser_page.set_content(
+        """
+        <a data-qa="btn-apply-top" href="/apply">apply for this job</a>
+        <p>Job description ...</p>
+        <a data-qa="btn-apply-bottom" href="/apply">apply for this job</a>
+        <script>
+        document.querySelectorAll('a[href="/apply"]').forEach(link => {
+          link.addEventListener('click', event => {
+            event.preventDefault();
+            window.__applyClicks = (window.__applyClicks || 0) + 1;
+            document.body.innerHTML =
+              '<label>First name<input name="first_name" required></label>' +
+              '<label>Email<input name="email" required></label>' +
+              '<label>Resume<input name="resume" type="file" required></label>';
+          });
+        });
+        </script>
+        """
+    )
+
+    assert reveal_application_form(browser_page, timeout_ms=2_000) is True
+    assert any(field.get("name") == "email" for field in inspect_fields(browser_page))
+    assert browser_page.evaluate("window.__applyClicks") == 1
+
+
+def test_apply_links_to_different_destinations_stay_ambiguous(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(
+        """
+        <a href="/apply-a">apply now</a>
+        <a href="/apply-b">apply now</a>
+        """
+    )
+
+    assert click_safe_transition(browser_page, kind="apply") is None
+
+
 def test_safe_next_clicks_next_but_never_submit(browser_page) -> None:  # type: ignore[no-untyped-def]
     browser_page.set_content(
         """
