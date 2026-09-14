@@ -11,6 +11,7 @@ from personal_os_worker.browser import (
     reveal_application_form,
     snapshot_values,
 )
+from personal_os_worker.patterns import resolve_pattern_answer
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -227,3 +228,60 @@ def test_ashby_radio_groups_take_their_question_from_the_heading_label(
         ("Yes", "Are you authorized to work?", True),
         ("No", "Are you authorized to work?", True),
     ]
+
+
+def test_ashby_yesno_control_is_fillable_by_the_sanctioned_country_rule(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    question = "Are you a citizen or resident of a sanctioned country?"
+    browser_page.set_content(
+        f"""
+        <div class="ashby-application-form-field-entry">
+          <label class="ashby-application-form-question-title _required_f7cvd_91">
+            {question}
+          </label>
+          <div class="ashby-application-form-input-yesno">
+            <button type="button" aria-pressed="false" data-option="yes">Yes</button>
+            <button type="button" aria-pressed="false" data-option="no">No</button>
+            <input type="checkbox" tabindex="-1">
+          </div>
+        </div>
+        <script>
+        document.querySelectorAll('.ashby-application-form-input-yesno button[data-option]')
+          .forEach(button => button.addEventListener('click', () => {{
+            const container = button.closest('.ashby-application-form-input-yesno');
+            container.querySelectorAll('button[data-option]')
+              .forEach(other => other.setAttribute('aria-pressed', 'false'));
+            button.setAttribute('aria-pressed', 'true');
+            container.querySelector('input[type="checkbox"]').checked =
+              button.dataset.option === 'yes';
+          }}));
+        </script>
+        """
+    )
+    fields = inspect_fields(browser_page)
+    assert [
+        (f["type"], f["label"], f["options"], f["filled"], f["value"], f["required"])
+        for f in fields
+    ] == [("yesno", question, ["Yes", "No"], False, None, True)]
+
+    profile = {"visa_status": "Citizen"}
+    plan = build_autofill_plan(
+        fields,
+        profile={},
+        approved_answers=[],
+        fallback=lambda asked: resolve_pattern_answer(
+            asked, rules=[], profile=profile, resume={}, company="Acme"
+        ),
+    )
+    result = apply_autofill(
+        browser_page, fields, plan, resume_path=None, assert_active=lambda: None
+    )
+
+    assert result["filled_fields"] == [question]
+    refreshed = inspect_fields(browser_page)
+    assert refreshed[0]["value"] == "No"
+    assert refreshed[0]["filled"] is True
+    assert snapshot_values(browser_page, refreshed) == {
+        question: {"question": question, "answer_text": "No", "control_kind": "yesno"}
+    }

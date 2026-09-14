@@ -11,6 +11,11 @@ from playwright.sync_api import Browser, Error, Page, Playwright, sync_playwrigh
 from personal_os_worker.adapters import failure_signature, option_match
 from personal_os_worker.autofill import AutofillPlan, build_autofill_plan, is_sensitive_field
 
+YESNO_CONTAINER_XPATH = (
+    "xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), "
+    "' ashby-application-form-input-yesno ')][1]"
+)
+
 
 class BrowserClosedError(RuntimeError):
     """The connected browser or its last usable application tab was closed."""
@@ -250,6 +255,11 @@ def apply_autofill(
                 if option.count() != 1:
                     raise RuntimeError("no unambiguous combobox option")
                 option.click()
+            elif field.get("type") == "yesno" and fill.value is not None:
+                yesno_option = "yes" if fill.value.strip().casefold() == "yes" else "no"
+                control.locator(YESNO_CONTAINER_XPATH).locator(
+                    f'button[data-option="{yesno_option}"]'
+                ).click()
             elif field.get("type") in {"radio", "checkbox"} and fill.value is not None:
                 if (
                     field.get("ats") == "lever"
@@ -359,6 +369,12 @@ def verify_control(
     try:
         if resume:
             return int(control.evaluate("element => element.files?.length || 0")) > 0
+        if field.get("type") == "yesno":
+            yesno_option = "yes" if str(value or "").strip().casefold() == "yes" else "no"
+            button = control.locator(YESNO_CONTAINER_XPATH).locator(
+                f'button[data-option="{yesno_option}"]'
+            )
+            return bool(button.get_attribute("aria-pressed") == "true")
         if field.get("type") in {"radio", "checkbox"}:
             return bool(control.is_checked())
         observed = str(control.input_value()).strip()
@@ -441,10 +457,24 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
             ? labelledBy.split(/\\s+/).map(id => document.getElementById(id)?.textContent || '')
                 .join(' ')
             : '';
+          // Ashby renders a boolean question as two buttons plus a hidden checkbox
+          // that mirrors their state; the question lives on a sibling label, not
+          // on the checkbox itself.
+          const yesnoContainer = element.closest('.ashby-application-form-input-yesno');
+          const yesnoLabel = yesnoContainer?.parentElement?.querySelector(
+            'label.ashby-application-form-question-title'
+          ) || null;
+          const yesnoButtons = yesnoContainer
+            ? [...yesnoContainer.querySelectorAll('button[data-option]')] : [];
+          const yesnoPressed = yesnoButtons.find(
+            button => button.getAttribute('aria-pressed') === 'true'
+          ) || null;
+          const finalType = yesnoContainer ? 'yesno' : element.getAttribute('type');
           // A placeholder such as "Start typing..." is the last resort; Ashby
           // comboboxes have no id, so their question lives on the field's label.
           const rawLabel = (
-              explicit?.textContent
+              yesnoLabel?.textContent
+              || explicit?.textContent
               || wrapping?.textContent
               || element.getAttribute('aria-label')
               || referenced
@@ -473,7 +503,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           return {
             index,
             tag: element.tagName.toLowerCase(),
-            type: element.getAttribute('type'),
+            type: finalType,
             name: element.getAttribute('name'),
             label,
             group: (
@@ -485,24 +515,31 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
               || element.getAttribute('aria-required') === 'true'
               || /\\*\\s*$/.test(rawLabel)
               || (['radio', 'checkbox'].includes(element.type) && groupRequired)
-              || (element.getAttribute('role') === 'combobox' && mirroredRequired),
+              || (element.getAttribute('role') === 'combobox' && mirroredRequired)
+              || Boolean(yesnoContainer && /_required_/.test(yesnoLabel?.className || '')),
             selector,
             role: element.getAttribute('role'),
             placeholder: element.getAttribute('placeholder'),
             autocomplete: element.getAttribute('autocomplete'),
-            options: element.tagName === 'SELECT'
-              ? [...element.options].map(option => option.textContent.trim()).filter(Boolean)
-              : [],
-            value: ['radio', 'checkbox'].includes(element.type)
-              ? (element.getAttribute('value') || '') : null,
-            fingerprint: [element.tagName, element.getAttribute('type'),
+            options: yesnoContainer
+              ? ['Yes', 'No']
+              : element.tagName === 'SELECT'
+                ? [...element.options].map(option => option.textContent.trim()).filter(Boolean)
+                : [],
+            value: yesnoContainer
+              ? (yesnoPressed ? yesnoPressed.textContent.trim() : null)
+              : ['radio', 'checkbox'].includes(element.type)
+                ? (element.getAttribute('value') || '') : null,
+            fingerprint: [element.tagName, finalType,
               element.getAttribute('name'), label, element.getAttribute('role')
             ].join('|').toLowerCase(),
-            filled: element.type === 'file'
-              ? (element.files?.length || 0) > 0
-              : ['checkbox', 'radio'].includes(element.type)
-                ? element.checked === true
-                : String(element.value || '').trim().length > 0,
+            filled: yesnoContainer
+              ? Boolean(yesnoPressed)
+              : element.type === 'file'
+                ? (element.files?.length || 0) > 0
+                : ['checkbox', 'radio'].includes(element.type)
+                  ? element.checked === true
+                  : String(element.value || '').trim().length > 0,
           };
         })
         """
@@ -597,7 +634,15 @@ def snapshot_values(page: Page, fields: list[dict[str, Any]]) -> dict[str, dict[
         group = str(field.get("group") or "").strip()
         try:
             control = fresh_control(page, field)
-            if field_type in {"radio", "checkbox"}:
+            if field_type == "yesno":
+                pressed = control.locator(YESNO_CONTAINER_XPATH).locator(
+                    'button[aria-pressed="true"]'
+                )
+                if pressed.count() != 1:
+                    continue
+                question = label
+                value = str(pressed.first.inner_text())
+            elif field_type in {"radio", "checkbox"}:
                 if not control.is_checked():
                     continue
                 question = group or label
