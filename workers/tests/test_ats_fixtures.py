@@ -417,3 +417,57 @@ def test_places_city_typeahead_is_filled_by_the_location_rule(
             "control_kind": "input",
         }
     }
+
+
+FREE_ENTRY_GPA = """
+<div class="select">
+  <label for="gpa">What is your current cumulative GPA (on a 4.0 scale)?</label>
+  <div class="select__control"><div class="select__value-container">
+    <input id="gpa" class="select__input" role="combobox" aria-required="true" autocomplete="off">
+  </div></div>
+</div>
+<script>
+(() => {
+const box = document.querySelector('#gpa');
+const holder = document.querySelector('.select__value-container');
+box.addEventListener('keydown', event => {
+  if (event.key !== 'Enter' || !box.value.trim()) return;
+  const chosen = document.createElement('div');
+  chosen.className = 'select__single-value';
+  chosen.textContent = box.value.trim();
+  holder.prepend(chosen);
+  box.value = '';
+});
+})();
+</script>
+"""
+
+
+def test_free_entry_typeahead_commits_the_typed_value_with_enter(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(FREE_ENTRY_GPA)
+    fields = inspect_fields(browser_page)
+    plan = build_autofill_plan(
+        fields,
+        profile={},
+        approved_answers=[],
+        fallback=lambda asked: resolve_pattern_answer(
+            asked, rules=[], profile={"gpa": "3.78"}, resume={}, company="Acme"
+        ),
+    )
+    assert [fill.value for fill in plan.fills] == ["3.78"]
+    result = apply_autofill(
+        browser_page, fields, plan, resume_path=None, assert_active=lambda: None
+    )
+
+    assert result["failures"] == []
+    assert browser_page.locator(".select__single-value").inner_text() == "3.78"
+    refreshed = inspect_fields(browser_page)
+    assert refreshed[0]["filled"] is True
+    assert snapshot_values(browser_page, refreshed)[refreshed[0]["label"]]["answer_text"] == "3.78"
+    # Already answered: no tier plans it again.
+    replan = build_autofill_plan(
+        refreshed, profile={}, approved_answers=[], fallback=lambda _: "4.0"
+    )
+    assert replan.fills == ()

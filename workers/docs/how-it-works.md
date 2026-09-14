@@ -37,6 +37,10 @@ a `yesno` control with the sibling question text and `Yes`/`No` options,
 clicks the matching button, and verifies `aria-pressed` rather than the
 checkbox. Profile facts and exact library answers fill deterministically,
 including selects, comboboxes, and radio groups matched by their question text.
+A control that already holds a value is never planned by any tier: a react-select
+counts as filled when its rendered choice is present even though its search
+input is empty, and a free-entry typeahead with no option for the typed text is
+committed with Enter.
 
 Whatever is still unfilled after that goes through two more tiers, in order.
 Library rows with `reuse_policy = 'pattern'` are case-insensitive regular

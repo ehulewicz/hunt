@@ -625,3 +625,48 @@ def test_fallback_yes_is_ambiguous_against_several_yes_options() -> None:
     plan = build_autofill_plan(fields, profile={}, approved_answers=[], fallback=lambda _: "Yes")
     assert plan.fills == ()
     assert plan.unanswered_required_questions == ("Authorized?",)
+
+
+def test_filled_controls_and_answered_groups_are_never_planned_again() -> None:
+    fields = [
+        {"index": 0, "tag": "input", "type": "text", "label": "First name", "filled": True},
+        {"index": 1, "tag": "input", "type": "text", "label": "Email", "filled": False},
+        {"index": 2, "tag": "input", "type": "file", "label": "Resume", "filled": True},
+        {
+            "index": 3,
+            "tag": "input",
+            "type": "radio",
+            "label": "Yes",
+            "group": "Authorized?",
+            "required": True,
+            "filled": False,
+        },
+        {
+            "index": 4,
+            "tag": "input",
+            "type": "radio",
+            "label": "No",
+            "group": "Authorized?",
+            "required": True,
+            "filled": True,
+        },
+        {
+            "index": 5,
+            "tag": "input",
+            "type": "text",
+            "role": "combobox",
+            "label": "Location (City)",
+            "required": True,
+            "filled": True,
+        },
+    ]
+    plan = build_autofill_plan(
+        fields,
+        profile={"legal_name": "Alex Example", "email": "ethan@example.com"},
+        approved_answers=[],
+        fallback=lambda _: "Yes",
+    )
+    assert [(fill.index, fill.kind, fill.value) for fill in plan.fills] == [
+        (1, "text", "ethan@example.com")
+    ]
+    assert plan.unanswered_required_questions == ()

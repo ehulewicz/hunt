@@ -161,11 +161,17 @@ def build_autofill_plan(
     }
 
     group_options: dict[str, list[str]] = {}
+    # A choice group with any option checked is answered; a control with a
+    # value is answered. Neither is planned again by any tier.
+    filled_groups: set[str] = set()
     for field in fields:
         if str(field.get("type") or "").casefold() in {"radio", "checkbox"} and field.get("group"):
-            group_options.setdefault(normalize_question(str(field["group"])), []).append(
+            group_key = normalize_question(str(field["group"]))
+            group_options.setdefault(group_key, []).append(
                 str(field.get("label") or field.get("value") or "")
             )
+            if field.get("filled") is True:
+                filled_groups.add(group_key)
 
     for field in fields:
         label = str(field.get("label") or "").strip()
@@ -180,6 +186,10 @@ def build_autofill_plan(
         index = int(field["index"])
 
         if field_type in {"submit", "button", "reset", "hidden"} or tag == "button":
+            continue
+        if field.get("filled") is True or (
+            field_type in {"radio", "checkbox"} and normalized in filled_groups
+        ):
             continue
 
         value: str | None = None

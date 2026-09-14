@@ -381,6 +381,11 @@ def select_combobox_option(page: Page, control: Any, value: str) -> str:
     try:
         options.first.wait_for(state="visible", timeout=COMBOBOX_OPTIONS_TIMEOUT_MS)
     except Error as error:
+        # A free-entry typeahead (Greenhouse's GPA question) offers nothing to
+        # pick; Enter is what commits the typed text.
+        control.press("Enter")
+        if combobox_value(control).casefold() == value.strip().casefold():
+            return value.strip()
         raise RuntimeError("no unambiguous combobox option (none appeared)") from error
     page.wait_for_timeout(COMBOBOX_SETTLE_MS)
     # Pages keep other listboxes in the DOM (Greenhouse's phone-code list has
