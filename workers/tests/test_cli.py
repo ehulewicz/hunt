@@ -225,11 +225,14 @@ def test_autofill_accepts_today_with_an_ats_filter() -> None:
     assert args.ref == "today" and args.ats == "greenhouse"
     assert args.dry_run is True and args.no_claude is True
     assert build_parser().parse_args(["hunt", "apply", "today"]).ats is None
+    bare = build_parser().parse_args(["hunt", "apply", "--ats", "ashby"])
+    assert bare.ref is None and bare.ats == "ashby"
+    assert build_parser().parse_args(["hunt", "apply"]).ref is None
     with pytest.raises(SystemExit):
         build_parser().parse_args(["hunt", "apply", "today", "--ats", "icims"])
 
 
-def test_apply_today_uses_the_first_listing_of_today_on_a_supported_or_chosen_ats(
+def test_bare_apply_and_apply_today_use_the_first_row_on_a_supported_or_chosen_ats(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[str, object]] = []
@@ -305,6 +308,20 @@ def test_apply_today_uses_the_first_listing_of_today_on_a_supported_or_chosen_at
 
     with pytest.raises(SystemExit, match="Nothing new today on lever"):
         main(["hunt", "apply", "today", "--ats", "lever"])
+
+    # Without 'today' the whole board counts, in board order.
+    assert main(["hunt", "apply", "--dry-run"]) == 0
+    assert calls[-3] == (
+        "listings",
+        (["software_engineering", "data_engineering", "ml_engineering"], 1000),
+    )
+    assert calls[-1] == ("apply", ("old-greenhouse", True, False))
+    assert main(["hunt", "apply", "--ats", "ashby"]) == 0
+    assert calls[-1] == ("apply", ("ashby-first", False, False))
+    with pytest.raises(SystemExit, match="do not give a row"):
+        main(["hunt", "apply", "3", "--ats", "ashby"])
+    with pytest.raises(SystemExit, match="needs a listing row"):
+        main(["hunt", "apply", "--done"])
 
 
 def test_apply_done_records_an_application_made_elsewhere() -> None:

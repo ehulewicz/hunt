@@ -55,8 +55,9 @@ committed with Enter.
 
 `os hunt today` shows listings at most a day old; on it and on the board, `--ats greenhouse|ashby|lever|workday|generic`
 narrows the view to one form type, detected from the direct application URL,
-and the board shows that type in its `ats` column. `os hunt apply today` applies
-the first listing in that order on a supported ATS, or on the `--ats` given.
+and the board shows that type in its `ats` column. `os hunt apply` with no row
+applies the top board row on a supported ATS, or on the `--ats` given;
+`os hunt apply today` does the same over today's rows.
 The worker never selects a “Prefer not to answer,” “Decline,” or equivalent
 choice; when no factual answer is available, that question remains for the user.
 Consent stays manual, while custom radio groups now recognize and preserve a

@@ -23,7 +23,7 @@ os hunt queue empty
 os hunt apps
 os hunt apply 1 --dry-run
 os hunt apply 1
-os hunt apply today --ats greenhouse
+os hunt apply --ats greenhouse
 os hunt apply failures list
 ```
 

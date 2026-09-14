@@ -36,7 +36,9 @@ os hunt apps 1 oa
 
 os hunt apply 1 --dry-run
 os hunt apply 1
-os hunt apply today               # first listing of `os hunt today` on a supported ATS
+os hunt apply                     # top board row on a supported ATS
+os hunt apply --ats greenhouse    # top Greenhouse row
+os hunt apply today               # first of `os hunt today` on a supported ATS
 os hunt apply today --ats greenhouse
 os hunt apply 1 --no-claude
 os hunt apply 1 --done       # applied outside the worker; just record it

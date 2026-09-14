@@ -186,8 +186,14 @@ def build_parser() -> argparse.ArgumentParser:
         "apply",
         help="Fill a listing in native Chrome, or manage captured failures",
     )
-    autofill.add_argument("ref", help="Listing row/id, 'today', or 'failures'")
-    autofill.add_argument("--ats", choices=ATS_NAMES, help="With 'today': only this form type")
+    autofill.add_argument(
+        "ref",
+        nargs="?",
+        help="Listing row/id, 'today', or 'failures'; omitted = the top board row",
+    )
+    autofill.add_argument(
+        "--ats", choices=ATS_NAMES, help="Top row on this form type (no row given, or 'today')"
+    )
     autofill.add_argument(
         "failure_action",
         nargs="?",
@@ -332,17 +338,20 @@ def _dispatch(args: argparse.Namespace) -> int:
             if args.failure_action or args.failure_ref or args.verify_listing_ref:
                 raise RuntimeError("Unexpected autofill arguments")
             if args.done:
-                if args.dry_run or args.no_claude:
+                if args.dry_run or args.no_claude or args.ats:
                     raise RuntimeError("--done takes no other flags")
-                if args.ref == "today":
-                    raise RuntimeError("'apply today' does not support --done")
+                if args.ref is None or args.ref == "today":
+                    raise RuntimeError("--done needs a listing row or id")
                 return hunt.run_mark_applied(args.ref)
-            if args.ref == "today":
-                return hunt.run_autofill_today(
-                    ats=args.ats, dry_run=args.dry_run, no_claude=args.no_claude
+            if args.ref is None or args.ref == "today":
+                return hunt.run_autofill_top(
+                    today=args.ref == "today",
+                    ats=args.ats,
+                    dry_run=args.dry_run,
+                    no_claude=args.no_claude,
                 )
             if args.ats:
-                raise RuntimeError("--ats only applies to 'apply today'")
+                raise RuntimeError("--ats picks the top row; do not give a row with it")
             return hunt.run_autofill(args.ref, dry_run=args.dry_run, no_claude=args.no_claude)
     return 2
 

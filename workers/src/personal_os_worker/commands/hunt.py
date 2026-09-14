@@ -304,14 +304,22 @@ def run_autofill(reference: str, *, dry_run: bool, no_claude: bool = False) -> i
     return 0
 
 
-def run_autofill_today(*, ats: str | None, dry_run: bool, no_claude: bool = False) -> int:
-    """Apply the first listing `hunt today` shows, on the given ATS or any supported one."""
+def run_autofill_top(
+    *, today: bool, ats: str | None, dry_run: bool, no_claude: bool = False
+) -> int:
+    """Apply the first board row (or first of today) on the given ATS, else any supported one."""
     from personal_os_worker.adapters import detect_ats
 
+    families = list(DEFAULT_TECHNICAL_FAMILIES)
     config, token = connected()
     api = WorkerApi(config, token)
     try:
-        items = today_listings(api, role_families=list(DEFAULT_TECHNICAL_FAMILIES), ats=ats)
+        if today:
+            items = today_listings(api, role_families=families, ats=ats)
+        else:
+            items = list(api.listings(role_families=families, limit=1000).get("items") or [])
+            if ats:
+                items = by_ats(items, ats)
     finally:
         api.close()
     if ats is None:
@@ -322,10 +330,10 @@ def run_autofill_today(*, ats: str | None, dry_run: bool, no_claude: bool = Fals
         ]
     if not items:
         where = f"on {ats}" if ats else "on a supported ATS"
-        raise RuntimeError(f"Nothing new today {where}.")
+        raise RuntimeError(f"Nothing {'new today' if today else 'listed'} {where}.")
     listing = items[0]
     console.print(
-        f"Applying first of today: {listing.get('company_name')} — {listing.get('title')}"
+        f"Applying row {listing.get('row')}: {listing.get('company_name')} — {listing.get('title')}"
     )
     apply_posting(str(listing["id"]), dry_run=dry_run, no_claude=no_claude)
     return 0
