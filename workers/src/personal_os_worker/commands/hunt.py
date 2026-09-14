@@ -1,4 +1,4 @@
-"""The Jobs domain: browse listings, queue and apply to them, track what went in."""
+"""The Jobs domain: browse listings, apply to them, and track what went in."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from personal_os_worker.tables import (
 )
 
 APPLICATION_STATUSES = (
-    "queued", "applied", "oa", "oa_completed", "interview", "offer", "rejected", "skipped"
+    "applying", "applied", "oa", "oa_completed", "interview", "offer", "rejected", "skipped"
 )
 
 DEFAULT_TECHNICAL_FAMILIES = [
@@ -159,8 +159,8 @@ def run_apps(reference: str | None = None, status: str | None = None) -> int:
     return 0
 
 
-# Queued rows live in `queue`, skipped ones in `skipped`; `apps` is the lifecycle.
-HIDDEN = frozenset({"queued", "skipped"})
+# Skipped listings have their own restore workflow; `apps` is the lifecycle.
+HIDDEN = frozenset({"skipped"})
 
 
 def run_skipped(restore: str | None = None) -> int:
@@ -270,52 +270,6 @@ def run_answer_edit(
     return 0
 
 
-def run_queue(references: list[str] | None = None, *, empty: bool = False) -> int:
-    """`queue` lists it, `queue add <rows>` fills it, `queue empty` applies through it."""
-    if empty:
-        return _empty_queue()
-    config, token = connected()
-    api = WorkerApi(config, token)
-    try:
-        if references:
-            posting_ids = [str(api.listing(reference)["id"]) for reference in references]
-            added = api.queue_applications(posting_ids)
-            for item in added:
-                console.print(f"  queued: {item.get('company_name')} — {item.get('title')}")
-        queued = [item for item in api.applications() if item.get("status") == "queued"]
-    finally:
-        api.close()
-    if not queued:
-        console.print("The queue is empty. 'os hunt queue add <rows>' fills it.")
-        return 0
-    render_applications(queued, title="Queue")
-    return 0
-
-
-def _empty_queue() -> int:
-    """Apply through the queue in order; Ctrl+C stops after the current one."""
-    config, token = connected()
-    api = WorkerApi(config, token)
-    try:
-        queued = [item for item in api.applications() if item.get("status") == "queued"]
-    finally:
-        api.close()
-    if not queued:
-        console.print("The queue is empty.")
-        return 0
-    for position, item in enumerate(queued, start=1):
-        console.print(
-            f"[bold]Queue {position}/{len(queued)}:[/bold] {item.get('company_name')} — "
-            f"{item.get('title')}"
-        )
-        outcome = apply_posting(str(item["posting_id"]), dry_run=False, no_claude=False)
-        if outcome == "stopped":
-            console.print("Not submitted; it stays in the queue. Stopping here.")
-            return 0
-    console.print("Queue emptied.")
-    return 0
-
-
 def run_doctor_command() -> int:
     config, token = connected()
     checks = run_doctor(config, token)
@@ -382,11 +336,9 @@ def run_mark_applied(reference: str) -> int:
             None,
         )
         if application is None:
-            queued = api.queue_applications([posting_id])
-            if not queued:
-                raise RuntimeError("This listing cannot be applied to (no application URL)")
-            application = queued[0]
-        updated = api.update_application(str(application["id"]), status="applied")
+            updated = api.create_application(posting_id, status="applied")
+        else:
+            updated = api.update_application(str(application["id"]), status="applied")
     finally:
         api.close()
     console.print(f"Marked {updated.get('company_name')} — {updated.get('title')} as applied.")
@@ -574,6 +526,7 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> str:
                 api.update_application(str(run["application_id"]), status="skipped")
                 console.print(f"Skipped {expected_company}; 'os hunt skipped restore' undoes it.")
                 return "skipped"
+            api.archive_application(str(run["application_id"]))
     except KeyboardInterrupt:
         if run_id is not None:
             api.stop_autofill_run(run_id, status="abandoned")

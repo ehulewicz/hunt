@@ -4,7 +4,7 @@ import { expect, test, vi } from "vitest";
 import { accountInitials, AccountMenu } from "@/components/account-menu";
 import { AppShell } from "@/components/app-shell";
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/jobs/resumes" }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/dashboard" }));
 
 const account = {
   user_id: "c3c8d239-162d-4e5e-a2a1-4ac0d1b3695f",
@@ -17,11 +17,11 @@ test("account initials use the first and final names", () => {
   expect(accountInitials("Eah Middle Tree")).toBe("ET");
 });
 
-test("jobs navigation stays inside the persistent shell", () => {
-  render(<AppShell account={account} onSignOut={() => undefined}><h1>Resumes</h1></AppShell>);
+test("the shell has no Jobs navigation", () => {
+  render(<AppShell account={account} onSignOut={() => undefined}><h1>Dashboard</h1></AppShell>);
   expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/dashboard");
-  expect(screen.getByRole("link", { name: "Resumes" })).toHaveAttribute("aria-current", "page");
-  expect(screen.getByRole("heading", { name: "Resumes" })).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Jobs" })).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
 });
 
 test("account menu shows identity and no profile route", () => {

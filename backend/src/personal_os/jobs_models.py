@@ -182,7 +182,7 @@ class JobApplication(BaseModel):
 
 
 APPLICATION_STATUSES = (
-    "queued",
+    "applying",
     "applied",
     "oa",
     "oa_completed",
@@ -192,12 +192,13 @@ APPLICATION_STATUSES = (
     "skipped",
 )
 ApplicationStatus = Literal[
-    "queued", "applied", "oa", "oa_completed", "interview", "offer", "rejected", "skipped"
+    "applying", "applied", "oa", "oa_completed", "interview", "offer", "rejected", "skipped"
 ]
 
 
-class QueueApplicationsRequest(BaseModel):
-    posting_ids: list[UUID] = Field(min_length=1, max_length=200)
+class ApplicationCreate(BaseModel):
+    posting_id: UUID
+    status: Literal["applying", "applied"] = "applying"
 
 
 class ApplicationUpdate(BaseModel):

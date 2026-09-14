@@ -154,14 +154,14 @@ class WorkerApi:
             raise RuntimeError("Application response was invalid")
         return payload
 
-    def queue_applications(self, posting_ids: list[str]) -> list[dict[str, Any]]:
+    def create_application(self, posting_id: str, *, status: str) -> dict[str, Any]:
         response = self._client.post(
-            "/v1/jobs/applications/queue", json={"posting_ids": posting_ids}
+            "/v1/jobs/applications", json={"posting_id": posting_id, "status": status}
         )
         response.raise_for_status()
         payload = response.json()
-        if not isinstance(payload, list):
-            raise RuntimeError("Queue response was invalid")
+        if not isinstance(payload, dict):
+            raise RuntimeError("Created application response was invalid")
         return payload
 
     def archive_application(self, application_id: str) -> None:
@@ -257,4 +257,3 @@ class WorkerApi:
     def doctor(self) -> None:
         response = self._client.get("/v1/jobs/worker/doctor")
         response.raise_for_status()
-

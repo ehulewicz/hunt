@@ -72,7 +72,7 @@ def _age(days: Any) -> str:
 
 
 def render_listings(items: list[dict[str, Any]], total: int, *, title: str = "Listings") -> None:
-    """Rows carry the board number the database assigned; a `q` marks a queued one."""
+    """Rows carry the board number the database assigned."""
     # One row must stay one line, or the table stops being scannable.
     table = Table(
         title=f"{title} ({len(items)} of {total})",
@@ -88,7 +88,6 @@ def render_listings(items: list[dict[str, Any]], total: int, *, title: str = "Li
     table.add_column("age", justify="right", no_wrap=True)
     table.add_column("ats", no_wrap=True, style="dim")
     table.add_column("cat", no_wrap=True)
-    table.add_column("q", no_wrap=True)
 
     for item in items:
         category = str(item.get("source_category") or "")
@@ -107,7 +106,6 @@ def render_listings(items: list[dict[str, Any]], total: int, *, title: str = "Li
             _age(item.get("source_age_days")),
             _ats(application_url),
             "" if category == "other" else category,
-            "q" if item.get("application_status") == "queued" else "",
         )
     console.print(table)
 

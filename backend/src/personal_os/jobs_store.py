@@ -39,7 +39,7 @@ from personal_os.jobs_sources import SOURCE_NAME, SourceListing
 
 ANSWER_SOURCES = frozenset({"jobs_profile", "answer_library", "model", "pattern", "manual"})
 
-# Every non-data-science open listing not yet applied to (queued ones stay),
+# Every non-data-science open listing without an active application,
 # numbered once: default technical families first, newest first, ties by id.
 BOARD_QUERY = sql.SQL(
     """
@@ -68,7 +68,7 @@ BOARD_QUERY = sql.SQL(
       and posting.career_stage = 'internship'
       and posting.feed_region = 'usa'
       and not (posting.role_families && array['data_science']::text[])
-      and (application.id is null or application.status = 'queued')
+      and application.id is null
     """
 )
 
@@ -99,9 +99,9 @@ class JobsStore(Protocol):
 
     async def get_listing(self, user_id: UUID, reference: str) -> JobListing | None: ...
 
-    async def queue_applications(
-        self, user_id: UUID, posting_ids: Sequence[UUID]
-    ) -> list[UUID]: ...
+    async def create_application(
+        self, user_id: UUID, posting_id: UUID, status: str
+    ) -> JobApplication | None: ...
 
     async def list_applications(self, user_id: UUID) -> list[JobApplication]: ...
 
@@ -534,32 +534,34 @@ class PostgresJobsStore:
                 raise AmbiguousReference(reference)
             return JobListing.model_validate(rows[0]) if rows else None
 
-    async def queue_applications(self, user_id: UUID, posting_ids: Sequence[UUID]) -> list[UUID]:
-        """Put listings in the queue; an application already past it is left alone."""
-        queued: list[UUID] = []
+    async def create_application(
+        self, user_id: UUID, posting_id: UUID, status: str
+    ) -> JobApplication | None:
+        """Create one lifecycle row without introducing a backlog or batch queue."""
         async with (
             self._pool.connection(timeout=self._timeout) as connection,
             connection.transaction(),
         ):
             await connection.execute("set local role personal_os_api")
-            for posting_id in dict.fromkeys(posting_ids):
-                cursor = await connection.execute(
-                    """
-                    insert into app.jobs_applications (user_id, posting_id)
-                    select %s, id from app.jobs_postings
-                    where id = %s and user_id = %s and application_url is not null
-                    on conflict (user_id, posting_id) do update set
-                      updated_at = now(),
-                      status = case when app.jobs_applications.status = 'archived'
-                                    then 'queued' else app.jobs_applications.status end
-                    returning id, status
-                    """,
-                    (user_id, posting_id, user_id),
-                )
-                row = await cursor.fetchone()
-                if row is not None and row["status"] == "queued":
-                    queued.append(UUID(str(row["id"])))
-        return queued
+            cursor = await connection.execute(
+                """
+                insert into app.jobs_applications (user_id, posting_id, status)
+                select %s, id, %s from app.jobs_postings
+                where id = %s and user_id = %s and application_url is not null
+                on conflict (user_id, posting_id) do update set
+                  updated_at = now(),
+                  status = case when app.jobs_applications.status = 'archived'
+                                then excluded.status else app.jobs_applications.status end
+                returning id
+                """,
+                (user_id, status, posting_id, user_id),
+            )
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        applications = await self.list_applications(user_id)
+        application_id = UUID(str(row["id"]))
+        return next((item for item in applications if item.id == application_id), None)
 
     async def list_applications(self, user_id: UUID) -> list[JobApplication]:
         async with (
@@ -587,7 +589,7 @@ class PostgresJobsStore:
                 ) questions on true
                 where application.user_id = %s and application.status <> 'archived'
                 order by case application.status
-                           when 'queued' then 0 when 'applied' then 1 when 'oa' then 2
+                           when 'applying' then 0 when 'applied' then 1 when 'oa' then 2
                            when 'oa_completed' then 3 when 'interview' then 4
                            when 'offer' then 5 else 6 end,
                          application.updated_at desc, application.id
@@ -603,7 +605,7 @@ class PostgresJobsStore:
         values = update.model_dump(exclude_unset=True)
         if values.get("status") == "applied":
             values["applied_at"] = datetime.now(UTC)
-        elif values.get("status") == "queued":
+        elif values.get("status") == "applying":
             values["applied_at"] = None
         if values:
             assignments = sql.SQL(", ").join(
@@ -905,9 +907,12 @@ class PostgresJobsStore:
                     and posting.application_url is not null
                     and posting.status not in ('closed', 'archived')
                 ), application as (
-                  insert into app.jobs_applications (user_id, posting_id)
-                  select %s, id from target
-                  on conflict (user_id, posting_id) do update set updated_at = now()
+                  insert into app.jobs_applications (user_id, posting_id, status)
+                  select %s, id, 'applying' from target
+                  on conflict (user_id, posting_id) do update set
+                    updated_at = now(),
+                    status = case when app.jobs_applications.status = 'archived'
+                                  then 'applying' else app.jobs_applications.status end
                   returning id, posting_id
                 ), run as (
                   insert into app.jobs_autofill_runs (
@@ -1183,10 +1188,21 @@ class PostgresJobsStore:
             await connection.execute("set local role personal_os_api")
             cursor = await connection.execute(
                 """
-                update app.jobs_autofill_runs
-                set status = %s, completed_at = now()
-                where id = %s and user_id = %s and status = 'running'
-                returning id
+                with stopped as (
+                  update app.jobs_autofill_runs
+                  set status = %s, completed_at = now()
+                  where id = %s and user_id = %s and status = 'running'
+                  returning id, application_id
+                )
+                , archived as (
+                  update app.jobs_applications application
+                  set status = 'archived', updated_at = now()
+                  from stopped
+                  where application.id = stopped.application_id
+                    and application.status = 'applying'
+                  returning application.id
+                )
+                select id from stopped
                 """,
                 (item.status, run_id, user_id),
             )

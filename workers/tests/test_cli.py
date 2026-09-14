@@ -102,7 +102,8 @@ def test_hunt_help_lists_only_the_public_commands(capsys: pytest.CaptureFixture[
     assert exit_info.value.code == 0
     output = capsys.readouterr().out
     assert "os hunt [N]" in output
-    assert "{today,sync,open,apps,queue,skipped,answers,resume,apply}" in output
+    assert "{today,sync,open,apps,skipped,answers,resume,apply}" in output
+    assert "queue" not in output
     assert "{list," not in output and "\n    list " not in output
 
 
@@ -173,13 +174,9 @@ def test_role_families_accumulate_and_all_roles_is_explicit() -> None:
         build_parser().parse_args(["hunt", "list", "--family", "data_science"])
 
 
-def test_queue_lists_adds_and_empties() -> None:
-    bare = build_parser().parse_args(["hunt", "queue"])
-    added = build_parser().parse_args(["hunt", "queue", "add", "3", "7", "a1b2c3d4"])
-    emptied = build_parser().parse_args(["hunt", "queue", "empty"])
-    assert (bare.action, bare.refs) == (None, [])
-    assert (added.action, added.refs) == ("add", ["3", "7", "a1b2c3d4"])
-    assert (emptied.action, emptied.refs) == ("empty", [])
+def test_retired_workflow_commands_are_rejected() -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "queue"])
     with pytest.raises(SystemExit):
         build_parser().parse_args(["hunt", "prep", "1"])
     with pytest.raises(SystemExit):
@@ -191,7 +188,7 @@ def test_apps_lists_or_marks_one_with_a_lifecycle_status() -> None:
     marked = build_parser().parse_args(["hunt", "apps", "2", "oa"])
     assert (listed.ref, listed.status) == (None, None)
     assert (marked.ref, marked.status) == ("2", "oa")
-    for status in ("applied", "oa_completed", "interview", "offer", "rejected"):
+    for status in ("applying", "applied", "oa_completed", "interview", "offer", "rejected"):
         assert build_parser().parse_args(["hunt", "apps", "1", status]).status == status
     with pytest.raises(SystemExit):
         build_parser().parse_args(["hunt", "apps", "1", "queued"])

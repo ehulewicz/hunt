@@ -22,6 +22,7 @@ from personal_os.jobs_models import (
     AnswerLibraryCreate,
     AnswerLibraryItem,
     AnswerLibraryUpdate,
+    ApplicationCreate,
     ApplicationUpdate,
     AutofillArtifactResponse,
     AutofillFailureDetail,
@@ -40,7 +41,6 @@ from personal_os.jobs_models import (
     JobsProfileUpdate,
     ListingSyncResponse,
     MasterResumeContent,
-    QueueApplicationsRequest,
     RoleFamily,
 )
 from personal_os.jobs_sources import SpeedyApplySource
@@ -127,15 +127,18 @@ async def list_applications(principal: CurrentPrincipal, store: Store) -> list[J
     return await store.list_applications(principal.user_id)
 
 
-@router.post("/applications/queue", response_model=list[JobApplication])
-async def queue_applications(
-    request: QueueApplicationsRequest, principal: CurrentPrincipal, store: Store
-) -> list[JobApplication]:
-    queued = set(await store.queue_applications(principal.user_id, request.posting_ids))
-    if not queued:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "No eligible listings were selected")
-    applications = await store.list_applications(principal.user_id)
-    return [item for item in applications if item.id in queued]
+@router.post(
+    "/applications", response_model=JobApplication, status_code=status.HTTP_201_CREATED
+)
+async def create_application(
+    item: ApplicationCreate, principal: CurrentPrincipal, store: Store
+) -> JobApplication:
+    application = await store.create_application(
+        principal.user_id, item.posting_id, item.status
+    )
+    if application is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Listing cannot be applied to")
+    return application
 
 
 @router.patch("/applications/{application_id}", response_model=JobApplication)
@@ -415,5 +418,4 @@ async def update_autofill_failure(
 @router.get("/worker/doctor")
 async def worker_doctor(principal: CurrentPrincipal) -> dict[str, str]:
     return {"status": "ok", "user_id": str(principal.user_id)}
-
 

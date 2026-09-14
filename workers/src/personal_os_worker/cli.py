@@ -23,7 +23,7 @@ from personal_os_worker.resume import build_resume, watch_resume
 from personal_os_worker.service import ApiUnavailable, ChromeUnavailable
 from personal_os_worker.tables import ReferenceError, console
 
-HUNT_COMMANDS = ("today", "sync", "open", "apps", "queue", "skipped", "answers", "resume", "apply")
+HUNT_COMMANDS = ("today", "sync", "open", "apps", "skipped", "answers", "resume", "apply")
 LISTING_FLAGS = ("--faang", "--quant", "--location", "--family", "--all-roles", "--ats")
 
 
@@ -67,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     jobs = commands.add_parser(
         "hunt",
-        help="Jobs: listings, the queue, applications, answers, the resume",
+        help="Jobs: listings, applications, answers, and the resume",
         description=(
             "os hunt [N] lists open listings (N rows, default 10). "
             "os hunt answers lists the answer library; os hunt resume watches the resume."
@@ -141,15 +141,9 @@ def build_parser() -> argparse.ArgumentParser:
     apps.add_argument(
         "status",
         nargs="?",
-        choices=[status for status in APPLICATION_STATUSES if status != "queued"],
+        choices=APPLICATION_STATUSES,
         help="New status for that application",
     )
-
-    queue = jobs_commands.add_parser("queue", help="Listings waiting to be applied to")
-    queue.add_argument(
-        "action", nargs="?", choices=["add", "empty"], help="add rows, or apply through the queue"
-    )
-    queue.add_argument("refs", nargs="*", help="Row numbers from the last list, or id prefixes")
 
     answers = jobs_commands.add_parser("answers", help="Manage reusable long-form answers")
     answer_commands = answers.add_subparsers(dest="answer_command", required=True)
@@ -293,16 +287,6 @@ def _dispatch(args: argparse.Namespace) -> int:
             if args.action == "restore" and not args.ref:
                 raise RuntimeError("'skipped restore' needs a row from the skipped table")
             return hunt.run_skipped(args.ref if args.action == "restore" else None)
-        if args.hunt_command == "queue":
-            if args.action == "empty":
-                if args.refs:
-                    raise RuntimeError("'queue empty' takes no rows")
-                return hunt.run_queue(empty=True)
-            if args.action == "add" and not args.refs:
-                raise RuntimeError("'queue add' needs at least one row")
-            if args.action is None and args.refs:
-                raise RuntimeError("Use 'queue add <rows>'")
-            return hunt.run_queue(args.refs)
         if args.hunt_command == "answers":
             if args.answer_command == "list":
                 return hunt.run_answers()

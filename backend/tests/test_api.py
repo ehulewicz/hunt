@@ -63,7 +63,7 @@ class FakeJobsStore:
     def __init__(self) -> None:
         self.filters: dict[str, object] = {}
         self.archived_application_id: UUID | None = None
-        self.queued_posting_ids: list[UUID] = []
+        self.created_application: tuple[UUID, str] | None = None
         self.application_update: tuple[UUID, ApplicationUpdate] | None = None
         self.answer_create: AnswerLibraryCreate | None = None
         self.answer_update: tuple[UUID, object] | None = None
@@ -112,11 +112,14 @@ class FakeJobsStore:
         self.archived_application_id = application_id
         return application_id == APPLICATION_ID
 
-    async def queue_applications(self, user_id: UUID, posting_ids: list[UUID]) -> list[UUID]:
-        self.queued_posting_ids = list(posting_ids)
-        return [APPLICATION_ID] if POSTING_ID in posting_ids else []
+    async def create_application(
+        self, user_id: UUID, posting_id: UUID, status: str
+    ) -> JobApplication | None:
+        self.created_application = (posting_id, status)
+        return (await self.list_applications(user_id))[0] if posting_id == POSTING_ID else None
 
     async def list_applications(self, user_id: UUID) -> list[JobApplication]:
+        current_status = self.created_application[1] if self.created_application else "applying"
         return [
             JobApplication(
                 id=APPLICATION_ID,
@@ -125,7 +128,7 @@ class FakeJobsStore:
                 title="Backend Engineer Intern",
                 location=None,
                 application_url="https://boards.example/jobs/1",
-                status="queued",
+                status=current_status,
                 applied_at=None,
                 next_action=None,
                 next_action_at=None,
@@ -366,7 +369,7 @@ async def test_a_listing_resolves_by_board_number_or_id_prefix(
     assert (await client.get("/v1/jobs/listings/99", headers=headers)).status_code == 404
 
 
-async def test_queueing_listings_returns_the_queued_applications(
+async def test_an_application_can_be_recorded_without_a_queue(
     app: FastAPI, client: httpx.AsyncClient
 ) -> None:
     store = FakeJobsStore()
@@ -376,21 +379,21 @@ async def test_queueing_listings_returns_the_queued_applications(
 
     app.dependency_overrides[get_jobs_store] = override_store
     response = await client.post(
-        "/v1/jobs/applications/queue",
+        "/v1/jobs/applications",
         headers={"Authorization": "Bearer approved"},
-        json={"posting_ids": [str(POSTING_ID)]},
+        json={"posting_id": str(POSTING_ID), "status": "applied"},
     )
 
-    assert response.status_code == 200
-    assert [item["status"] for item in response.json()] == ["queued"]
-    assert store.queued_posting_ids == [POSTING_ID]
+    assert response.status_code == 201
+    assert response.json()["status"] == "applied"
+    assert store.created_application == (POSTING_ID, "applied")
 
-    nothing = await client.post(
+    retired = await client.post(
         "/v1/jobs/applications/queue",
         headers={"Authorization": "Bearer approved"},
         json={"posting_ids": [str(uuid4())]},
     )
-    assert nothing.status_code == 404
+    assert retired.status_code == 405
 
 
 async def test_application_status_is_the_new_lifecycle_only(
@@ -403,7 +406,7 @@ async def test_application_status_is_the_new_lifecycle_only(
 
     app.dependency_overrides[get_jobs_store] = override_store
     for status in (
-        "queued", "applied", "oa", "oa_completed", "interview", "offer", "rejected", "skipped"
+        "applying", "applied", "oa", "oa_completed", "interview", "offer", "rejected", "skipped"
     ):
         response = await client.patch(
             f"/v1/jobs/applications/{APPLICATION_ID}",
@@ -411,7 +414,7 @@ async def test_application_status_is_the_new_lifecycle_only(
             json={"status": status},
         )
         assert response.status_code == 200, status
-    for retired in ("preparing", "ready", "submitted", "interviewing", "withdrawn"):
+    for retired in ("queued", "preparing", "ready", "submitted", "interviewing", "withdrawn"):
         response = await client.patch(
             f"/v1/jobs/applications/{APPLICATION_ID}",
             headers={"Authorization": "Bearer approved"},

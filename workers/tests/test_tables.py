@@ -1,7 +1,11 @@
 from __future__ import annotations
 
-import pytest
+from io import StringIO
 
+import pytest
+from rich.console import Console
+
+from personal_os_worker import tables
 from personal_os_worker.tables import ReferenceError, pick
 
 ITEMS = [
@@ -36,3 +40,27 @@ def test_a_short_or_shared_prefix_is_refused() -> None:
         pick(ITEMS, "3f2a", kind="rows")
     with pytest.raises(ReferenceError, match="No rows match"):
         pick(ITEMS, "ffffffff", kind="rows")
+
+
+def test_listing_table_has_no_queue_column(monkeypatch: pytest.MonkeyPatch) -> None:
+    output = StringIO()
+    monkeypatch.setattr(tables, "console", Console(file=output, force_terminal=False, width=160))
+
+    tables.render_listings(
+        [
+            {
+                "row": 32,
+                "company_name": "RF-SMART",
+                "title": "Software Developer Internship",
+                "location": "Jacksonville, FL",
+                "source_age_days": 3,
+                "application_url": "https://boards.greenhouse.io/rfsmart/jobs/1",
+                "source_category": "other",
+                "application_status": "applying",
+            }
+        ],
+        1,
+    )
+
+    header = next(line for line in output.getvalue().splitlines() if "company" in line)
+    assert " q " not in f" {header} "

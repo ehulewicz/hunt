@@ -160,7 +160,7 @@ def test_board_numbers_listings_once_before_any_filter() -> None:
     assert "row_number() over ( order by case when posting.role_families && %s::text[]" in board
     assert "not (posting.role_families && array['data_science']::text[])" in board
     assert board.endswith(
-        "and (application.id is null or application.status = 'queued')"
+        "and application.id is null"
     ), "applied-to listings must leave the board"
     assert "posting.created_at desc, posting.id )" in board, "same-day rows need a tiebreak"
     assert 'as "row"' in board

@@ -20,7 +20,7 @@ test("callback failure returns to a fixed sign-in error", async ({ page }) => {
   );
 });
 
-test("authenticated shell persists across Jobs navigation and logs out", async ({ page }) => {
+test("authenticated shell has no Jobs navigation and logs out", async ({ page }) => {
   const expiresAt = Math.floor(Date.now() / 1000) + 3600;
   await page.addInitScript(({ session }) => {
     localStorage.setItem("sb-test-auth-token", JSON.stringify(session));
@@ -54,18 +54,8 @@ test("authenticated shell persists across Jobs navigation and logs out", async (
 
   await page.goto("/dashboard");
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
-  await page.getByRole("link", { name: "Jobs" }).click();
-  await page.setViewportSize({ width: 800, height: 900 });
-  await expect(page.getByRole("heading", { name: "Job listings" })).toBeAttached();
-  await expect(page.getByRole("region", { name: "Listing filters" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Queue selected (0)" })).toBeVisible();
-  expect(await page.getByRole("region", { name: "Listing filters" }).evaluate(
-    (toolbar) => toolbar.scrollWidth <= toolbar.clientWidth,
-  )).toBe(true);
+  await expect(page.getByRole("link", { name: "Jobs" })).toHaveCount(0);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-  await page.getByRole("link", { name: "Cover Letters" }).click();
-  await expect(page.getByRole("heading", { name: "Cover Letters" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Dashboard", exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Account: Eah Tree" }).click();
   await page.getByRole("menuitem", { name: "Log out" }).click();
