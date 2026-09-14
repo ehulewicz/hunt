@@ -26,7 +26,7 @@ and always compiles the canonical resume unchanged. Resume tailoring was retired
 the canonical resume already carries the breadth it needs, and the effort goes
 into answers instead.
 
-`os hunt autofill <listing-ref>` rebuilds the canonical PDF, opens the stored
+`os hunt apply <listing-ref>` rebuilds the canonical PDF, opens the stored
 direct URL in native Windows Chrome, and then runs without a single terminal
 prompt. Greenhouse, Ashby, and Lever adapters use fresh locators, native events,
 strict option matching, readback, resume-first rerender handling, and same-origin
@@ -59,7 +59,7 @@ profile, and the full approved library (patterns included). Only `high`
 confidence rows are kept, a choice answer must be one of the visible options
 verbatim, and a free-text answer must pass the same fabrication guard used
 for textarea drafts. Kept answers fill the same way as the other tiers and
-are echoed as `claude: <question> -> <value>`. `os hunt autofill --no-claude`
+are echoed as `claude: <question> -> <value>`. `os hunt apply --no-claude`
 skips this pass entirely.
 
 Every long-form textarea becomes a Markdown file under the state directory and

@@ -18,9 +18,9 @@ os hunt answers list
 os hunt resume watch --open
 os hunt prep 1
 os hunt run
-os hunt autofill 1 --dry-run
-os hunt autofill 1
-os hunt autofill failures list
+os hunt apply 1 --dry-run
+os hunt apply 1
+os hunt apply failures list
 ```
 
 Edit `artifacts/resume/main.json`; `os hunt resume watch --open` keeps the

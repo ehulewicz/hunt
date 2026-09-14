@@ -26,16 +26,16 @@ os hunt resume watch --open
 os hunt prep 1
 os hunt run
 
-os hunt autofill 1 --dry-run
-os hunt autofill 1
-os hunt autofill 1 --no-claude
+os hunt apply 1 --dry-run
+os hunt apply 1
+os hunt apply 1 --no-claude
 
-os hunt autofill failures list
-os hunt autofill failures show 1
-os hunt autofill failures diagnose 1
-os hunt autofill failures draft-fix 1
-os hunt autofill failures apply-fix 1
-os hunt autofill failures verify 1 7
+os hunt apply failures list
+os hunt apply failures show 1
+os hunt apply failures diagnose 1
+os hunt apply failures draft-fix 1
+os hunt apply failures apply-fix 1
+os hunt apply failures verify 1 7
 ```
 
 Displayed listing titles are clickable when the terminal supports hyperlinks.
@@ -69,12 +69,12 @@ invoke the same shell commands, but must not add `--tailor` unless the user asks
 for tailoring. Sync, ranking filters, rendering, and form mapping have no model
 dependency.
 
-## Headed autofill
+## Headed apply
 
 Run `os hunt list`, then pass a displayed row or ID prefix:
 
 ```bash
-os hunt autofill 12
+os hunt apply 12
 ```
 
 The command verifies the company/role, saves the tracked run/application context,

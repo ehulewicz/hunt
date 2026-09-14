@@ -144,20 +144,20 @@ def test_resume_build_and_watch_are_cli_commands() -> None:
 
 
 def test_autofill_requires_a_saved_listing_reference_and_has_no_lentra_provider() -> None:
-    args = build_parser().parse_args(["hunt", "autofill", "7", "--dry-run"])
+    args = build_parser().parse_args(["hunt", "apply", "7", "--dry-run"])
     assert args.ref == "7" and args.dry_run is True
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["hunt", "autofill", "7", "--provider", "lentra"])
+        build_parser().parse_args(["hunt", "apply", "7", "--provider", "lentra"])
 
 
 def test_autofill_no_claude_flag_defaults_off() -> None:
-    assert build_parser().parse_args(["hunt", "autofill", "7"]).no_claude is False
-    assert build_parser().parse_args(["hunt", "autofill", "7", "--no-claude"]).no_claude is True
+    assert build_parser().parse_args(["hunt", "apply", "7"]).no_claude is False
+    assert build_parser().parse_args(["hunt", "apply", "7", "--no-claude"]).no_claude is True
 
 
 def test_autofill_failure_commands_preserve_the_documented_syntax() -> None:
-    listed = build_parser().parse_args(["hunt", "autofill", "failures", "list"])
-    verified = build_parser().parse_args(["hunt", "autofill", "failures", "verify", "2", "9"])
+    listed = build_parser().parse_args(["hunt", "apply", "failures", "list"])
+    verified = build_parser().parse_args(["hunt", "apply", "failures", "verify", "2", "9"])
     assert (listed.ref, listed.failure_action) == ("failures", "list")
     assert (verified.failure_ref, verified.verify_listing_ref) == ("2", "9")
 

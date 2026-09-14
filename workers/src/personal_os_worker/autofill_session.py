@@ -1,4 +1,4 @@
-"""The interactive part of `os hunt autofill`, without any terminal prompts.
+"""The interactive part of `os hunt apply`, without any terminal prompts.
 
 The terminal only reports. Long-form answers are edited in VS Code tabs and
 filled when each tab closes. Everything else the deterministic planner could

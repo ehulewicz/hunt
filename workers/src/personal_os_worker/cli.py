@@ -144,7 +144,7 @@ def build_parser() -> argparse.ArgumentParser:
     prep.add_argument("refs", nargs="+", help="Row numbers from the last listing, or id prefixes")
 
     autofill = jobs_commands.add_parser(
-        "autofill",
+        "apply",
         help="Fill a saved listing in native Chrome, or manage captured failures",
     )
     autofill.add_argument("ref", help="Listing row/id, or the literal 'failures'")
@@ -269,7 +269,7 @@ def _dispatch(args: argparse.Namespace) -> int:
                 return 0
         if args.hunt_command == "prep":
             return hunt.run_prep(args.refs)
-        if args.hunt_command == "autofill":
+        if args.hunt_command == "apply":
             if args.ref == "failures":
                 return hunt.run_autofill_failure_command(
                     args.failure_action,

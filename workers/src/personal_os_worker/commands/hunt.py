@@ -441,7 +441,7 @@ def run_autofill_failure_command(
     allowed = {"list", "show", "diagnose", "draft-fix", "apply-fix", "verify"}
     if action not in allowed:
         raise RuntimeError(
-            "Use: os hunt autofill failures list|show|diagnose|draft-fix|apply-fix|verify"
+            "Use: os hunt apply failures list|show|diagnose|draft-fix|apply-fix|verify"
         )
     config, token = connected()
     api = WorkerApi(config, token)
