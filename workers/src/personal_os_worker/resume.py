@@ -54,6 +54,12 @@ def default_pdf_path() -> Path:
     return canonical_resume_path().with_name(RESUME_PDF_NAME)
 
 
+def transcript_pdf_path() -> Path | None:
+    """The tracked transcript beside the resume, when there is one."""
+    path = repository_root() / "artifacts" / "Transcript.pdf"
+    return path if path.exists() else None
+
+
 def load_resume(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))

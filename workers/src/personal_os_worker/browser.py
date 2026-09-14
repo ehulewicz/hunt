@@ -10,6 +10,7 @@ from playwright.sync_api import Browser, Error, Page, Playwright, sync_playwrigh
 
 from personal_os_worker.adapters import failure_signature, option_match
 from personal_os_worker.autofill import (
+    FILE_KINDS,
     AutofillPlan,
     build_autofill_plan,
     choose_option,
@@ -224,16 +225,19 @@ def apply_autofill(
     *,
     resume_path: Path | None,
     assert_active: Callable[[], None],
+    transcript_path: Path | None = None,
 ) -> dict[str, Any]:
     filled_labels: list[str] = []
     skipped: list[str] = []
     unanswered = list(plan.unanswered_required_questions)
     failures: list[dict[str, Any]] = []
+    documents = {"resume": resume_path, "transcript": transcript_path}
+    # Uploads first on boards that re-render the form after one.
     ordered_fills = sorted(
         plan.fills,
         key=lambda fill: (
             0
-            if fill.kind == "resume"
+            if fill.kind in FILE_KINDS
             and str(fields[fill.index].get("ats")) in {"greenhouse", "ashby"}
             else 1
         ),
@@ -244,12 +248,13 @@ def apply_autofill(
         label = str(field.get("label") or field.get("name") or fill.index)
         control = fresh_control(page, field)
         expected = fill.value
-        if fill.kind == "resume" and resume_path is None:
-            skipped.append(f"{label} (no resume provided)")
+        document = documents.get(fill.kind)
+        if fill.kind in FILE_KINDS and document is None:
+            skipped.append(f"{label} (no {fill.kind} provided)")
             continue
         try:
-            if fill.kind == "resume" and resume_path is not None:
-                control.set_input_files(str(resume_path), timeout=CONTROL_TIMEOUT_MS)
+            if fill.kind in FILE_KINDS and document is not None:
+                control.set_input_files(str(document), timeout=CONTROL_TIMEOUT_MS)
                 page.wait_for_timeout(750)
             elif field.get("tag") == "select" and fill.value is not None:
                 options = [str(value) for value in field.get("options", [])]
@@ -305,7 +310,7 @@ def apply_autofill(
                     _failure(field, category, message, intended=fill.value)
                 )
                 continue
-        if verify_control(page, field, expected, resume=fill.kind == "resume"):
+        if verify_control(page, field, expected, resume=fill.kind in FILE_KINDS):
             filled_labels.append(label)
         else:
             try:

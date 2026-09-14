@@ -329,7 +329,7 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> bool:
     from personal_os_worker.adapters import adapter_version, detect_ats, failure_signature
     from personal_os_worker.autofill_session import AutofillSession, SessionContext
     from personal_os_worker.browser import VisibleBrowser, inspect_fields, sanitized_evidence
-    from personal_os_worker.resume import ensure_resume, load_resume
+    from personal_os_worker.resume import ensure_resume, load_resume, transcript_pdf_path
     from personal_os_worker.service import state_dir
 
     def draft_directory(run_id: str) -> Path:
@@ -489,6 +489,7 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> bool:
                         else None
                     ),
                     draft_dir=draft_directory(run_id),
+                    transcript_pdf=transcript_pdf_path(),
                     dry_run=dry_run,
                     use_claude=not no_claude,
                 )

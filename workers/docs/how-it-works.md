@@ -38,7 +38,8 @@ iframe inspection. Ashby renders a boolean question as two `aria-pressed`
 buttons plus a hidden checkbox with no usable label; the worker reports it as
 a `yesno` control with the sibling question text and `Yes`/`No` options,
 clicks the matching button, and verifies `aria-pressed` rather than the
-checkbox. Profile facts and exact library answers fill deterministically,
+checkbox, plus `artifacts/Transcript.pdf` for a file control asking for a
+transcript, when that file exists. Profile facts and exact library answers fill deterministically,
 including selects, comboboxes, and radio groups matched by their question text.
 A control that already holds a value is never planned by any tier: a react-select
 counts as filled when its rendered choice is present even though its search

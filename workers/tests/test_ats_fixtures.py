@@ -560,3 +560,47 @@ def test_gpa_number_picks_the_listed_range_without_typing_it_away(
 
     assert result["failures"] == []
     assert browser_page.locator(".select__single-value").inner_text() == "3.6-3.8"
+
+
+def test_a_transcript_upload_takes_the_tracked_transcript(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
+    browser_page.set_content(
+        """
+        <form>
+          <label for="resume">Resume/CV</label><input id="resume" type="file" required>
+          <label for="transcript">Unofficial Transcript</label>
+          <input id="transcript" type="file">
+          <label for="first">First name</label><input id="first" name="first_name" required>
+          <label for="email">Email</label><input id="email" name="email" required>
+        </form>
+        """
+    )
+    resume = tmp_path / "resume.pdf"
+    resume.write_bytes(b"%PDF-1.4 resume")
+    transcript = tmp_path / "Transcript.pdf"
+    transcript.write_bytes(b"%PDF-1.4 transcript")
+    fields = inspect_fields(browser_page)
+    plan = build_autofill_plan(fields, profile={}, approved_answers=[])
+    assert sorted(fill.kind for fill in plan.fills) == ["resume", "transcript"]
+
+    result = apply_autofill(
+        browser_page,
+        fields,
+        plan,
+        resume_path=resume,
+        transcript_path=transcript,
+        assert_active=lambda: None,
+    )
+
+    assert result["failures"] == []
+    assert set(result["filled_fields"]) == {"Resume/CV", "Unofficial Transcript"}
+    assert browser_page.locator("#transcript").evaluate("el => el.files[0].name") == (
+        "Transcript.pdf"
+    )
+
+    without = apply_autofill(
+        browser_page, fields, plan, resume_path=resume, assert_active=lambda: None
+    )
+    assert without["skipped_fields"] == ["Unofficial Transcript (no transcript provided)"]

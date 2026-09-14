@@ -7,6 +7,8 @@ from typing import Any
 
 from personal_os_worker.adapters import option_match
 
+FILE_KINDS = frozenset({"resume", "transcript"})
+
 
 @dataclass(frozen=True, slots=True)
 class FormFill:
@@ -108,6 +110,16 @@ def is_resume_field(field: dict[str, Any]) -> bool:
     return "resume" in hints or re.search(r"(?<![a-z])cv(?![a-z])", hints) is not None
 
 
+def is_transcript_field(field: dict[str, Any]) -> bool:
+    """A file control for a transcript, by label, name, or id."""
+    if str(field.get("type") or "").casefold() != "file":
+        return False
+    hints = normalize_question(
+        " ".join(str(field.get(key) or "") for key in ("label", "name", "selector"))
+    )
+    return "transcript" in hints
+
+
 def is_sensitive_field(field: dict[str, Any]) -> bool:
     context = normalize_question(
         " ".join(str(field.get(key) or "") for key in ("label", "name", "group"))
@@ -159,6 +171,11 @@ def build_autofill_plan(
         for field in fields
         if is_resume_field(field) and not is_sensitive_field(field)
     }
+    transcript_candidates = {
+        int(field["index"])
+        for field in fields
+        if is_transcript_field(field) and not is_sensitive_field(field)
+    }
 
     group_options: dict[str, list[str]] = {}
     # A choice group with any option checked is answered; a control with a
@@ -198,6 +215,12 @@ def build_autofill_plan(
             pass
         elif field_type == "file" and index in resume_candidates and len(resume_candidates) == 1:
             kind = "resume"
+        elif (
+            field_type == "file"
+            and index in transcript_candidates
+            and len(transcript_candidates) == 1
+        ):
+            kind = "transcript"
         elif field_type != "file":
             profile_key = PROFILE_LABELS.get(normalized)
             profile_value = resolve_profile_value(profile, profile_key)
@@ -222,7 +245,7 @@ def build_autofill_plan(
                     if chosen is None or chosen != own:
                         value = None
 
-        if kind == "resume" or value is not None:
+        if kind in FILE_KINDS or value is not None:
             fills.append(FormFill(index=index, kind=kind, value=value))
             if field_type in {"radio", "checkbox"} and group:
                 answered_groups.add(normalized)

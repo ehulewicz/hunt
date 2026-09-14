@@ -89,6 +89,7 @@ class SessionContext:
     title: str
     description: str | None
     draft_dir: Path
+    transcript_pdf: Path | None = None
     dry_run: bool = False
     opener: DraftOpener = default_opener
     drafter: Drafter = draft_contextual_answer
@@ -380,7 +381,12 @@ class AutofillSession:
             return {"filled_fields": [], "skipped_fields": [], "failures": [], "plan": plan}
         before = sanitized_evidence(self.page, fields, console_errors=self.ctx.console_errors)
         result = apply_autofill(
-            self.page, fields, plan, resume_path=self.ctx.resume_pdf, assert_active=lambda: None
+            self.page,
+            fields,
+            plan,
+            resume_path=self.ctx.resume_pdf,
+            transcript_path=self.ctx.transcript_pdf,
+            assert_active=lambda: None,
         )
         for fill in plan.fills:
             question = _question_for(fields[fill.index])
