@@ -110,6 +110,14 @@ class WorkerApi:
             raise RuntimeError("Application response was invalid")
         return payload
 
+    def update_application(self, application_id: str, **fields: Any) -> dict[str, Any]:
+        response = self._client.patch(f"/v1/jobs/applications/{application_id}", json=fields)
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Application update response was invalid")
+        return payload
+
     def create_autofill_run(
         self, *, posting_id: str, ats: str, adapter_version: str
     ) -> dict[str, Any]:

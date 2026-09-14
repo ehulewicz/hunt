@@ -164,6 +164,7 @@ def render_listings(items: list[dict[str, Any]], total: int) -> None:
 
 
 def render_applications(items: list[dict[str, Any]]) -> None:
+    """Which applications are in, and which are still open."""
     table = Table(
         title=f"Applications ({len(items)})",
         header_style="bold",
@@ -176,21 +177,18 @@ def render_applications(items: list[dict[str, Any]]) -> None:
     table.add_column("company", no_wrap=True, overflow="ellipsis")
     table.add_column("title", no_wrap=True, overflow="ellipsis", ratio=1)
     table.add_column("status", no_wrap=True)
-    table.add_column("prep", no_wrap=True)
-    table.add_column("autofill", no_wrap=True)
-    table.add_column("todo", justify="right", no_wrap=True)
+    table.add_column("applied", no_wrap=True)
 
     for index, item in enumerate(items, start=1):
-        unanswered = item.get("unanswered_required_questions") or []
+        status = str(item.get("status") or "-")
+        applied = str(item.get("applied_at") or "")[:10]
         table.add_row(
             str(index),
             short_id(str(item.get("id", ""))),
             str(item.get("company_name") or "-"),
             str(item.get("title") or "-"),
-            str(item.get("status") or "-"),
-            str(item.get("preparation_status") or "-"),
-            str(item.get("autofill_status") or "-"),
-            str(len(unanswered)) if unanswered else "",
+            f"[green]{status}[/green]" if status == "submitted" else status,
+            applied or "-",
         )
     console.print(table)
     remember("apps", [str(item.get("id", "")) for item in items])

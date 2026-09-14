@@ -145,7 +145,7 @@ def test_session_stops_when_page_closes_during_form_inspection(
     outcome = AutofillSession(context).run()
 
     assert "browser or application tab was closed" in capsys.readouterr().out.casefold()
-    assert outcome == {"final_url": page.url, "answers": []}
+    assert outcome == {"final_url": page.url, "answers": [], "submitted": False}
 
 
 def test_session_reraises_unrelated_playwright_error_that_mentions_target_closed(
@@ -228,7 +228,7 @@ def test_session_stops_cleanly_when_browser_or_application_tab_closes(
     outcome = AutofillSession(context).run()
 
     assert "browser or application tab was closed" in capsys.readouterr().out.casefold()
-    assert outcome == {"final_url": page.url, "answers": []}
+    assert outcome == {"final_url": page.url, "answers": [], "submitted": False}
 
 
 def test_session_fills_from_closed_tabs_saves_every_answer_and_ends_on_submit(
@@ -315,6 +315,7 @@ def test_session_fills_from_closed_tabs_saves_every_answer_and_ends_on_submit(
     assert saved["First name"]["source"] == "jobs_profile"
     assert saved["Email"]["answer_text"] == "ethan@example.com"
     assert "dry_run" not in outcome
+    assert outcome["submitted"] is True
     printed = capsys.readouterr().out
     assert "picked up: Country -> Canada" in printed
     # The scripted Ctrl+S landed after the country was chosen and pushed it to the library.

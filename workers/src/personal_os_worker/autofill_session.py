@@ -691,11 +691,13 @@ class AutofillSession:
             return self._run()
 
     def _run(self) -> dict[str, Any]:
+        submitted = False
         try:
             while True:
                 fields = self.wait_for_form()
                 if fields is None:
                     console.print("The page reports the application was submitted.")
+                    submitted = True
                     break
                 self.emit_warnings(fields)
                 result = self.fill_deterministic(fields)
@@ -724,7 +726,11 @@ class AutofillSession:
             if not is_browser_closed_error(self.page, error):
                 raise
             console.print("The browser or application tab was closed. Ending autofill.")
-        return {"final_url": self.page.url, "answers": list(self.state.collected.values())}
+        return {
+            "final_url": self.page.url,
+            "answers": list(self.state.collected.values()),
+            "submitted": submitted,
+        }
 
     def answers_so_far(self) -> list[dict[str, Any]]:
         return list(self.state.collected.values())

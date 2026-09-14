@@ -81,7 +81,7 @@ def run_apps() -> int:
     finally:
         api.close()
     if not applications:
-        console.print("No applications yet. Prepare one with 'os hunt prep <row>'.")
+        console.print("No applications yet. Start one with 'os hunt apply <row>'.")
         return 0
     render_applications(applications)
     return 0
@@ -383,6 +383,9 @@ def run_autofill(reference: str, *, dry_run: bool, no_claude: bool = False) -> i
             api.complete_autofill_run(run_id, final_url=str(outcome["final_url"]), answers=saved)
             verb = "Stopped" if outcome.get("interrupted") else "Done"
             console.print(f"{verb}. Saved {len(saved)} answer(s) to the library for reuse.")
+            if outcome.get("submitted"):
+                api.update_application(str(run["application_id"]), status="submitted")
+                console.print(f"Marked {expected_company} as applied.")
     except KeyboardInterrupt:
         if run_id is not None:
             api.stop_autofill_run(run_id, status="abandoned")
