@@ -128,6 +128,11 @@ def test_autofill_requires_a_saved_listing_reference_and_has_no_lentra_provider(
         build_parser().parse_args(["hunt", "autofill", "7", "--provider", "lentra"])
 
 
+def test_autofill_no_claude_flag_defaults_off() -> None:
+    assert build_parser().parse_args(["hunt", "autofill", "7"]).no_claude is False
+    assert build_parser().parse_args(["hunt", "autofill", "7", "--no-claude"]).no_claude is True
+
+
 def test_autofill_failure_commands_preserve_the_documented_syntax() -> None:
     listed = build_parser().parse_args(["hunt", "autofill", "failures", "list"])
     verified = build_parser().parse_args(["hunt", "autofill", "failures", "verify", "2", "9"])

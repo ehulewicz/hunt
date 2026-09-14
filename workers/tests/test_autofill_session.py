@@ -326,6 +326,111 @@ def test_session_fills_from_closed_tabs_saves_every_answer_and_ends_on_submit(
     assert "picked up: First name" not in printed  # the worker filled it
 
 
+def test_session_resolves_pattern_and_claude_tiers_for_unfilled_fields(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    browser_page.set_content(
+        """
+        <form>
+          <label for="resume">Resume</label><input id="resume" type="file">
+          <label for="first">First name</label><input id="first" name="first_name" required>
+          <fieldset><legend>Consider me for other roles?</legend>
+            <label><input type="radio" name="other_roles" value="Yes">Yes</label>
+            <label><input type="radio" name="other_roles" value="No">No</label>
+          </fieldset>
+          <fieldset><legend>Have you ever worked for Acme?</legend>
+            <label>
+              <input type="radio" name="worked" value="Yes - previous intern">Yes - previous intern
+            </label>
+            <label><input type="radio" name="worked" value="No - never">No - never</label>
+          </fieldset>
+          <label for="school">What school are you attending?</label>
+          <input id="school" required>
+          <button type="submit">Submit</button>
+        </form>
+        """
+    )
+    api = FakeApi()
+    asked: list[str] = []
+
+    def short_drafter(questions: Any, **_: Any) -> dict[str, str]:
+        asked.extend(str(question.question) for question in questions)
+        return {"What school are you attending?": "Example Institute of Technology"}
+
+    resume_pdf = tmp_path / "main.pdf"
+    resume_pdf.write_bytes(b"%PDF-1.4\n%%EOF")
+    context = SessionContext(
+        api=api,  # type: ignore[arg-type]
+        run_id="run-tiers",
+        adapter_name="greenhouse",
+        browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
+        page=browser_page,
+        console_errors=[],
+        profile={"legal_name": "Alex Example"},
+        answers=[
+            {
+                "reuse_policy": "pattern",
+                "normalized_question": "consider me for other",
+                "answer_text": "Yes",
+            }
+        ],
+        scoped=[],
+        resume_json={},
+        resume_pdf=resume_pdf,
+        company="Acme",
+        title="Backend Engineer Intern",
+        description=None,
+        draft_dir=tmp_path / "drafts",
+        short_drafter=short_drafter,
+        poll_seconds=0.05,
+        keys=ScriptedKeys([{"save"}]),
+    )
+    session = AutofillSession(context)
+    polls = {"count": 0}
+    original_sleep = session.sleep
+
+    def sleep_then_submit() -> None:
+        polls["count"] += 1
+        if polls["count"] == 2:
+            browser_page.set_content("<h1>Thank you for applying to Acme!</h1>")
+        original_sleep()
+
+    session.sleep = sleep_then_submit  # type: ignore[method-assign]
+
+    outcome = session.run()
+
+    assert asked == ["What school are you attending?"]
+    saved = {item["question"]: item for item in outcome["answers"]}
+    assert saved["Consider me for other roles?"] == {
+        "question": "Consider me for other roles?",
+        "answer_text": "Yes",
+        "source": "pattern",
+        "reuse_policy": "exact",
+    }
+    assert saved["Have you ever worked for Acme?"] == {
+        "question": "Have you ever worked for Acme?",
+        "answer_text": "No - never",
+        "source": "pattern",
+        "reuse_policy": "exact",
+    }
+    assert saved["What school are you attending?"] == {
+        "question": "What school are you attending?",
+        "answer_text": "Example Institute of Technology",
+        "source": "model",
+        "reuse_policy": "exact",
+    }
+    printed = capsys.readouterr().out
+    assert "pattern: Consider me for other roles? -> Yes" in printed
+    assert "pattern: Have you ever worked for Acme? -> No - never" in printed
+    assert "claude: What school are you attending? -> Example Institute of Technology" in printed
+    assert api.library["Consider me for other roles?"]["reuse_policy"] == "exact"
+    assert api.library["What school are you attending?"]["answer_text"] == (
+        "Example Institute of Technology"
+    )
+
+
 def test_dry_run_plans_without_opening_tabs_or_writing(
     browser_page,  # type: ignore[no-untyped-def]
     tmp_path: Path,

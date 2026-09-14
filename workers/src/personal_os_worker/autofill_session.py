@@ -21,7 +21,7 @@ from playwright.sync_api import Error, Page
 from personal_os_worker.adapters import failure_signature
 from personal_os_worker.answers import answer_match, draft_contextual_answer
 from personal_os_worker.api import WorkerApi
-from personal_os_worker.autofill import is_resume_field, is_sensitive_field
+from personal_os_worker.autofill import FormFill, is_resume_field, is_sensitive_field
 from personal_os_worker.browser import (
     BrowserClosedError,
     VisibleBrowser,
@@ -49,6 +49,8 @@ from personal_os_worker.drafts import (
     write_draft,
 )
 from personal_os_worker.keys import KeyWatcher, NoKeys
+from personal_os_worker.patterns import resolve_pattern_answer
+from personal_os_worker.short_answers import ShortQuestion, draft_short_answers
 from personal_os_worker.tables import console
 
 SUBMITTED_MARKERS = (
@@ -62,6 +64,7 @@ SUBMITTED_MARKERS = (
 )
 
 Drafter = Callable[..., str | None]
+ShortDrafter = Callable[..., dict[str, str]]
 
 
 @dataclass
@@ -84,6 +87,8 @@ class SessionContext:
     dry_run: bool = False
     opener: DraftOpener = default_opener
     drafter: Drafter = draft_contextual_answer
+    short_drafter: ShortDrafter = draft_short_answers
+    use_claude: bool = True
     poll_seconds: float = 1.0
     keys: KeyWatcher | NoKeys = field(default_factory=KeyWatcher)
 
@@ -96,6 +101,8 @@ class SessionState:
     announced: dict[str, str] = field(default_factory=dict)  # question -> value shown
     saved: dict[str, str] = field(default_factory=dict)  # question -> value in the library
     warnings: set[str] = field(default_factory=set)
+    tier_answers: dict[str, str] = field(default_factory=dict)  # question -> pattern/model answer
+    tier_source: dict[str, str] = field(default_factory=dict)  # question -> "pattern" | "model"
     step: int = 0
 
 
@@ -115,6 +122,71 @@ def preview(value: str, *, limit: int = 100) -> str:
     """One terminal line of a value, however long the textarea answer is."""
     flat = " ".join(value.split())
     return flat if len(flat) <= limit else flat[: limit - 3].rstrip() + "..."
+
+
+def _question_for(field: dict[str, Any]) -> str:
+    """The question a control answers: its group for a choice control, else its label."""
+    if str(field.get("type") or "").casefold() in {"radio", "checkbox"} and field.get("group"):
+        return str(field.get("group")).strip()
+    return str(field.get("label") or "").strip()
+
+
+def _applied_value(field: dict[str, Any], fill: FormFill) -> str | None:
+    """What actually ends up on the page for a planned fill.
+
+    A radio/checkbox fill's `value` is the raw answer text used to pick the
+    option (e.g. "No"), not the option's own label (e.g. "No - never"); the
+    control that gets checked is always this field's own option.
+    """
+    if fill.value is None:
+        return None
+    if str(field.get("type") or "").casefold() in {"radio", "checkbox"}:
+        return str(field.get("label") or field.get("value") or fill.value)
+    return fill.value
+
+
+def _claude_questions(fields: list[dict[str, Any]]) -> list[ShortQuestion]:
+    """Unfilled, non-sensitive, non-textarea, non-file controls left for Claude.
+
+    Radio/checkbox groups with no option checked (options = the group's option
+    labels), selects (their options), and required text inputs (no options).
+    """
+    groups: dict[str, list[dict[str, Any]]] = {}
+    questions: dict[str, ShortQuestion] = {}
+    for item in fields:
+        field_type = str(item.get("type") or "").casefold()
+        tag = str(item.get("tag") or "").casefold()
+        if field_type in {"file", "submit", "button", "reset", "hidden"} or tag in {
+            "textarea",
+            "button",
+        }:
+            continue
+        if is_sensitive_field(item):
+            continue
+        if field_type in {"radio", "checkbox"}:
+            group = str(item.get("group") or "").strip()
+            if group:
+                groups.setdefault(group, []).append(item)
+            continue
+        if item.get("filled") is True:
+            continue
+        label = str(item.get("label") or "").strip()
+        if not label:
+            continue
+        if tag == "select":
+            questions[label] = ShortQuestion(
+                label, tuple(str(option) for option in item.get("options") or [])
+            )
+        elif item.get("required") is True:
+            questions[label] = ShortQuestion(label, ())
+    for group, members in groups.items():
+        if any(member.get("filled") is True for member in members):
+            continue
+        options = tuple(
+            str(member.get("label") or member.get("value") or "") for member in members
+        )
+        questions[group] = ShortQuestion(group, options)
+    return list(questions.values())
 
 
 def content_type_for(name: str) -> str:
@@ -185,7 +257,7 @@ class AutofillSession:
         pending = [
             item
             for question, item in self.state.collected.items()
-            if item["source"] in {"manual", "model"}
+            if item["source"] in {"manual", "model", "pattern"}
             and self.state.saved.get(question) != item["answer_text"]
         ]
         for item in pending:
@@ -254,9 +326,25 @@ class AutofillSession:
             return None
         return matched
 
+    def pattern_fallback(self, question: str) -> str | None:
+        answer = resolve_pattern_answer(
+            question,
+            rules=self.ctx.answers,
+            profile=self.ctx.profile,
+            resume=self.ctx.resume_json,
+            company=self.ctx.company,
+        )
+        if answer is not None:
+            self.state.tier_answers[question] = answer
+            self.state.tier_source[question] = "pattern"
+        return answer
+
     def fill_deterministic(self, fields: list[dict[str, Any]]) -> dict[str, Any]:
         fields[:], plan = plan_autofill(
-            self.page, profile=self.ctx.profile, approved_answers=self.ctx.answers
+            self.page,
+            profile=self.ctx.profile,
+            approved_answers=self.ctx.answers,
+            fallback=self.pattern_fallback,
         )
         for item in fields:
             item["ats"] = self.ctx.adapter_name
@@ -277,14 +365,13 @@ class AutofillSession:
             self.page, fields, plan, resume_path=self.ctx.resume_pdf, assert_active=lambda: None
         )
         for fill in plan.fills:
-            question = str(
-                fields[fill.index].get("group")
-                if fields[fill.index].get("type") in {"radio", "checkbox"}
-                and fields[fill.index].get("group")
-                else fields[fill.index].get("label") or ""
-            ).strip()
-            if fill.value is not None and question:
-                self.state.planned[question] = fill.value
+            question = _question_for(fields[fill.index])
+            applied = _applied_value(fields[fill.index], fill)
+            if applied is not None and question:
+                self.state.planned[question] = applied
+                if question in self.state.tier_answers:
+                    self.state.tier_answers[question] = applied
+                    console.print(f"  [magenta]pattern:[/magenta] {question} -> {applied}")
         for question in result["unanswered_required_questions"]:
             item = next(
                 (
@@ -350,6 +437,44 @@ class AutofillSession:
         )
         result["artifact_paths"] = artifact_paths
         return result
+
+    # ----- claude tier -------------------------------------------------------
+
+    def fill_with_claude(self, fields: list[dict[str, Any]], result: dict[str, Any]) -> None:
+        """One bounded pass asking Claude about whatever is still unfilled."""
+        current = inspect_fields(self.page)
+        questions = _claude_questions(current)
+        if not questions:
+            return
+        console.print(f"Asking Claude about {len(questions)} question(s) ...")
+        drafted = self.ctx.short_drafter(
+            questions,
+            posting={
+                "company": self.ctx.company,
+                "role": self.ctx.title,
+                "description": self.ctx.description,
+            },
+            resume=self.ctx.resume_json,
+            profile=self.ctx.profile,
+            library=self.ctx.answers,
+        )
+        if not drafted:
+            console.print("Claude had no confident answers.")
+            return
+        claude_fields, plan = plan_autofill(
+            self.page, profile={}, approved_answers=[], fallback=drafted.get
+        )
+        claude_result = apply_autofill(
+            self.page, claude_fields, plan, resume_path=None, assert_active=lambda: None
+        )
+        for fill in plan.fills:
+            question = _question_for(claude_fields[fill.index])
+            applied = _applied_value(claude_fields[fill.index], fill)
+            if applied is not None and question in drafted:
+                self.state.tier_answers[question] = applied
+                self.state.tier_source[question] = "model"
+                console.print(f"  [magenta]claude:[/magenta] {question} -> {applied}")
+        result["failures"].extend(claude_result["failures"])
 
     # ----- long-form drafts ------------------------------------------------
 
@@ -462,7 +587,9 @@ class AutofillSession:
             value = str(item["answer_text"])
             seed, seed_source = self.state.seeds.get(question, ("", "empty"))
             matched = answer_match(question, self.ctx.answers)
-            if seed_source in {"answer_library", "model"} and value == seed:
+            if question in self.state.tier_answers and value == self.state.tier_answers[question]:
+                source = self.state.tier_source[question]
+            elif seed_source in {"answer_library", "model"} and value == seed:
                 source = seed_source
             elif matched is not None and value == str(matched.get("answer_text") or "").strip():
                 source = "answer_library"
@@ -552,6 +679,8 @@ class AutofillSession:
                 result = self.fill_deterministic(fields)
                 if self.ctx.dry_run:
                     return {"final_url": self.page.url, "answers": [], "dry_run": True}
+                if self.ctx.use_claude:
+                    self.fill_with_claude(fields, result)
                 opened = self.open_drafts(fields)
                 self.await_drafts(fields, opened)
                 self.wait_and_advance(fields, result.get("artifact_paths") or {})

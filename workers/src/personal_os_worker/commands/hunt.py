@@ -203,7 +203,7 @@ def run_doctor_command() -> int:
     return 0 if all(check.ok for check in checks) else 1
 
 
-def run_autofill(reference: str, *, dry_run: bool) -> int:
+def run_autofill(reference: str, *, dry_run: bool, no_claude: bool = False) -> int:
     from pathlib import Path
 
     from personal_os_worker.adapters import adapter_version, detect_ats, failure_signature
@@ -371,6 +371,7 @@ def run_autofill(reference: str, *, dry_run: bool) -> int:
                     ),
                     draft_dir=draft_directory(run_id),
                     dry_run=dry_run,
+                    use_claude=not no_claude,
                 )
             )
             outcome = session.run()

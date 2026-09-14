@@ -163,6 +163,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Show what would be filled without touching the page",
     )
+    autofill.add_argument(
+        "--no-claude",
+        action="store_true",
+        help="Skip the bounded Claude pass over remaining short and choice questions",
+    )
 
     run = jobs_commands.add_parser("run", help="Run every queued task, then exit")
     run_mode = run.add_mutually_exclusive_group()
@@ -279,7 +284,7 @@ def _dispatch(args: argparse.Namespace) -> int:
                 )
             if args.failure_action or args.failure_ref or args.verify_listing_ref:
                 raise RuntimeError("Unexpected autofill arguments")
-            return hunt.run_autofill(args.ref, dry_run=args.dry_run)
+            return hunt.run_autofill(args.ref, dry_run=args.dry_run, no_claude=args.no_claude)
         if args.hunt_command == "run":
             return hunt.run_tasks(once=args.once, watch=args.watch)
     return 2
