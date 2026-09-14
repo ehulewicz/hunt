@@ -55,8 +55,10 @@ country-of-citizenship split from a sanctioned-country check, and "have you
 worked here before" from whether the company appears on the resume). Exactly
 one matching rule answers a question; zero or several leave it for the next
 tier. Choice groups match the answer to the single option that equals,
-starts with, is a prefix of, or contains every word of it; several "Yes - …"
-options against a bare "Yes" stay unfilled. Every pattern fill is echoed as
+starts with, is a prefix of, or contains every word of it, then a number to
+the one range containing it, then a gender identity to its synonyms (`Male`
+picks `Man`, `Cisgender man`, or `Man (he/him)`); several "Yes - …" options
+against a bare "Yes" stay unfilled. Every pattern fill is echoed as
 `pattern: <question> -> <value>`.
 
 Whatever is still unfilled and not a textarea, consent, or file control goes

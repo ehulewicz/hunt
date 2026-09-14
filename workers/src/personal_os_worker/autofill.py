@@ -248,7 +248,46 @@ def choose_option(options: list[str], answer: str) -> str | None:
     ]
     if len(prefixed) == 1:
         return prefixed[0]
-    return choose_numeric_range(options, answer)
+    return choose_numeric_range(options, answer) or choose_synonym(options, answer)
+
+
+# Forms word the same identity differently; the profile holds one word.
+SYNONYM_GROUPS: tuple[frozenset[str], ...] = (
+    frozenset({"male", "man", "cis male", "cis man", "cisgender male", "cisgender man"}),
+    frozenset(
+        {"female", "woman", "cis female", "cis woman", "cisgender female", "cisgender woman"}
+    ),
+    frozenset({"non binary", "nonbinary", "genderqueer", "gender non conforming"}),
+    frozenset(
+        {
+            "prefer not to say",
+            "prefer not to answer",
+            "decline to self identify",
+            "i don t wish to answer",
+            "prefer not to disclose",
+        }
+    ),
+)
+QUALIFIER_WORDS = frozenset(
+    {"cis", "cisgender", "he", "him", "his", "she", "her", "hers", "they", "them"}
+)
+
+
+def choose_synonym(options: list[str], answer: str) -> str | None:
+    """The single option that means the same as the answer ("Male" -> "Cisgender man")."""
+    target = normalize_answer_question(answer)
+    group = next((group for group in SYNONYM_GROUPS if target in group), None)
+    if group is None:
+        return None
+    hits: list[str] = []
+    for option in options:
+        words = normalize_answer_question(option).split()
+        for length in range(len(words), 0, -1):
+            head, tail = " ".join(words[:length]), words[length:]
+            if head in group and all(word in QUALIFIER_WORDS for word in tail):
+                hits.append(option)
+                break
+    return hits[0] if len(hits) == 1 else None
 
 
 NUMBER = r"(\d+(?:\.\d+)?)"

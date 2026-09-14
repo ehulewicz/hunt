@@ -682,3 +682,17 @@ def test_a_number_picks_the_single_range_that_contains_it() -> None:
     assert choose_option(years, "3") == "2-4 years"
     assert choose_option(years, "7 years") == "5+ years"
     assert choose_option(["Yes", "No"], "3.78") is None
+
+
+def test_gender_answer_matches_the_forms_wording() -> None:
+    assert choose_option(["Man", "Woman", "Non-binary", "Prefer not to say"], "Male") == "Man"
+    assert choose_option(["Cisgender man", "Cisgender woman", "Transgender man"], "Male") == (
+        "Cisgender man"
+    )
+    assert choose_option(["Man (he/him)", "Woman (she/her)", "Non-binary (they/them)"], "Male") == (
+        "Man (he/him)"
+    )
+    assert choose_option(["Male", "Female", "Decline To Self Identify"], "Male") == "Male"
+    assert choose_option(["Man", "Male"], "Male") == "Male"  # exact wins over the synonym
+    assert choose_option(["Transgender man", "Woman"], "Male") is None
+    assert choose_option(["Man", "Woman"], "Prefer not to say") is None
