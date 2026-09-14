@@ -88,7 +88,20 @@ def test_everyday_commands_have_short_spellings() -> None:
     assert expand_shorthand(["hunt", "answers", "add"]) == ["hunt", "answers", "add"]
     assert expand_shorthand(["hunt", "resume", "build"]) == ["hunt", "resume", "build"]
     assert expand_shorthand(["status"]) == ["status"]
+    assert expand_shorthand(["hunt", "-h"]) == ["hunt", "-h"]  # help is the hunt help
     assert build_parser().parse_args(expand_shorthand(["hunt", "20"])).limit == 20
+    with pytest.raises(SystemExit, match=r"unknown command 'aps'.*apps"):
+        expand_shorthand(["hunt", "aps"])
+
+
+def test_hunt_help_lists_only_the_public_commands(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        main(["hunt", "-h"])
+    assert exit_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "os hunt [N]" in output
+    assert "{today,sync,open,apps,queue,answers,resume,apply}" in output
+    assert "list" not in output.replace("lists", "")
 
 
 def test_jobs_live_under_the_hunt_domain() -> None:

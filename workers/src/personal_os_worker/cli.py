@@ -22,6 +22,9 @@ from personal_os_worker.resume import build_resume, watch_resume
 from personal_os_worker.service import ApiUnavailable, ChromeUnavailable
 from personal_os_worker.tables import ReferenceError, console
 
+HUNT_COMMANDS = ("today", "sync", "open", "apps", "queue", "answers", "resume", "apply")
+LISTING_FLAGS = ("--faang", "--quant", "--location", "--family", "--all-roles")
+
 
 def listing_limit(value: str) -> int:
     try:
@@ -61,10 +64,22 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("whoami", help="Show the signed-in account")
     commands.add_parser("doctor", help="Check sign-in, services, Claude, and PDF tools")
 
-    jobs = commands.add_parser("hunt", help="Jobs: listings, applications, preparation")
-    jobs_commands = jobs.add_subparsers(dest="hunt_command", required=True)
+    jobs = commands.add_parser(
+        "hunt",
+        help="Jobs: listings, the queue, applications, answers, the resume",
+        description=(
+            "os hunt [N] lists open listings (N rows, default 50). "
+            "os hunt answers lists the answer library; os hunt resume watches the resume."
+        ),
+        usage="os hunt [N] [--faang | --quant] [--location L] [--family F] [--all-roles]\n"
+        "       os hunt {" + ",".join(HUNT_COMMANDS) + "} ...",
+    )
+    jobs_commands = jobs.add_subparsers(
+        dest="hunt_command", required=True, metavar="{" + ",".join(HUNT_COMMANDS) + "}"
+    )
 
-    listings = jobs_commands.add_parser("list", help="Browse open listings")
+    # `list` is how `os hunt [N]` is spelled internally; it is not offered by name.
+    listings = jobs_commands.add_parser("list")
     category = listings.add_mutually_exclusive_group()
     category.add_argument("--faang", action="store_true", help="Only FAANG+ listings")
     category.add_argument("--quant", action="store_true", help="Only quant listings")
@@ -316,12 +331,17 @@ def expand_shorthand(arguments: list[str]) -> list[str]:
     if not arguments or arguments[0] != "hunt":
         return arguments
     rest = arguments[1:]
-    if not rest or rest[0].isdigit() or rest[0].startswith("-"):
+    if not rest or rest[0].isdigit() or rest[0].split("=", 1)[0] in LISTING_FLAGS:
         return ["hunt", "list", *rest]
     if rest == ["answers"]:
         return ["hunt", "answers", "list"]
     if rest == ["resume"]:
         return ["hunt", "resume", "watch", "--open"]
+    if rest[0] not in (*HUNT_COMMANDS, "list") and not rest[0].startswith("-"):
+        raise SystemExit(
+            f"os hunt: unknown command {rest[0]!r}. Use a number of rows, or one of: "
+            + ", ".join(HUNT_COMMANDS)
+        )
     return arguments
 
 
