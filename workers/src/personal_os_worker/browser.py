@@ -17,6 +17,10 @@ from personal_os_worker.autofill import (
     normalize_question,
 )
 
+# Playwright auto-waits 30s for a control before an action fails; a control that
+# vanished because the page moved on (the user submitted) must fail in seconds.
+CONTROL_TIMEOUT_MS = 4_000
+
 YESNO_CONTAINER_XPATH = (
     "xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), "
     "' ashby-application-form-input-yesno ')][1]"
@@ -245,14 +249,14 @@ def apply_autofill(
             continue
         try:
             if fill.kind == "resume" and resume_path is not None:
-                control.set_input_files(str(resume_path))
+                control.set_input_files(str(resume_path), timeout=CONTROL_TIMEOUT_MS)
                 page.wait_for_timeout(750)
             elif field.get("tag") == "select" and fill.value is not None:
                 options = [str(value) for value in field.get("options", [])]
                 matched = option_match(options, fill.value)
                 if matched is None:
                     raise RuntimeError("no unambiguous select option")
-                control.select_option(label=matched)
+                control.select_option(label=matched, timeout=CONTROL_TIMEOUT_MS)
             elif field.get("role") == "combobox" and fill.value is not None:
                 expected = select_combobox_option(page, control, fill.value)
             elif field.get("type") == "yesno" and fill.value is not None:
@@ -268,7 +272,7 @@ def apply_autofill(
                     ).count()
                 ):
                     raise RuntimeError("Lever choice left manual because captcha is present")
-                control.check()
+                control.check(timeout=CONTROL_TIMEOUT_MS)
             elif fill.value is not None:
                 set_registered_value(control, fill.value)
         except (Error, RuntimeError) as error:
@@ -284,7 +288,7 @@ def apply_autofill(
             )
             if field.get("tag") == "select" and fill.value is not None:
                 try:
-                    control.select_option(value=fill.value)
+                    control.select_option(value=fill.value, timeout=CONTROL_TIMEOUT_MS)
                 except Error:
                     if field.get("required") is True:
                         unanswered.append(label)
@@ -305,7 +309,7 @@ def apply_autofill(
             filled_labels.append(label)
         else:
             try:
-                observed = fresh_control(page, field).input_value()
+                observed = fresh_control(page, field).input_value(timeout=CONTROL_TIMEOUT_MS)
             except Error:
                 observed = None
             failures.append(
@@ -340,14 +344,17 @@ def fresh_control(page: Page, field: dict[str, Any]) -> Any:
         locator = frame.locator(selector)
         if locator.count() == 1:
             return locator
-    return frame.locator("input, textarea, select, [role=combobox]").nth(
-        int(field.get("control_index", field["index"]))
-    )
+    controls = frame.locator("input, textarea, select, [role=combobox]")
+    position = int(field.get("control_index", field["index"]))
+    if position >= controls.count():
+        raise RuntimeError("control is no longer present")
+    return controls.nth(position)
 
 
 def set_registered_value(control: Any, value: str) -> None:
     control.evaluate(
-        """
+        timeout=CONTROL_TIMEOUT_MS,
+        expression="""
         (element, value) => {
           const proto = element instanceof HTMLTextAreaElement
             ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
@@ -358,7 +365,7 @@ def set_registered_value(control: Any, value: str) -> None:
           element.dispatchEvent(new Event('blur', {bubbles: true}));
         }
         """,
-        value,
+        arg=value,
     )
 
 
@@ -400,12 +407,12 @@ def _await_options(page: Page, options: Any, timeout_ms: int) -> bool:
 
 def combobox_options(page: Page, control: Any) -> list[str]:
     """What a typeahead offers before anything is typed; empty for a search box."""
-    control.click()
+    control.click(timeout=CONTROL_TIMEOUT_MS)
     options = _menu_options(control)
     texts: list[str] = []
     if _await_options(page, options, COMBOBOX_LIST_TIMEOUT_MS):
         texts = list(dict.fromkeys(text for text in _visible_texts(options)[1] if text))
-    control.press("Escape")
+    control.press("Escape", timeout=CONTROL_TIMEOUT_MS)
     return texts
 
 
@@ -419,7 +426,7 @@ def select_combobox_option(page: Page, control: Any, value: str) -> str:
     Keystrokes rather than a synthetic value: react-select and Places key
     their menus off real input events and close on blur.
     """
-    control.click()
+    control.click(timeout=CONTROL_TIMEOUT_MS)
     options = _menu_options(control)
     if _await_options(page, options, COMBOBOX_LIST_TIMEOUT_MS):
         visible, texts = _visible_texts(options)
@@ -427,18 +434,18 @@ def select_combobox_option(page: Page, control: Any, value: str) -> str:
         if chosen is not None:
             options.nth(visible[texts.index(chosen)]).click()
             return chosen
-    control.fill("")
-    control.press_sequentially(value, delay=20)
+    control.fill("", timeout=CONTROL_TIMEOUT_MS)
+    control.press_sequentially(value, delay=20, timeout=CONTROL_TIMEOUT_MS)
     if not _await_options(page, options, COMBOBOX_OPTIONS_TIMEOUT_MS):
         # A free-entry typeahead offers nothing to pick; Enter commits the text.
-        control.press("Enter")
+        control.press("Enter", timeout=CONTROL_TIMEOUT_MS)
         if combobox_value(control).casefold() == value.strip().casefold():
             return value.strip()
         raise RuntimeError("no unambiguous combobox option (none appeared)")
     visible, texts = _visible_texts(options)
     chosen = _pick(texts, value)
     if chosen is None:
-        control.press("Escape")
+        control.press("Escape", timeout=CONTROL_TIMEOUT_MS)
         raise RuntimeError("no unambiguous combobox option")
     options.nth(visible[texts.index(chosen)]).click()
     return chosen
@@ -450,7 +457,10 @@ def verify_control(
     control = fresh_control(page, field)
     try:
         if resume:
-            return int(control.evaluate("element => element.files?.length || 0")) > 0
+            files = control.evaluate(
+                "element => element.files?.length || 0", timeout=CONTROL_TIMEOUT_MS
+            )
+            return int(files) > 0
         if field.get("type") == "yesno":
             yesno_option = "yes" if str(value or "").strip().casefold() == "yes" else "no"
             button = control.locator(YESNO_CONTAINER_XPATH).locator(
@@ -458,8 +468,8 @@ def verify_control(
             )
             return bool(button.get_attribute("aria-pressed") == "true")
         if field.get("type") in {"radio", "checkbox"}:
-            return bool(control.is_checked())
-        observed = str(control.input_value()).strip()
+            return bool(control.is_checked(timeout=CONTROL_TIMEOUT_MS))
+        observed = str(control.input_value(timeout=CONTROL_TIMEOUT_MS)).strip()
         if field.get("tag") == "select" and value is not None:
             return value.casefold() in observed.casefold() or bool(observed)
         if field.get("role") == "combobox":
@@ -494,7 +504,7 @@ def combobox_value(control: Any) -> str:
     `single-value`/`multi-value` element, or mirrors it into an aria-hidden
     input. Whichever is present is the value.
     """
-    return str(control.evaluate(COMBOBOX_VALUE_SCRIPT)).strip()
+    return str(control.evaluate(COMBOBOX_VALUE_SCRIPT, timeout=CONTROL_TIMEOUT_MS)).strip()
 
 
 def combobox_shows(control: Any, expected: str) -> bool:
@@ -507,7 +517,9 @@ def combobox_shows(control: Any, expected: str) -> bool:
     held = combobox_value(control)
     return bool(held) and (
         held.casefold() == expected.strip().casefold()
-        or control.evaluate("element => !String(element.value || '').trim()")
+        or control.evaluate(
+            "element => !String(element.value || '').trim()", timeout=CONTROL_TIMEOUT_MS
+        )
     )
 
 
@@ -787,7 +799,7 @@ def snapshot_values(page: Page, fields: list[dict[str, Any]]) -> dict[str, dict[
                 question = label
                 value = str(pressed.first.inner_text())
             elif field_type in {"radio", "checkbox"}:
-                if not control.is_checked():
+                if not control.is_checked(timeout=CONTROL_TIMEOUT_MS):
                     continue
                 question = group or label
                 value = label or str(field.get("value") or "")
@@ -795,7 +807,8 @@ def snapshot_values(page: Page, fields: list[dict[str, Any]]) -> dict[str, dict[
                 question = label
                 value = str(
                     control.evaluate(
-                        "element => element.selectedOptions[0]?.textContent?.trim() || ''"
+                        "element => element.selectedOptions[0]?.textContent?.trim() || ''",
+                        timeout=CONTROL_TIMEOUT_MS,
                     )
                 )
             elif field.get("role") == "combobox":
@@ -803,7 +816,7 @@ def snapshot_values(page: Page, fields: list[dict[str, Any]]) -> dict[str, dict[
                 value = combobox_value(control)
             else:
                 question = label
-                value = str(control.input_value())
+                value = str(control.input_value(timeout=CONTROL_TIMEOUT_MS))
         except (Error, RuntimeError):
             continue
         question = question.strip()

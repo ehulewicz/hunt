@@ -83,7 +83,9 @@ If that is unsafe or unavailable, the CLI says `Hit a wall` and keeps waiting
 while you advance the visible browser manually. The CLI rescans after navigation.
 At final review, type `approve` to reread and persist non-empty long-form answers.
 No action vocabulary contains Next, Submit, consent, signature, attestation, or
-captcha operations. Whatever profile facts and exact answers leave unfilled goes
+captcha operations. In the terminal, Ctrl+S saves what has been picked up so
+far, Ctrl+A saves and marks the application applied when you have submitted
+it yourself, and Ctrl+C stops and saves. Whatever profile facts and exact answers leave unfilled goes
 through library and built-in pattern rules, then one bounded local Claude pass
 per page step over the remaining short and choice questions; `--no-claude`
 skips that last pass.

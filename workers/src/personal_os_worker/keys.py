@@ -1,6 +1,7 @@
 """Single-key controls for the autofill poll loop.
 
-Ctrl+S saves what has been picked up so far. The terminal normally swallows
+Ctrl+S saves what has been picked up so far. Ctrl+A says the application went
+in: save, mark it applied, and end. The terminal normally swallows
 Ctrl+S as XOFF flow control, so the watcher turns that off while it runs and
 restores the terminal on exit. Ctrl+C is left to the kernel as SIGINT so the
 session's KeyboardInterrupt path handles it.
@@ -18,6 +19,7 @@ from types import TracebackType
 from typing import Any
 
 SAVE_KEYS = frozenset({"\x13", "s", "S"})
+DONE_KEYS = frozenset({"\x01", "a", "A"})
 
 
 class KeyWatcher:
@@ -61,6 +63,8 @@ class KeyWatcher:
             for char in os.read(self._fd, 64).decode(errors="ignore"):
                 if char in SAVE_KEYS:
                     pressed.add("save")
+                if char in DONE_KEYS:
+                    pressed.add("done")
 
 
 class NoKeys:

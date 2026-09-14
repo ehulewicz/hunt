@@ -544,3 +544,92 @@ def test_claude_is_asked_about_a_question_once_per_run(
     session.fill_with_claude(fields, {"failures": []})  # a re-rendered step
 
     assert calls == [["First name", "Why us, in a word?"]]
+
+
+def submit_form_html() -> str:
+    return """
+    <form>
+      <label for="resume">Resume</label><input id="resume" type="file">
+      <label for="first">First name</label><input id="first" name="first_name" required>
+      <label for="school">What school are you attending?</label>
+      <input id="school" required>
+    </form>
+    """
+
+
+def test_ctrl_a_saves_marks_submitted_and_ends(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    browser_page.set_content(submit_form_html())
+    browser_page.fill("#school", "Example University")
+    resume_pdf = tmp_path / "main.pdf"
+    resume_pdf.write_bytes(b"%PDF-1.4\n%%EOF")
+    api = FakeApi()
+    context = SessionContext(
+        api=api,  # type: ignore[arg-type]
+        run_id="run-ctrl-a",
+        adapter_name="greenhouse",
+        browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
+        page=browser_page,
+        console_errors=[],
+        profile={"legal_name": "Alex Example"},
+        answers=[],
+        scoped=[],
+        resume_json={},
+        resume_pdf=resume_pdf,
+        company="Acme",
+        title="Backend Engineer Intern",
+        description=None,
+        draft_dir=tmp_path / "drafts",
+        use_claude=False,
+        poll_seconds=0.01,
+        keys=ScriptedKeys([set(), {"done"}]),
+    )
+
+    outcome = AutofillSession(context).run()
+
+    assert outcome["submitted"] is True
+    assert api.library["What school are you attending?"]["answer_text"] == "Example University"
+    assert "Marked as submitted." in capsys.readouterr().out
+
+
+def test_submitting_during_the_claude_pass_ends_the_session_promptly(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
+    browser_page.set_content(submit_form_html())
+    resume_pdf = tmp_path / "main.pdf"
+    resume_pdf.write_bytes(b"%PDF-1.4\n%%EOF")
+
+    def short_drafter(questions: Any, **_: Any) -> dict[str, str]:
+        # The user finishes the form and presses Submit while Claude is thinking.
+        browser_page.set_content("<h1>Thank you for applying to Acme!</h1>")
+        return {"What school are you attending?": "Example University"}
+
+    context = SessionContext(
+        api=FakeApi(),  # type: ignore[arg-type]
+        run_id="run-race",
+        adapter_name="greenhouse",
+        browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
+        page=browser_page,
+        console_errors=[],
+        profile={"legal_name": "Alex Example"},
+        answers=[],
+        scoped=[],
+        resume_json={},
+        resume_pdf=resume_pdf,
+        company="Acme",
+        title="Backend Engineer Intern",
+        description=None,
+        draft_dir=tmp_path / "drafts",
+        short_drafter=short_drafter,
+        poll_seconds=0.01,
+        keys=InterruptingKeys([set()] * 20),
+    )
+
+    outcome = AutofillSession(context).run()
+
+    assert outcome["submitted"] is True
+    assert "interrupted" not in outcome

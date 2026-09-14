@@ -64,6 +64,10 @@ SUBMITTED_MARKERS = (
     "submitted successfully",
 )
 
+class SubmittedByUser(Exception):
+    """Ctrl+A: the user says the application went in."""
+
+
 Drafter = Callable[..., str | None]
 ShortDrafter = Callable[..., dict[str, str]]
 
@@ -250,8 +254,19 @@ class AutofillSession:
             self.state.warnings.add(key)
 
     def sleep(self) -> None:
-        if "save" in self.ctx.keys.wait(self.ctx.poll_seconds):
+        pressed = self.ctx.keys.wait(self.ctx.poll_seconds)
+        if "save" in pressed:
             self.save_now()
+        if "done" in pressed:
+            raise SubmittedByUser
+
+    def form_is_gone(self) -> bool:
+        """The page has left the form for a confirmation, so nothing on it is ours."""
+        try:
+            fields = inspect_fields(self.page)
+        except Error:
+            return False
+        return not looks_like_application_form(fields) and looks_submitted(self.page)
 
     def save_now(self) -> int:
         """Push every picked-up answer that changed since the last save to the library."""
@@ -464,6 +479,8 @@ class AutofillSession:
                 item["options"] = combobox_options(self.page, fresh_control(self.page, item))
             except (Error, RuntimeError):
                 item["options"] = []
+                if self.form_is_gone():
+                    return
         # Once per question per run: a re-render that restarts the step, or a
         # later step showing the same question, must not ask again.
         questions = [
@@ -488,6 +505,8 @@ class AutofillSession:
         )
         if not drafted:
             console.print("Claude had no confident answers.")
+            return
+        if self.form_is_gone():
             return
         claude_fields, plan = plan_autofill(
             self.page, profile={}, approved_answers=[], fallback=drafted.get
@@ -654,6 +673,8 @@ class AutofillSession:
             current = inspect_fields(self.page)
             if page_signature(self.page, current) != prior:
                 return
+            if not looks_like_application_form(current) and looks_submitted(self.page):
+                return
             self.record_snapshot(current)
             missing = tuple(audit_filled_form(current)["required_unfilled"])
             if missing != last_missing:
@@ -692,7 +713,10 @@ class AutofillSession:
     # ----- driver ----------------------------------------------------------
 
     def run(self) -> dict[str, Any]:
-        console.print("[dim]Ctrl+S saves picked-up answers now; Ctrl+C stops and saves.[/dim]")
+        console.print(
+            "[dim]Ctrl+S saves picked-up answers now; Ctrl+A marks it submitted and ends; "
+            "Ctrl+C stops and saves.[/dim]"
+        )
         with self.ctx.keys:
             return self._run()
 
@@ -717,6 +741,14 @@ class AutofillSession:
                 self.state.step += 1
         except BrowserClosedError:
             console.print("The browser or application tab was closed. Ending autofill.")
+        except SubmittedByUser:
+            console.print("Marked as submitted.")
+            self.save_now()
+            return {
+                "final_url": self.page.url,
+                "answers": list(self.state.collected.values()),
+                "submitted": True,
+            }
         except KeyboardInterrupt:
             console.print("Stopped. The application tab stays open in the browser.")
             try:
