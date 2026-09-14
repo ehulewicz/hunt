@@ -146,7 +146,8 @@ BUILTIN_RULES: tuple[BuiltinRule, ...] = (
     ),
     _rule(
         "location",
-        r"^\s*(current )?location\s*$|\bwhere are you (currently )?(located|based)\b|"
+        r"^\s*(current )?location\s*(\(\s*city\s*\))?\s*$|\blocation\s*/\s*city\b|"
+        r"\bcity\s*/\s*location\b|\bwhere are you (currently )?(located|based)\b|"
         r"\bcurrent (city|location)\b|\bcity (and|,) state\b",
         _location,
     ),

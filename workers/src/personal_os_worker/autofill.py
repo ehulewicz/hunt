@@ -264,4 +264,7 @@ def resolve_profile_value(profile: dict[str, Any], profile_key: str | None) -> A
         return None
     if profile_key == "earliest_start":
         return profile.get("earliest_start_text") or profile.get("earliest_start_date")
+    if profile_key == "country":
+        country = str(profile.get("country") or "").strip()
+        return "United States" if country.casefold().startswith("united stat") else country
     return profile.get(profile_key) if profile_key else None

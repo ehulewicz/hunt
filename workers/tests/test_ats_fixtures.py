@@ -285,3 +285,121 @@ def test_ashby_yesno_control_is_fillable_by_the_sanctioned_country_rule(
     assert snapshot_values(browser_page, refreshed) == {
         question: {"question": question, "answer_text": "No", "control_kind": "yesno"}
     }
+
+
+REACT_SELECT_COUNTRY = """
+<div class="field">
+  <label for="country">Country</label>
+  <div class="control">
+    <span class="chosen"></span>
+    <input id="country" role="combobox" autocomplete="off">
+    <input aria-hidden="true" tabindex="-1" required>
+  </div>
+  <div class="menu"></div>
+</div>
+<script>
+(() => {
+const codes = ['United Kingdom (+44)', 'United States (+1)', 'Canada (+1)'];
+const box = document.querySelector('#country');
+const menu = document.querySelector('.menu');
+const mirror = document.querySelector('input[aria-hidden="true"]');
+box.addEventListener('input', () => {
+  const needle = box.value.toLowerCase();
+  menu.innerHTML = '';
+  codes.filter(code => code.toLowerCase().includes(needle)).forEach(code => {
+    const option = document.createElement('div');
+    option.setAttribute('role', 'option');
+    option.textContent = code;
+    option.addEventListener('mousedown', () => {
+      mirror.value = code.slice(-4, -1);
+      document.querySelector('.chosen').textContent = code;
+      box.value = '';
+      menu.innerHTML = '';
+    });
+    menu.appendChild(option);
+  });
+});
+box.addEventListener('blur', () => setTimeout(() => { menu.innerHTML = ''; }, 0));
+})();
+</script>
+"""
+
+PLACES_CITY = """
+<div class="field">
+  <label for="city">Location (City)</label>
+  <input id="city" role="combobox" required>
+  <div class="menu"></div>
+</div>
+<script>
+(() => {
+const box = document.querySelector('#city');
+const menu = document.querySelector('.menu');
+let pending = null;
+box.addEventListener('input', () => {
+  menu.innerHTML = '';
+  clearTimeout(pending);
+  if (!box.value.toLowerCase().startsWith('atl')) return;
+  pending = setTimeout(() => {
+    const option = document.createElement('div');
+    option.setAttribute('role', 'option');
+    option.textContent = 'Atlanta, Georgia, United States';
+    option.addEventListener('click', () => {
+      box.value = option.textContent; menu.innerHTML = '';
+    });
+    menu.appendChild(option);
+  }, 150);
+});
+})();
+</script>
+"""
+
+
+def test_react_select_country_is_picked_by_prefix_and_verified_through_its_mirror(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(REACT_SELECT_COUNTRY)
+    fields = inspect_fields(browser_page)
+    assert [(f["label"], f["role"], f["required"], f["filled"]) for f in fields] == [
+        ("Country", "combobox", True, False)
+    ]
+
+    plan = build_autofill_plan(fields, profile={"country": "United Stat"}, approved_answers=[])
+    assert [fill.value for fill in plan.fills] == ["United States"]
+    result = apply_autofill(
+        browser_page, fields, plan, resume_path=None, assert_active=lambda: None
+    )
+
+    assert result["failures"] == []
+    assert result["filled_fields"] == ["Country"]
+    assert browser_page.locator(".chosen").inner_text() == "United States (+1)"
+    assert inspect_fields(browser_page)[0]["filled"] is True
+
+
+def test_places_city_typeahead_is_filled_by_the_location_rule(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(PLACES_CITY)
+    fields = inspect_fields(browser_page)
+    profile = {"city": "Atlanta", "region": "Georgia", "country": "United Stat"}
+    plan = build_autofill_plan(
+        fields,
+        profile={},
+        approved_answers=[],
+        fallback=lambda asked: resolve_pattern_answer(
+            asked, rules=[], profile=profile, resume={}, company="Acme"
+        ),
+    )
+    assert [fill.value for fill in plan.fills] == ["Atlanta, Georgia, United States"]
+    result = apply_autofill(
+        browser_page, fields, plan, resume_path=None, assert_active=lambda: None
+    )
+
+    assert result["failures"] == []
+    assert browser_page.locator("#city").input_value() == "Atlanta, Georgia, United States"
+    assert snapshot_values(browser_page, inspect_fields(browser_page)) == {
+        "Location (City)": {
+            "question": "Location (City)",
+            "answer_text": "Atlanta, Georgia, United States",
+            "control_kind": "input",
+        }
+    }

@@ -53,6 +53,7 @@ def test_builtin_rules_answer_from_profile_facts() -> None:
     assert ask("What degree are you currently pursuing?") == "Bachelor's"
     assert ask("Current or most recent employer") == "Northwind"
     assert ask("Location") == "Atlanta, Georgia, United States"
+    assert ask("Location (City)") == "Atlanta, Georgia, United States"
     assert (
         ask("Are you currently authorized to work for any employer in the United States?") == "Yes"
     )

@@ -9,7 +9,13 @@ from typing import Any, cast
 from playwright.sync_api import Browser, Error, Page, Playwright, sync_playwright
 
 from personal_os_worker.adapters import failure_signature, option_match
-from personal_os_worker.autofill import AutofillPlan, build_autofill_plan, is_sensitive_field
+from personal_os_worker.autofill import (
+    AutofillPlan,
+    build_autofill_plan,
+    choose_option,
+    is_sensitive_field,
+    normalize_question,
+)
 
 YESNO_CONTAINER_XPATH = (
     "xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), "
@@ -233,6 +239,7 @@ def apply_autofill(
         field = fields[fill.index]
         label = str(field.get("label") or field.get("name") or fill.index)
         control = fresh_control(page, field)
+        expected = fill.value
         if fill.kind == "resume" and resume_path is None:
             skipped.append(f"{label} (no resume provided)")
             continue
@@ -247,14 +254,7 @@ def apply_autofill(
                     raise RuntimeError("no unambiguous select option")
                 control.select_option(label=matched)
             elif field.get("role") == "combobox" and fill.value is not None:
-                control.click()
-                set_registered_value(control, fill.value)
-                option = page.get_by_role(
-                    "option", name=re.compile(rf"^\s*{re.escape(fill.value)}\s*$", re.I)
-                )
-                if option.count() != 1:
-                    raise RuntimeError("no unambiguous combobox option")
-                option.click()
+                expected = select_combobox_option(page, control, fill.value)
             elif field.get("type") == "yesno" and fill.value is not None:
                 yesno_option = "yes" if fill.value.strip().casefold() == "yes" else "no"
                 control.locator(YESNO_CONTAINER_XPATH).locator(
@@ -301,7 +301,7 @@ def apply_autofill(
                     _failure(field, category, message, intended=fill.value)
                 )
                 continue
-        if verify_control(page, field, fill.value, resume=fill.kind == "resume"):
+        if verify_control(page, field, expected, resume=fill.kind == "resume"):
             filled_labels.append(label)
         else:
             try:
@@ -362,6 +362,40 @@ def set_registered_value(control: Any, value: str) -> None:
     )
 
 
+COMBOBOX_SETTLE_MS = 300
+COMBOBOX_OPTIONS_TIMEOUT_MS = 4_000
+
+
+def select_combobox_option(page: Page, control: Any, value: str) -> str:
+    """Type into a typeahead, pick the one option the answer denotes, return its text.
+
+    Keystrokes rather than a synthetic value: react-select and Google Places
+    both key their menus off real input events and close on blur. Options are
+    fetched asynchronously, so wait for the first one before matching.
+    """
+    control.click()
+    control.fill("")
+    control.press_sequentially(value, delay=20)
+    # Scope to the control's own document so a form inside an iframe works too.
+    options = control.locator("xpath=ancestor::body").get_by_role("option")
+    try:
+        options.first.wait_for(state="visible", timeout=COMBOBOX_OPTIONS_TIMEOUT_MS)
+    except Error as error:
+        raise RuntimeError("no unambiguous combobox option (none appeared)") from error
+    page.wait_for_timeout(COMBOBOX_SETTLE_MS)
+    texts = [str(options.nth(index).inner_text()).strip() for index in range(options.count())]
+    distinct = list(dict.fromkeys(text for text in texts if text))
+    chosen = choose_option(distinct, value)
+    if chosen is None:
+        target = normalize_question(value)
+        containing = [text for text in distinct if target and target in normalize_question(text)]
+        chosen = containing[0] if len(containing) == 1 else None
+    if chosen is None:
+        raise RuntimeError("no unambiguous combobox option")
+    options.nth(texts.index(chosen)).click()
+    return chosen
+
+
 def verify_control(
     page: Page, field: dict[str, Any], value: str | None, *, resume: bool = False
 ) -> bool:
@@ -380,9 +414,40 @@ def verify_control(
         observed = str(control.input_value()).strip()
         if field.get("tag") == "select" and value is not None:
             return value.casefold() in observed.casefold() or bool(observed)
+        if field.get("role") == "combobox":
+            return combobox_shows(control, str(value or ""))
         return observed == str(value or "").strip()
     except Error:
         return False
+
+
+def combobox_shows(control: Any, expected: str) -> bool:
+    """Whether a typeahead now holds `expected`, wherever the widget keeps it.
+
+    Google Places leaves the chosen text in the input. react-select empties the
+    search input, renders the choice as a sibling, and mirrors the value into
+    an aria-hidden input; either of those counts.
+    """
+    return bool(
+        control.evaluate(
+            """
+            (element, expected) => {
+              const norm = text => String(text || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+              const want = norm(expected);
+              if (want && norm(element.value) === want) return true;
+              let shell = element.parentElement;
+              for (let depth = 0; shell && depth < 4; depth += 1) {
+                const mirror = shell.querySelector('input[aria-hidden="true"]');
+                if (mirror && norm(mirror.value)) return true;
+                if (want && norm(shell.textContent).includes(want)) return true;
+                shell = shell.parentElement;
+              }
+              return false;
+            }
+            """,
+            expected,
+        )
+    )
 
 
 def _failure(
@@ -486,13 +551,17 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           const label = rawLabel.replace(/\\s*\\*\\s*$/, '');
           let shell = element.parentElement;
           let mirroredRequired = false;
+          let mirroredValue = '';
           for (let depth = 0; shell && depth < 4; depth += 1) {
-            if (shell.querySelector('input[aria-hidden="true"][required]')) {
-              mirroredRequired = true;
-              break;
+            const mirror = shell.querySelector('input[aria-hidden="true"]');
+            if (mirror) {
+              mirroredRequired = mirroredRequired || mirror.required === true;
+              mirroredValue = mirroredValue || String(mirror.value || '').trim();
+              if (mirroredRequired) break;
             }
             shell = shell.parentElement;
           }
+          const isCombobox = element.getAttribute('role') === 'combobox';
           const selector = id
             ? `#${CSS.escape(id)}`
             : element.getAttribute('name')
@@ -539,7 +608,8 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
                 ? (element.files?.length || 0) > 0
                 : ['checkbox', 'radio'].includes(element.type)
                   ? element.checked === true
-                  : String(element.value || '').trim().length > 0,
+                  : String(element.value || '').trim().length > 0
+                    || (isCombobox && mirroredValue.length > 0),
           };
         })
         """
