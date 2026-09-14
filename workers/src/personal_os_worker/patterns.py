@@ -199,6 +199,13 @@ BUILTIN_RULES: tuple[BuiltinRule, ...] = (
         lambda c: "United States" if _is_citizen(c.profile) else None,
     ),
     _rule(
+        "onsite_work",
+        r"\b(willing|able|available|agree)\b.*\b(work|report|come)\b.*"
+        r"\b(on[ -]?site|in[ -]?office)\b|"
+        r"\b(on[ -]?site|in[ -]?office)\b.*\b(days?|times?)\b.*\b(week|month)\b",
+        lambda c: "Yes",
+    ),
+    _rule(
         "relocate",
         r"\b(willing|able|open) to relocat",
         lambda c: _bool_answer(c.profile, "willing_to_relocate"),

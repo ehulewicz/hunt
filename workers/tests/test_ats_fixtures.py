@@ -11,6 +11,7 @@ from personal_os_worker.browser import (
     combobox_options,
     inspect_fields,
     reveal_application_form,
+    set_registered_value,
     snapshot_values,
 )
 from personal_os_worker.patterns import resolve_pattern_answer
@@ -168,6 +169,66 @@ def test_snapshot_values_reads_text_choices_and_selects_by_question(
         "School": "UIC",
         "How did you hear about us?": "Referral",
     }
+
+
+def test_custom_consent_radio_detects_a_manual_selection(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    question = "Check Yes or No to indicate your agreement to receive text message updates"
+    browser_page.set_content(
+        f"""
+        <div class="application-field">
+          <div>{question}</div>
+          <a href="/privacy">Privacy Policy</a>
+          <div>
+            <label><input required type="radio" name="sms" value="yes" checked>
+              Yes - I consent to receiving text messages</label>
+            <label><input required type="radio" name="sms" value="no">
+              No - I do not consent to receiving text messages</label>
+          </div>
+        </div>
+        """
+    )
+    fields = inspect_fields(browser_page)
+    assert {field["group"] for field in fields} == {question}
+    assert [field["filled"] for field in fields] == [True, False]
+    plan = build_autofill_plan(fields, profile={}, approved_answers=[])
+    assert plan.fills == ()
+    assert plan.unanswered_required_questions == ()
+    audit = audit_filled_form(fields)
+    assert audit["required_unfilled"] == []
+    assert audit["sensitive_filled"] == [question]
+    snapshot = snapshot_values(browser_page, fields)
+    assert snapshot[question]["answer_text"] == "Yes - I consent to receiving text messages"
+
+
+def test_registered_text_value_receives_focus_and_blur_commit(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(
+        """
+        <input id="email" type="email">
+        <input id="next">
+        <script>
+          window.commitEvents = [];
+          const email = document.querySelector('#email');
+          email.addEventListener('focus', () => window.commitEvents.push('focus'));
+          email.addEventListener('input', () => window.commitEvents.push('input'));
+          email.addEventListener('change', () => window.commitEvents.push('change'));
+          email.addEventListener('click', () => window.commitEvents.push('click'));
+          email.addEventListener('blur', () => window.commitEvents.push('blur'));
+        </script>
+        """
+    )
+    set_registered_value(browser_page.locator("#email"), "alex.example@example.com")
+    assert browser_page.locator("#email").input_value() == "alex.example@example.com"
+    assert browser_page.evaluate("window.commitEvents") == [
+        "focus",
+        "input",
+        "change",
+        "click",
+        "blur",
+    ]
 
 
 def test_live_greenhouse_shapes_strip_asterisks_skip_mirrors_and_find_resume_by_id(

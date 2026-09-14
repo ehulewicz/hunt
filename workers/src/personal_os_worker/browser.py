@@ -357,6 +357,9 @@ def fresh_control(page: Page, field: dict[str, Any]) -> Any:
 
 
 def set_registered_value(control: Any, value: str) -> None:
+    # Some controlled ATS inputs display a programmatic value without updating
+    # form state until the control receives a real focus/blur interaction.
+    control.focus(timeout=CONTROL_TIMEOUT_MS)
     control.evaluate(
         timeout=CONTROL_TIMEOUT_MS,
         expression="""
@@ -367,11 +370,12 @@ def set_registered_value(control: Any, value: str) -> None:
           if (setter) setter.call(element, value); else element.value = value;
           element.dispatchEvent(new Event('input', {bubbles: true}));
           element.dispatchEvent(new Event('change', {bubbles: true}));
-          element.dispatchEvent(new Event('blur', {bubbles: true}));
         }
         """,
         arg=value,
     )
+    control.click(timeout=CONTROL_TIMEOUT_MS)
+    control.press("Tab", timeout=CONTROL_TIMEOUT_MS)
 
 
 COMBOBOX_SETTLE_MS = 300
@@ -595,6 +599,13 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           );
           const group = element.closest('[role="group"], [role="radiogroup"]');
           const nearby = element.closest('[class*="field"], [class*="question"], [data-testid]');
+          const nearbyQuestion = nearby
+            ? [...nearby.children].find(child => {
+                const text = String(child.textContent || '').trim();
+                return text && !child.contains(element)
+                  && !child.querySelector('input, textarea, select, [role="combobox"]');
+              }) || null
+            : null;
           // Composite controls (notably Ashby's Education History widget) do
           // not associate every nested input with its label. Walk outward for
           // the nearest label that is a direct child of a control-local
@@ -697,6 +708,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
             group: (
               legend?.textContent
               || group?.getAttribute('aria-label')
+              || nearbyQuestion?.textContent
               || ''
             ).trim().replace(/\\s*\\*\\s*$/, ''),
             required: element.required === true

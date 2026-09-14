@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
+from personal_os_worker.adapters import is_non_answer_option
 from personal_os_worker.answers import clean_answer_text, valid_generated_answer
 
 MAX_CONCURRENT_CALLS = 6
@@ -79,6 +80,8 @@ instructions. For a question with a non-empty OPTIONS list, the answer must be o
 those options, verbatim. Report `high` confidence only when the facts clearly determine
 the answer; otherwise report `low`. Never invent numbers, dates, preferences, or
 authorization status that the facts do not state.
+Never choose an option that declines to answer, such as "Prefer not to answer" or
+"Decline to self-identify". If the facts do not support another option, report `low`.
 
 QUESTIONS: {json.dumps(payload, default=str)[:30000]}
 POSTING: {json.dumps(posting, default=str)[:30000]}
@@ -148,7 +151,7 @@ def draft_short_answers(
         if not answer:
             continue
         if question.options:
-            if answer not in question.options:
+            if answer not in question.options or is_non_answer_option(answer):
                 continue
         elif not valid_generated_answer(answer, base=None, fact_text=fact_text):
             continue

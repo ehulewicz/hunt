@@ -48,6 +48,22 @@ def test_high_confidence_choice_answer_present_verbatim_is_accepted() -> None:
     assert ask([question], runner) == {question.question: "Yes"}
 
 
+def test_high_confidence_non_answer_choice_is_rejected() -> None:
+    question = ShortQuestion("What is your gender?", ("Man", "Woman", "Prefer not to answer"))
+    runner, _ = scripted(
+        {
+            "answers": [
+                {
+                    "question": question.question,
+                    "answer": "Prefer not to answer",
+                    "confidence": "high",
+                }
+            ]
+        }
+    )
+    assert ask([question], runner) == {}
+
+
 def test_free_text_answer_present_in_the_resume_is_accepted() -> None:
     question = ShortQuestion("What school are you attending?", ())
     runner, _ = scripted(

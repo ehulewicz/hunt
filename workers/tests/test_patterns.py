@@ -62,6 +62,7 @@ def test_builtin_rules_answer_from_profile_facts() -> None:
     )
     assert ask("Are you a veteran?") == "No"
     assert ask("Are you Hispanic or Latino?") == "No"
+    assert ask("Are you willing to work onsite in the SF office 5 times per week?") == "Yes"
 
 
 def test_citizenship_questions_are_told_apart() -> None:

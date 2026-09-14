@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from personal_os_worker.adapters import option_match
+from personal_os_worker.adapters import is_non_answer_option, option_match
 
 FILE_KINDS = frozenset({"resume", "transcript"})
 
@@ -274,6 +274,11 @@ def build_autofill_plan(
                 elif profile_key is None and fallback is not None and question_label:
                     value = fallback(question_label)
 
+            # Withholding information is never an autofill default. If an old
+            # answer or a model suggests it, leave the control for the user.
+            if value is not None and is_non_answer_option(value):
+                value = None
+
             if field_type in {"radio", "checkbox"} and value is not None:
                 own = str(field.get("label") or field.get("value") or "")
                 options = group_options.get(normalized) or [own]
@@ -337,15 +342,6 @@ SYNONYM_GROUPS: tuple[frozenset[str], ...] = (
         {"female", "woman", "cis female", "cis woman", "cisgender female", "cisgender woman"}
     ),
     frozenset({"non binary", "nonbinary", "genderqueer", "gender non conforming"}),
-    frozenset(
-        {
-            "prefer not to say",
-            "prefer not to answer",
-            "decline to self identify",
-            "i don t wish to answer",
-            "prefer not to disclose",
-        }
-    ),
 )
 QUALIFIER_WORDS = frozenset(
     {"cis", "cisgender", "he", "him", "his", "she", "her", "hers", "they", "them"}

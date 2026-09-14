@@ -730,6 +730,32 @@ def test_gender_answer_matches_the_forms_wording() -> None:
     assert choose_option(["Man", "Woman"], "Prefer not to say") is None
 
 
+def test_non_answer_choice_is_left_for_the_user_even_when_saved() -> None:
+    fields = [
+        {
+            "index": 0,
+            "tag": "select",
+            "type": "select-one",
+            "label": "Disability status",
+            "required": True,
+            "options": ["Yes", "No", "I do not wish to answer"],
+        }
+    ]
+    plan = build_autofill_plan(
+        fields,
+        profile={},
+        approved_answers=[
+            {
+                "question": "Disability status",
+                "answer_text": "I do not wish to answer",
+                "reuse_policy": "exact",
+            }
+        ],
+    )
+    assert plan.fills == ()
+    assert plan.unanswered_required_questions == ("Disability status",)
+
+
 def test_a_comma_joined_answer_checks_every_matching_box_in_a_checkbox_group() -> None:
     group = "I have experience with the following technology stacks:"
     fields = [

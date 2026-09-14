@@ -51,6 +51,11 @@ committed with Enter.
 
 `os hunt apply easy` resolves the first supported listing in the default
 `os hunt easy` order before starting that same apply flow.
+The worker never selects a “Prefer not to answer,” “Decline,” or equivalent
+choice; when no factual answer is available, that question remains for the user.
+Consent stays manual, while custom radio groups now recognize and preserve a
+manually checked answer. Plain text controls receive focus and a real blur after
+their input/change events so controlled ATS forms commit the displayed value.
 
 Ashby's composite Education History control is read at the nested-field level:
 School is searched by typing the profile value, Start/End Month and Year remain
