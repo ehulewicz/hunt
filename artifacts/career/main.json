@@ -55,7 +55,7 @@
       "date": "May 2023 – December 2023",
       "bullets": [
         "Unified 10+ leave-processing screens into one interface with workflow automation, cutting HR processing from 10 to <3 min",
-        "Built a Java integration layer over seven Oracle Cloud databases, Salesforce, and an API-less timekeeping tool",
+        "Built a Java integration layer normalizing data from Oracle Cloud, Salesforce, and an internal API-less timekeeping tool",
         "Maintained the tool through upstream changes and automated 4–5 daily authentication cycles, saving 12+ min/user/day"
       ]
     }
@@ -112,7 +112,7 @@
     },
     {
       "category": "Frameworks",
-      "items": "FastAPI, Selenium"
+      "items": "FastAPI, Selenium, Playwright"
     },
     {
       "category": "Tools",
