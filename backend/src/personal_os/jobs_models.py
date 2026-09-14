@@ -20,7 +20,6 @@ DEFAULT_TECHNICAL_FAMILIES = (
     "software_engineering",
     "data_engineering",
     "ml_engineering",
-    "data_science",
 )
 
 RoleFamily = Literal[

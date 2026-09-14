@@ -165,6 +165,8 @@ def test_role_families_accumulate_and_all_roles_is_explicit() -> None:
     )
     assert args.family == ["software_engineering", "ml_engineering"]
     assert build_parser().parse_args(["hunt", "list", "--all-roles"]).all_roles is True
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "list", "--family", "data_science"])
 
 
 def test_queue_lists_adds_and_empties() -> None:
@@ -265,6 +267,10 @@ def test_apply_easy_uses_the_first_supported_listing_in_easy_order(
     )
 
     assert main(["hunt", "apply", "easy", "--dry-run", "--no-claude"]) == 0
+    assert calls[1] == (
+        "listings",
+        (["software_engineering", "data_engineering", "ml_engineering"], 1000),
+    )
     assert calls[-1] == ("apply", ("easy-first", True, True))
 
 

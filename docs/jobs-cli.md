@@ -47,11 +47,12 @@ os hunt apply failures verify 1 7
 ```
 
 Displayed listing titles are clickable when the terminal supports hyperlinks.
-A listing's `#` is assigned by the database over one canonical board — every
-open listing not yet applied to, technical families first, newest first — so
-it is the same number in `os hunt`, `os hunt 9`, `os hunt today`, and every
-filtered view (filters leave gaps rather than renumbering). Listings you have
-applied to are not shown; a queued one carries a `q`. Nothing is cached on
+A listing's `#` is assigned by the database over one canonical board. Listings
+tagged `data_science` are excluded before every other eligible open listing is
+numbered, technical families first and newest first, so a row has the same
+number in `os hunt`, `os hunt 9`, `os hunt today`, and every filtered view
+(filters leave gaps rather than renumbering). Listings you have applied to are
+not shown; a queued one carries a `q`. Nothing is cached on
 the machine: `open`, `queue add`, and `apply` ask the API to resolve a number
 or an id prefix at the moment you run them, and `apps`, `answers edit`, and
 `apply failures …` count rows in the list they just fetched.

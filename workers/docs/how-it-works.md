@@ -29,6 +29,10 @@ carries it through `oa`, `oa_completed`, `interview`, `offer`, or `rejected`.
 Resume tailoring was retired: the canonical resume already carries the breadth
 it needs, and the effort goes into answers instead.
 
+The regular, Today, and Easy listing views share backend row numbers assigned
+after listings tagged `data_science` are removed from the board. Those source
+rows remain stored and can still be addressed by ID prefix.
+
 `os hunt apply <listing-ref>` attaches the tracked PDF as it is (compiling only
 if it is missing; `os hunt resume build|watch` is where it changes), opens the stored
 direct URL in native Windows Chrome, and then runs without a single terminal
