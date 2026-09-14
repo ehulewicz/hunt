@@ -100,7 +100,7 @@ def test_hunt_help_lists_only_the_public_commands(capsys: pytest.CaptureFixture[
     assert exit_info.value.code == 0
     output = capsys.readouterr().out
     assert "os hunt [N]" in output
-    assert "{today,sync,open,apps,queue,answers,resume,apply}" in output
+    assert "{today,easy,sync,open,apps,queue,answers,resume,apply}" in output
     assert "{list," not in output and "\n    list " not in output
 
 
@@ -116,6 +116,11 @@ def test_today_is_a_listing_view_with_only_the_roles_switch() -> None:
     assert build_parser().parse_args(["hunt", "today", "--all-roles"]).all_roles is True
     with pytest.raises(SystemExit):
         build_parser().parse_args(["hunt", "today", "5"])
+
+
+def test_easy_takes_a_row_limit_like_the_board() -> None:
+    assert build_parser().parse_args(["hunt", "easy"]).limit == 50
+    assert build_parser().parse_args(["hunt", "easy", "12"]).limit == 12
 
 
 def test_any_displayed_listing_can_open_its_direct_or_discovery_link() -> None:

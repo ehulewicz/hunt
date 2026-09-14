@@ -10,6 +10,7 @@ os hunt sync
 os hunt              # = os hunt list
 os hunt 20           # = os hunt list 20
 os hunt today
+os hunt easy 20      # only Greenhouse/Ashby/Lever listings (temporary, until the rest are supported)
 os hunt list 500  # overshooting returns every available match
 os hunt list --family software_engineering --location "Atlanta, GA"
 os hunt list --all-roles

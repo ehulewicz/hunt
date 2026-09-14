@@ -22,7 +22,7 @@ from personal_os_worker.resume import build_resume, watch_resume
 from personal_os_worker.service import ApiUnavailable, ChromeUnavailable
 from personal_os_worker.tables import ReferenceError, console
 
-HUNT_COMMANDS = ("today", "sync", "open", "apps", "queue", "answers", "resume", "apply")
+HUNT_COMMANDS = ("today", "easy", "sync", "open", "apps", "queue", "answers", "resume", "apply")
 LISTING_FLAGS = ("--faang", "--quant", "--location", "--family", "--all-roles")
 
 
@@ -110,6 +110,14 @@ def build_parser() -> argparse.ArgumentParser:
         "today", help="Listings posted today or yesterday that you have not applied to"
     )
     today.add_argument(
+        "--all-roles", action="store_true", help="Include listings classified as other"
+    )
+
+    easy = jobs_commands.add_parser(
+        "easy", help="Listings on an ATS the worker can fill today (Greenhouse, Ashby, Lever)"
+    )
+    easy.add_argument("limit", nargs="?", type=listing_limit, default=50, help="Rows to show")
+    easy.add_argument(
         "--all-roles", action="store_true", help="Include listings classified as other"
     )
 
@@ -262,6 +270,11 @@ def _dispatch(args: argparse.Namespace) -> int:
         if args.hunt_command == "today":
             return hunt.run_today(
                 role_families=[] if args.all_roles else list(DEFAULT_TECHNICAL_FAMILIES)
+            )
+        if args.hunt_command == "easy":
+            return hunt.run_easy(
+                role_families=[] if args.all_roles else list(DEFAULT_TECHNICAL_FAMILIES),
+                limit=args.limit,
             )
         if args.hunt_command == "sync":
             return hunt.run_sync()

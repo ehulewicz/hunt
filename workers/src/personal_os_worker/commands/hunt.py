@@ -70,6 +70,32 @@ def run_today(*, role_families: list[str]) -> int:
     return 0
 
 
+def run_easy(*, role_families: list[str], limit: int) -> int:
+    """Listings on an ATS the worker can drive today (Greenhouse, Ashby, Lever).
+
+    Temporary, until Workday and the rest are supported; numbers are the
+    board's, so `apply <row>` means the same listing as everywhere else.
+    """
+    from personal_os_worker.adapters import detect_ats
+
+    config, token = connected()
+    api = WorkerApi(config, token)
+    try:
+        page = api.listings(role_families=role_families, limit=1000)
+    finally:
+        api.close()
+    items = [
+        item
+        for item in page.get("items") or []
+        if detect_ats(str(item.get("application_url") or "")).name != "generic"
+    ]
+    if not items:
+        console.print("No listings on a supported ATS.")
+        return 0
+    render_listings(items[:limit], len(items), title="Easy")
+    return 0
+
+
 def run_sync() -> int:
     config, token = connected()
     api = WorkerApi(config, token)
