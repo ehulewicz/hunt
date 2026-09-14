@@ -176,19 +176,16 @@ def render_applications(items: list[dict[str, Any]]) -> None:
     table.add_column("id", style="dim", no_wrap=True)
     table.add_column("company", no_wrap=True, overflow="ellipsis")
     table.add_column("title", no_wrap=True, overflow="ellipsis", ratio=1)
-    table.add_column("status", no_wrap=True)
     table.add_column("applied", no_wrap=True)
 
     for index, item in enumerate(items, start=1):
-        status = str(item.get("status") or "-")
         applied = str(item.get("applied_at") or "")[:10]
         table.add_row(
             str(index),
             short_id(str(item.get("id", ""))),
             str(item.get("company_name") or "-"),
             str(item.get("title") or "-"),
-            f"[green]{status}[/green]" if status == "submitted" else status,
-            applied or "-",
+            f"[green]{applied}[/green]" if applied else "-",
         )
     console.print(table)
     remember("apps", [str(item.get("id", "")) for item in items])
