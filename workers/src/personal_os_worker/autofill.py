@@ -94,6 +94,12 @@ BLOCKED_LABEL_WORDS = frozenset(
     }
 )
 
+HOW_HEARD = re.compile(
+    r"\bhow did you (?:first )?hear\b|\bwhere did you (?:first )?hear\b|"
+    r"\bhow did you (?:first )?(?:find|learn about)\b",
+    re.IGNORECASE,
+)
+
 
 def normalize_question(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip().casefold()
@@ -102,6 +108,25 @@ def normalize_question(value: str) -> str:
 def normalize_answer_question(value: str) -> str:
     """Normalize harmless punctuation differences for exact answer reuse."""
     return re.sub(r"[^a-z0-9+#]+", " ", value.casefold()).strip()
+
+
+def preferred_source_option(question: str, options: list[str]) -> str | None:
+    """The user's standing source choice, ranked by the options actually offered."""
+    if not HOW_HEARD.search(question):
+        return None
+
+    normalized = [(option, normalize_answer_question(option)) for option in options]
+    preferences = (
+        lambda value: "company" in value.split()
+        and any(word in value.split() for word in ("website", "site")),
+        lambda value: re.search(r"\bjob\s+boards?\b", value) is not None,
+        lambda value: value == "other" or value.startswith("other "),
+    )
+    for matches in preferences:
+        found = [option for option, value in normalized if matches(value)]
+        if found:
+            return found[0]
+    return None
 
 
 def is_resume_field(field: dict[str, Any]) -> bool:
@@ -226,6 +251,12 @@ def build_autofill_plan(
         ):
             kind = "transcript"
         elif field_type != "file":
+            options = (
+                group_options.get(normalized, [])
+                if field_type in {"radio", "checkbox"}
+                else [str(option) for option in field.get("options") or []]
+            )
+            value = preferred_source_option(question_label, options)
             profile_key = PROFILE_LABELS.get(normalized)
             if str(field.get("section") or "") == "education":
                 profile_key = {
@@ -233,14 +264,15 @@ def build_autofill_plan(
                     "end date year": "graduation_year",
                 }.get(normalized, profile_key)
             profile_value = resolve_profile_value(profile, profile_key)
-            if isinstance(profile_value, bool):
-                value = "Yes" if profile_value else "No"
-            elif profile_value is not None and str(profile_value).strip():
-                value = str(profile_value).strip()
-            elif profile_key is None and answer_question in answers:
-                value = answers[answer_question]
-            elif profile_key is None and fallback is not None and question_label:
-                value = fallback(question_label)
+            if value is None:
+                if isinstance(profile_value, bool):
+                    value = "Yes" if profile_value else "No"
+                elif profile_value is not None and str(profile_value).strip():
+                    value = str(profile_value).strip()
+                elif profile_key is None and answer_question in answers:
+                    value = answers[answer_question]
+                elif profile_key is None and fallback is not None and question_label:
+                    value = fallback(question_label)
 
             if field_type in {"radio", "checkbox"} and value is not None:
                 own = str(field.get("label") or field.get("value") or "")

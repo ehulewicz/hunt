@@ -395,6 +395,38 @@ def test_autofill_checks_the_radio_whose_option_matches_the_saved_group_answer()
     assert plan.unanswered_required_questions == ()
 
 
+def test_how_heard_uses_the_first_available_standing_source_preference() -> None:
+    question = "How did you hear about us?"
+
+    def chosen(options: list[str]) -> str | None:
+        fields = [
+            {
+                "index": index,
+                "tag": "input",
+                "type": "checkbox",
+                "label": option,
+                "group": question,
+                "required": True,
+            }
+            for index, option in enumerate(options)
+        ]
+        plan = build_autofill_plan(
+            fields,
+            profile={},
+            approved_answers=[
+                {"normalized_question": question, "answer_text": "LinkedIn"}
+            ],
+        )
+        return plan.fills[0].value if plan.fills else None
+
+    assert chosen(["LinkedIn", "Other", "Other Job Boards", "Company Website"]) == (
+        "Company Website"
+    )
+    assert chosen(["LinkedIn", "Other", "Online Job Board"]) == "Online Job Board"
+    assert chosen(["LinkedIn", "Other (please specify)"]) == "Other (please specify)"
+    assert chosen(["LinkedIn", "Referral"]) == "LinkedIn"
+
+
 def test_autofill_does_not_upload_resume_inside_sensitive_group() -> None:
     field = {
         "index": 0,

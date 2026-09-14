@@ -41,6 +41,9 @@ clicks the matching button, and verifies `aria-pressed` rather than the
 checkbox, plus `artifacts/Transcript.pdf` for a file control asking for a
 transcript, when that file exists. Profile facts and exact library answers fill deterministically,
 including selects, comboboxes, and radio groups matched by their question text.
+For a How did you hear choice, the deterministic planner selects the first
+offered match in the user's standing order: Company Website, Job Board, then
+Other, even if an older exact answer says something else.
 A control that already holds a value is never planned by any tier: a react-select
 counts as filled when its rendered choice is present even though its search
 input is empty, and a free-entry typeahead with no option for the typed text is
