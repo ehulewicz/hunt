@@ -53,7 +53,7 @@ counts as filled when its rendered choice is present even though its search
 input is empty, and a free-entry typeahead with no option for the typed text is
 committed with Enter.
 
-`os hunt today` shows listings at most a day old; `--ats greenhouse|ashby|lever|workday|generic`
+`os hunt today` shows listings at most a day old; on it and on the board, `--ats greenhouse|ashby|lever|workday|generic`
 narrows the view to one form type, detected from the direct application URL,
 and the board shows that type in its `ats` column. `os hunt apply today` applies
 the first listing in that order on a supported ATS, or on the `--ats` given.

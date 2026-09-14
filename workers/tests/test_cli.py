@@ -81,6 +81,8 @@ def test_everyday_commands_have_short_spellings() -> None:
     assert expand_shorthand(["hunt"]) == ["hunt", "list"]
     assert expand_shorthand(["hunt", "20"]) == ["hunt", "list", "20"]
     assert expand_shorthand(["hunt", "--faang"]) == ["hunt", "list", "--faang"]
+    assert expand_shorthand(["hunt", "--ats", "lever"]) == ["hunt", "list", "--ats", "lever"]
+    assert expand_shorthand(["hunt", "20", "--ats=ashby"]) == ["hunt", "list", "20", "--ats=ashby"]
     assert expand_shorthand(["hunt", "answers"]) == ["hunt", "answers", "list"]
     assert expand_shorthand(["hunt", "resume"]) == ["hunt", "resume", "watch", "--open"]
     # anything already spelled out is left alone
@@ -108,7 +110,8 @@ def test_jobs_live_under_the_hunt_domain() -> None:
     args = build_parser().parse_args(["hunt", "list", "5", "--faang"])
     assert (args.command, args.hunt_command) == ("hunt", "list")
     assert args.faang is True and args.quant is False and args.limit == 5
-    assert args.all_roles is False and args.family == []
+    assert args.all_roles is False and args.family == [] and args.ats is None
+    assert build_parser().parse_args(["hunt", "list", "--ats", "workday"]).ats == "workday"
 
 
 def test_today_is_a_listing_view_with_roles_and_ats_switches() -> None:

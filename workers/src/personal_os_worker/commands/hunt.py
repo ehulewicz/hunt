@@ -24,8 +24,14 @@ DEFAULT_TECHNICAL_FAMILIES = [
 
 
 def run_listings(
-    *, category: str | None, locations: list[str], role_families: list[str], limit: int
+    *,
+    category: str | None,
+    locations: list[str],
+    role_families: list[str],
+    ats: str | None,
+    limit: int,
 ) -> int:
+    """The board. Rows keep the number the database assigned, whatever is filtered out."""
     config, token = connected()
     api = WorkerApi(config, token)
     try:
@@ -33,16 +39,31 @@ def run_listings(
             category=category,
             locations=locations,
             role_families=role_families,
-            limit=limit,
+            # The form type is read off the URL here, so filter after a full fetch.
+            limit=1000 if ats else limit,
         )
     finally:
         api.close()
     items = page.get("items") or []
+    total = int(page.get("total", len(items)))
+    if ats:
+        items = by_ats(items, ats)
+        total = len(items)
+        items = items[:limit]
     if not items:
         console.print("No listings matched.")
         return 0
-    render_listings(items, int(page.get("total", len(items))))
+    render_listings(items, total, title=f"Listings · {ats}" if ats else "Listings")
     return 0
+
+
+def by_ats(items: list[dict[str, object]], ats: str) -> list[dict[str, object]]:
+    """Listings whose direct application URL is on this form type."""
+    from personal_os_worker.adapters import detect_ats
+
+    return [
+        item for item in items if detect_ats(str(item.get("application_url") or "")).name == ats
+    ]
 
 
 def today_listings(
@@ -54,8 +75,6 @@ def today_listings(
     anything at most a day old; at 0d only, the view is empty every morning.
     `ats` narrows to one form type by the direct application URL.
     """
-    from personal_os_worker.adapters import detect_ats
-
     page = api.listings(role_families=role_families, limit=500)
     items = [
         item
@@ -63,11 +82,7 @@ def today_listings(
         if item.get("source_age_days") is not None and int(item["source_age_days"]) <= 1
     ]
     if ats:
-        items = [
-            item
-            for item in items
-            if detect_ats(str(item.get("application_url") or "")).name == ats
-        ]
+        items = by_ats(items, ats)
     return items
 
 

@@ -24,7 +24,7 @@ from personal_os_worker.service import ApiUnavailable, ChromeUnavailable
 from personal_os_worker.tables import ReferenceError, console
 
 HUNT_COMMANDS = ("today", "sync", "open", "apps", "queue", "answers", "resume", "apply")
-LISTING_FLAGS = ("--faang", "--quant", "--location", "--family", "--all-roles")
+LISTING_FLAGS = ("--faang", "--quant", "--location", "--family", "--all-roles", "--ats")
 
 
 def listing_limit(value: str) -> int:
@@ -72,8 +72,10 @@ def build_parser() -> argparse.ArgumentParser:
             "os hunt [N] lists open listings (N rows, default 10). "
             "os hunt answers lists the answer library; os hunt resume watches the resume."
         ),
-        usage="os hunt [N] [--faang | --quant] [--location L] [--family F] [--all-roles]\n"
-        "       os hunt {" + ",".join(HUNT_COMMANDS) + "} ...",
+        usage=(
+            "os hunt [N] [--faang | --quant] [--location L] [--family F] [--all-roles] [--ats A]\n"
+            "       os hunt {" + ",".join(HUNT_COMMANDS) + "} ..."
+        ),
     )
     jobs_commands = jobs.add_subparsers(
         dest="hunt_command", required=True, metavar="{" + ",".join(HUNT_COMMANDS) + "}"
@@ -99,6 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include listings classified as other",
     )
+    listings.add_argument("--ats", choices=ATS_NAMES, help="Only this form type")
     listings.add_argument(
         "limit",
         nargs="?",
@@ -260,6 +263,7 @@ def _dispatch(args: argparse.Namespace) -> int:
                 category=category,
                 locations=args.location,
                 role_families=role_families,
+                ats=args.ats,
                 limit=args.limit,
             )
         if args.hunt_command == "today":

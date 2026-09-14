@@ -10,7 +10,9 @@ os hunt sync
 os hunt              # = os hunt list
 os hunt 20           # = os hunt list 20
 os hunt today
-os hunt today --ats greenhouse   # one form type: greenhouse | ashby | lever | workday | generic
+os hunt --ats greenhouse         # one form type: greenhouse | ashby | lever | workday | generic
+os hunt 50 --ats workday
+os hunt today --ats greenhouse
 os hunt list 500  # overshooting returns every available match
 os hunt list --family software_engineering --location "Atlanta, GA"
 os hunt list --all-roles
