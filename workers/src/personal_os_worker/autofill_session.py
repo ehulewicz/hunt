@@ -104,6 +104,7 @@ class SessionState:
     warnings: set[str] = field(default_factory=set)
     tier_answers: dict[str, str] = field(default_factory=dict)  # question -> pattern/model answer
     tier_source: dict[str, str] = field(default_factory=dict)  # question -> "pattern" | "model"
+    asked_claude: set[str] = field(default_factory=set)  # questions already put to Claude
     step: int = 0
 
 
@@ -457,9 +458,16 @@ class AutofillSession:
                     item["options"] = combobox_options(self.page, fresh_control(self.page, item))
                 except (Error, RuntimeError):
                     item["options"] = []
-        questions = _claude_questions(current)
+        # Once per question per run: a re-render that restarts the step, or a
+        # later step showing the same question, must not ask again.
+        questions = [
+            question
+            for question in _claude_questions(current)
+            if question.question not in self.state.asked_claude
+        ]
         if not questions:
             return
+        self.state.asked_claude.update(question.question for question in questions)
         console.print(f"Asking Claude about {len(questions)} question(s) ...")
         drafted = self.ctx.short_drafter(
             questions,

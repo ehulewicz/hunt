@@ -8,7 +8,7 @@ import pytest
 from playwright.sync_api import Error, sync_playwright
 
 from personal_os_worker.autofill_session import AutofillSession, SessionContext
-from personal_os_worker.browser import BrowserClosedError, VisibleBrowser
+from personal_os_worker.browser import BrowserClosedError, VisibleBrowser, inspect_fields
 from personal_os_worker.drafts import DIVIDER, parse_draft
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -497,3 +497,49 @@ def test_ctrl_c_ends_cleanly_with_the_answers_picked_up_so_far(
     saved = {item["question"]: item["answer_text"] for item in outcome["answers"]}
     assert saved["Why this team?"] == "Typed on the page."
     assert saved["First name"] == "Ethan"
+
+
+def test_claude_is_asked_about_a_question_once_per_run(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
+    browser_page.set_content(
+        """
+        <form>
+          <label for="resume">Resume</label><input id="resume" type="file">
+          <label for="first">First name</label><input id="first" name="first_name" required>
+          <label for="why">Why us, in a word?</label><input id="why" required>
+        </form>
+        """
+    )
+    calls: list[list[str]] = []
+
+    def short_drafter(questions: Any, **_: Any) -> dict[str, str]:
+        calls.append([question.question for question in questions])
+        return {}
+
+    context = SessionContext(
+        api=FakeApi(),  # type: ignore[arg-type]
+        run_id="run-once",
+        adapter_name="greenhouse",
+        browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
+        page=browser_page,
+        console_errors=[],
+        profile={},
+        answers=[],
+        scoped=[],
+        resume_json={},
+        resume_pdf=tmp_path / "missing.pdf",
+        company="Acme",
+        title="Backend Engineer Intern",
+        description=None,
+        draft_dir=tmp_path / "drafts",
+        short_drafter=short_drafter,
+    )
+    session = AutofillSession(context)
+
+    fields = inspect_fields(browser_page)
+    session.fill_with_claude(fields, {"failures": []})
+    session.fill_with_claude(fields, {"failures": []})  # a re-rendered step
+
+    assert calls == [["First name", "Why us, in a word?"]]
