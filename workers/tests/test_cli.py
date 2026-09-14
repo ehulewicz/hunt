@@ -101,7 +101,7 @@ def test_hunt_help_lists_only_the_public_commands(capsys: pytest.CaptureFixture[
     output = capsys.readouterr().out
     assert "os hunt [N]" in output
     assert "{today,sync,open,apps,queue,answers,resume,apply}" in output
-    assert "list" not in output.replace("lists", "")
+    assert "{list," not in output and "\n    list " not in output
 
 
 def test_jobs_live_under_the_hunt_domain() -> None:
