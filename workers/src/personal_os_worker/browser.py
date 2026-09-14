@@ -347,7 +347,14 @@ def apply_autofill(
                     _failure(field, category, message, intended=fill.value)
                 )
                 continue
-        if verify_control(page, field, expected, resume=fill.kind in FILE_KINDS):
+        is_upload = fill.kind in FILE_KINDS
+        if verify_control(
+            page,
+            field,
+            expected,
+            resume=is_upload,
+            filename=document.name if is_upload and document is not None else None,
+        ):
             filled_labels.append(label)
         else:
             try:
@@ -497,16 +504,47 @@ def select_combobox_option(page: Page, control: Any, value: str) -> str:
     return chosen
 
 
+def _verify_upload(page: Page, field: dict[str, Any], filename: str | None) -> bool:
+    """Whether a resume/transcript upload took.
+
+    Greenhouse's own resume widget removes the `<input type=file>` from the
+    DOM on a successful upload and replaces it with a filename-plus-remove-
+    button summary, shifting every control after it by one position. Asking
+    `fresh_control` for the same field afterward silently lands on whatever
+    control now sits at that stale index instead of raising, so a real
+    success reads as an empty, unrelated control. When the direct file-count
+    check comes back empty, look for the uploaded filename rendered anywhere
+    on the page before calling it a failure.
+    """
+    try:
+        control = fresh_control(page, field)
+        files = control.evaluate(
+            "element => element.files?.length || 0", timeout=CONTROL_TIMEOUT_MS
+        )
+        if int(files) > 0:
+            return True
+    except (Error, RuntimeError):
+        pass
+    if not filename:
+        return False
+    try:
+        return page.get_by_text(filename, exact=False).first.is_visible()
+    except Error:
+        return False
+
+
 def verify_control(
-    page: Page, field: dict[str, Any], value: str | None, *, resume: bool = False
+    page: Page,
+    field: dict[str, Any],
+    value: str | None,
+    *,
+    resume: bool = False,
+    filename: str | None = None,
 ) -> bool:
+    if resume:
+        return _verify_upload(page, field, filename)
     control = fresh_control(page, field)
     try:
-        if resume:
-            files = control.evaluate(
-                "element => element.files?.length || 0", timeout=CONTROL_TIMEOUT_MS
-            )
-            return int(files) > 0
         if field.get("type") == "yesno":
             yesno_option = "yes" if str(value or "").strip().casefold() == "yes" else "no"
             button = control.locator(YESNO_CONTAINER_XPATH).locator(

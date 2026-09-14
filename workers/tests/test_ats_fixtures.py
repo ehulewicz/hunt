@@ -971,3 +971,43 @@ def test_lever_builtin_field_label_is_unaffected(
     fields = inspect_fields(browser_page)
     assert fields[0]["label"] == "Full name✱"
     assert fields[0]["group"] == ""
+
+
+def test_greenhouse_style_resume_rerender_still_verifies_as_uploaded(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
+    """Greenhouse removes the file input on a successful upload and replaces it
+    with a filename summary, shifting every later control's index by one; a
+    stale index must not read as an empty, unrelated control."""
+    browser_page.set_content(
+        """
+        <form>
+          <label for="resume">Resume/CV</label><input id="resume" type="file" required>
+          <label for="cover_letter">Cover Letter</label><input id="cover_letter" type="file">
+        </form>
+        <script>
+        document.querySelector('#resume').addEventListener('change', () => {
+          const input = document.querySelector('#resume');
+          const summary = document.createElement('div');
+          summary.textContent = input.files[0].name;
+          input.replaceWith(summary);
+        });
+        </script>
+        """
+    )
+    resume = tmp_path / "Alex_Example.pdf"
+    resume.write_bytes(b"%PDF-1.4\n%%EOF")
+    fields = inspect_fields(browser_page)
+    for field in fields:
+        field["ats"] = "greenhouse"
+    plan = build_autofill_plan(fields, profile={}, approved_answers=[])
+
+    result = apply_autofill(
+        browser_page, fields, plan, resume_path=resume, assert_active=lambda: None
+    )
+
+    assert result["failures"] == []
+    assert "Resume/CV" in result["filled_fields"]
+    assert browser_page.locator("#resume").count() == 0  # confirms the rerender happened
+    assert browser_page.get_by_text("Alex_Example.pdf").is_visible()
