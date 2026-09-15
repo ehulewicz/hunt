@@ -104,7 +104,11 @@ run concurrently, each alongside the posting, the canonical resume, the
 profile, and the full approved library (patterns included). Only `high`
 confidence rows are kept, a choice answer must be one of the visible options
 verbatim, and a free-text answer must pass the same fabrication guard used
-for textarea drafts. Kept answers fill the same way as the other tiers and
+for textarea drafts — which also rejects a draft carrying leaked tool-call
+markup (`</answer>`, `</invoke>`, and the like), something `claude -p
+--json-schema` occasionally leaves inside the schema's own string field
+(`TAG_LEAK` in `answers.py`; `draft_slots` in `cover_letter.py` checks its
+slots the same way). Kept answers fill the same way as the other tiers and
 are echoed as `claude: <question> -> <value>`. `os hunt apply --no-claude`
 skips this pass entirely.
 

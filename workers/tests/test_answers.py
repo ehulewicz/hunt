@@ -32,3 +32,13 @@ def test_generated_answer_hygiene_removes_unicode_artifacts_and_blocks_new_numbe
         "I supported 50 customers.", base=None, fact_text="Supported 12 customers"
     )
     assert not valid_generated_answer("I delve into systems.", base=None, fact_text="")
+
+
+def test_generated_answer_hygiene_rejects_leaked_tool_call_markup() -> None:
+    # `claude -p --json-schema` occasionally leaks its own tool-call framing into
+    # the schema's string field instead of only the drafted prose; a leaked
+    # closing tag left in a form field would be visible to the reader.
+    leaked = (
+        "I'd bring the same first-principles approach to this role.</answer>\n</invoke>"
+    )
+    assert not valid_generated_answer(leaked, base=None, fact_text="")
