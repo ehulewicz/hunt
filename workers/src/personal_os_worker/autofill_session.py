@@ -71,7 +71,13 @@ SUBMITTED_MARKERS = (
     "application submitted",
     "received your application",
     "submitted successfully",
+    "successfully submitted",
 )
+
+# Ashby renders this class once the form transitions to its success state,
+# independent of the confirmation copy each company chooses (which the
+# markers above cannot enumerate in advance).
+ASHBY_SUCCESS_SELECTOR = ".ashby-application-form-success-container"
 
 class SubmittedByUser(Exception):
     """Ctrl+A: the user says the application went in."""
@@ -139,6 +145,8 @@ def page_signature(page: Page, fields: list[dict[str, Any]]) -> tuple[str, tuple
 
 def looks_submitted(page: Page) -> bool:
     try:
+        if page.locator(ASHBY_SUCCESS_SELECTOR).count() > 0:
+            return True
         body = page.locator("body").inner_text(timeout=5_000).casefold()
     except Error:
         return False
