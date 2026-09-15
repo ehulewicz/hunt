@@ -25,9 +25,19 @@ and history.
 The scheduled SpeedyApply importer reads only the US `README.md` internship files
 from the 2027 SWE and AI/ML repositories. It accepts visible `City, ST`, US-wide,
 and US remote forms, rejects visibly international primary locations and titles
-containing `PhD` or `Ph.D.`, runs at
-13:00 UTC, fetches both files concurrently, and batches its database upserts. The
-browser cannot trigger a source sync.
+containing `PhD` or `Ph.D.`, fetches both files concurrently, and batches its
+database upserts. The browser cannot trigger a source sync.
+The importer runs as `python -m personal_os.jobs_sync`, a standalone script that
+opens its own database pool and never goes through the FastAPI HTTP server. It
+runs as the Cloud Run Job `personal-os-jobs-sync` (same image as `personal-os-api`,
+same `personal-os-api` runtime service account, region `us-east1`), triggered
+daily at 9:00 AM America/New_York by the Cloud Scheduler job
+`personal-os-jobs-sync-daily`, which authenticates as the dedicated
+`personal-os-scheduler` service account holding `run.invoker` on that job only.
+`deploy.yml` updates the job's image on every deploy alongside the API service.
+A manual run is `gcloud run jobs execute personal-os-jobs-sync --region us-east1`.
+GitHub Actions no longer runs this sync; its cron drifted hours late over time
+because GitHub deprioritizes scheduled workflow runs under load.
 An empty parse fails before database mutation so an upstream format change cannot
 silently close the entire listing set.
 
