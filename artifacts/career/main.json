@@ -26,9 +26,10 @@
   },
   "experience": [
     {
-      "title": "Middleware Engineer",
+      "title": "Middleware Engineer (Co-op)",
       "org": "Northwind",
       "location": "Atlanta, GA",
+      "qualifier": "Continuous Employment",
       "date": "May 2025 – Present",
       "bullets": [
         "Engineered a notes and reporting system, proposing linking across ERP modules: customer signed second SOW on delivery",

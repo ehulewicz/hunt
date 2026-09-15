@@ -294,6 +294,9 @@ def build_entries(title: str, entries: list[dict[str, Any]]) -> list[str]:
         org = escape(str(entry.get("org", "") or ""))
         location = escape(str(entry.get("location", "") or ""))
         date = escape(str(entry.get("date", "")))
+        qualifier = escape(str(entry.get("qualifier", "") or "").strip())
+        if qualifier:
+            date = rf"\textit{{{qualifier}}} $|$ {date}"
         if org:
             lines.append(rf"    \resumeSubheading{{{role}}}{{{date}}}{{{org}}}{{{location}}}")
         else:

@@ -257,6 +257,23 @@ def test_experience_entries_lead_with_the_role_like_the_reference_template() -> 
     assert r"\resumeSubheading{Engineer}{2025}{Company}{Atlanta, GA}" in tex
 
 
+def test_entry_qualifier_is_italicized_before_bar_and_date() -> None:
+    entry = {
+        "title": "Engineer",
+        "org": "Company",
+        "location": "Atlanta, GA",
+        "qualifier": "Continuous Employment",
+        "date": "May 2025 \u2013 Present",
+        "bullets": ["Did it."],
+    }
+    tex = build_latex({"experience": [entry]})
+
+    assert (
+        r"\resumeSubheading{Engineer}{\textit{Continuous Employment} $|$ May 2025 -- Present}"
+        r"{Company}{Atlanta, GA}"
+    ) in tex
+
+
 def test_sections_without_entries_emit_nothing() -> None:
     """An absent section leaves no label and no rule behind.
 
