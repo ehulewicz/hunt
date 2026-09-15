@@ -758,12 +758,20 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           const finalType = yesnoContainer ? 'yesno' : element.getAttribute('type');
           // A placeholder such as "Start typing..." is the last resort; Ashby
           // comboboxes have no id, so their question lives on the field's label.
+          // A Lever structured question (notably the location typeahead) nests
+          // the whole field inside the question's own label, so the wrapping
+          // label carries the live dropdown text too. `.application-label` is
+          // the question alone; only a radio or checkbox still needs the
+          // wrapping label, which there holds just that option's text.
+          const optionWrapping = ['radio', 'checkbox'].includes(element.type)
+            ? wrapping?.textContent : null;
           const baseLabel = (
               yesnoLabel?.textContent
               || explicit?.textContent
               || leverOptionLabel
-              || wrapping?.textContent
+              || optionWrapping
               || leverQuestionText
+              || wrapping?.textContent
               || element.getAttribute('aria-label')
               || referenced
               || localLabel?.textContent

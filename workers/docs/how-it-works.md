@@ -145,9 +145,16 @@ through the resume's LaTeX preamble and header into a one-page
 `Alex_Example_Cover_Letter.pdf` and uploaded. The draft happens once per run;
 a re-rendered step reuses the edited text.
 
-The worker then polls the page. It snapshots every non-empty
+The worker then polls the page once a second. It snapshots every non-empty
 control by its question, echoes anything the user typed or chose as `picked up`,
-and reports when it sees a visible Submit control. Required-field completeness,
+and reports when it sees a visible Submit control. It only reads: a `picked up`
+line is the value the control held at that tick, so a field edited by hand
+echoes once per intermediate value the poll happens to catch. A step ends when
+the page's signature — its URL plus every control's fingerprint of tag, type,
+name, label, and role — changes, which is why a label must carry the question
+alone: Lever nests a structured question's whole field inside its label, so
+reading that label wholesale would fold the typeahead's live suggestions into
+the fingerprint and start a new step on every keystroke. Required-field completeness,
 Next, and Submit are left to the user in the browser. Answers are saved to the
 library as approved when the page moves on after Submit, when the user presses
 Ctrl+S (or `s`) in the terminal, or when Ctrl+C stops the run, and also when

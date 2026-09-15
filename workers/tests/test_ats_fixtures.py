@@ -92,6 +92,47 @@ def test_lever_captcha_keeps_radio_and_sensitive_checkbox_manual(browser_page) -
     assert any("captcha" in failure["error_message"].casefold() for failure in result["failures"])
 
 
+LEVER_LOCATION = """
+<li class="application-question" data-qa="structured-contact-location-question">
+  <label>
+    <div class="application-label">Current location <span class="required">&#10033;</span></div>
+    <div class="application-field">
+      <input class="location-input" id="location-input" type="text" name="location" required>
+      <input id="selected-location" type="hidden" name="selectedLocation" value="">
+      <div class="dropdown-container">
+        <div class="dropdown-results"></div>
+        <div class="dropdown-no-results">No location found. Try entering a different location</div>
+      </div>
+    </div>
+  </label>
+</li>
+"""
+
+
+def test_lever_location_label_ignores_the_typeahead_dropdown(browser_page) -> None:  # type: ignore[no-untyped-def]
+    """Lever nests the whole field, dropdown included, inside the question's label.
+
+    Reading that label wholesale names the question after whatever the typeahead
+    is showing, and the suggestions change on every keystroke, so the field's
+    fingerprint churns and `wait_and_advance` calls it a new page step.
+    """
+    browser_page.set_content(LEVER_LOCATION)
+    location = next(
+        field for field in inspect_fields(browser_page) if field.get("name") == "location"
+    )
+    assert location["label"] == "Current location"
+
+    before = location["fingerprint"]
+    browser_page.eval_on_selector(
+        ".dropdown-results",
+        "el => el.innerHTML = '<div>Atlanta, GA, USA</div><div>Atlantic City, NJ, USA</div>'",
+    )
+    after = next(
+        field for field in inspect_fields(browser_page) if field.get("name") == "location"
+    )["fingerprint"]
+    assert after == before
+
+
 def test_ashby_landing_page_apply_control_reveals_the_form(browser_page) -> None:  # type: ignore[no-untyped-def]
     browser_page.set_content(
         """
@@ -1048,8 +1089,11 @@ def test_lever_builtin_field_label_is_unaffected(
 ) -> None:
     browser_page.set_content(LEVER_BUILTIN_FULL_NAME)
     fields = inspect_fields(browser_page)
-    assert fields[0]["label"] == "Full name✱"
+    # `.application-label` now names the field, so the required marker Lever
+    # renders beside the question is no longer part of it.
+    assert fields[0]["label"] == "Full name"
     assert fields[0]["group"] == ""
+    assert fields[0]["required"] is True
 
 
 def test_greenhouse_style_resume_rerender_still_verifies_as_uploaded(
