@@ -25,6 +25,7 @@ from personal_os.jobs_models import (
     AutofillRunComplete,
     AutofillRunContext,
     AutofillRunCreate,
+    AutofillRunFinish,
     AutofillRunStop,
     AutofillStepCreate,
     JobApplication,
@@ -72,6 +73,10 @@ BOARD_QUERY = sql.SQL(
       and application.id is null
     """
 )
+
+
+class CompletionConflict(RuntimeError):
+    """Application lifecycle changed while the autofill run was active."""
 
 
 class AmbiguousReference(LookupError):
@@ -1164,6 +1169,25 @@ class PostgresJobsStore:
             run = await cursor.fetchone()
             if run is None:
                 return False
+            if isinstance(item, AutofillRunFinish):
+                lifecycle = await connection.execute(
+                    """
+                    update app.jobs_applications
+                    set status = %s,
+                        applied_at = case when %s = 'applied'
+                                          then coalesce(applied_at, now()) else applied_at end,
+                        next_action = case when %s = 'archived' then null else next_action end,
+                        next_action_at = case when %s = 'archived'
+                                              then null else next_action_at end
+                    where id = %s and user_id = %s and status in ('applying', %s)
+                    returning id
+                    """,
+                    (item.application_status, item.application_status,
+                     item.application_status, item.application_status,
+                     run["application_id"], user_id, item.application_status),
+                )
+                if await lifecycle.fetchone() is None:
+                    raise CompletionConflict("Application status changed; completion rolled back")
             for answer in item.answers:
                 question = str(answer.get("question") or "").strip()
                 answer_text = str(answer.get("answer_text") or "").strip()

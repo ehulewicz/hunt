@@ -263,3 +263,8 @@ base TeX Live packages it requires `newtx`, which Debian and Ubuntu ship in
 `kpsewhich newtxtext.sty`. The template is pinned to 11pt newtx Times to hold its
 verified match against `bin/Sam_Kim_resume_dec2027.pdf`, so installing the font
 is the fix and switching fonts is not.
+
+Terminal persistence uses the API's atomic `/finish` operation for history and
+application status. A missing endpoint or persistence conflict leaves the owned
+application tab open for recovery. The worker no longer sends a second lifecycle
+request after saving history.

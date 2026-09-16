@@ -445,6 +445,16 @@ class AutofillRunComplete(BaseModel):
     answers: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
 
 
+class AutofillRunFinish(AutofillRunComplete):
+    application_status: Literal["applied", "skipped", "archived"]
+
+    @model_validator(mode="after")
+    def consistent_outcome(self) -> "AutofillRunFinish":
+        if self.submitted != (self.application_status == "applied"):
+            raise ValueError("submitted must agree with application_status")
+        return self
+
+
 class AutofillRunStop(BaseModel):
     status: Literal["abandoned", "failed"]
 

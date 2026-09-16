@@ -32,6 +32,7 @@ from personal_os.jobs_models import (
     AutofillRunComplete,
     AutofillRunContext,
     AutofillRunCreate,
+    AutofillRunFinish,
     AutofillRunStop,
     AutofillStepCreate,
     JobApplication,
@@ -46,7 +47,7 @@ from personal_os.jobs_models import (
 )
 from personal_os.jobs_sources import SpeedyApplySource
 from personal_os.jobs_storage import JobsDocumentStorage
-from personal_os.jobs_store import AmbiguousReference, JobsStore, get_jobs_store
+from personal_os.jobs_store import AmbiguousReference, CompletionConflict, JobsStore, get_jobs_store
 from personal_os.jobs_sync import run_sync
 
 router = APIRouter(prefix="/v1/jobs", tags=["jobs"])
@@ -307,6 +308,19 @@ async def complete_autofill_run(
     store: Store,
 ) -> Response:
     if not await store.complete_autofill_run(principal.user_id, run_id, item):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Running autofill session not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/autofill/runs/{run_id}/finish", status_code=status.HTTP_204_NO_CONTENT)
+async def finish_autofill_run(
+    run_id: UUID, item: AutofillRunFinish, principal: CurrentPrincipal, store: Store,
+) -> Response:
+    try:
+        completed = await store.complete_autofill_run(principal.user_id, run_id, item)
+    except CompletionConflict as error:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
+    if not completed:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Running autofill session not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

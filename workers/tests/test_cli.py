@@ -445,8 +445,8 @@ def test_clean_terminal_outcome_persists_before_closing_one_page(
     calls: list[tuple[str, object]] = []
 
     class Api:
-        def complete_autofill_run(self, *_: object, **__: object) -> None:
-            calls.append(("complete", None))
+        def complete_autofill_run(self, *_: object, **payload: object) -> None:
+            calls.append(("complete", payload["application_status"]))
 
         def update_application(self, *_: object, status: str) -> None:
             calls.append(("update", status))
@@ -469,7 +469,7 @@ def test_clean_terminal_outcome_persists_before_closing_one_page(
         page=Page(),
     )
     assert result == expected
-    assert calls == [("complete", None), lifecycle, ("close", None)]
+    assert calls == [("complete", lifecycle[1] or "archived"), ("close", None)]
 
 
 def test_persistence_failure_keeps_the_session_page_for_recovery() -> None:

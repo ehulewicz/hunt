@@ -72,3 +72,13 @@ values are the worker's last observations, not exact submit-time captures.
 Listing responses include the existing `jobs_postings.created_at` timestamp.
 It represents discovery into this system; oldest-first test selection uses it
 rather than source-posting age or the board ranking.
+
+### Atomic autofill completion
+
+The worker uses `POST /v1/jobs/autofill/runs/{id}/finish`, which requires an
+application status of `applied`, `skipped`, or `archived` consistent with the
+submitted flag. Run completion, final history, and application status share one
+transaction. Only `applying` or the same target status can transition; a
+concurrent lifecycle change returns 409 and rolls back completion. The legacy
+`/complete` endpoint retains its history-only contract. Completed-run retries
+currently return 404; they cannot duplicate final history.

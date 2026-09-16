@@ -581,3 +581,35 @@ async def test_answer_review_uses_verified_owner_and_bounds(
         response = await client.get(f"/v1/jobs/answer-review?{query}", headers=headers)
         assert response.status_code == 422
     assert len(calls) == 1
+
+
+async def test_atomic_finish_validates_outcome_and_reports_conflicts(
+    app: FastAPI, client: httpx.AsyncClient,
+) -> None:
+    from personal_os.jobs_models import AutofillRunFinish
+    from personal_os.jobs_store import CompletionConflict
+
+    calls: list[UUID] = []
+
+    class FinishStore:
+        async def complete_autofill_run(
+            self, user_id: UUID, run_id: UUID, item: AutofillRunFinish,
+        ) -> bool:
+            calls.append(user_id)
+            raise CompletionConflict('Application status changed; completion rolled back')
+
+    async def override_finish() -> FinishStore:
+        return FinishStore()
+
+    app.dependency_overrides[get_jobs_store] = override_finish
+    path = f'/v1/jobs/autofill/runs/{uuid4()}/finish'
+    headers = {'Authorization': 'Bearer approved'}
+    body = {
+        'final_url': 'https://example.test', 'application_status': 'applied', 'submitted': False
+    }
+    assert (await client.post(path, json=body, headers=headers)).status_code == 422
+    body['submitted'] = True
+    response = await client.post(path, json=body, headers=headers)
+    assert response.status_code == 409
+    assert calls == [USER_ID]
+    assert (await client.post(path, json=body)).status_code == 401

@@ -289,3 +289,67 @@ async def test_review_query_keeps_owner_and_control_context() -> None:
     assert items[0].completion_value == "Remote"
     assert all("insert " not in sql.lower() and "update " not in sql.lower()
                for sql, _ in connection.queries)
+
+
+@pytest.mark.parametrize(
+    'target,submitted', [('applied', True), ('skipped', False), ('archived', False)]
+)
+async def test_finish_saves_lifecycle_with_history(target: str, submitted: bool) -> None:
+    from personal_os.jobs_models import AutofillRunFinish
+
+    user_id, application_id = uuid4(), uuid4()
+    connection = RecordingConnection({'application_id': application_id})
+    store = PostgresJobsStore(RecordingPool(connection), 5)  # type: ignore[arg-type]
+    item = AutofillRunFinish(
+        final_url='https://example.test', submitted=submitted, application_status=target,
+        answers=[{'question': 'City', 'answer_text': 'Atlanta'}],
+    )
+    assert await store.complete_autofill_run(user_id, uuid4(), item)
+    lifecycle = [(query, params) for query, params in connection.queries
+                 if 'update app.jobs_applications' in query]
+    assert len(lifecycle) == 1
+    query, params = lifecycle[0]
+    assert params is not None
+    assert target in params and user_id in params and application_id in params
+    assert "status in ('applying', %s)" in query
+    assert len(question_inserts(connection)) == 1
+
+
+def test_finish_rejects_inconsistent_submission_status() -> None:
+    from personal_os.jobs_models import AutofillRunFinish
+
+    with pytest.raises(ValidationError):
+        AutofillRunFinish(final_url='https://example.test', submitted=False,
+                          application_status='applied')
+
+
+async def test_finish_conflict_exits_transaction_without_inserting_answers() -> None:
+    from personal_os.jobs_models import AutofillRunFinish
+    from personal_os.jobs_store import CompletionConflict
+
+    class ConflictConnection(RecordingConnection):
+        rolled_back = False
+
+        @asynccontextmanager
+        async def transaction(self):  # type: ignore[no-untyped-def]
+            try:
+                yield self
+            except CompletionConflict:
+                self.rolled_back = True
+                raise
+
+        async def fetchone(self) -> dict[str, Any] | None:
+            if 'update app.jobs_applications' in self.queries[-1][0]:
+                return None
+            return self.row
+
+    connection = ConflictConnection({'application_id': uuid4()})
+    store = PostgresJobsStore(RecordingPool(connection), 5)  # type: ignore[arg-type]
+    item = AutofillRunFinish(
+        final_url='https://example.test', submitted=False, application_status='archived',
+        answers=[{'question': 'City', 'answer_text': 'Atlanta'}],
+    )
+    with pytest.raises(CompletionConflict):
+        await store.complete_autofill_run(uuid4(), uuid4(), item)
+    assert connection.rolled_back
+    assert question_inserts(connection) == []

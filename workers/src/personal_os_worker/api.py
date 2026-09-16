@@ -219,11 +219,13 @@ class WorkerApi:
         return path
 
     def complete_autofill_run(
-        self, run_id: str, *, final_url: str, answers: list[dict[str, Any]], submitted: bool
+        self, run_id: str, *, final_url: str, answers: list[dict[str, Any]],
+        submitted: bool, application_status: str
     ) -> None:
         response = self._client.post(
-            f"/v1/jobs/autofill/runs/{run_id}/complete",
-            json={"final_url": final_url, "answers": answers, "submitted": submitted},
+            f"/v1/jobs/autofill/runs/{run_id}/finish",
+            json={"final_url": final_url, "answers": answers, "submitted": submitted,
+                  "application_status": application_status},
         )
         response.raise_for_status()
 

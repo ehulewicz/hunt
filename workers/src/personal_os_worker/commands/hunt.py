@@ -45,21 +45,19 @@ def finalize_application_outcome(
 
     saved = list(outcome["answers"])
     company = str(run["company_name"])
+    if outcome.get("submitted"):
+        application_status, result = "applied", "submitted"
+    elif outcome.get("skipped"):
+        application_status, result = "skipped", "skipped"
+    else:
+        application_status, result = "archived", "stopped"
     api.complete_autofill_run(
         run_id,
         final_url=str(outcome.get("final_url") or ""),
         answers=saved,
         submitted=bool(outcome.get("submitted")),
+        application_status=application_status,
     )
-    if outcome.get("submitted"):
-        api.update_application(str(run["application_id"]), status="applied")
-        result = "submitted"
-    elif outcome.get("skipped"):
-        api.update_application(str(run["application_id"]), status="skipped")
-        result = "skipped"
-    else:
-        api.archive_application(str(run["application_id"]))
-        result = "stopped"
     try:
         if not page.is_closed():
             page.close()
