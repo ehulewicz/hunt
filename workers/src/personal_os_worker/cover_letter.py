@@ -144,7 +144,8 @@ company that the posting does not state.
 - tie: one or two sentences naming a specific responsibility or technology from the
   posting and what in the chosen modules makes the candidate the person to do it.
 
-Plain, direct prose. No exclamation marks, no "passionate", no "excited".
+Plain, direct prose. No exclamation marks, no "passionate", no "excited". Never use a
+colon, semicolon, en dash, or em dash anywhere. Use a comma or start a new sentence.
 
 LETTER TEMPLATE: {json.dumps(template.letter)}
 MODULES: {json.dumps(template.modules)}
