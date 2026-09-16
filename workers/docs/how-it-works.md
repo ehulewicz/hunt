@@ -95,7 +95,8 @@ and dynamic fallback. The exact index is built once per plan; dynamic policies
 still evaluate current profile, resume, company, and control options. The
 result travels on `FormFill` through browser readback. Verified deterministic
 and short-model fills retain provenance by step and control fingerprint, so
-repeated labels do not overwrite each other's resolver. Legacy string callbacks
+repeated labels do not overwrite each other's resolver. Verified long-form
+seeds also store this per-control result before observation. Legacy string callbacks
 remain supported; production pattern and short-model callbacks return typed
 results. Long-form seeding still uses its existing exact/draft path.
 

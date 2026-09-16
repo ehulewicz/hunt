@@ -710,6 +710,13 @@ class AutofillSession:
                     "readback_mismatch", f"Long-form answer for {question!r} did not register"
                 )
                 continue
+            matched = answer_match(question, self.ctx.answers)
+            resolver_id = (
+                f"library:{(matched or {}).get('id') or question}" if source == "answer_library"
+                else "model:long_form_v1"
+            )
+            key = f"{self.state.step}:{item.get('fingerprint') or ''}#{item['index']}"
+            self.state.resolutions[key] = AnswerResolution(seed, source, resolver_id)
             self.state.announced[question] = seed
             label = "claude draft" if source == "model" else "library"
             echo("long-form", question, seed, note=label)
