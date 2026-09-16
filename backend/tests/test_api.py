@@ -609,6 +609,11 @@ async def test_atomic_finish_validates_outcome_and_reports_conflicts(
     }
     assert (await client.post(path, json=body, headers=headers)).status_code == 422
     body['submitted'] = True
+    malformed = {**body, 'answers': [
+        {'question': 'City', 'answer_text': 'Atlanta', 'resolver_id': {'invalid': True}}
+    ]}
+    assert (await client.post(path, json=malformed, headers=headers)).status_code == 422
+    assert calls == []
     response = await client.post(path, json=body, headers=headers)
     assert response.status_code == 409
     assert calls == [USER_ID]

@@ -407,15 +407,13 @@ class AutofillRunContext(BaseModel):
     duplicate_company_applications: list[dict[str, Any]]
 
 
-class AutofillObservation(BaseModel):
-    """One changed field value, recorded as history and never as library approval."""
-
-    event_index: int = Field(ge=0)
+class AutofillAnswer(BaseModel):
+    """Validated history value; recording it never approves future reuse."""
     question: str = Field(min_length=1, max_length=1000)
     answer_text: str = Field(max_length=10000)
     source: str = Field(default="manual", max_length=40)
-    step_number: int = Field(ge=0)
-    page_url: str = Field(min_length=1, max_length=4000)
+    step_number: int | None = Field(default=None, ge=0)
+    page_url: str | None = Field(default=None, min_length=1, max_length=4000)
     control_kind: str | None = Field(default=None, max_length=100)
     field_fingerprint: str | None = Field(default=None, max_length=500)
     resolver_id: str | None = Field(default=None, max_length=200)
@@ -430,6 +428,12 @@ class AutofillObservation(BaseModel):
         return value
 
 
+class AutofillObservation(AutofillAnswer):
+    event_index: int = Field(ge=0)
+    step_number: int = Field(ge=0)
+    page_url: str = Field(min_length=1, max_length=4000)
+
+
 class AutofillStepCreate(BaseModel):
     step_number: int = Field(ge=0)
     url: str = Field(min_length=1, max_length=4000)
@@ -442,7 +446,7 @@ class AutofillStepCreate(BaseModel):
 class AutofillRunComplete(BaseModel):
     final_url: str = Field(min_length=1, max_length=4000)
     submitted: bool = False
-    answers: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
+    answers: list[AutofillAnswer] = Field(default_factory=list, max_length=200)
 
 
 class AutofillRunFinish(AutofillRunComplete):

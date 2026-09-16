@@ -1189,12 +1189,12 @@ class PostgresJobsStore:
                 if await lifecycle.fetchone() is None:
                     raise CompletionConflict("Application status changed; completion rolled back")
             for answer in item.answers:
-                question = str(answer.get("question") or "").strip()
-                answer_text = str(answer.get("answer_text") or "").strip()
+                question = answer.question
+                answer_text = answer.answer_text.strip()
                 if not question or not answer_text:
                     continue
                 normalized_key = normalize_answer_key(question)
-                source = str(answer.get("source") or "manual")
+                source = answer.source
                 await connection.execute(
                     """
                     insert into app.jobs_application_questions (
@@ -1216,12 +1216,12 @@ class PostgresJobsStore:
                         source if source in ANSWER_SOURCES else "manual",
                         "submitted" if item.submitted else "drafted",
                         run_id,
-                        answer.get("step_number"),
-                        answer.get("page_url"),
-                        answer.get("control_kind"),
-                        answer.get("field_fingerprint"),
-                        answer.get("resolver_id"),
-                        answer.get("proposed_value"),
+                        answer.step_number,
+                        answer.page_url,
+                        answer.control_kind,
+                        answer.field_fingerprint,
+                        answer.resolver_id,
+                        answer.proposed_value,
                     ),
                 )
         return True

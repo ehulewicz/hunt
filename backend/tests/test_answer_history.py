@@ -353,3 +353,16 @@ async def test_finish_conflict_exits_transaction_without_inserting_answers() -> 
         await store.complete_autofill_run(uuid4(), uuid4(), item)
     assert connection.rolled_back
     assert question_inserts(connection) == []
+
+
+@pytest.mark.parametrize('metadata', [
+    {'step_number': -1}, {'step_number': {'bad': 1}}, {'resolver_id': {'bad': 1}},
+    {'field_fingerprint': ['bad']}, {'page_url': ''}, {'proposed_value': 'x' * 10001},
+    {'question': '   '}, {'answer_text': 'x' * 10001},
+])
+def test_completion_rejects_invalid_answer_metadata(metadata: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        AutofillRunComplete(
+            final_url='https://example.test',
+            answers=[{'question': 'City', 'answer_text': 'Atlanta', **metadata}],
+        )

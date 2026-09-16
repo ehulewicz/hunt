@@ -82,3 +82,8 @@ transaction. Only `applying` or the same target status can transition; a
 concurrent lifecycle change returns 409 and rolls back completion. The legacy
 `/complete` endpoint retains its history-only contract. Completed-run retries
 currently return 404; they cannot duplicate final history.
+
+Final completion answers and intermediate observations share typed, bounded
+question/value/provenance validation. Legacy completion callers may omit step
+and page metadata; observations must include both. Invalid metadata fails with
+422 before entering the persistence transaction.
