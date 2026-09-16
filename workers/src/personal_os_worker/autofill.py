@@ -8,6 +8,7 @@ from typing import Any
 from personal_os_worker.adapters import is_non_answer_option, option_match
 
 FILE_KINDS = frozenset({"resume", "transcript"})
+PriorityPolicy = Callable[[dict[str, Any]], str | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +108,20 @@ HOW_HEARD = re.compile(
     r"\bhow did you (?:first )?(?:find|learn about)\b",
     re.IGNORECASE,
 )
+AUTHORIZATION_EXPIRY = re.compile(
+    r"\b(expir(?:e|es|ation)|valid (?:until|through)|end date)\b.*"
+    r"\b(visa|permit|work authori[sz]ation)\b|"
+    r"\b(visa|permit|work authori[sz]ation)\b.*"
+    r"\b(expir(?:e|es|ation)|valid (?:until|through)|end date)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+FACTUAL_DATE = re.compile(
+    r"\b\d{4}-\d{2}(?:-\d{2})?\b|"
+    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|"
+    r"dec(?:ember)?)\b.*\b\d{4}\b",
+    re.IGNORECASE,
+)
 
 
 def normalize_question(value: str) -> str:
@@ -116,6 +131,17 @@ def normalize_question(value: str) -> str:
 def normalize_answer_question(value: str) -> str:
     """Normalize harmless punctuation differences for exact answer reuse."""
     return re.sub(r"[^a-z0-9+#]+", " ", value.casefold()).strip()
+
+
+def profile_label_key(label: str) -> str | None:
+    """Return a canonical profile key, accepting only safe leading-Your aliases."""
+    normalized = normalize_question(label)
+    key = PROFILE_LABELS.get(normalized)
+    if key is not None:
+        return key
+    if normalized.startswith("your "):
+        return PROFILE_LABELS.get(normalized.removeprefix("your "))
+    return None
 
 
 def _is_company_site(value: str) -> bool:
@@ -221,6 +247,7 @@ def build_autofill_plan(
     *,
     profile: dict[str, Any],
     approved_answers: list[dict[str, Any]],
+    priority: PriorityPolicy | None = None,
     fallback: Callable[[str], str | None] | None = None,
 ) -> AutofillPlan:
     """Plan fills from profile facts, then exact answers, then `fallback(question)`.
@@ -329,22 +356,40 @@ def build_autofill_plan(
             if value is None and not options and HOW_HEARD.search(question_label):
                 # A typeahead shows its choices only once opened; rank them then.
                 chooser = "source" if field.get("role") == "combobox" else None
-            profile_key = PROFILE_LABELS.get(normalized)
+            profile_key = profile_label_key(question_label)
             if str(field.get("section") or "") == "education":
                 profile_key = {
                     "end date month": "graduation_month",
                     "end date year": "graduation_year",
                 }.get(normalized, profile_key)
             profile_value = resolve_profile_value(profile, profile_key)
+            exact_value = answers.get(answer_question) if profile_key is None else None
+            expiration_question = AUTHORIZATION_EXPIRY.search(question_label) is not None
             if value is None:
                 if isinstance(profile_value, bool):
                     value = "Yes" if profile_value else "No"
                 elif profile_value is not None and str(profile_value).strip():
                     value = str(profile_value).strip()
-                elif profile_key is None and answer_question in answers:
-                    value = answers[answer_question]
+            if value is None and priority is not None and question_label:
+                value = priority(
+                    dict(field)
+                    | {
+                        "label": question_label,
+                        "options": options,
+                    }
+                )
+            if value is None:
+                if exact_value is not None and (
+                    not expiration_question or FACTUAL_DATE.search(exact_value)
+                ):
+                    value = exact_value
                     chooser = None
-                elif profile_key is None and fallback is not None and question_label:
+                elif (
+                    profile_key is None
+                    and not expiration_question
+                    and fallback is not None
+                    and question_label
+                ):
                     value = fallback(question_label)
 
             # Withholding information is never an autofill default. If an old
@@ -405,6 +450,14 @@ def choose_option(options: list[str], answer: str) -> str | None:
     ]
     if len(prefixed) == 1:
         return prefixed[0]
+    seasonal = normalize_answer_question(answer).replace("autumn", "fall")
+    seasonal_hits = [
+        option
+        for option in options
+        if normalize_answer_question(option).replace("autumn", "fall") == seasonal
+    ]
+    if len(seasonal_hits) == 1:
+        return seasonal_hits[0]
     return choose_numeric_range(options, answer) or choose_synonym(options, answer)
 
 

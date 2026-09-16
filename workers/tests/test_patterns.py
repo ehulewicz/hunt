@@ -1,4 +1,8 @@
-from personal_os_worker.patterns import resolve_pattern_answer, resume_organizations
+from personal_os_worker.patterns import (
+    resolve_pattern_answer,
+    resolve_priority_answer,
+    resume_organizations,
+)
 
 PROFILE = {
     "preferred_name": "Ethan",
@@ -63,6 +67,70 @@ def test_builtin_rules_answer_from_profile_facts() -> None:
     assert ask("Are you a veteran?") == "No"
     assert ask("Are you Hispanic or Latino?") == "No"
     assert ask("Are you willing to work onsite in the SF office 5 times per week?") == "Yes"
+    assert (
+        ask("Are you able to reliably commute or relocate to Rochester to work in person?") == "Yes"
+    )
+
+
+def test_authorization_expiration_is_not_a_yes_no_authorization_question() -> None:
+    assert ask("When does that work authorization expire?") is None
+    assert ask("When does your visa or work permit expire?") is None
+
+
+def test_priority_policy_uses_field_kind_and_visible_options() -> None:
+    profile = {
+        "minimum_salary": "35",
+        "minimum_salary_period": "hour",
+        "graduation_date": "2027-12-15",
+        "graduation_term": "Fall",
+        "completed_coop_terms": "4.5",
+        "earliest_start_text": "Two weeks from offer acceptance.",
+        "visa_status": "Citizen",
+    }
+
+    def answer(**field: object) -> str | None:
+        return resolve_priority_answer(field, profile=profile)
+
+    assert answer(label="Hourly pay requirement", type="number", options=[]) == "35"
+    assert answer(label="Hourly salary requirement", type="text", options=[]) == "$35/hour"
+    assert answer(label="Annual base salary expectations", type="number", options=[]) == "72800"
+    assert (
+        answer(label="Annual salary expectations; include currency", type="text", options=[])
+        == "$72,800 USD"
+    )
+    assert (
+        answer(
+            label="Is the stated compensation range acceptable?",
+            type="radio",
+            options=["Yes", "No"],
+        )
+        == "Yes"
+    )
+    assert (
+        answer(label="Is the range of travel acceptable?", type="radio", options=["Yes", "No"])
+        is None
+    )
+    assert answer(label="Expected graduation (Term & Year)", type="text", options=[]) == "Fall 2027"
+    assert answer(label="Expected graduation", type="text", options=[]) == "December 2027"
+    assert answer(label="Expected graduation", type="month", options=[]) == "2027-12"
+    assert answer(label="Expected graduation", type="date", options=[]) == "2027-12-15"
+    assert (
+        answer(
+            label="How many full-time semester-long co-op rotations have you completed?",
+            type="radio",
+            options=["0 Co-ops", "1 Co-op", "2 Co-ops", "3 or more Co-ops"],
+        )
+        == "4.5"
+    )
+    assert answer(label="How many co-op employers have you had?", type="number", options=[]) is None
+    assert (
+        answer(
+            label="What is your notice period?",
+            type="radio",
+            options=["Available Immediately", "2 - 4 weeks", "4 - 8 weeks"],
+        )
+        == "2"
+    )
 
 
 def test_citizenship_questions_are_told_apart() -> None:

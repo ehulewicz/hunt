@@ -1,5 +1,6 @@
 from personal_os_worker.autofill import affirmative_option, build_autofill_plan, choose_option
 from personal_os_worker.browser import audit_filled_form
+from personal_os_worker.patterns import resolve_priority_answer
 
 
 def test_autofill_uses_profile_resume_and_exact_approved_long_form_answers() -> None:
@@ -52,6 +53,59 @@ def test_autofill_uses_profile_resume_and_exact_approved_long_form_answers() -> 
         (2, "resume", None),
         (3, "text", "Because the work matters."),
     ]
+
+
+def test_your_aliases_only_expand_known_profile_labels() -> None:
+    fields = [
+        {"index": index, "tag": "input", "type": "text", "label": label, "required": True}
+        for index, label in enumerate(
+            ["Your Name", "Your Email Address", "Your Phone Number", "Your reference name"]
+        )
+    ]
+    plan = build_autofill_plan(
+        fields,
+        profile={"legal_name": "Ethan Example", "email": "e@example.com", "phone": "555"},
+        approved_answers=[],
+    )
+    assert [(fill.index, fill.value) for fill in plan.fills] == [
+        (0, "Ethan Example"),
+        (1, "e@example.com"),
+        (2, "555"),
+    ]
+    assert plan.unanswered_required_questions == ("Your reference name",)
+
+
+def test_priority_salary_policy_overrides_an_old_exact_deflection() -> None:
+    field = {
+        "index": 0,
+        "tag": "input",
+        "type": "number",
+        "label": "What are your salary requirements?",
+        "required": True,
+    }
+    plan = build_autofill_plan(
+        [field],
+        profile={"minimum_salary": "35", "minimum_salary_period": "hour"},
+        approved_answers=[
+            {"normalized_question": field["label"], "answer_text": "Open to discussion"}
+        ],
+        priority=lambda metadata: resolve_priority_answer(
+            metadata, profile={"minimum_salary": "35", "minimum_salary_period": "hour"}
+        ),
+    )
+    assert [(fill.index, fill.value) for fill in plan.fills] == [(0, "35")]
+
+
+def test_visa_expiration_rejects_an_old_yes_answer() -> None:
+    label = "When does your visa or work authorization expire?"
+    field = {"index": 0, "tag": "input", "type": "text", "label": label, "required": False}
+    plan = build_autofill_plan(
+        [field],
+        profile={"work_authorization_status": "Yes"},
+        approved_answers=[{"normalized_question": label, "answer_text": "Yes"}],
+        fallback=lambda _: "Yes",
+    )
+    assert plan.fills == ()
 
 
 def test_autofill_matches_the_api_answer_shape_and_harmless_punctuation() -> None:
@@ -467,9 +521,7 @@ def test_how_heard_uses_the_first_available_standing_source_preference() -> None
         plan = build_autofill_plan(
             fields,
             profile={},
-            approved_answers=[
-                {"normalized_question": question, "answer_text": "LinkedIn"}
-            ],
+            approved_answers=[{"normalized_question": question, "answer_text": "LinkedIn"}],
         )
         return plan.fills[0].value if plan.fills else None
 

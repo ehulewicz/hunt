@@ -246,13 +246,18 @@ def plan_autofill(
     *,
     profile: dict[str, Any],
     approved_answers: list[dict[str, Any]],
+    priority: Callable[[dict[str, Any]], str | None] | None = None,
     fallback: Callable[[str], str | None] | None = None,
 ) -> tuple[list[dict[str, str | bool | None]], AutofillPlan]:
     """Work out what would be filled, without touching the page."""
     reveal_application_form(page)
     fields = inspect_fields(page)
     plan = build_autofill_plan(
-        fields, profile=profile, approved_answers=approved_answers, fallback=fallback
+        fields,
+        profile=profile,
+        approved_answers=approved_answers,
+        priority=priority,
+        fallback=fallback,
     )
     return fields, plan
 

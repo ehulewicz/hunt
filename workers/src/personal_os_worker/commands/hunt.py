@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+from playwright.sync_api import Error
+
 from personal_os_worker.api import WorkerApi
 from personal_os_worker.commands.services import connected
 from personal_os_worker.doctor import run_doctor
@@ -23,6 +27,54 @@ DEFAULT_TECHNICAL_FAMILIES = [
     "data_engineering",
     "ml_engineering",
 ]
+
+
+def finalize_application_outcome(
+    api: WorkerApi,
+    *,
+    run: dict[str, Any],
+    run_id: str,
+    outcome: dict[str, Any],
+    page: Any,
+) -> str:
+    """Persist a clean terminal outcome, then close only its application page."""
+    if outcome.get("dry_run"):
+        api.stop_autofill_run(run_id, status="abandoned")
+        console.print("Dry run: no values were changed and nothing was submitted.")
+        return "stopped"
+
+    saved = list(outcome["answers"])
+    company = str(run["company_name"])
+    try:
+        api.complete_autofill_run(
+            run_id,
+            final_url=str(outcome.get("final_url") or ""),
+            answers=saved,
+        )
+        if outcome.get("submitted"):
+            api.update_application(str(run["application_id"]), status="applied")
+            result = "submitted"
+        elif outcome.get("skipped"):
+            api.update_application(str(run["application_id"]), status="skipped")
+            result = "skipped"
+        else:
+            api.archive_application(str(run["application_id"]))
+            result = "stopped"
+    finally:
+        try:
+            if not page.is_closed():
+                page.close()
+        except Error:
+            # An already-disconnected Page has no cleanup work left to do.
+            pass
+
+    verb = "Stopped" if outcome.get("interrupted") else "Done"
+    console.print(f"{verb}. Saved {len(saved)} answer(s) to the library for reuse.")
+    if result == "submitted":
+        console.print(f"Marked {company} as applied.")
+    elif result == "skipped":
+        console.print(f"Skipped {company}; 'os hunt skipped restore' undoes it.")
+    return result
 
 
 def run_listings(
@@ -510,23 +562,13 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> str:
                 )
             )
             outcome = session.run()
-            if outcome.get("dry_run"):
-                api.stop_autofill_run(run_id, status="abandoned")
-                console.print("Dry run: no values were changed and nothing was submitted.")
-                return "stopped"
-            saved = list(outcome["answers"])
-            api.complete_autofill_run(run_id, final_url=str(outcome["final_url"]), answers=saved)
-            verb = "Stopped" if outcome.get("interrupted") else "Done"
-            console.print(f"{verb}. Saved {len(saved)} answer(s) to the library for reuse.")
-            if outcome.get("submitted"):
-                api.update_application(str(run["application_id"]), status="applied")
-                console.print(f"Marked {expected_company} as applied.")
-                return "submitted"
-            if outcome.get("skipped"):
-                api.update_application(str(run["application_id"]), status="skipped")
-                console.print(f"Skipped {expected_company}; 'os hunt skipped restore' undoes it.")
-                return "skipped"
-            api.archive_application(str(run["application_id"]))
+            return finalize_application_outcome(
+                api,
+                run=run,
+                run_id=run_id,
+                outcome=outcome,
+                page=page,
+            )
     except KeyboardInterrupt:
         if run_id is not None:
             api.stop_autofill_run(run_id, status="abandoned")

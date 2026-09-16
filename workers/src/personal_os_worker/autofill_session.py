@@ -12,6 +12,7 @@ paths save the collected answers.
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,7 +40,6 @@ from personal_os_worker.browser import (
     has_submit_control,
     inspect_fields,
     is_browser_closed_error,
-    looks_like_application_form,
     plan_autofill,
     reveal_application_form,
     sanitized_evidence,
@@ -59,19 +59,16 @@ from personal_os_worker.cover_letter import (
 )
 from personal_os_worker.drafts import similar_answers
 from personal_os_worker.keys import KeyWatcher, NoKeys
-from personal_os_worker.patterns import resolve_pattern_answer
+from personal_os_worker.page_state import (
+    ApplicationPageState,
+    AshbyNavigation,
+    capture_ashby_navigation,
+    classify_application_page,
+)
+from personal_os_worker.patterns import resolve_pattern_answer, resolve_priority_answer
 from personal_os_worker.short_answers import ShortQuestion, draft_short_answers
 from personal_os_worker.tables import console
 
-SUBMITTED_MARKERS = (
-    "thank you for applying",
-    "thanks for applying",
-    "application has been submitted",
-    "application was submitted",
-    "application submitted",
-    "received your application",
-    "submitted successfully",
-)
 
 class SubmittedByUser(Exception):
     """Ctrl+A: the user says the application went in."""
@@ -131,18 +128,12 @@ class SessionState:
     tier_source: dict[str, str] = field(default_factory=dict)  # question -> "pattern" | "model"
     asked_claude: set[str] = field(default_factory=set)  # questions already put to Claude
     step: int = 0
+    form_seen: bool = False
+    navigation: AshbyNavigation | None = None
 
 
 def page_signature(page: Page, fields: list[dict[str, Any]]) -> tuple[str, tuple[str, ...]]:
     return page.url, tuple(str(item.get("fingerprint")) for item in fields)
-
-
-def looks_submitted(page: Page) -> bool:
-    try:
-        body = page.locator("body").inner_text(timeout=5_000).casefold()
-    except Error:
-        return False
-    return any(marker in body for marker in SUBMITTED_MARKERS)
 
 
 def preview(value: str, *, limit: int = 100) -> str:
@@ -324,7 +315,10 @@ class AutofillSession:
             fields = inspect_fields(self.page)
         except Error:
             return False
-        return not looks_like_application_form(fields) and looks_submitted(self.page)
+        return (
+            classify_application_page(self.page, fields, self.state.navigation)
+            == ApplicationPageState.SUBMITTED
+        )
 
     def save_now(self) -> int:
         """Push every picked-up answer that changed since the last save to the library."""
@@ -354,16 +348,43 @@ class AutofillSession:
     def wait_for_form(self) -> list[dict[str, Any]] | None:
         """Return the form's fields, or None once the page shows the application went in."""
         wall_reported = False
+        unsettled_since: float | None = None
         while True:
             self.page = self.ctx.browser.active_page(self.page)
-            reveal_application_form(self.page)
             fields = inspect_fields(self.page)
-            if looks_like_application_form(fields) or has_submit_control(self.page):
+            if self.state.navigation is None and self.ctx.adapter_name == "ashby":
+                self.state.navigation = capture_ashby_navigation(self.page)
+            page_state = classify_application_page(self.page, fields, self.state.navigation)
+            if page_state == ApplicationPageState.SUBMITTED:
+                return None
+            if page_state == ApplicationPageState.FORM:
+                self.state.form_seen = True
                 for item in fields:
                     item["ats"] = self.ctx.adapter_name
                 return fields
-            if self.state.step > 0 and looks_submitted(self.page):
-                return None
+            if page_state == ApplicationPageState.OVERVIEW and self.state.form_seen:
+                self.warn_once(
+                    "overview-standby",
+                    "Ashby Overview is open; standing by until you return to Application.",
+                )
+                self.sleep()
+                continue
+            if not self.state.form_seen:
+                reveal_application_form(self.page)
+                refreshed = inspect_fields(self.page)
+                if (
+                    classify_application_page(self.page, refreshed, self.state.navigation)
+                    == ApplicationPageState.FORM
+                ):
+                    self.state.form_seen = True
+                    for item in refreshed:
+                        item["ats"] = self.ctx.adapter_name
+                    return refreshed
+            if page_state == ApplicationPageState.LOADING:
+                unsettled_since = unsettled_since or time.monotonic()
+                if time.monotonic() - unsettled_since < 5:
+                    self.sleep()
+                    continue
             if not wall_reported:
                 self.report_page_failure(
                     "navigation_wall",
@@ -413,11 +434,20 @@ class AutofillSession:
             self.state.tier_source[question] = "pattern"
         return answer
 
+    def priority_policy(self, field: dict[str, Any]) -> str | None:
+        answer = resolve_priority_answer(field, profile=self.ctx.profile)
+        question = str(field.get("label") or field.get("group") or "").strip()
+        if answer is not None and question:
+            self.state.tier_answers[question] = answer
+            self.state.tier_source[question] = "pattern"
+        return answer
+
     def fill_deterministic(self, fields: list[dict[str, Any]]) -> dict[str, Any]:
         fields[:], plan = plan_autofill(
             self.page,
             profile=self.ctx.profile,
             approved_answers=self.ctx.answers,
+            priority=self.priority_policy,
             fallback=self.pattern_fallback,
         )
         for item in fields:
@@ -808,23 +838,68 @@ class AutofillSession:
                 self.state.announced[question] = value
                 echo("picked up", question, value)
 
-    def wait_and_advance(self, fields: list[dict[str, Any]]) -> None:
+    def wait_and_advance(self, fields: list[dict[str, Any]]) -> ApplicationPageState:
         """Collect manual answers while the user owns page navigation and submission."""
         prior = page_signature(self.page, fields)
         submit_reported = False
+        transition_since: float | None = None
+        overview_active = False
         while True:
             self.page = self.ctx.browser.active_page(self.page)
             current = inspect_fields(self.page)
-            if page_signature(self.page, current) != prior:
-                return
-            if not looks_like_application_form(current) and looks_submitted(self.page):
-                return
+            page_state = classify_application_page(self.page, current, self.state.navigation)
+            if page_state == ApplicationPageState.SUBMITTED:
+                return page_state
+            if page_state == ApplicationPageState.OVERVIEW:
+                overview_active = True
+                transition_since = None
+                self.warn_once(
+                    "overview-standby",
+                    "Ashby Overview is open; standing by until you return to Application.",
+                )
+                self.sleep()
+                continue
+            current_signature = page_signature(self.page, current)
+            if page_state == ApplicationPageState.FORM and overview_active:
+                # Returning from the saved Overview tab resumes this same step.
+                prior = current_signature
+                overview_active = False
+                transition_since = None
+            elif page_state == ApplicationPageState.FORM and current_signature == prior:
+                transition_since = None
+            else:
+                transition_since = transition_since or time.monotonic()
+                if time.monotonic() - transition_since >= 5:
+                    if page_state == ApplicationPageState.FORM:
+                        return page_state
+                    self.report_page_failure(
+                        "unexpected_departure",
+                        "The active form was replaced by an unrecognized page",
+                    )
+                    return ApplicationPageState.UNKNOWN
+                self.sleep()
+                continue
             self.record_snapshot(current)
             if has_submit_control(self.page) and not submit_reported:
                 console.print()
                 console.print("  [bold]Submit found[/bold] — press it in the browser when ready.")
                 submit_reported = True
             self.sleep()
+
+    def capture_final_snapshot(self) -> None:
+        """Best-effort final read before a clean terminal outcome."""
+        try:
+            fields = inspect_fields(self.page)
+            if fields:
+                self.record_snapshot(fields)
+        except (Error, AttributeError):
+            return
+
+    def final_url(self) -> str:
+        try:
+            return self.page.url
+        except Error:
+            return ""
 
     # ----- driver ----------------------------------------------------------
 
@@ -855,32 +930,49 @@ class AutofillSession:
                 self.fill_cover_letter(fields)
                 self.report_left()
                 self.report_review()
-                self.wait_and_advance(fields)
+                transition = self.wait_and_advance(fields)
+                if transition == ApplicationPageState.SUBMITTED:
+                    console.print("The page reports the application was submitted.")
+                    submitted = True
+                    break
+                if transition == ApplicationPageState.UNKNOWN:
+                    console.print("The application form is no longer present. Ending cleanly.")
+                    final_url = self.final_url()
+                    self.capture_final_snapshot()
+                    self.save_now()
+                    return {
+                        "final_url": final_url,
+                        "answers": list(self.state.collected.values()),
+                        "interrupted": True,
+                    }
                 self.state.step += 1
         except BrowserClosedError:
             console.print("The browser or application tab was closed. Ending autofill.")
         except SubmittedByUser:
             console.print("Marked as submitted.")
+            final_url = self.final_url()
+            self.capture_final_snapshot()
             self.save_now()
             return {
-                "final_url": self.page.url,
+                "final_url": final_url,
                 "answers": list(self.state.collected.values()),
                 "submitted": True,
             }
         except SkippedByUser:
             console.print("Skipped. The listing leaves the board; 'os hunt skipped' lists it.")
+            final_url = self.final_url()
+            self.capture_final_snapshot()
             self.save_now()
             return {
-                "final_url": self.page.url,
+                "final_url": final_url,
                 "answers": list(self.state.collected.values()),
                 "skipped": True,
             }
         except KeyboardInterrupt:
-            console.print("Stopped. The application tab stays open in the browser.")
-            try:
-                final_url = self.page.url
-            except Error:
-                final_url = ""
+            final_url = self.final_url()
+            self.capture_final_snapshot()
+            self.save_now()
+            console.print("Stopped. Saved the current form state.")
             return {
                 "final_url": final_url,
                 "answers": list(self.state.collected.values()),
@@ -890,8 +982,11 @@ class AutofillSession:
             if not is_browser_closed_error(self.page, error):
                 raise
             console.print("The browser or application tab was closed. Ending autofill.")
+        final_url = self.final_url()
+        self.capture_final_snapshot()
+        self.save_now()
         return {
-            "final_url": self.page.url,
+            "final_url": final_url,
             "answers": list(self.state.collected.values()),
             "submitted": submitted,
         }

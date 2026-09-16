@@ -1,0 +1,23 @@
+<!doctype html>
+<html><body><form>
+  <label for="name">Your Name<span>*</span></label><input id="name" required>
+  <label for="email">Your Email Address<span>*</span></label><input id="email" type="email" required>
+  <label for="phone">Your Phone Number<span>*</span></label><input id="phone" type="tel" required>
+  <fieldset><legend>Your authorization to work in the country where you live.<span>*</span></legend>
+    <label><input required type="radio" name="authorization" value="nationality">I am authorized to work in the country due to my nationality</label>
+    <label><input required type="radio" name="authorization" value="permit">I have a valid work permit and do not need sponsorship</label>
+    <label><input required type="radio" name="authorization" value="sponsor">I have a work permit and need company sponsorship</label>
+    <label><input required type="radio" name="authorization" value="none">I am not authorized and need visa support</label>
+  </fieldset>
+  <label for="expiry">If you are currently authorized to work on a visa or other work permit, when does that work authorization expire?</label>
+  <input id="expiry">
+  <fieldset><legend>What is your notice period to begin working with Exegy?<span>*</span></legend>
+    <label><input required type="radio" name="notice" value="now">Available Immediately</label>
+    <label><input required type="radio" name="notice" value="2-4">2 - 4 weeks</label>
+    <label><input required type="radio" name="notice" value="4-8">4 - 8 weeks</label>
+    <label><input required type="radio" name="notice" value="8+">8 weeks +</label>
+  </fieldset>
+  <label for="salary">What are your annual base salary expectations? Please include currency.<span>*</span></label>
+  <input id="salary" required>
+  <button type="submit">Submit Application</button>
+</form></body></html>

@@ -45,6 +45,8 @@ clicks the matching button, and verifies `aria-pressed` rather than the
 checkbox, plus `artifacts/career/Transcript.pdf` for a file control asking for a
 transcript, when that file exists. Profile facts and exact library answers fill deterministically,
 including selects, comboboxes, and radio groups matched by their question text.
+Labels beginning with `Your` reuse a profile alias only when the remainder is
+already known, so the three basic contact aliases work without broad fuzzy matching.
 For a How did you hear choice, the deterministic planner selects the first
 offered match in the user's standing order: Company Website, Job Board, then
 Other, even if an older exact answer says something else.
@@ -75,6 +77,16 @@ School is searched by typing the profile value, Start/End Month and Year remain
 distinct controls, and the education end date comes from the profile graduation
 date. Empty Month... and Year... select placeholders are never treated as
 answer options.
+
+Before exact-answer reuse, a metadata-aware standing-policy tier can inspect
+the control kind and visible options. Salary requirements use `$35/hour` (`35`
+numeric), annual requirements use `$72,800 USD` (`72800` numeric), and acceptance
+of a stated compensation range is always `Yes`. It distinguishes `Fall 2027`
+from `December 2027`, maps 4.5 completed co-op terms and a two-week notice into
+unique visible buckets, and selects a citizenship/nationality authorization
+basis. Visa/work-permit expiration stays empty without a factual date. These
+policies outrank obsolete exact answers; ordinary built-ins remain below profile
+and exact answers.
 
 Whatever is still unfilled after that goes through two more tiers, in order.
 Library rows with `reuse_policy = 'pattern'` are case-insensitive regular
@@ -141,7 +153,14 @@ through the resume's LaTeX preamble and header into a one-page
 `Alex_Example_Cover_Letter.pdf` and uploaded. The draft happens once per run;
 a re-rendered step reuses the edited text.
 
-The worker then polls the page. It snapshots every non-empty
+The worker then polls explicit `form`, `overview`, `submitted`, `loading`, and
+`unknown` states. Ashby's exact saved Overview URL is a standby state: one
+message is printed and returning to the saved Application URL resumes the same
+step without another fill or Claude pass. React rerenders and genuine next-step
+transitions receive a five-second stabilization window. Submission is checked
+before form controls because Ashby's success panel retains an invisible
+reCAPTCHA textarea; a bare Submit button or the words submit/submission are not
+success evidence. It snapshots every non-empty
 control by its question, echoes anything the user typed or chose as `picked up`,
 and reports when it sees a visible Submit control. Required-field completeness,
 Next, and Submit are left to the user in the browser. Answers are saved to the
@@ -151,7 +170,11 @@ Ctrl+D (or `d`) skips the listing — that marks its application `skipped`, whic
 the board hides and a resync leaves alone; `os hunt skipped restore <n>` archives
 the row so the listing comes back; a later save of
 the same question overwrites the earlier value. The terminal is put in cbreak
-mode with XOFF disabled for the run so Ctrl+S reaches the worker. Closing Chrome or the last usable application tab also
+mode with XOFF disabled for the run so Ctrl+S reaches the worker. For detected
+submission, Ctrl+A, Ctrl+D, and Ctrl+C, answers and lifecycle changes persist
+before only the application tab opened by this command closes. Chrome and
+unrelated tabs remain; dry runs and unexpected worker errors keep the tab for
+inspection. Closing Chrome or the last usable application tab also
 ends the run cleanly and preserves answers captured so far. Short answers reuse
 exactly next time; textarea answers are stored as contextual so the next draft
 can be tailored again. The worker never clicks submission, signature, or

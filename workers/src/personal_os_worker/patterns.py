@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 Resolver = Callable[["RuleContext"], str | None]
@@ -117,6 +118,13 @@ def _rule(name: str, pattern: str, resolve: Resolver) -> BuiltinRule:
 
 
 SANCTIONED = r"(north korea|syria|iran|cuba|russia|belarus|sanction|export control|embargo)"
+AUTHORIZATION_EXPIRY = re.compile(
+    r"\b(expir(?:e|es|ation)|valid (?:until|through)|end date)\b.*"
+    r"\b(visa|permit|work authori[sz]ation)\b|"
+    r"\b(visa|permit|work authori[sz]ation)\b.*"
+    r"\b(expir(?:e|es|ation)|valid (?:until|through)|end date)\b",
+    re.IGNORECASE | re.DOTALL,
+)
 
 BUILTIN_RULES: tuple[BuiltinRule, ...] = (
     _rule(
@@ -169,7 +177,8 @@ BUILTIN_RULES: tuple[BuiltinRule, ...] = (
     ),
     _rule(
         "authorized",
-        r"\b(authori[sz]ed|authori[sz]ation|eligible|legally (able|permitted)) to work\b",
+        r"^(?!.*\b(expir(?:e|es|ation)|valid (?:until|through)|end date)\b)"
+        r".*\b(authori[sz]ed|authori[sz]ation|eligible|legally (able|permitted)) to work\b",
         lambda c: _yes_if(
             str(c.profile.get("work_authorization_status") or "").casefold() == "yes"
         ),
@@ -200,14 +209,14 @@ BUILTIN_RULES: tuple[BuiltinRule, ...] = (
     ),
     _rule(
         "onsite_work",
-        r"\b(willing|able|available|agree)\b.*\b(work|report|come)\b.*"
-        r"\b(on[ -]?site|in[ -]?office)\b|"
-        r"\b(on[ -]?site|in[ -]?office)\b.*\b(days?|times?)\b.*\b(week|month)\b",
+        r"(?=.*\b(on[ -]?site|in[ -]?office|in[ -]?person|commut)\b)"
+        r"(?=.*\b(willing|able|available|agree|reliably|relocat)\b).+",
         lambda c: "Yes",
     ),
     _rule(
         "relocate",
-        r"\b(willing|able|open) to relocat",
+        r"^(?!.*\b(on[ -]?site|in[ -]?office|in[ -]?person|commut)\b)"
+        r".*\b(willing|able|open) to relocat",
         lambda c: _bool_answer(c.profile, "willing_to_relocate"),
     ),
     _rule(
@@ -305,4 +314,108 @@ def resolve_pattern_answer(
         company, resume_organizations(resume)
     ):
         return "No"
+    return None
+
+
+SALARY_WORDS = re.compile(r"\b(salary|pay|compensation|wage)\b", re.IGNORECASE)
+OTHER_CURRENCY = re.compile(
+    r"\b(eur|euro|gbp|pounds?|cad|canadian dollars?|aud|yen|jpy|inr)\b",
+    re.IGNORECASE,
+)
+
+
+def _profile_date(profile: dict[str, Any]) -> tuple[str, str, str] | None:
+    matched = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", str(profile.get("graduation_date") or ""))
+    if matched is None:
+        return None
+    year, month, day = matched.groups()
+    month_name = {
+        "01": "January",
+        "02": "February",
+        "03": "March",
+        "04": "April",
+        "05": "May",
+        "06": "June",
+        "07": "July",
+        "08": "August",
+        "09": "September",
+        "10": "October",
+        "11": "November",
+        "12": "December",
+    }.get(month)
+    return (year, month, day) if month_name is not None else None
+
+
+def resolve_priority_answer(field: dict[str, Any], *, profile: dict[str, Any]) -> str | None:
+    """Standing policies that require the field kind or its visible options."""
+    question = str(field.get("label") or field.get("group") or "").strip()
+    normalized = re.sub(r"\s+", " ", question).casefold()
+    field_type = str(field.get("type") or "").casefold()
+    options = [str(option) for option in field.get("options") or []]
+
+    if SALARY_WORDS.search(normalized) and not OTHER_CURRENCY.search(normalized):
+        if re.search(
+            r"\b(acceptable|comfortable|work for you|within your expectations)\b", normalized
+        ):
+            return "Yes"
+        try:
+            salary = Decimal(str(profile.get("minimum_salary")))
+        except (InvalidOperation, TypeError):
+            salary = Decimal("0")
+        if salary <= 0 or str(profile.get("minimum_salary_period") or "") != "hour":
+            return None
+        hourly = format(salary.normalize(), "f")
+        annual = salary * 2080
+        annual_number = format(annual.quantize(Decimal("1")), "f")
+        if re.search(r"\b(annual|annually|yearly|per year|base salary)\b", normalized):
+            return annual_number if field_type in {"number", "range"} else f"${int(annual):,} USD"
+        if re.search(
+            r"\b(requirement|requirements|expectation|expectations|desired|minimum)\b",
+            normalized,
+        ):
+            return hourly if field_type in {"number", "range"} else f"${hourly}/hour"
+
+    if "graduat" in normalized:
+        date_parts = _profile_date(profile)
+        if date_parts is None:
+            return None
+        year, month, day = date_parts
+        if field_type == "date":
+            return f"{year}-{month}-{day}"
+        if field_type == "month":
+            return f"{year}-{month}"
+        month_name = {"12": "December"}.get(month)
+        if re.search(r"\b(term|semester)\b", normalized):
+            term = str(profile.get("graduation_term") or "").strip()
+            return f"{term} {year}" if term else None
+        return f"{month_name} {year}" if month_name else None
+
+    if (
+        re.search(r"\bcompleted?\b", normalized)
+        and re.search(r"\bco[ -]?op\b", normalized)
+        and re.search(r"\b(term|block|rotation)s?\b", normalized)
+        and not re.search(r"\b(employer|company|internship|project)s?\b", normalized)
+    ):
+        value = profile.get("completed_coop_terms")
+        return str(value) if value is not None else None
+
+    if re.search(r"\bnotice period\b", normalized):
+        start = str(profile.get("earliest_start_text") or "").casefold()
+        matched = re.search(r"(\d+(?:\.\d+)?)\s*weeks?", start)
+        if matched is None and "two weeks" in start:
+            return "2"
+        return matched.group(1) if matched else None
+
+    if (
+        re.search(r"\bauthori[sz]ation to work\b", normalized)
+        and not AUTHORIZATION_EXPIRY.search(normalized)
+        and "citizen" in str(profile.get("visa_status") or "").casefold()
+    ):
+        hits = [
+            option
+            for option in options
+            if re.search(r"\b(nationality|citizen(?:ship)?)\b", option, re.IGNORECASE)
+            and not re.search(r"\b(not|no)\b", option, re.IGNORECASE)
+        ]
+        return hits[0] if len(hits) == 1 else None
     return None

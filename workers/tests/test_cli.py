@@ -25,9 +25,7 @@ def test_login_starts_the_automation_browser_with_cdp_first(
     calls: list[tuple[str, object]] = []
     session = Session("access", "refresh", 4_000_000_000)
     monkeypatch.setattr(cli, "load_cli_config", lambda: config)
-    monkeypatch.setattr(
-        services, "ensure_chrome", lambda url: calls.append(("chrome", url))
-    )
+    monkeypatch.setattr(services, "ensure_chrome", lambda url: calls.append(("chrome", url)))
     monkeypatch.setattr(
         services,
         "login",
@@ -406,9 +404,7 @@ def test_answer_reuse_choices_include_pattern() -> None:
             "pattern",
         ]
     )
-    edited = build_parser().parse_args(
-        ["hunt", "answers", "edit", "3", "--reuse", "pattern"]
-    )
+    edited = build_parser().parse_args(["hunt", "answers", "edit", "3", "--reuse", "pattern"])
     assert added.reuse == "pattern"
     assert edited.reuse == "pattern"
     with pytest.raises(SystemExit):
@@ -431,3 +427,74 @@ def test_pairing_is_gone() -> None:
         for name in action.choices
     }
     assert "pair" not in commands
+
+
+@pytest.mark.parametrize(
+    ("flags", "lifecycle", "expected"),
+    [
+        ({"submitted": True}, ("update", "applied"), "submitted"),
+        ({"skipped": True}, ("update", "skipped"), "skipped"),
+        ({"interrupted": True}, ("archive", None), "stopped"),
+    ],
+)
+def test_clean_terminal_outcome_persists_before_closing_one_page(
+    flags: dict[str, bool], lifecycle: tuple[str, str | None], expected: str
+) -> None:
+    from personal_os_worker.commands.hunt import finalize_application_outcome
+
+    calls: list[tuple[str, object]] = []
+
+    class Api:
+        def complete_autofill_run(self, *_: object, **__: object) -> None:
+            calls.append(("complete", None))
+
+        def update_application(self, *_: object, status: str) -> None:
+            calls.append(("update", status))
+
+        def archive_application(self, *_: object) -> None:
+            calls.append(("archive", None))
+
+    class Page:
+        def is_closed(self) -> bool:
+            return False
+
+        def close(self) -> None:
+            calls.append(("close", None))
+
+    result = finalize_application_outcome(
+        Api(),  # type: ignore[arg-type]
+        run={"company_name": "Acme", "application_id": "app-1"},
+        run_id="run-1",
+        outcome={"final_url": "https://example.test", "answers": [], **flags},
+        page=Page(),
+    )
+    assert result == expected
+    assert calls == [("complete", None), lifecycle, ("close", None)]
+
+
+def test_persistence_failure_still_closes_the_session_page() -> None:
+    from personal_os_worker.commands.hunt import finalize_application_outcome
+
+    calls: list[str] = []
+
+    class Api:
+        def complete_autofill_run(self, *_: object, **__: object) -> None:
+            calls.append("complete")
+            raise RuntimeError("persistence failed")
+
+    class Page:
+        def is_closed(self) -> bool:
+            return False
+
+        def close(self) -> None:
+            calls.append("close")
+
+    with pytest.raises(RuntimeError, match="persistence failed"):
+        finalize_application_outcome(
+            Api(),  # type: ignore[arg-type]
+            run={"company_name": "Acme", "application_id": "app-1"},
+            run_id="run-1",
+            outcome={"final_url": "https://example.test", "answers": []},
+            page=Page(),
+        )
+    assert calls == ["complete", "close"]

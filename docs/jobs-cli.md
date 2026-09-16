@@ -114,6 +114,18 @@ through library and built-in pattern rules, then one bounded local Claude pass
 per page step over the remaining short and choice questions; `--no-claude`
 skips that last pass.
 
+Ashby's Overview tab is a recognized standby state. Return to Application and
+the same step continues without refilling or another Claude pass. A submitted
+success panel ends automatically. On detected submission, Ctrl+A, Ctrl+D, or
+Ctrl+C, persistence finishes before the command closes only the application tab
+it opened. `--dry-run` and unexpected worker errors leave that tab open.
+
+Standing salary policy precedes saved exact answers: requirements are USD
+$35/hour (or 35 numeric), explicit annual requirements are $72,800 USD (or
+72800 numeric), and a stated compensation range is accepted. Graduation uses
+`Fall 2027` when a term is requested and `December 2027` otherwise; completed
+co-op terms are 4.5. Visa/work-permit expiration stays manual without a date.
+
 Failure diagnosis and fix drafting use subscription-authenticated local Claude.
 `apply-fix` requires the literal confirmation `apply`, changes only worker or
 worker-test paths, runs the replay suite, and never commits. Commit the reviewed

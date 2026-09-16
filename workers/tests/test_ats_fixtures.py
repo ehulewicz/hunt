@@ -15,7 +15,12 @@ from personal_os_worker.browser import (
     set_registered_value,
     snapshot_values,
 )
-from personal_os_worker.patterns import resolve_pattern_answer
+from personal_os_worker.page_state import (
+    ApplicationPageState,
+    capture_ashby_navigation,
+    classify_application_page,
+)
+from personal_os_worker.patterns import resolve_pattern_answer, resolve_priority_answer
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -72,6 +77,90 @@ def test_ashby_combobox_and_same_origin_iframe_are_inspected(browser_page) -> No
     fields = inspect_fields(browser_page)
     assert any(field.get("role") == "combobox" for field in fields)
     assert any(int(field.get("frame_index", 0)) > 0 for field in fields)
+
+
+def test_ashby_megazone_fixture_fills_standing_facts(browser_page) -> None:  # type: ignore[no-untyped-def]
+    browser_page.set_content((FIXTURES / "ashby_megazone.html").read_text())
+    fields = inspect_fields(browser_page)
+    profile = {
+        "minimum_salary": "35",
+        "minimum_salary_period": "hour",
+        "graduation_date": "2027-12-15",
+        "graduation_term": "Fall",
+        "completed_coop_terms": "4.5",
+        "willing_to_relocate": True,
+    }
+    plan = build_autofill_plan(
+        fields,
+        profile=profile,
+        approved_answers=[],
+        priority=lambda field: resolve_priority_answer(field, profile=profile),
+        fallback=lambda question: resolve_pattern_answer(
+            question, rules=[], profile=profile, resume={}, company="Megazone"
+        ),
+    )
+    result = apply_autofill(
+        browser_page, fields, plan, resume_path=None, assert_active=lambda: None
+    )
+    assert result["failures"] == []
+    assert browser_page.input_value("#salary") == "35"
+    assert browser_page.input_value("#graduation") == "Fall 2027"
+    assert browser_page.locator("input[name=coops]:checked").get_attribute("value") == "3+"
+    assert browser_page.locator('[data-option="yes"]').get_attribute("data-state") == "selected"
+
+
+def test_ashby_submitted_fixture_wins_over_recaptcha_textarea(browser_page) -> None:  # type: ignore[no-untyped-def]
+    browser_page.set_content((FIXTURES / "ashby_submitted.html").read_text())
+    assert (
+        classify_application_page(browser_page, inspect_fields(browser_page))
+        == ApplicationPageState.SUBMITTED
+    )
+
+
+def test_ashby_navigation_pair_and_plain_submit_form_are_not_submission(browser_page) -> None:  # type: ignore[no-untyped-def]
+    browser_page.set_content((FIXTURES / "ashby_megazone.html").read_text())
+    navigation = capture_ashby_navigation(browser_page)
+    assert navigation is not None
+    assert navigation.overview_url == "https://jobs.ashbyhq.com/megazone/role-1"
+    assert navigation.application_url.endswith("/megazone/role-1/application")
+    assert (
+        classify_application_page(browser_page, inspect_fields(browser_page), navigation)
+        == ApplicationPageState.FORM
+    )
+
+
+def test_ashby_exegy_fixture_fills_contact_authorization_notice_and_salary(browser_page) -> None:  # type: ignore[no-untyped-def]
+    browser_page.set_content((FIXTURES / "ashby_exegy.html").read_text())
+    fields = inspect_fields(browser_page)
+    profile = {
+        "legal_name": "Ethan Example",
+        "email": "e@example.com",
+        "phone": "555",
+        "visa_status": "Citizen",
+        "earliest_start_text": "Two weeks from offer acceptance.",
+        "minimum_salary": "35",
+        "minimum_salary_period": "hour",
+    }
+    plan = build_autofill_plan(
+        fields,
+        profile=profile,
+        approved_answers=[],
+        priority=lambda field: resolve_priority_answer(field, profile=profile),
+    )
+    result = apply_autofill(
+        browser_page, fields, plan, resume_path=None, assert_active=lambda: None
+    )
+    assert result["failures"] == []
+    assert browser_page.input_value("#name") == "Ethan Example"
+    assert browser_page.input_value("#email") == "e@example.com"
+    assert browser_page.input_value("#phone") == "555"
+    assert (
+        browser_page.locator('input[name="authorization"]:checked').get_attribute("value")
+        == "nationality"
+    )
+    assert browser_page.locator('input[name="notice"]:checked').get_attribute("value") == "2-4"
+    assert browser_page.input_value("#salary") == "$72,800 USD"
+    assert browser_page.input_value("#expiry") == ""
 
 
 def test_lever_captcha_keeps_radio_and_sensitive_checkbox_manual(browser_page) -> None:  # type: ignore[no-untyped-def]

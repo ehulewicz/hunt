@@ -70,7 +70,9 @@ class PostgresBootstrapStore:
                   school_name = coalesce(school_name, 'Example Institute of Technology'),
                   degree_type = coalesce(degree_type, 'B.S.'),
                   field_of_study = coalesce(field_of_study, 'Computer Science'),
-                  graduation_date = coalesce(graduation_date, date '2027-12-01'),
+                  graduation_date = coalesce(graduation_date, date '2027-12-15'),
+                  graduation_term = coalesce(graduation_term, 'Fall'),
+                  completed_coop_terms = coalesce(completed_coop_terms, 4.5),
                   gpa = coalesce(gpa, 3.78),
                   earliest_start_text = coalesce(
                     earliest_start_text, 'Two weeks from offer acceptance.'
@@ -91,7 +93,9 @@ class PostgresBootstrapStore:
                   target_career_stages = case
                     when cardinality(target_career_stages) = 0 then array['internship']::text[]
                     else target_career_stages
-                  end
+                  end,
+                  minimum_salary = coalesce(minimum_salary, 35),
+                  minimum_salary_period = coalesce(minimum_salary_period, 'hour')
                 where user_id = %s
                 """,
                 (user_id,),

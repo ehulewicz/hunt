@@ -21,6 +21,12 @@ and stores normalized location arrays for match-any filtering. Composite, partia
 and GIN indexes support newest-first discovery, unanswered
 questions, and location overlap.
 
+The profile stores graduation date separately from the explicit academic term,
+a decimal completed-co-op-term count, and salary amount separately from its
+`hour|year` period. Current bootstrap facts are December 15, 2027 / Fall, 4.5
+completed terms, and USD 35/hour; the worker chooses a form-specific rendering
+without copying those facts per application.
+
 The private `jobs-documents` Storage bucket accepts PDFs up to 5 MiB. The private
 `jobs-autofill-artifacts` bucket accepts PNG, HTML, text, and JSON evidence up to
 10 MiB. Only FastAPI

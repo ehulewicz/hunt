@@ -1,0 +1,44 @@
+<!doctype html>
+<html><body>
+  <nav role="tablist">
+    <a role="tab" href="https://jobs.ashbyhq.com/megazone/role-1">Overview</a>
+    <a role="tab" href="https://jobs.ashbyhq.com/megazone/role-1/application">Application</a>
+  </nav>
+  <form>
+    <div class="ashby-application-form-field-entry">
+      <label class="ashby-application-form-question-title _required_fixture">This role requires working onsite at our facility in Rochester, NY. Are you able to reliably commute or relocate to Rochester, NY, to perform the duties of this position onsite by your start date?<span>*</span></label>
+      <div class="ashby-application-form-input-yesno">
+        <button type="button" aria-pressed="false" data-option="yes">Yes</button><button type="button" aria-pressed="false" data-option="no">No</button>
+        <input type="checkbox" tabindex="-1">
+      </div>
+    </div>
+    <div class="ashby-application-form-field-entry">
+      <label for="salary">What are your salary requirements<span>*</span></label>
+      <input id="salary" type="number" required>
+    </div>
+    <div class="ashby-application-form-field-entry">
+      <label for="graduation">What is your expected graduation date (Term &amp; Year)?<span>*</span></label>
+      <input id="graduation" required>
+    </div>
+    <fieldset class="ashby-application-form-field-entry">
+      <legend>How many full-time, semester-long co-op rotations have you completed prior to this application? (Select one)<span>*</span></legend>
+      <label><input required type="radio" name="coops" value="0">0 Co-ops (First-time applicant)</label>
+      <label><input required type="radio" name="coops" value="1">1 Co-op (1 term / block completed)</label>
+      <label><input required type="radio" name="coops" value="2">2 Co-ops (2 terms / blocks completed)</label>
+      <label><input required type="radio" name="coops" value="3+">3 or more Co-ops (Extensive prior experience)</label>
+    </fieldset>
+    <button type="submit">Submit Application</button>
+  </form>
+  <script>
+    document.querySelectorAll('.ashby-application-form-input-yesno button').forEach(button =>
+      button.addEventListener('click', () => {
+        const shell = button.closest('.ashby-application-form-input-yesno');
+        shell.querySelectorAll('button').forEach(other => {
+          other.setAttribute('aria-pressed', 'false'); other.removeAttribute('data-state');
+        });
+        button.setAttribute('aria-pressed', 'true'); button.setAttribute('data-state', 'selected');
+        shell.querySelector('input').checked = button.dataset.option === 'yes';
+      })
+    );
+  </script>
+</body></html>

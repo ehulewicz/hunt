@@ -61,6 +61,8 @@ class JobsProfile(BaseModel):
     degree_type: str | None = None
     field_of_study: str | None = None
     graduation_date: date | None = None
+    graduation_term: Literal["Spring", "Summer", "Fall", "Winter"] | None = None
+    completed_coop_terms: Decimal | None = Field(default=None, ge=0)
     gpa: Decimal | None = Field(default=None, ge=0, le=5)
     earliest_start_date: date | None = None
     earliest_start_text: str | None = None
@@ -72,6 +74,7 @@ class JobsProfile(BaseModel):
     target_locations: list[str] = Field(default_factory=list)
     target_career_stages: list[CareerStage] = Field(default_factory=internship_default)
     minimum_salary: Decimal | None = Field(default=None, ge=0)
+    minimum_salary_period: Literal["hour", "year"] | None = None
     professional_summary: str | None = None
     eeo_gender_identity: str | None = None
     eeo_race_ethnicities: list[str] = Field(default_factory=list)
@@ -102,6 +105,8 @@ class JobsProfileUpdate(BaseModel):
     degree_type: str | None = Field(default=None, max_length=200)
     field_of_study: str | None = Field(default=None, max_length=200)
     graduation_date: date | None = None
+    graduation_term: Literal["Spring", "Summer", "Fall", "Winter"] | None = None
+    completed_coop_terms: Decimal | None = Field(default=None, ge=0)
     gpa: Decimal | None = Field(default=None, ge=0, le=5)
     earliest_start_date: date | None = None
     earliest_start_text: str | None = Field(default=None, max_length=300)
@@ -113,6 +118,7 @@ class JobsProfileUpdate(BaseModel):
     target_locations: list[str] | None = Field(default=None, max_length=50)
     target_career_stages: list[CareerStage] | None = None
     minimum_salary: Decimal | None = Field(default=None, ge=0)
+    minimum_salary_period: Literal["hour", "year"] | None = None
     professional_summary: str | None = Field(default=None, max_length=4000)
     eeo_gender_identity: str | None = Field(default=None, max_length=120)
     eeo_race_ethnicities: list[str] | None = Field(default=None, max_length=20)
