@@ -954,11 +954,14 @@ class AutofillSession:
                 if time.monotonic() - transition_since >= 5:
                     if page_state == ApplicationPageState.FORM:
                         return page_state
-                    self.report_page_failure(
-                        "unexpected_departure",
-                        "The active form was replaced by an unrecognized page",
+                    # The foreground tab is not the form: the user switched
+                    # tabs or the page is mid-navigation. Only the user ends a
+                    # session, so stand by until a form is in front again.
+                    self.warn_once(
+                        "form-standby",
+                        "The application form is not in the foreground; standing by "
+                        "until it is back.",
                     )
-                    return ApplicationPageState.UNKNOWN
                 self.sleep()
                 continue
             self.record_snapshot(current)
@@ -1023,16 +1026,6 @@ class AutofillSession:
                     console.print("The page reports the application was submitted.")
                     submitted = True
                     break
-                if transition == ApplicationPageState.UNKNOWN:
-                    console.print("The application form is no longer present. Ending cleanly.")
-                    final_url = self.final_url()
-                    self.capture_final_snapshot()
-                    self.save_now()
-                    return {
-                        "final_url": final_url,
-                        "answers": list(self.state.collected.values()),
-                        "interrupted": True,
-                    }
                 self.state.step += 1
         except BrowserClosedError:
             console.print("The browser or application tab was closed. Ending autofill.")

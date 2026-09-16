@@ -172,7 +172,11 @@ a re-rendered step reuses the edited text.
 The worker then polls explicit `form`, `overview`, `submitted`, `loading`, and
 `unknown` states. Ashby's exact saved Overview URL is a standby state: one
 message is printed and returning to the saved Application URL resumes the same
-step without another fill or Claude pass. React rerenders and genuine next-step
+step without another fill or Claude pass. Any other non-form page in the
+foreground, including an unrelated tab the user switched to, is the same kind of
+standby: one message, then the session waits until a form is in front again and
+resumes the same step. Only the user ends a session, by closing the application
+tab or with Ctrl+A, Ctrl+D, or Ctrl+C. React rerenders and genuine next-step
 transitions receive a five-second stabilization window. Submission is checked
 before form controls because Ashby's success panel retains an invisible
 reCAPTCHA textarea; a bare Submit button or the words submit/submission are not
