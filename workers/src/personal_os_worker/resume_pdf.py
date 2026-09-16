@@ -269,13 +269,13 @@ def education_degrees(education: dict[str, Any]) -> list[tuple[str, str]]:
         return []
     threads = str(education.get("threads", "")).strip()
     if threads:
-        degree = f"{degree} | Threads: {threads}"
+        degree = f"{degree}, Specializations in {threads}"
     gpa = str(education.get("gpa", "")).strip()
     scale = str(education.get("gpaScale", "")).strip()
     if gpa and scale:
         gpa = f"{gpa}/{scale}"
     if gpa:
-        degree = f"{degree} | GPA: {gpa}"
+        degree = f"{degree} — GPA: {gpa}"
     return [(degree, str(education.get("graduation", "")).strip())]
 
 
