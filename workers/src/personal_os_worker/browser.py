@@ -11,7 +11,9 @@ from playwright.sync_api import Browser, Error, Page, Playwright, sync_playwrigh
 from personal_os_worker.adapters import failure_signature, option_match
 from personal_os_worker.autofill import (
     FILE_KINDS,
+    AnswerFallback,
     AutofillPlan,
+    PriorityPolicy,
     affirmative_option,
     build_autofill_plan,
     choose_option,
@@ -246,8 +248,8 @@ def plan_autofill(
     *,
     profile: dict[str, Any],
     approved_answers: list[dict[str, Any]],
-    priority: Callable[[dict[str, Any]], str | None] | None = None,
-    fallback: Callable[[str], str | None] | None = None,
+    priority: PriorityPolicy | None = None,
+    fallback: AnswerFallback | None = None,
 ) -> tuple[list[dict[str, str | bool | None]], AutofillPlan]:
     """Work out what would be filled, without touching the page."""
     reveal_application_form(page)
@@ -273,7 +275,7 @@ def apply_autofill(
 ) -> dict[str, Any]:
     filled_labels: list[str] = []
     skipped: list[str] = []
-    applied: dict[int, str] = {}  # what a menu-driven choice actually picked
+    applied: dict[int, str] = {}  # values that passed readback, keyed by control
     unanswered = list(plan.unanswered_required_questions)
     failures: list[dict[str, Any]] = []
     documents = {"resume": resume_path, "transcript": transcript_path}
@@ -307,9 +309,9 @@ def apply_autofill(
                 if matched is None:
                     raise RuntimeError("no unambiguous select option")
                 control.select_option(label=matched, timeout=CONTROL_TIMEOUT_MS)
+                expected = matched
             elif field.get("role") == "combobox" and fill.chooser is not None:
                 expected = choose_combobox_option(page, control, fill.chooser, question=label)
-                applied[fill.index] = expected
             elif field.get("role") == "combobox" and fill.value is not None:
                 expected = select_combobox_option(page, control, fill.value)
             elif field.get("type") == "yesno" and fill.value is not None:
@@ -367,6 +369,11 @@ def apply_autofill(
             filename=document.name if is_upload and document is not None else None,
         ):
             filled_labels.append(label)
+            if expected is not None and not is_upload:
+                applied[fill.index] = (
+                    str(field.get("label") or field.get("value") or expected)
+                    if field.get("type") in {"radio", "checkbox"} else expected
+                )
         else:
             try:
                 observed = fresh_control(page, field).input_value(timeout=CONTROL_TIMEOUT_MS)

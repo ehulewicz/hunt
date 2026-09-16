@@ -25,7 +25,7 @@ from personal_os_worker.adapters import failure_signature
 from personal_os_worker.answers import answer_match, draft_contextual_answer
 from personal_os_worker.api import WorkerApi
 from personal_os_worker.autofill import (
-    FormFill,
+    AnswerResolution,
     is_cover_letter_field,
     is_resume_field,
     is_sensitive_field,
@@ -121,6 +121,7 @@ class SessionState:
     collected: dict[str, dict[str, Any]] = field(default_factory=dict)
     seeds: dict[str, tuple[str, str]] = field(default_factory=dict)  # question -> (text, source)
     planned: dict[str, str] = field(default_factory=dict)  # question -> planned value
+    resolutions: dict[str, AnswerResolution] = field(default_factory=dict)
     announced: dict[str, str] = field(default_factory=dict)  # question -> value shown
     observations: list[dict[str, Any]] = field(default_factory=list)
     persisted_observations: int = 0
@@ -185,19 +186,6 @@ def _question_for(field: dict[str, Any]) -> str:
         return str(field.get("group")).strip()
     return str(field.get("label") or "").strip()
 
-
-def _applied_value(field: dict[str, Any], fill: FormFill) -> str | None:
-    """What actually ends up on the page for a planned fill.
-
-    A radio/checkbox fill's `value` is the raw answer text used to pick the
-    option (e.g. "No"), not the option's own label (e.g. "No - never"); the
-    control that gets checked is always this field's own option.
-    """
-    if fill.value is None:
-        return None
-    if str(field.get("type") or "").casefold() in {"radio", "checkbox"}:
-        return str(field.get("label") or field.get("value") or fill.value)
-    return fill.value
 
 
 def _claude_questions(fields: list[dict[str, Any]]) -> list[ShortQuestion]:
@@ -417,7 +405,7 @@ class AutofillSession:
             return None
         return matched
 
-    def pattern_fallback(self, question: str) -> str | None:
+    def pattern_fallback(self, question: str) -> AnswerResolution | None:
         match = resolve_pattern_match(
             question,
             rules=self.ctx.answers,
@@ -429,16 +417,19 @@ class AutofillSession:
             self.state.tier_answers[question] = match.value
             self.state.tier_source[question] = "pattern"
             self.state.tier_resolver[question] = match.resolver_id
-        return match.value if match is not None else None
+        return AnswerResolution(match.value, "pattern", match.resolver_id) if match else None
 
-    def priority_policy(self, field: dict[str, Any]) -> str | None:
+    def priority_policy(self, field: dict[str, Any]) -> AnswerResolution | None:
         answer = resolve_priority_answer(field, profile=self.ctx.profile)
         question = str(field.get("label") or field.get("group") or "").strip()
         if answer is not None and question:
             self.state.tier_answers[question] = answer
             self.state.tier_source[question] = "pattern"
             self.state.tier_resolver[question] = "builtin:priority_policy_v1"
-        return answer
+        return (
+            AnswerResolution(answer, "pattern", "builtin:priority_policy_v1")
+            if answer is not None else None
+        )
 
     def fill_deterministic(self, fields: list[dict[str, Any]]) -> dict[str, Any]:
         fields[:], plan = plan_autofill(
@@ -475,11 +466,15 @@ class AutofillSession:
         )
         for fill in plan.fills:
             question = _question_for(fields[fill.index])
-            applied = _applied_value(fields[fill.index], fill)
-            if applied is None and fill.chooser is not None:
-                applied = result["applied"].get(fill.index)
+            applied = result["applied"].get(fill.index)
             if applied is not None and question:
                 self.state.planned[question] = applied
+                if fill.resolution is not None:
+                    field = fields[fill.index]
+                    key = f"{self.state.step}:{field.get('fingerprint') or ''}#{fill.index}"
+                    self.state.resolutions[key] = AnswerResolution(
+                        applied, fill.resolution.source, fill.resolution.resolver_id
+                    )
                 if fill.chooser is not None:
                     echo(fill.chooser, question, applied)
                 elif question in self.state.tier_answers:
@@ -604,18 +599,27 @@ class AutofillSession:
         if self.form_is_gone():
             return
         claude_fields, plan = plan_autofill(
-            self.page, profile={}, approved_answers=[], fallback=drafted.get
+            self.page, profile={}, approved_answers=[],
+            fallback=lambda question: (
+                AnswerResolution(drafted[question], "model", "model:short_answer_v1")
+                if question in drafted else None
+            )
         )
         claude_result = apply_autofill(
             self.page, claude_fields, plan, resume_path=None, assert_active=lambda: None
         )
         for fill in plan.fills:
             question = _question_for(claude_fields[fill.index])
-            applied = _applied_value(claude_fields[fill.index], fill)
+            applied = claude_result["applied"].get(fill.index)
             if applied is not None and question in drafted:
                 self.state.tier_answers[question] = applied
                 self.state.tier_source[question] = "model"
                 self.state.tier_resolver[question] = "model:short_answer_v1"
+                control = claude_fields[fill.index]
+                key = f"{self.state.step}:{control.get('fingerprint') or ''}#{fill.index}"
+                self.state.resolutions[key] = AnswerResolution(
+                    applied, "model", "model:short_answer_v1"
+                )
                 echo("claude", question, applied)
         result["failures"].extend(claude_result["failures"])
 
@@ -858,6 +862,11 @@ class AutofillSession:
                 resolver_id = previous.get("resolver_id") if previous else None
                 if previous:
                     proposed_value = previous.get("proposed_value")
+            resolution = self.state.resolutions.get(control_key)
+            if resolution is not None:
+                source = resolution.source if value == resolution.value else "manual"
+                resolver_id = resolution.resolver_id
+                proposed_value = resolution.value
             self.state.collected[control_key] = {
                 "question": question,
                 "answer_text": value,

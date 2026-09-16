@@ -88,6 +88,17 @@ basis. Visa/work-permit expiration stays empty without a factual date. These
 policies outrank obsolete exact answers; ordinary built-ins remain below profile
 and exact answers.
 
+`AnswerResolver.resolve(field)` is the common value-and-provenance interface
+used by the planner. It returns `AnswerResolution(value, source, resolver_id)`
+for source choices, profile facts, priority policies, exact library answers,
+and dynamic fallback. The exact index is built once per plan; dynamic policies
+still evaluate current profile, resume, company, and control options. The
+result travels on `FormFill` through browser readback. Verified deterministic
+and short-model fills retain provenance by step and control fingerprint, so
+repeated labels do not overwrite each other's resolver. Legacy string callbacks
+remain supported; production pattern and short-model callbacks return typed
+results. Long-form seeding still uses its existing exact/draft path.
+
 Whatever is still unfilled after that goes through two more tiers, in order.
 Library rows with `reuse_policy = 'pattern'` are case-insensitive regular
 expressions matched against the question, holding standing policy answers
@@ -198,7 +209,10 @@ Application-question history has one observed row per changed control value,
 identified by run and event index, plus final rows at run completion. Each row
 records its step, page, control fingerprint, source, proposed value, and stable
 resolver ID where one exists. Clearing a previously filled control is recorded
-as an empty observation and removes it from the final values. Model and pattern
+as an empty observation and removes it from the final values. A failed read
+preserves the last known value. Manual edits retain the resolver and its mapped
+proposal. These are last-observed values; the polling loop cannot guarantee it
+sees a last-moment edit before submission. Model and pattern
 answers in this history are not approved for future reuse.
 
 ## Host prerequisites

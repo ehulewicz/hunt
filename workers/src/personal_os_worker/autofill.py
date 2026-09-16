@@ -8,7 +8,17 @@ from typing import Any
 from personal_os_worker.adapters import is_non_answer_option, option_match
 
 FILE_KINDS = frozenset({"resume", "transcript"})
-PriorityPolicy = Callable[[dict[str, Any]], str | None]
+
+
+@dataclass(frozen=True, slots=True)
+class AnswerResolution:
+    value: str
+    source: str
+    resolver_id: str
+
+
+PriorityPolicy = Callable[[dict[str, Any]], str | AnswerResolution | None]
+AnswerFallback = Callable[[str], str | AnswerResolution | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,6 +29,7 @@ class FormFill:
     # A choice made against the live menu rather than planned up front: "source"
     # (how did you hear) or "consent" (terms, privacy, attestations).
     chooser: str | None = None
+    resolution: AnswerResolution | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,40 +253,93 @@ def affirmative_option(options: list[str]) -> str | None:
     return candidates[0] if len(candidates) == 1 and not agreeing else None
 
 
+class AnswerResolver:
+    """Resolve current facts and approved knowledge through one provenance contract.
+
+    Only the exact-answer index is cached. Dynamic policies run against current
+    field metadata and profile facts on every resolution.
+    """
+
+    def __init__(
+        self, *, profile: dict[str, Any], approved_answers: list[dict[str, Any]],
+        priority: PriorityPolicy | None = None, fallback: AnswerFallback | None = None,
+    ) -> None:
+        self.profile = profile
+        self.priority = priority
+        self.fallback = fallback
+        candidates: dict[str, list[AnswerResolution]] = {}
+        for item in approved_answers:
+            if str(item.get("reuse_policy") or "exact") != "exact":
+                continue
+            question = normalize_answer_question(str(
+                item.get("normalized_key") or item.get("normalized_question")
+                or item.get("question") or ""
+            ))
+            value = str(item.get("answer_text") or "").strip()
+            if question and value:
+                candidates.setdefault(question, []).append(AnswerResolution(
+                    value, "answer_library", f"library:{item.get('id') or question}"
+                ))
+        self.exact = {key: values[0] for key, values in candidates.items() if len(values) == 1}
+
+    @staticmethod
+    def _result(
+        value: str | AnswerResolution | None, source: str, resolver_id: str,
+    ) -> AnswerResolution | None:
+        if isinstance(value, AnswerResolution):
+            return value
+        return AnswerResolution(value, source, resolver_id) if value is not None else None
+
+    def resolve(self, field: dict[str, Any]) -> AnswerResolution | None:
+        question = str(field.get("label") or "").strip()
+        options = [str(option) for option in field.get("options") or []]
+        value = preferred_source_option(question, options)
+        result = self._result(value, "pattern", "builtin:application_source")
+        profile_key = profile_label_key(question)
+        if field.get("section") == "education":
+            profile_key = {
+                "end date month": "graduation_month", "end date year": "graduation_year"
+            }.get(
+                normalize_question(question), profile_key
+            )
+        profile_value = resolve_profile_value(self.profile, profile_key)
+        if result is None and profile_value is not None:
+            value = ("Yes" if profile_value else "No") if isinstance(profile_value, bool) else str(
+                profile_value
+            ).strip()
+            if value:
+                result = AnswerResolution(value, "jobs_profile", f"profile:{profile_key}")
+        if result is None and self.priority is not None and question:
+            result = self._result(self.priority(field), "pattern", "builtin:priority_policy_v1")
+        expiration = AUTHORIZATION_EXPIRY.search(question) is not None
+        if result is None and profile_key is None:
+            exact = self.exact.get(normalize_answer_question(question))
+            if exact is not None and (not expiration or FACTUAL_DATE.search(exact.value)):
+                result = exact
+            elif not expiration and self.fallback is not None and question:
+                result = self._result(self.fallback(question), "pattern", "builtin:fallback")
+        if result is not None and is_non_answer_option(result.value):
+            return None
+        return result
+
+
 def build_autofill_plan(
     fields: list[dict[str, Any]],
     *,
     profile: dict[str, Any],
     approved_answers: list[dict[str, Any]],
     priority: PriorityPolicy | None = None,
-    fallback: Callable[[str], str | None] | None = None,
+    fallback: AnswerFallback | None = None,
 ) -> AutofillPlan:
-    """Plan fills from profile facts, then exact answers, then `fallback(question)`.
+    """Plan fills using the common resolver and the live control's choice mapping.
 
     The fallback is how the pattern and Claude tiers plug in without the planner
     knowing about them. Choice groups pick the single option that equals, starts
     with, is a prefix of, or contains every word of the answer.
     """
-    answer_candidates: dict[str, list[str]] = {}
-    for item in approved_answers:
-        if str(item.get("reuse_policy") or "exact") != "exact":
-            continue
-        question = normalize_answer_question(
-            str(
-                item.get("normalized_key")
-                or item.get("normalized_question")
-                or item.get("question")
-                or ""
-            )
-        )
-        answer = str(item.get("answer_text", "")).strip()
-        if question and answer:
-            answer_candidates.setdefault(question, []).append(answer)
-    answers = {
-        question: candidates[0]
-        for question, candidates in answer_candidates.items()
-        if len(candidates) == 1
-    }
+    resolver = AnswerResolver(
+        profile=profile, approved_answers=approved_answers, priority=priority, fallback=fallback
+    )
     fills: list[FormFill] = []
     unanswered: list[str] = []
     answered_groups: set[str] = set()
@@ -310,7 +374,6 @@ def build_autofill_plan(
         group = str(field.get("group") or "").strip()
         question_label = group if field_type in {"radio", "checkbox"} and group else label
         normalized = normalize_question(question_label)
-        answer_question = normalize_answer_question(question_label)
         tag = str(field.get("tag") or "").casefold()
         sensitive = is_sensitive_field(field)
         required = field.get("required") is True
@@ -325,6 +388,7 @@ def build_autofill_plan(
 
         value: str | None = None
         chooser: str | None = None
+        resolution: AnswerResolution | None = None
         kind = "text"
         if sensitive:
             if is_consent_field(field) and field_type != "file":
@@ -352,50 +416,12 @@ def build_autofill_plan(
                 if field_type in {"radio", "checkbox"}
                 else [str(option) for option in field.get("options") or []]
             )
-            value = preferred_source_option(question_label, options)
+            resolution = resolver.resolve(
+                dict(field) | {"label": question_label, "options": options}
+            )
+            value = resolution.value if resolution is not None else None
             if value is None and not options and HOW_HEARD.search(question_label):
-                # A typeahead shows its choices only once opened; rank them then.
                 chooser = "source" if field.get("role") == "combobox" else None
-            profile_key = profile_label_key(question_label)
-            if str(field.get("section") or "") == "education":
-                profile_key = {
-                    "end date month": "graduation_month",
-                    "end date year": "graduation_year",
-                }.get(normalized, profile_key)
-            profile_value = resolve_profile_value(profile, profile_key)
-            exact_value = answers.get(answer_question) if profile_key is None else None
-            expiration_question = AUTHORIZATION_EXPIRY.search(question_label) is not None
-            if value is None:
-                if isinstance(profile_value, bool):
-                    value = "Yes" if profile_value else "No"
-                elif profile_value is not None and str(profile_value).strip():
-                    value = str(profile_value).strip()
-            if value is None and priority is not None and question_label:
-                value = priority(
-                    dict(field)
-                    | {
-                        "label": question_label,
-                        "options": options,
-                    }
-                )
-            if value is None:
-                if exact_value is not None and (
-                    not expiration_question or FACTUAL_DATE.search(exact_value)
-                ):
-                    value = exact_value
-                    chooser = None
-                elif (
-                    profile_key is None
-                    and not expiration_question
-                    and fallback is not None
-                    and question_label
-                ):
-                    value = fallback(question_label)
-
-            # Withholding information is never an autofill default. If an old
-            # answer or a model suggests it, leave the control for the user.
-            if value is not None and is_non_answer_option(value):
-                value = None
 
             if field_type in {"radio", "checkbox"} and value is not None:
                 own = str(field.get("label") or field.get("value") or "")
@@ -410,7 +436,9 @@ def build_autofill_plan(
                         value = None
 
         if kind in FILE_KINDS or value is not None or chooser is not None:
-            fills.append(FormFill(index=index, kind=kind, value=value, chooser=chooser))
+            fills.append(FormFill(
+                index=index, kind=kind, value=value, chooser=chooser, resolution=resolution
+            ))
             if field_type in {"radio", "checkbox"} and group:
                 answered_groups.add(normalized)
         elif required and label:
