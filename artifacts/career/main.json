@@ -116,12 +116,12 @@
       "items": "Claude Code, Codex, Gemini, GitHub Copilot, Claude Agent SDK, Multi-Agent Systems"
     },
     {
-      "category": "Frameworks & Libraries",
-      "items": "FastAPI, PyTorch, Scikit-Learn, NumPy, Selenium, Playwright"
-    },
-    {
       "category": "Tools & Infrastructure",
       "items": "Git, Linux, Docker, PostgreSQL, Redis, Google Cloud, Azure, Modal, Oracle Cloud"
+    },
+    {
+      "category": "Frameworks & Libraries",
+      "items": "FastAPI, PyTorch, Scikit-Learn, NumPy, Selenium, Playwright"
     }
   ]
 }
