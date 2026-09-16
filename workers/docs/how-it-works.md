@@ -116,7 +116,11 @@ run concurrently, each alongside the posting, the canonical resume, the
 profile, and the full approved library (patterns included). Only `high`
 confidence rows are kept, a choice answer must be one of the visible options
 verbatim, and a free-text answer must pass the same fabrication guard used
-for textarea drafts. Kept answers fill the same way as the other tiers and
+for textarea drafts — which also rejects a draft carrying leaked tool-call
+markup (`</answer>`, `</invoke>`, and the like), something `claude -p
+--json-schema` occasionally leaves inside the schema's own string field
+(`TAG_LEAK` in `answers.py`; `draft_slots` in `cover_letter.py` checks its
+slots the same way). Kept answers fill the same way as the other tiers and
 are echoed as `claude: <question> -> <value>`. `os hunt apply --no-claude`
 skips this pass entirely.
 
@@ -160,9 +164,16 @@ step without another fill or Claude pass. React rerenders and genuine next-step
 transitions receive a five-second stabilization window. Submission is checked
 before form controls because Ashby's success panel retains an invisible
 reCAPTCHA textarea; a bare Submit button or the words submit/submission are not
-success evidence. It snapshots every non-empty
+success evidence. It polls once a second and snapshots every non-empty
 control by its question, echoes anything the user typed or chose as `picked up`,
-and reports when it sees a visible Submit control. Required-field completeness,
+and reports when it sees a visible Submit control. It only reads: a `picked up`
+line is the value the control held at that tick, so a field edited by hand
+echoes once per intermediate value the poll happens to catch. A step ends when
+the page's signature — its URL plus every control's fingerprint of tag, type,
+name, label, and role — changes, which is why a label must carry the question
+alone: Lever nests a structured question's whole field inside its label, so
+reading that label wholesale would fold the typeahead's live suggestions into
+the fingerprint and start a new step on every keystroke. Required-field completeness,
 Next, and Submit are left to the user in the browser. Answers are saved to the
 library as approved when the page moves on after Submit, when the user presses
 Ctrl+S (or `s`) in the terminal, or when Ctrl+C stops the run, and also when

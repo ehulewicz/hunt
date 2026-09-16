@@ -68,6 +68,9 @@ def capture_ashby_navigation(page: Page) -> AshbyNavigation | None:
 
 def _submitted(page: Page) -> bool:
     try:
+        # Ashby supplies a dedicated success container even when its copy varies.
+        if page.locator(".ashby-application-form-success-container").count() > 0:
+            return True
         success = page.locator(
             ".ashby-application-form-success-container, [role='status'], [role='alert']"
         )

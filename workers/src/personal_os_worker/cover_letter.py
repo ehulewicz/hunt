@@ -19,6 +19,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from personal_os_worker.answers import TAG_LEAK
 from personal_os_worker.resume import repository_root
 from personal_os_worker.resume_pdf import PREAMBLE, build_header, compile_pdf, escape
 
@@ -200,6 +201,8 @@ def draft_slots(
     ):
         slots = replace(slots, secondary_module=None)
     if not all(getattr(slots, name).strip() for name in CLAUDE_SLOTS):
+        return None
+    if any(TAG_LEAK.search(getattr(slots, name)) for name in CLAUDE_SLOTS):
         return None
     return slots
 

@@ -11,6 +11,10 @@ from personal_os_worker.autofill import normalize_answer_question
 
 ZERO_WIDTH = re.compile("[\u200b-\u200f\u2060\ufeff]")
 CLICHES = ("delve", "tapestry", "game changer", "at the intersection of")
+# `claude -p --json-schema` occasionally leaks its own tool-call framing into the
+# schema's string field instead of only the drafted prose; never let that markup
+# reach a real form.
+TAG_LEAK = re.compile(r"</?[a-zA-Z_][\w:.-]*\s*/?>")
 
 
 def clean_answer_text(value: str) -> str:
@@ -30,6 +34,8 @@ def clean_answer_text(value: str) -> str:
 def valid_generated_answer(candidate: str, *, base: str | None, fact_text: str) -> bool:
     normalized = clean_answer_text(candidate)
     if not normalized or any(cliche in normalized.casefold() for cliche in CLICHES):
+        return False
+    if TAG_LEAK.search(normalized):
         return False
     candidate_numbers = set(re.findall(r"\b\d+(?:[.,]\d+)?%?\b", normalized))
     fact_numbers = set(re.findall(r"\b\d+(?:[.,]\d+)?%?\b", fact_text))
