@@ -266,6 +266,12 @@ def resume_organizations(resume: dict[str, Any]) -> frozenset[str]:
             org = str(entry.get("org") or "").strip().casefold()
             if org:
                 names.add(org)
+            # Research headings put the lab in the title and spell out its
+            # acronym as the org, so the lab name has to come from the title.
+            if section == "research":
+                lab = str(entry.get("title") or "").strip().casefold()
+                if lab:
+                    names.add(lab)
     return frozenset(names)
 
 

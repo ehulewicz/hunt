@@ -63,8 +63,8 @@
   ],
   "research": [
     {
-      "title": "Undergraduate Researcher",
-      "org": "Sample Lab @ Example University Europe",
+      "title": "Sample Lab @ Example University Europe",
+      "org": "Data-driven Robotics for Environment Assessment and Monitoring",
       "location": "Metz, France",
       "date": "August 2024 – December 2024",
       "bullets": [
@@ -74,8 +74,8 @@
       ]
     },
     {
-      "title": "Undergraduate Researcher",
-      "org": "Example Lab @ Example University",
+      "title": "Example Lab @ Example University",
+      "org": "Example Nuclear Group",
       "location": "Atlanta, GA",
       "date": "April 2024 – August 2024",
       "bullets": [
