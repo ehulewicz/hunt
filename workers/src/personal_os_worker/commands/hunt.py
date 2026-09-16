@@ -45,31 +45,30 @@ def finalize_application_outcome(
 
     saved = list(outcome["answers"])
     company = str(run["company_name"])
+    api.complete_autofill_run(
+        run_id,
+        final_url=str(outcome.get("final_url") or ""),
+        answers=saved,
+        submitted=bool(outcome.get("submitted")),
+    )
+    if outcome.get("submitted"):
+        api.update_application(str(run["application_id"]), status="applied")
+        result = "submitted"
+    elif outcome.get("skipped"):
+        api.update_application(str(run["application_id"]), status="skipped")
+        result = "skipped"
+    else:
+        api.archive_application(str(run["application_id"]))
+        result = "stopped"
     try:
-        api.complete_autofill_run(
-            run_id,
-            final_url=str(outcome.get("final_url") or ""),
-            answers=saved,
-        )
-        if outcome.get("submitted"):
-            api.update_application(str(run["application_id"]), status="applied")
-            result = "submitted"
-        elif outcome.get("skipped"):
-            api.update_application(str(run["application_id"]), status="skipped")
-            result = "skipped"
-        else:
-            api.archive_application(str(run["application_id"]))
-            result = "stopped"
-    finally:
-        try:
-            if not page.is_closed():
-                page.close()
-        except Error:
-            # An already-disconnected Page has no cleanup work left to do.
-            pass
+        if not page.is_closed():
+            page.close()
+    except Error:
+        # An already-disconnected Page has no cleanup work left to do.
+        pass
 
     verb = "Stopped" if outcome.get("interrupted") else "Done"
-    console.print(f"{verb}. Saved {len(saved)} answer(s) to the library for reuse.")
+    console.print(f"{verb}. Recorded {len(saved)} answer(s) for this application.")
     if result == "submitted":
         console.print(f"Marked {company} as applied.")
     elif result == "skipped":

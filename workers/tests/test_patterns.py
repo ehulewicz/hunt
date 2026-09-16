@@ -1,5 +1,6 @@
 from personal_os_worker.patterns import (
     resolve_pattern_answer,
+    resolve_pattern_match,
     resolve_priority_answer,
     resume_organizations,
 )
@@ -43,6 +44,22 @@ def ask(
 
 def test_single_library_pattern_answers_case_insensitively() -> None:
     assert ask("I authorize RV Tech to CONSIDER ME FOR OTHER job opportunities.") == "Yes"
+
+
+def test_pattern_match_identifies_approved_rule_or_dynamic_resolver() -> None:
+    library = [dict(RULES[0], id="rule-123")]
+    chosen = resolve_pattern_match(
+        "Consider me for other job opportunities",
+        rules=library, profile=PROFILE, resume=RESUME, company="Acme",
+    )
+    assert chosen is not None
+    assert (chosen.value, chosen.resolver_id) == ("Yes", "library:rule-123")
+
+    dynamic = resolve_pattern_match(
+        "Preferred first name", rules=[], profile=PROFILE, resume=RESUME, company="Acme"
+    )
+    assert dynamic is not None
+    assert (dynamic.value, dynamic.resolver_id) == ("Ethan", "builtin:preferred_name")
 
 
 def test_two_library_patterns_are_ambiguous_and_answer_nothing() -> None:

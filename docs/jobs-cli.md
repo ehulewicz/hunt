@@ -105,11 +105,11 @@ controls take their agreeing option. Each step ends with a **Left for you**
 list of the required controls still empty. A cover-letter control opens the
 letter (from `artifacts/career/cover_letter.md`, slots drafted by Claude) in VS
 Code; close the tab to fill or upload it. In the
-terminal, Ctrl+S saves what has been picked up so
-far, Ctrl+A saves and marks the application applied when you have submitted
+terminal, Ctrl+S records what has been picked up so
+far for review, Ctrl+A records answers and marks the application applied when you have submitted
 it yourself, Ctrl+D skips the listing (it leaves the board as `skipped`, a
 resync cannot bring it back, and `os hunt skipped restore <n>` can), and
-Ctrl+C stops and saves. Whatever profile facts and exact answers leave unfilled goes
+Ctrl+C stops and records the application state. Whatever profile facts and exact answers leave unfilled goes
 through library and built-in pattern rules, then one bounded local Claude pass
 per page step over the remaining short and choice questions; `--no-claude`
 skips that last pass.

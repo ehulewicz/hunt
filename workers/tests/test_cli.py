@@ -472,7 +472,7 @@ def test_clean_terminal_outcome_persists_before_closing_one_page(
     assert calls == [("complete", None), lifecycle, ("close", None)]
 
 
-def test_persistence_failure_still_closes_the_session_page() -> None:
+def test_persistence_failure_keeps_the_session_page_for_recovery() -> None:
     from personal_os_worker.commands.hunt import finalize_application_outcome
 
     calls: list[str] = []
@@ -497,4 +497,4 @@ def test_persistence_failure_still_closes_the_session_page() -> None:
             outcome={"final_url": "https://example.test", "answers": []},
             page=Page(),
         )
-    assert calls == ["complete", "close"]
+    assert calls == ["complete"]

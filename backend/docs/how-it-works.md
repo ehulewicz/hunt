@@ -50,7 +50,9 @@ discovery URL.
 The signed-in CLI creates an autofill run from a posting ID. FastAPI upserts the
 application and returns only that user's direct URL, posting context, profile,
 approved answer bases, scoped variants, and duplicate-company warnings. Step
-results and approved final answers return through authenticated endpoints.
+results, changed-answer observations, and final application values return
+through authenticated endpoints. The observations and final values are stored
+as application history; only explicit answer-library commands approve reuse.
 
 Failure signatures deduplicate issues while occurrence rows preserve run/step
 evidence. FastAPI alone writes sanitized artifacts to the private autofill

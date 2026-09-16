@@ -152,7 +152,7 @@ to use. Under `--no-claude`, or when the answer is unusable, the slots stay as
 bracketed prompts. The rendered letter is written to
 `state_dir()/cover-letters/<run>/cover_letter.md` and opened with `code --wait`;
 closing the tab is the signal. Whatever the file then holds fills the textarea
-(saved to the library as `contextual`) and, for a file input, is compiled
+(recorded for this application without automatic reuse approval) and, for a file input, is compiled
 through the resume's LaTeX preamble and header into a one-page
 `Alex_Example_Cover_Letter.pdf` and uploaded. The draft happens once per run;
 a re-rendered step reuses the edited text.
@@ -165,7 +165,7 @@ transitions receive a five-second stabilization window. Submission is checked
 before form controls because Ashby's success panel retains an invisible
 reCAPTCHA textarea; a bare Submit button or the words submit/submission are not
 success evidence. It polls once a second and snapshots every non-empty
-control by its question, echoes anything the user typed or chose as `picked up`,
+control with its question and fingerprint, echoes anything the user typed or chose as `picked up`,
 and reports when it sees a visible Submit control. It only reads: a `picked up`
 line is the value the control held at that tick, so a field edited by hand
 echoes once per intermediate value the poll happens to catch. A step ends when
@@ -174,25 +174,32 @@ name, label, and role — changes, which is why a label must carry the question
 alone: Lever nests a structured question's whole field inside its label, so
 reading that label wholesale would fold the typeahead's live suggestions into
 the fingerprint and start a new step on every keystroke. Required-field completeness,
-Next, and Submit are left to the user in the browser. Answers are saved to the
-library as approved when the page moves on after Submit, when the user presses
-Ctrl+S (or `s`) in the terminal, or when Ctrl+C stops the run, and also when
-Ctrl+D (or `d`) skips the listing — that marks its application `skipped`, which
+Next, and Submit are left to the user in the browser. Answer observations are
+recorded for the application when the page moves on after Submit, when the user
+presses Ctrl+S (or `s`) in the terminal, or when Ctrl+C stops the run. No run
+action approves a reusable library answer. Ctrl+D (or `d`) skips the listing — that marks its application `skipped`, which
 the board hides and a resync leaves alone; `os hunt skipped restore <n>` archives
-the row so the listing comes back; a later save of
-the same question overwrites the earlier value. The terminal is put in cbreak
+the row so the listing comes back. Repeated questions and changed values stay
+distinct in the observation log. The terminal is put in cbreak
 mode with XOFF disabled for the run so Ctrl+S reaches the worker. For detected
 submission, Ctrl+A, Ctrl+D, and Ctrl+C, answers and lifecycle changes persist
 before only the application tab opened by this command closes. Chrome and
 unrelated tabs remain; dry runs and unexpected worker errors keep the tab for
 inspection. Closing Chrome or the last usable application tab also
-ends the run cleanly and preserves answers captured so far. Short answers reuse
-exactly next time; textarea answers are stored as contextual so the next draft
-can be tailored again. The worker never clicks submission, signature, or
+ends the run cleanly and preserves answers captured so far. Approved library
+answers can reuse exactly next time; generated text remains application-specific
+until approved. The worker never clicks submission, signature, or
 captcha controls; consent and attestation are filled deterministically and are
 never put to Claude or drafted. After all tiers run, every required control still
-empty is listed under **Left for you**. Failure fixes still require explicit worktree mutation, replay tests, a
-user-created commit, and headed live confirmation.
+empty is listed under **Left for you**. Failure fixes need a replay test and
+headed live confirmation.
+
+Application-question history has one observed row per changed control value,
+identified by run and event index, plus final rows at run completion. Each row
+records its step, page, control fingerprint, source, proposed value, and stable
+resolver ID where one exists. Clearing a previously filled control is recorded
+as an empty observation and removes it from the final values. Model and pattern
+answers in this history are not approved for future reuse.
 
 ## Host prerequisites
 

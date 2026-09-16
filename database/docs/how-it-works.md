@@ -11,8 +11,11 @@ API derives the UUID from a verified JWT and never accepts it in a body.
 The Jobs tables hold structured profile facts, source listings, recoverably
 archived applications with a lifecycle status (`queued`, `applied`, `oa`,
 `oa_completed`, `interview`, `offer`, `rejected`, `archived`), immutable
-versioned documents, long-form answers, synchronous autofill runs, deduplicated
-failure issues, and failure occurrences. The worker task queue and tailoring
+versioned documents, approved long-form answers, application-question event
+history, synchronous autofill runs, deduplicated failure issues, and failure
+occurrences. An observed history row is identified by run and event index;
+final rows retain the submitted or drafted value with step and control context.
+Autofill never approves answer-library rows. The worker task queue and tailoring
 audit tables were dropped when the task worker was retired. `jobs_worker_credentials` stores
 only SHA-256 token hashes plus scope,
 expiry, use, and revocation timestamps. Listing source metadata keeps discovery and

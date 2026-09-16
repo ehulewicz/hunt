@@ -973,6 +973,11 @@ class PostgresJobsStore:
                        company.name as company_name, posting.title,
                        question.updated_at
                 from app.jobs_application_questions question
+                join app.jobs_answer_library library
+                  on library.id = question.answer_library_id
+                 and library.user_id = question.user_id
+                 and library.approved
+                 and library.answer_text = question.answer_text
                 join app.jobs_applications application on application.id = question.application_id
                 join app.jobs_postings posting on posting.id = application.posting_id
                 join app.jobs_companies company on company.id = posting.company_id
@@ -1025,7 +1030,7 @@ class PostgresJobsStore:
                     skipped_count = skipped_count + %s,
                     failure_count = failure_count + %s
                 where id = %s and user_id = %s and status = 'running'
-                returning ats, adapter_version
+                returning application_id, ats, adapter_version
                 """,
                 (
                     item.step_number,
@@ -1098,6 +1103,40 @@ class PostgresJobsStore:
                     ),
                 )
                 issues.append(AutofillFailureIssue.model_validate(issue))
+            for observation in item.observations:
+                source = observation.source if observation.source in ANSWER_SOURCES else "manual"
+                # A retried step re-sends the same events; the (run_id, event_index)
+                # key makes the replay a no-op instead of duplicate history.
+                await connection.execute(
+                    """
+                    insert into app.jobs_application_questions (
+                      user_id, application_id, question_text, normalized_key,
+                      answer_text, answer_source, answer_library_id, status,
+                      run_id, step_number, page_url, control_kind, field_fingerprint,
+                      resolver_id, proposed_value, event_index, event_kind
+                    ) values (
+                      %s, %s, %s, %s, %s, %s, null, 'drafted',
+                      %s, %s, %s, %s, %s, %s, %s, %s, 'observed'
+                    )
+                    on conflict (run_id, event_index) do nothing
+                    """,
+                    (
+                        user_id,
+                        run["application_id"],
+                        observation.question,
+                        normalize_answer_key(observation.question),
+                        observation.answer_text,
+                        source,
+                        run_id,
+                        observation.step_number,
+                        observation.page_url,
+                        observation.control_kind,
+                        observation.field_fingerprint,
+                        observation.resolver_id,
+                        observation.proposed_value,
+                        observation.event_index,
+                    ),
+                )
         return issues
 
     async def complete_autofill_run(
@@ -1127,38 +1166,17 @@ class PostgresJobsStore:
                     continue
                 normalized_key = normalize_answer_key(question)
                 source = str(answer.get("source") or "manual")
-                reuse_policy = str(answer.get("reuse_policy") or "contextual")
-                library_cursor = await connection.execute(
-                    """
-                    insert into app.jobs_answer_library (
-                      user_id, key, normalized_question, normalized_key, answer_text,
-                      answer_type, reuse_policy, approved
-                    ) values (%s, %s, %s, %s, %s, 'long_form', %s, true)
-                    on conflict (user_id, normalized_key) where answer_type = 'long_form'
-                    do update set normalized_question = excluded.normalized_question,
-                                  answer_text = excluded.answer_text,
-                                  reuse_policy = excluded.reuse_policy,
-                                  approved = true
-                    returning id
-                    """,
-                    (
-                        user_id,
-                        answer_storage_key(normalized_key),
-                        question,
-                        normalized_key,
-                        answer_text,
-                        reuse_policy
-                        if reuse_policy in {"exact", "contextual", "pattern"}
-                        else "contextual",
-                    ),
-                )
-                library = await library_cursor.fetchone()
                 await connection.execute(
                     """
                     insert into app.jobs_application_questions (
                       user_id, application_id, question_text, normalized_key,
-                      answer_text, answer_source, answer_library_id, status
-                    ) values (%s, %s, %s, %s, %s, %s, %s, 'approved')
+                      answer_text, answer_source, answer_library_id, status,
+                      run_id, step_number, page_url, control_kind, field_fingerprint,
+                      resolver_id, proposed_value, event_kind
+                    ) values (
+                      %s, %s, %s, %s, %s, %s, null, %s,
+                      %s, %s, %s, %s, %s, %s, %s, 'final'
+                    )
                     """,
                     (
                         user_id,
@@ -1167,7 +1185,14 @@ class PostgresJobsStore:
                         normalized_key,
                         answer_text,
                         source if source in ANSWER_SOURCES else "manual",
-                        library["id"] if library else None,
+                        "submitted" if item.submitted else "drafted",
+                        run_id,
+                        answer.get("step_number"),
+                        answer.get("page_url"),
+                        answer.get("control_kind"),
+                        answer.get("field_fingerprint"),
+                        answer.get("resolver_id"),
+                        answer.get("proposed_value"),
                     ),
                 )
         return True

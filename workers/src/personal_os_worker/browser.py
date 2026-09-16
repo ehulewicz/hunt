@@ -955,14 +955,9 @@ def sanitized_evidence(
     return evidence
 
 
-def snapshot_values(page: Page, fields: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Read every non-empty answer on the page keyed by its question.
-
-    Choice groups report the checked option's label under the group question,
-    selects report the selected option's text, and files are skipped. This is
-    what gets saved to the answer library, so later forms can reuse it.
-    """
-    snapshot: dict[str, dict[str, Any]] = {}
+def snapshot_entries(page: Page, fields: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Read each non-empty control separately, preserving repeated questions."""
+    entries: list[dict[str, Any]] = []
     for field in fields:
         field_type = str(field.get("type") or "").casefold()
         tag = str(field.get("tag") or "").casefold()
@@ -1005,13 +1000,29 @@ def snapshot_values(page: Page, fields: list[dict[str, Any]]) -> dict[str, dict[
         value = value.strip()
         if not question or not value:
             continue
-        if field_type == "checkbox" and question in snapshot:
-            # Several boxes checked in one group are one multi-select answer.
+        entries.append({
+            "question": question,
+            "answer_text": value,
+            "control_kind": field_type or tag,
+            "field_fingerprint": (
+                f"{field.get('fingerprint') or ''}#{field.get('index', len(entries))}"
+            ),
+        })
+    return entries
+
+
+def snapshot_values(page: Page, fields: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Return the legacy question-keyed view of the current control snapshot."""
+    snapshot: dict[str, dict[str, Any]] = {}
+    for entry in snapshot_entries(page, fields):
+        question = str(entry["question"])
+        value = str(entry["answer_text"])
+        if entry["control_kind"] == "checkbox" and question in snapshot:
             value = f"{snapshot[question]['answer_text']}, {value}"
         snapshot[question] = {
             "question": question,
             "answer_text": value,
-            "control_kind": field_type or tag,
+            "control_kind": entry["control_kind"],
         }
     return snapshot
 

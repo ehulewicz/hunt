@@ -38,6 +38,12 @@ class BuiltinRule:
     resolve: Resolver
 
 
+@dataclass(frozen=True, slots=True)
+class PatternMatch:
+    value: str
+    resolver_id: str
+
+
 def _text(profile: dict[str, Any], key: str) -> str | None:
     value = str(profile.get(key) or "").strip()
     return value or None
@@ -263,8 +269,8 @@ def resume_organizations(resume: dict[str, Any]) -> frozenset[str]:
     return frozenset(names)
 
 
-def library_pattern_answers(question: str, rules: list[dict[str, Any]]) -> list[str]:
-    matches: list[str] = []
+def library_pattern_answers(question: str, rules: list[dict[str, Any]]) -> list[PatternMatch]:
+    matches: list[PatternMatch] = []
     for rule in rules:
         if str(rule.get("reuse_policy") or "") != "pattern":
             continue
@@ -274,20 +280,49 @@ def library_pattern_answers(question: str, rules: list[dict[str, Any]]) -> list[
             continue
         try:
             if re.search(source, question, re.IGNORECASE | re.DOTALL):
-                matches.append(answer)
+                matches.append(
+                    PatternMatch(answer, f"library:{rule.get('id') or source}")
+                )
         except re.error:
             continue
     return matches
 
 
-def builtin_answers(question: str, context: RuleContext) -> list[tuple[str, str]]:
-    found: list[tuple[str, str]] = []
+def builtin_answers(question: str, context: RuleContext) -> list[PatternMatch]:
+    found: list[PatternMatch] = []
     for rule in BUILTIN_RULES:
         if rule.pattern.search(question):
             answer = rule.resolve(context)
             if answer:
-                found.append((rule.name, answer))
+                found.append(PatternMatch(answer, f"builtin:{rule.name}"))
     return found
+
+
+def resolve_pattern_match(
+    question: str,
+    *,
+    rules: list[dict[str, Any]],
+    profile: dict[str, Any],
+    resume: dict[str, Any],
+    company: str,
+) -> PatternMatch | None:
+    """Choose one deterministic rule and retain its stable identity."""
+    library = library_pattern_answers(question, rules)
+    if len(library) == 1:
+        return library[0]
+    if library:
+        return None
+    context = RuleContext(profile=profile, resume=resume, company=company)
+    builtin = builtin_answers(question, context)
+    if len(builtin) == 1:
+        return builtin[0]
+    if builtin:
+        return None
+    if WORKED_BEFORE.search(question) and not company_on_resume(
+        company, resume_organizations(resume)
+    ):
+        return PatternMatch("No", "builtin:worked_before")
+    return None
 
 
 def resolve_pattern_answer(
@@ -298,23 +333,11 @@ def resolve_pattern_answer(
     resume: dict[str, Any],
     company: str,
 ) -> str | None:
-    """Answer from exactly one library pattern, else exactly one built-in rule, else nothing."""
-    library = library_pattern_answers(question, rules)
-    if len(library) == 1:
-        return library[0]
-    if library:
-        return None
-    context = RuleContext(profile=profile, resume=resume, company=company)
-    builtin = builtin_answers(question, context)
-    if len(builtin) == 1:
-        return builtin[0][1]
-    if builtin:
-        return None
-    if WORKED_BEFORE.search(question) and not company_on_resume(
-        company, resume_organizations(resume)
-    ):
-        return "No"
-    return None
+    """Value-only compatibility interface for callers that do not need provenance."""
+    match = resolve_pattern_match(
+        question, rules=rules, profile=profile, resume=resume, company=company
+    )
+    return match.value if match is not None else None
 
 
 SALARY_WORDS = re.compile(r"\b(salary|pay|compensation|wage)\b", re.IGNORECASE)

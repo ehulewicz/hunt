@@ -44,7 +44,7 @@ from personal_os_worker.browser import (
     reveal_application_form,
     sanitized_evidence,
     set_registered_value,
-    snapshot_values,
+    snapshot_entries,
     verify_control,
 )
 from personal_os_worker.cover_letter import (
@@ -65,7 +65,7 @@ from personal_os_worker.page_state import (
     capture_ashby_navigation,
     classify_application_page,
 )
-from personal_os_worker.patterns import resolve_pattern_answer, resolve_priority_answer
+from personal_os_worker.patterns import resolve_pattern_match, resolve_priority_answer
 from personal_os_worker.short_answers import ShortQuestion, draft_short_answers
 from personal_os_worker.tables import console
 
@@ -122,10 +122,12 @@ class SessionState:
     seeds: dict[str, tuple[str, str]] = field(default_factory=dict)  # question -> (text, source)
     planned: dict[str, str] = field(default_factory=dict)  # question -> planned value
     announced: dict[str, str] = field(default_factory=dict)  # question -> value shown
-    saved: dict[str, str] = field(default_factory=dict)  # question -> value in the library
+    observations: list[dict[str, Any]] = field(default_factory=list)
+    persisted_observations: int = 0
     warnings: set[str] = field(default_factory=set)
     tier_answers: dict[str, str] = field(default_factory=dict)  # question -> pattern/model answer
     tier_source: dict[str, str] = field(default_factory=dict)  # question -> "pattern" | "model"
+    tier_resolver: dict[str, str] = field(default_factory=dict)
     asked_claude: set[str] = field(default_factory=set)  # questions already put to Claude
     step: int = 0
     form_seen: bool = False
@@ -321,26 +323,20 @@ class AutofillSession:
         )
 
     def save_now(self) -> int:
-        """Push every picked-up answer that changed since the last save to the library."""
-        # Profile facts and unchanged library answers are already stored; only
-        # what the user typed or chose, or a Claude draft they accepted, is new.
-        pending = [
-            item
-            for question, item in self.state.collected.items()
-            if item["source"] in {"manual", "model", "pattern"}
-            and self.state.saved.get(question) != item["answer_text"]
-        ]
-        for item in pending:
-            self.ctx.api.create_answer(
-                question=str(item["question"]),
-                answer_text=str(item["answer_text"]),
-                approved=True,
-                reuse_policy=str(item["reuse_policy"]),
+        """Persist newly observed values for this run without approving reuse."""
+        pending = self.state.observations[self.state.persisted_observations :]
+        for offset in range(0, len(pending), 500):
+            batch = pending[offset : offset + 500]
+            self.ctx.api.persist_autofill_step(
+                self.ctx.run_id,
+                {
+                    "step_number": self.state.step,
+                    "url": self.page.url,
+                    "observations": batch,
+                },
             )
-            self.state.saved[str(item["question"])] = str(item["answer_text"])
-            echo("saved", str(item["question"]), str(item["answer_text"]))
-        if not pending:
-            console.print("  [dim]nothing new to save[/dim]")
+            self.state.persisted_observations += len(batch)
+        console.print(f"  [dim]recorded {len(pending)} answer observation(s) for review[/dim]")
         return len(pending)
 
     # ----- form discovery --------------------------------------------------
@@ -422,17 +418,18 @@ class AutofillSession:
         return matched
 
     def pattern_fallback(self, question: str) -> str | None:
-        answer = resolve_pattern_answer(
+        match = resolve_pattern_match(
             question,
             rules=self.ctx.answers,
             profile=self.ctx.profile,
             resume=self.ctx.resume_json,
             company=self.ctx.company,
         )
-        if answer is not None:
-            self.state.tier_answers[question] = answer
+        if match is not None:
+            self.state.tier_answers[question] = match.value
             self.state.tier_source[question] = "pattern"
-        return answer
+            self.state.tier_resolver[question] = match.resolver_id
+        return match.value if match is not None else None
 
     def priority_policy(self, field: dict[str, Any]) -> str | None:
         answer = resolve_priority_answer(field, profile=self.ctx.profile)
@@ -440,6 +437,7 @@ class AutofillSession:
         if answer is not None and question:
             self.state.tier_answers[question] = answer
             self.state.tier_source[question] = "pattern"
+            self.state.tier_resolver[question] = "builtin:priority_policy_v1"
         return answer
 
     def fill_deterministic(self, fields: list[dict[str, Any]]) -> dict[str, Any]:
@@ -617,6 +615,7 @@ class AutofillSession:
             if applied is not None and question in drafted:
                 self.state.tier_answers[question] = applied
                 self.state.tier_source[question] = "model"
+                self.state.tier_resolver[question] = "model:short_answer_v1"
                 echo("claude", question, applied)
         result["failures"].extend(claude_result["failures"])
 
@@ -677,6 +676,8 @@ class AutofillSession:
                 continue
             seed, source, note, _similar = self.seed_for(question)
             self.state.seeds[question] = (seed, source)
+            if source == "model":
+                self.state.tier_resolver[question] = "model:long_form_v1"
             if not seed:
                 echo("left", question, note=note.split(";", 1)[0])
                 continue
@@ -809,7 +810,9 @@ class AutofillSession:
     # ----- manual completion, capture, and advance --------------------------
 
     def record_snapshot(self, fields: list[dict[str, Any]]) -> None:
-        for question, item in snapshot_values(self.page, fields).items():
+        seen: set[str] = set()
+        for index, item in enumerate(snapshot_entries(self.page, fields)):
+            question = str(item["question"])
             value = str(item["answer_text"])
             seed, seed_source = self.state.seeds.get(question, ("", "empty"))
             matched = answer_match(question, self.ctx.answers)
@@ -827,16 +830,77 @@ class AutofillSession:
                 policy = str(matched.get("reuse_policy") or "exact")
             else:
                 policy = "contextual" if item["control_kind"] == "textarea" else "exact"
-            self.state.collected[question] = {
+            fingerprint = str(item.get("field_fingerprint") or f"control-{index}")
+            control_key = f"{self.state.step}:{fingerprint}"
+            seen.add(control_key)
+            previous = self.state.collected.get(control_key)
+            proposed_value = (
+                self.state.tier_answers.get(question)
+                or self.state.planned.get(question)
+                or seed
+                or None
+            )
+            if source == "answer_library" and matched is not None:
+                resolver_id = f"library:{matched.get('id') or question}"
+            elif source in {"pattern", "model"}:
+                resolver_id = self.state.tier_resolver.get(question) or (
+                    "model:long_form_v1" if source == "model" else "builtin:unknown"
+                )
+            elif source == "jobs_profile":
+                resolver_id = "builtin:profile_field_v1"
+            else:
+                resolver_id = None
+            self.state.collected[control_key] = {
                 "question": question,
                 "answer_text": value,
                 "source": source,
                 "reuse_policy": policy,
+                "step_number": self.state.step,
+                "page_url": self.page.url,
+                "control_kind": str(item["control_kind"]),
+                "field_fingerprint": fingerprint,
+                "resolver_id": resolver_id,
+                "proposed_value": proposed_value,
             }
+            if previous is None or previous["answer_text"] != value:
+                self.state.observations.append(
+                    {
+                        "event_index": len(self.state.observations),
+                        "step_number": self.state.step,
+                        "page_url": self.page.url,
+                        "question": question,
+                        "answer_text": value,
+                        "source": source,
+                        "control_kind": str(item["control_kind"]),
+                        "field_fingerprint": fingerprint,
+                        "resolver_id": resolver_id,
+                        "proposed_value": proposed_value,
+                    }
+                )
             # Echo what the user typed or chose so they can see it was picked up.
             if source == "manual" and self.state.announced.get(question) != value:
                 self.state.announced[question] = value
                 echo("picked up", question, value)
+        present = {
+            f"{self.state.step}:{field.get('fingerprint') or ''}#{field.get('index', index)}"
+            for index, field in enumerate(fields)
+        }
+        for key in sorted((present - seen) & self.state.collected.keys()):
+            cleared = self.state.collected.pop(key)
+            self.state.observations.append(
+                {
+                    "event_index": len(self.state.observations),
+                    "step_number": self.state.step,
+                    "page_url": self.page.url,
+                    "question": cleared["question"],
+                    "answer_text": "",
+                    "source": "manual",
+                    "control_kind": cleared["control_kind"],
+                    "field_fingerprint": cleared["field_fingerprint"],
+                    "resolver_id": cleared["resolver_id"],
+                    "proposed_value": cleared["proposed_value"],
+                }
+            )
 
     def wait_and_advance(self, fields: list[dict[str, Any]]) -> ApplicationPageState:
         """Collect manual answers while the user owns page navigation and submission."""
@@ -905,8 +969,8 @@ class AutofillSession:
 
     def run(self) -> dict[str, Any]:
         console.print(
-            "[dim]Ctrl+S saves picked-up answers · Ctrl+A marks submitted and ends · "
-            "Ctrl+D skips this listing · Ctrl+C stops and saves[/dim]"
+            "[dim]Ctrl+S records answers for review · Ctrl+A marks submitted and ends · "
+            "Ctrl+D skips this listing · Ctrl+C stops and records[/dim]"
         )
         with self.ctx.keys:
             return self._run()

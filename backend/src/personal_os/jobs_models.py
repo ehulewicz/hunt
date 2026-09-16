@@ -386,16 +386,41 @@ class AutofillRunContext(BaseModel):
     duplicate_company_applications: list[dict[str, Any]]
 
 
+class AutofillObservation(BaseModel):
+    """One changed field value, recorded as history and never as library approval."""
+
+    event_index: int = Field(ge=0)
+    question: str = Field(min_length=1, max_length=1000)
+    answer_text: str = Field(max_length=10000)
+    source: str = Field(default="manual", max_length=40)
+    step_number: int = Field(ge=0)
+    page_url: str = Field(min_length=1, max_length=4000)
+    control_kind: str | None = Field(default=None, max_length=100)
+    field_fingerprint: str | None = Field(default=None, max_length=500)
+    resolver_id: str | None = Field(default=None, max_length=200)
+    proposed_value: str | None = Field(default=None, max_length=10000)
+
+    @field_validator("question")
+    @classmethod
+    def strip_question(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("must not be blank")
+        return value
+
+
 class AutofillStepCreate(BaseModel):
     step_number: int = Field(ge=0)
     url: str = Field(min_length=1, max_length=4000)
     filled_count: int = Field(default=0, ge=0)
     skipped_count: int = Field(default=0, ge=0)
     failures: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
+    observations: list[AutofillObservation] = Field(default_factory=list, max_length=500)
 
 
 class AutofillRunComplete(BaseModel):
     final_url: str = Field(min_length=1, max_length=4000)
+    submitted: bool = False
     answers: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
 
 
