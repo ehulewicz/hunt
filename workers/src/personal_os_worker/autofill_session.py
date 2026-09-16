@@ -810,7 +810,6 @@ class AutofillSession:
     # ----- manual completion, capture, and advance --------------------------
 
     def record_snapshot(self, fields: list[dict[str, Any]]) -> None:
-        seen: set[str] = set()
         for index, item in enumerate(snapshot_entries(self.page, fields)):
             question = str(item["question"])
             value = str(item["answer_text"])
@@ -832,8 +831,15 @@ class AutofillSession:
                 policy = "contextual" if item["control_kind"] == "textarea" else "exact"
             fingerprint = str(item.get("field_fingerprint") or f"control-{index}")
             control_key = f"{self.state.step}:{fingerprint}"
-            seen.add(control_key)
             previous = self.state.collected.get(control_key)
+            if not value:
+                if previous is not None:
+                    self.state.collected.pop(control_key)
+                    event = {**previous, "event_index": len(self.state.observations),
+                             "page_url": self.page.url, "answer_text": "", "source": "manual"}
+                    event.pop("reuse_policy", None)
+                    self.state.observations.append(event)
+                continue
             proposed_value = (
                 self.state.tier_answers.get(question)
                 or self.state.planned.get(question)
@@ -841,7 +847,7 @@ class AutofillSession:
                 or None
             )
             if source == "answer_library" and matched is not None:
-                resolver_id = f"library:{matched.get('id') or question}"
+                resolver_id: str | None = f"library:{matched.get('id') or question}"
             elif source in {"pattern", "model"}:
                 resolver_id = self.state.tier_resolver.get(question) or (
                     "model:long_form_v1" if source == "model" else "builtin:unknown"
@@ -849,7 +855,9 @@ class AutofillSession:
             elif source == "jobs_profile":
                 resolver_id = "builtin:profile_field_v1"
             else:
-                resolver_id = None
+                resolver_id = previous.get("resolver_id") if previous else None
+                if previous:
+                    proposed_value = previous.get("proposed_value")
             self.state.collected[control_key] = {
                 "question": question,
                 "answer_text": value,
@@ -881,26 +889,6 @@ class AutofillSession:
             if source == "manual" and self.state.announced.get(question) != value:
                 self.state.announced[question] = value
                 echo("picked up", question, value)
-        present = {
-            f"{self.state.step}:{field.get('fingerprint') or ''}#{field.get('index', index)}"
-            for index, field in enumerate(fields)
-        }
-        for key in sorted((present - seen) & self.state.collected.keys()):
-            cleared = self.state.collected.pop(key)
-            self.state.observations.append(
-                {
-                    "event_index": len(self.state.observations),
-                    "step_number": self.state.step,
-                    "page_url": self.page.url,
-                    "question": cleared["question"],
-                    "answer_text": "",
-                    "source": "manual",
-                    "control_kind": cleared["control_kind"],
-                    "field_fingerprint": cleared["field_fingerprint"],
-                    "resolver_id": cleared["resolver_id"],
-                    "proposed_value": cleared["proposed_value"],
-                }
-            )
 
     def wait_and_advance(self, fields: list[dict[str, Any]]) -> ApplicationPageState:
         """Collect manual answers while the user owns page navigation and submission."""

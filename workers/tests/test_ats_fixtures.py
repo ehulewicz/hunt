@@ -13,6 +13,7 @@ from personal_os_worker.browser import (
     inspect_fields,
     reveal_application_form,
     set_registered_value,
+    snapshot_entries,
     snapshot_values,
 )
 from personal_os_worker.page_state import (
@@ -324,6 +325,34 @@ def test_snapshot_joins_every_checked_box_of_a_group(
     )
     snapshot = snapshot_values(browser_page, inspect_fields(browser_page))
     assert snapshot["Technologies you have used"]["answer_text"] == "Python, Typescript"
+
+
+def test_snapshot_distinguishes_empty_controls_from_failed_reads(
+    browser_page, monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
+) -> None:
+    from personal_os_worker import browser as browser_module
+
+    browser_page.set_content("""
+        <label for="location">Location</label><input id="location">
+        <label for="school">School</label>
+        <select id="school"><option value="">Choose a school</option></select>
+        <label><input type="checkbox">Remote</label>
+        <label for="unreadable">Unreadable</label><input id="unreadable" value="Known">
+    """)
+    fields = inspect_fields(browser_page)
+    original = browser_module.fresh_control
+
+    def read_control(page, field):  # type: ignore[no-untyped-def]
+        if field.get("label") == "Unreadable":
+            raise Error("Control detached during read")
+        return original(page, field)
+
+    monkeypatch.setattr(browser_module, "fresh_control", read_control)
+    entries = snapshot_entries(browser_page, fields)
+    assert {entry["question"]: entry["answer_text"] for entry in entries} == {
+        "Location": "", "School": "", "Remote": "",
+    }
+    assert snapshot_values(browser_page, fields) == {}
 
 
 def test_snapshot_values_reads_text_choices_and_selects_by_question(

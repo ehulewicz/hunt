@@ -956,9 +956,9 @@ def sanitized_evidence(
 
 
 def snapshot_entries(page: Page, fields: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Read each non-empty control separately, preserving repeated questions."""
+    """Read controls separately; empty values are explicit, failed reads omitted."""
     entries: list[dict[str, Any]] = []
-    for field in fields:
+    for index, field in enumerate(fields):
         field_type = str(field.get("type") or "").casefold()
         tag = str(field.get("tag") or "").casefold()
         if field_type in {"file", "submit", "button", "reset", "hidden"} or tag == "button":
@@ -971,20 +971,23 @@ def snapshot_entries(page: Page, fields: list[dict[str, Any]]) -> list[dict[str,
                 pressed = control.locator(YESNO_CONTAINER_XPATH).locator(
                     'button[aria-pressed="true"]'
                 )
-                if pressed.count() != 1:
+                count = pressed.count()
+                if count > 1:
                     continue
                 question = label
-                value = str(pressed.first.inner_text())
+                value = str(pressed.first.inner_text()) if count else ""
             elif field_type in {"radio", "checkbox"}:
-                if not control.is_checked(timeout=CONTROL_TIMEOUT_MS):
-                    continue
                 question = group or label
-                value = label or str(field.get("value") or "")
+                value = (
+                    (label or str(field.get("value") or ""))
+                    if control.is_checked(timeout=CONTROL_TIMEOUT_MS) else ""
+                )
             elif tag == "select":
                 question = label
                 value = str(
                     control.evaluate(
-                        "element => element.selectedOptions[0]?.textContent?.trim() || ''",
+                        "element => element.value ? "
+                        "(element.selectedOptions[0]?.textContent?.trim() || '') : ''",
                         timeout=CONTROL_TIMEOUT_MS,
                     )
                 )
@@ -998,14 +1001,14 @@ def snapshot_entries(page: Page, fields: list[dict[str, Any]]) -> list[dict[str,
             continue
         question = question.strip()
         value = value.strip()
-        if not question or not value:
+        if not question:
             continue
         entries.append({
             "question": question,
             "answer_text": value,
             "control_kind": field_type or tag,
             "field_fingerprint": (
-                f"{field.get('fingerprint') or ''}#{field.get('index', len(entries))}"
+                f"{field.get('fingerprint') or ''}#{field.get('index', index)}"
             ),
         })
     return entries
@@ -1017,6 +1020,8 @@ def snapshot_values(page: Page, fields: list[dict[str, Any]]) -> dict[str, dict[
     for entry in snapshot_entries(page, fields):
         question = str(entry["question"])
         value = str(entry["answer_text"])
+        if not value:
+            continue
         if entry["control_kind"] == "checkbox" and question in snapshot:
             value = f"{snapshot[question]['answer_text']}, {value}"
         snapshot[question] = {
