@@ -233,7 +233,7 @@ def build_education(education: dict[str, Any]) -> list[str]:
     ]
     courses = str(education.get("courses", "")).strip()
     if courses:
-        rows.append(rf"      \small Core Coursework: {escape(courses)} & \\")
+        rows.append(rf"      \small \textbf{{Core Coursework}}: {escape(courses)} & \\")
     return [
         r"\section{Education}",
         r"  \resumeSubHeadingListStart",

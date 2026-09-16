@@ -233,7 +233,7 @@ def test_education_renders_one_row_per_declared_degree() -> None:
 
     assert r"\textit{\small MS Computer Science} & \textit{\small Dec 2027} \\" in latex
     assert r"\textit{\small BS Computer Science} & \textit{\small May 2026} \\" in latex
-    assert r"\small Core Coursework: Algorithms & \\" in latex
+    assert r"\small \textbf{Core Coursework}: Algorithms & \\" in latex
 
 
 def test_entry_dates_keep_an_en_dash_range() -> None:
