@@ -44,7 +44,7 @@ ANSWER_SOURCES = frozenset({"jobs_profile", "answer_library", "model", "pattern"
 # numbered once: default technical families first, newest first, ties by id.
 BOARD_QUERY = sql.SQL(
     """
-    select posting.id, company.name as company_name, posting.title,
+    select posting.id, posting.created_at, company.name as company_name, posting.title,
            posting.location, posting.salary_text, posting.application_url,
            posting.discovery_url, posting.role_families,
            posting.source_category, posting.normalized_locations,
@@ -517,7 +517,7 @@ class PostgresJobsStore:
                 return None
             cursor = await connection.execute(
                 """
-                select posting.id, company.name as company_name, posting.title,
+                select posting.id, posting.created_at, company.name as company_name, posting.title,
                        posting.location, posting.salary_text, posting.application_url,
                        posting.discovery_url, posting.role_families,
                        posting.source_category, posting.normalized_locations,

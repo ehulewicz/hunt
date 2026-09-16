@@ -136,6 +136,7 @@ class JobsProfileUpdate(BaseModel):
 
 class JobListing(BaseModel):
     id: UUID
+    created_at: datetime
     company_name: str
     title: str
     location: str | None

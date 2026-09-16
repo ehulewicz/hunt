@@ -81,6 +81,7 @@ class FakeJobsStore:
         if reference in {"3", "22222222"}:
             return JobListing(
                 id=POSTING_ID,
+                created_at=datetime(2026, 8, 1, tzinfo=UTC),
                 company_name="Acme",
                 title="Backend Engineer Intern",
                 location=None,
@@ -363,8 +364,10 @@ async def test_a_listing_resolves_by_board_number_or_id_prefix(
     headers = {"Authorization": "Bearer approved"}
     by_row = await client.get("/v1/jobs/listings/3", headers=headers)
     assert by_row.status_code == 200 and by_row.json()["row"] == 3
+    assert by_row.json()["created_at"] == "2026-08-01T00:00:00Z"
     by_prefix = await client.get("/v1/jobs/listings/22222222", headers=headers)
     assert by_prefix.status_code == 200 and by_prefix.json()["id"] == str(POSTING_ID)
+    assert by_prefix.json()["created_at"] == by_row.json()["created_at"]
     assert (await client.get("/v1/jobs/listings/1111", headers=headers)).status_code == 409
     assert (await client.get("/v1/jobs/listings/99", headers=headers)).status_code == 404
 

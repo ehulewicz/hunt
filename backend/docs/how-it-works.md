@@ -68,3 +68,7 @@ owner. Completion lookup also matches application, run, step, and control.
 Limit is 1–200; offset is nonnegative. The endpoint is read-only and does not
 approve answers or infer that an edit proves a resolver defect. Completion
 values are the worker's last observations, not exact submit-time captures.
+
+Listing responses include the existing `jobs_postings.created_at` timestamp.
+It represents discovery into this system; oldest-first test selection uses it
+rather than source-posting age or the board ranking.
