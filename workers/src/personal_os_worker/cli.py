@@ -148,6 +148,9 @@ def build_parser() -> argparse.ArgumentParser:
     answers = jobs_commands.add_parser("answers", help="Manage reusable long-form answers")
     answer_commands = answers.add_subparsers(dest="answer_command", required=True)
     answer_commands.add_parser("list", help="List canonical reusable answers")
+    answer_review = answer_commands.add_parser("review", help="Inspect flagged application answers")
+    answer_review.add_argument("--limit", type=int, default=50)
+    answer_review.add_argument("--offset", type=int, default=0)
     answer_add = answer_commands.add_parser("add", help="Add a canonical answer")
     answer_add.add_argument("--question", required=True)
     answer_add_input = answer_add.add_mutually_exclusive_group(required=True)
@@ -290,6 +293,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         if args.hunt_command == "answers":
             if args.answer_command == "list":
                 return hunt.run_answers()
+            if args.answer_command == "review":
+                return hunt.run_answer_review(limit=args.limit, offset=args.offset)
             if args.answer_command == "add":
                 return hunt.run_answer_add(
                     question=args.question,

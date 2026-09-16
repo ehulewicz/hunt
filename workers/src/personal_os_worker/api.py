@@ -109,6 +109,16 @@ class WorkerApi:
             raise RuntimeError("Profile response was invalid")
         return payload
 
+    def answer_review(self, *, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+        response = self._client.get(
+            "/v1/jobs/answer-review", params={"limit": limit, "offset": offset}
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, list):
+            raise RuntimeError("Answer review response was invalid")
+        return payload
+
     def answers(self) -> list[dict[str, Any]]:
         response = self._client.get("/v1/jobs/answers")
         response.raise_for_status()

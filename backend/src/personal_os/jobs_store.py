@@ -17,6 +17,7 @@ from personal_os.jobs_models import (
     AnswerLibraryCreate,
     AnswerLibraryItem,
     AnswerLibraryUpdate,
+    AnswerReviewItem,
     ApplicationUpdate,
     AutofillFailureDetail,
     AutofillFailureIssue,
@@ -154,6 +155,10 @@ class JobsStore(Protocol):
     async def stop_autofill_run(
         self, user_id: UUID, run_id: UUID, item: AutofillRunStop
     ) -> bool: ...
+
+    async def list_answer_review(
+        self, user_id: UUID, *, limit: int, offset: int,
+    ) -> list[AnswerReviewItem]: ...
 
     async def list_autofill_failures(self, user_id: UUID) -> list[AutofillFailureIssue]: ...
 
@@ -1235,6 +1240,48 @@ class PostgresJobsStore:
                 (item.status, run_id, user_id),
             )
             return await cursor.fetchone() is not None
+
+    async def list_answer_review(
+        self, user_id: UUID, *, limit: int, offset: int,
+    ) -> list[AnswerReviewItem]:
+        async with self._pool.connection(timeout=self._timeout) as connection:
+            await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                """
+                select event.id, event.application_id, event.run_id, event.event_index,
+                       event.step_number, event.page_url, event.question_text as question,
+                       event.answer_text, event.answer_source, event.control_kind,
+                       event.field_fingerprint, event.resolver_id, event.proposed_value,
+                       event.created_at,
+                       case when event.proposed_value is not null
+                                  and event.answer_text is distinct from event.proposed_value
+                            then 'changed_proposal'
+                            when event.answer_source = 'model' then 'model_draft'
+                            else 'manual_answer' end as reason,
+                       completion.answer_text as completion_value,
+                       completion.status as completion_status
+                from app.jobs_application_questions event
+                left join lateral (
+                    select final.answer_text, final.status
+                    from app.jobs_application_questions final
+                    where final.user_id = event.user_id
+                      and final.application_id = event.application_id
+                      and final.run_id = event.run_id and final.event_kind = 'final'
+                      and final.step_number = event.step_number
+                      and final.field_fingerprint = event.field_fingerprint
+                    order by final.created_at desc, final.id desc limit 1
+                ) completion on true
+                where event.user_id = %s and event.event_kind = 'observed'
+                  and (event.answer_source in ('model', 'manual')
+                       or (event.proposed_value is not null
+                           and event.answer_text is distinct from event.proposed_value))
+                order by event.created_at desc, event.id desc
+                limit %s offset %s
+                """,
+                (user_id, limit, offset),
+            )
+            rows = await cursor.fetchall()
+        return [AnswerReviewItem.model_validate(row) for row in rows]
 
     async def list_autofill_failures(self, user_id: UUID) -> list[AutofillFailureIssue]:
         async with self._pool.connection(timeout=self._timeout) as connection:

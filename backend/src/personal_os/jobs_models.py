@@ -294,6 +294,26 @@ def validate_pattern(reuse_policy: str | None, question: str | None) -> None:
         raise ValueError(f"question must be a valid regular expression: {error}") from None
 
 
+class AnswerReviewItem(BaseModel):
+    id: UUID
+    application_id: UUID
+    run_id: UUID
+    event_index: int
+    step_number: int
+    page_url: str
+    question: str
+    answer_text: str
+    answer_source: str
+    control_kind: str | None
+    field_fingerprint: str | None
+    resolver_id: str | None
+    proposed_value: str | None
+    reason: Literal["changed_proposal", "model_draft", "manual_answer"]
+    completion_value: str | None
+    completion_status: str | None
+    created_at: datetime
+
+
 class AnswerLibraryItem(BaseModel):
     id: UUID
     question: str

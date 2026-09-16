@@ -498,3 +498,31 @@ def test_persistence_failure_keeps_the_session_page_for_recovery() -> None:
             page=Page(),
         )
     assert calls == ["complete"]
+
+
+def test_answer_review_is_read_only_and_supplies_context(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls: list[object] = []
+
+    class ReviewApi:
+        def __init__(self, *_: object) -> None:
+            pass
+
+        def answer_review(self, *, limit: int, offset: int) -> list[dict[str, object]]:
+            calls.append((limit, offset))
+            return [{"reason": "changed_proposal", "question": "Location?",
+                     "proposed_value": "Atlanta", "answer_text": "Remote",
+                     "resolver_id": "builtin:location"}]
+
+        def close(self) -> None:
+            calls.append("closed")
+
+    monkeypatch.setattr(hunt, "connected", lambda: (object(), "token"))
+    monkeypatch.setattr(hunt, "WorkerApi", ReviewApi)
+    assert main(["hunt", "answers", "review", "--limit", "20", "--offset", "5"]) == 0
+    output = capsys.readouterr().out
+    assert "one-off or a rule defect" in output
+    assert "builtin:location" in output
+    assert "Atlanta" in output and "Remote" in output
+    assert calls == [(20, 5), "closed"]

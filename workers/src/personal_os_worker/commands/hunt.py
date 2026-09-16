@@ -238,6 +238,33 @@ def run_skipped(restore: str | None = None) -> int:
     return 0
 
 
+def run_answer_review(*, limit: int = 50, offset: int = 0) -> int:
+    import json
+
+    if not 1 <= limit <= 200 or offset < 0:
+        raise RuntimeError("Review requires limit 1-200 and a nonnegative offset")
+    config, token = connected()
+    api = WorkerApi(config, token)
+    try:
+        items = api.answer_review(limit=limit, offset=offset)
+        actions = {
+            "changed_proposal": (
+                "Compare context; decide whether this was a one-off or a rule defect."
+            ),
+            "model_draft": "Check factual support and relevance before considering explicit reuse.",
+            "manual_answer": "Check whether an approved exact answer or dynamic rule is missing.",
+        }
+        console.print_json(json.dumps([
+            {**item, "suggested_action": actions.get(str(item.get("reason"))),
+             "completion_note": "Completion values are last observed, not submit-time captures."}
+            for item in items
+        ], default=str))
+        console.print("Automation failures: os hunt apply failures list", markup=False)
+        return 0
+    finally:
+        api.close()
+
+
 def run_answers() -> int:
     config, token = connected()
     api = WorkerApi(config, token)

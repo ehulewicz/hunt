@@ -22,6 +22,7 @@ from personal_os.jobs_models import (
     AnswerLibraryCreate,
     AnswerLibraryItem,
     AnswerLibraryUpdate,
+    AnswerReviewItem,
     ApplicationCreate,
     ApplicationUpdate,
     AutofillArtifactResponse,
@@ -230,6 +231,15 @@ async def download_document(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}.pdf"'},
     )
+
+
+@router.get("/answer-review", response_model=list[AnswerReviewItem])
+async def list_answer_review(
+    principal: CurrentPrincipal, store: Store,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[AnswerReviewItem]:
+    return await store.list_answer_review(principal.user_id, limit=limit, offset=offset)
 
 
 @router.get("/answers", response_model=list[AnswerLibraryItem])

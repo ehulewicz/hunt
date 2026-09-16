@@ -547,3 +547,34 @@ async def test_unhandled_errors_stay_visible_to_the_browser() -> None:
         == "https://personal-os-ten-kappa.vercel.app"
     )
     assert response.json() == {"detail": "Internal server error"}
+
+
+async def test_answer_review_uses_verified_owner_and_bounds(
+    app: FastAPI, client: httpx.AsyncClient,
+) -> None:
+    calls: list[tuple[UUID, int, int]] = []
+
+    class ReviewStore:
+        async def list_answer_review(
+            self, user_id: UUID, *, limit: int, offset: int,
+        ) -> list[object]:
+            calls.append((user_id, limit, offset))
+            return []
+
+    async def override_review() -> ReviewStore:
+        return ReviewStore()
+
+    app.dependency_overrides[get_jobs_store] = override_review
+    headers = {"Authorization": "Bearer approved"}
+    response = await client.get("/v1/jobs/answer-review?limit=20&offset=5", headers=headers)
+    assert response.status_code == 200
+    assert response.json() == []
+    assert calls == [(USER_ID, 20, 5)]
+    assert (await client.get("/v1/jobs/answer-review")).status_code == 401
+    assert (await client.get(
+        "/v1/jobs/answer-review", headers={"Authorization": "Bearer wrong-account"}
+    )).status_code == 403
+    for query in ("limit=201", "limit=0", "offset=-1"):
+        response = await client.get(f"/v1/jobs/answer-review?{query}", headers=headers)
+        assert response.status_code == 422
+    assert len(calls) == 1

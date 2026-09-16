@@ -58,3 +58,13 @@ Failure signatures deduplicate issues while occurrence rows preserve run/step
 evidence. FastAPI alone writes sanitized artifacts to the private autofill
 bucket. It verifies ownership for upload and download; storage paths are never
 trusted as authorization. Submission and submitted status remain manual.
+
+### Answer review
+
+`GET /v1/jobs/answer-review?limit=50&offset=0` returns observed answer events
+requiring review: changed proposals, model drafts, or manual answers. Both the
+outer history query and its completion-value lookup are scoped to the verified
+owner. Completion lookup also matches application, run, step, and control.
+Limit is 1–200; offset is nonnegative. The endpoint is read-only and does not
+approve answers or infer that an edit proves a resolver defect. Completion
+values are the worker's last observations, not exact submit-time captures.

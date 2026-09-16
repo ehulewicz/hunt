@@ -215,6 +215,14 @@ proposal. These are last-observed values; the polling loop cannot guarantee it
 sees a last-moment edit before submission. Model and pattern
 answers in this history are not approved for future reuse.
 
+`os hunt answers review --limit 50 --offset 0` reads a paginated review view of
+changed proposals, model drafts, and manual answers. Each record includes its
+resolver, control, proposal, observed value, and matching run-completion value
+where available. Suggested actions ask for contextual review; they do not
+classify an edit as a proven rule defect. This view never approves answers or
+changes history. Persistent review dispositions are not implemented yet.
+Automation failures remain available through `os hunt apply failures list/show`.
+
 ## Host prerequisites
 
 Two dependencies live on the host rather than in this repository. `uv sync`

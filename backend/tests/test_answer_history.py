@@ -255,3 +255,37 @@ async def test_completed_unsubmitted_answers_stay_drafted() -> None:
     assert params is not None
     assert "drafted" in params
     assert "submitted" not in params
+
+
+async def test_review_query_keeps_owner_and_control_context() -> None:
+    from datetime import UTC, datetime
+
+    user_id = uuid4()
+    row = {
+        "id": uuid4(), "application_id": uuid4(), "run_id": uuid4(),
+        "event_index": 2, "step_number": 1, "page_url": "https://example.test/apply",
+        "question": "Location", "answer_text": "Remote", "answer_source": "manual",
+        "control_kind": "text", "field_fingerprint": "location#2",
+        "resolver_id": "profile:city", "proposed_value": "Atlanta",
+        "reason": "changed_proposal", "completion_value": "Remote",
+        "completion_status": "submitted", "created_at": datetime.now(UTC),
+    }
+
+    class ReviewConnection(RecordingConnection):
+        async def fetchall(self) -> list[dict[str, Any]]:
+            return [row]
+
+    connection = ReviewConnection(None)
+    store = PostgresJobsStore(RecordingPool(connection), timeout=1)  # type: ignore[arg-type]
+    items = await store.list_answer_review(user_id, limit=20, offset=5)
+    query, params = connection.queries[-1]
+    assert params == (user_id, 20, 5)
+    assert "event.user_id = %s" in query
+    assert "final.user_id = event.user_id" in query
+    assert "final.field_fingerprint = event.field_fingerprint" in query
+    assert "final.step_number = event.step_number" in query
+    assert "event.event_kind = 'observed'" in query
+    assert items[0].resolver_id == "profile:city"
+    assert items[0].completion_value == "Remote"
+    assert all("insert " not in sql.lower() and "update " not in sql.lower()
+               for sql, _ in connection.queries)
