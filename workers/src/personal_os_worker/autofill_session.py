@@ -647,6 +647,10 @@ class AutofillSession:
                 similar,
             )
         base = str(matched.get("answer_text") or "").strip() if matched else None
+        if not self.ctx.use_claude:
+            return (
+                "", "empty", "drafting disabled; review similar answers or write manually", similar
+            )
         draft = self.ctx.drafter(
             question=question,
             base=base or None,
