@@ -30,6 +30,7 @@ from personal_os_worker.autofill import (
     is_resume_field,
     is_sensitive_field,
 )
+from personal_os_worker.autofill_timing import AutofillTimings
 from personal_os_worker.browser import (
     BrowserClosedError,
     VisibleBrowser,
@@ -246,10 +247,15 @@ class AutofillSession:
         self.ctx = context
         self.state = SessionState()
         self.page = context.page
+        self.timings = AutofillTimings(report=lambda line: console.print(line, style="dim"))
 
     # ----- reporting -------------------------------------------------------
 
     def upload_evidence(self, evidence: dict[str, bytes]) -> dict[str, str]:
+        with self.timings.measure("evidence_upload", step=self.state.step):
+            return self._upload_evidence(evidence)
+
+    def _upload_evidence(self, evidence: dict[str, bytes]) -> dict[str, str]:
         return {
             name: self.ctx.api.upload_autofill_artifact(
                 self.ctx.run_id, name=name, content=content, content_type=content_type_for(name)
@@ -311,6 +317,10 @@ class AutofillSession:
         )
 
     def save_now(self) -> int:
+        with self.timings.measure("history_checkpoint", step=self.state.step):
+            return self._save_now()
+
+    def _save_now(self) -> int:
         """Persist newly observed values for this run without approving reuse."""
         pending = self.state.observations[self.state.persisted_observations :]
         for offset in range(0, len(pending), 500):
@@ -976,22 +986,28 @@ class AutofillSession:
         submitted = False
         try:
             while True:
-                fields = self.wait_for_form()
+                with self.timings.measure("form_wait", step=self.state.step):
+                    fields = self.wait_for_form()
                 if fields is None:
                     console.print("The page reports the application was submitted.")
                     submitted = True
                     break
                 self.emit_warnings(fields)
-                result = self.fill_deterministic(fields)
+                with self.timings.measure("deterministic", step=self.state.step):
+                    result = self.fill_deterministic(fields)
                 if self.ctx.dry_run:
                     return {"final_url": self.page.url, "answers": [], "dry_run": True}
                 if self.ctx.use_claude:
-                    self.fill_with_claude(fields, result)
-                self.fill_long_form(fields)
-                self.fill_cover_letter(fields)
+                    with self.timings.measure("short_drafts", step=self.state.step):
+                        self.fill_with_claude(fields, result)
+                with self.timings.measure("long_form", step=self.state.step):
+                    self.fill_long_form(fields)
+                with self.timings.measure("cover_letter_review", step=self.state.step):
+                    self.fill_cover_letter(fields)
                 self.report_left()
                 self.report_review()
-                transition = self.wait_and_advance(fields)
+                with self.timings.measure("user_review", step=self.state.step):
+                    transition = self.wait_and_advance(fields)
                 if transition == ApplicationPageState.SUBMITTED:
                     console.print("The page reports the application was submitted.")
                     submitted = True

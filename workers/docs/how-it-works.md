@@ -223,6 +223,18 @@ classify an edit as a proven rule defect. This view never approves answers or
 changes history. Persistent review dispositions are not implemented yet.
 Automation failures remain available through `os hunt apply failures list/show`.
 
+### Autofill phase timings
+
+The loop prints content-free phase timings in milliseconds with step and
+completion/interruption status. Phases cover form waiting, deterministic fill,
+short drafting, long-form seeding, cover-letter review, user review, history
+checkpoints, and evidence uploads. Samples remain available on
+`session.timings.samples`; they are not persisted to the database. Form waiting,
+user review, and cover-letter review may include human time. Upload and
+checkpoint timings can be nested inside a larger phase, so totals must not add
+parent and child durations. Instrumentation uses a monotonic clock and does not
+change the session outcome or invoke a model.
+
 ## Host prerequisites
 
 Two dependencies live on the host rather than in this repository. `uv sync`
