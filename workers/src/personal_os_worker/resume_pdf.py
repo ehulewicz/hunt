@@ -60,7 +60,7 @@ PREAMBLE = r"""%-------------------------
 \addtolength{\evensidemargin}{-0.5in}
 \addtolength{\textwidth}{1in}
 \addtolength{\topmargin}{-.5in}
-\addtolength{\textheight}{1.0in}
+\addtolength{\textheight}{1.15in}
 
 \urlstyle{same}
 

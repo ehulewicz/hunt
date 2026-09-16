@@ -122,6 +122,10 @@
     {
       "category": "AI & Agentic Tools",
       "items": "Claude Code, Codex, Gemini, GitHub Copilot, Claude Agent SDK, Multi-Agent Systems"
+    },
+    {
+      "category": "Concepts",
+      "items": "Relational Databases, Database Design, System Design, REST APIs, Agentic Workflows"
     }
   ]
 }
