@@ -19,7 +19,7 @@
     "location": "Atlanta, GA",
     "degree": "BS Computer Science",
     "threads": "Artificial Intelligence & Theory",
-    "courses": "Data Structures, Algorithms, Machine Learning, Applied Intelligence",
+    "courses": "Data Structures, Algorithms, Machine Learning, Applied Intelligence, Systems & Architecture",
     "graduation": "December 2027",
     "gpa": "3.78",
     "gpaScale": "4.00"
@@ -122,10 +122,6 @@
     {
       "category": "AI & Agentic Tools",
       "items": "Claude Code, Codex, Gemini, GitHub Copilot, Claude Agent SDK, Multi-Agent Systems"
-    },
-    {
-      "category": "Concepts",
-      "items": "Relational Databases, System Design, Machine Learning, Agentic Workflows"
     }
   ]
 }
