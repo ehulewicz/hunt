@@ -859,6 +859,8 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
               || Boolean(yesnoContainer && /_required_/.test(yesnoLabel?.className || '')),
             selector,
             role: element.getAttribute('role'),
+            // -1 when the control declares no cap; a draft has to fit what it does.
+            max_length: element.maxLength > 0 ? element.maxLength : null,
             placeholder: element.getAttribute('placeholder'),
             autocomplete: element.getAttribute('autocomplete'),
             section: educationEntry ? 'education' : null,
@@ -921,6 +923,7 @@ def sanitized_evidence(
                 "required",
                 "selector",
                 "role",
+                "max_length",
                 "placeholder",
                 "autocomplete",
                 "section",

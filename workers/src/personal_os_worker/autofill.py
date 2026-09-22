@@ -236,6 +236,36 @@ def is_consent_field(field: dict[str, Any]) -> bool:
     return _mentions(context, CONSENT_WORDS) and not _mentions(context, SIGNATURE_WORDS)
 
 
+# Greenhouse renders an essay prompt as the same single-line text input it uses
+# for "First Name", capped at 255 characters; only the question text tells them
+# apart. The control tag alone cannot decide what wants prose.
+NARRATIVE_QUESTION = re.compile(
+    r"\b(?:sentences|paragraphs?)\b"
+    r"|\bin your own words\b"
+    r"|\b(?:tell us|tell me|walk us through|elaborate on)\b"
+    r"|\bwhy (?:do|are|would|did) you\b"
+    r"|\b(?:describe|explain|share)\b[^.?!]*"
+    r"\b(?:why|interest|motivation|experience|background|yourself|approach)\b",
+    re.IGNORECASE,
+)
+PROSE_INPUT_TYPES = frozenset({"", "text", "search"})
+
+
+def is_long_form_field(field: dict[str, Any]) -> bool:
+    """A control that wants prose: every textarea, and a text input whose question asks for it."""
+    if is_sensitive_field(field) or field.get("role") == "combobox":
+        return False
+    tag = str(field.get("tag") or "").casefold()
+    if tag == "textarea":
+        return True
+    field_type = str(field.get("type") or "").casefold()
+    if tag != "input" or field_type not in PROSE_INPUT_TYPES or field.get("options"):
+        return False
+    if profile_label_key(str(field.get("label") or "")) is not None:
+        return False
+    return NARRATIVE_QUESTION.search(_field_context(field)) is not None
+
+
 def affirmative_option(options: list[str]) -> str | None:
     """The one option that agrees: "Yes", "I agree", "Yes, I have read and accept ..."."""
     candidates = [

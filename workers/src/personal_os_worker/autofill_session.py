@@ -27,6 +27,7 @@ from personal_os_worker.api import WorkerApi
 from personal_os_worker.autofill import (
     AnswerResolution,
     is_cover_letter_field,
+    is_long_form_field,
     is_resume_field,
     is_sensitive_field,
 )
@@ -123,7 +124,7 @@ class SessionState:
     seeds: dict[str, tuple[str, str]] = field(default_factory=dict)  # question -> (text, source)
     planned: dict[str, str] = field(default_factory=dict)  # question -> planned value
     resolutions: dict[str, AnswerResolution] = field(default_factory=dict)
-    announced: dict[str, str] = field(default_factory=dict)  # question -> value shown
+    announced: dict[str, str] = field(default_factory=dict)  # control key -> value shown
     observations: list[dict[str, Any]] = field(default_factory=list)
     persisted_observations: int = 0
     warnings: set[str] = field(default_factory=set)
@@ -190,7 +191,7 @@ def _question_for(field: dict[str, Any]) -> str:
 
 
 def _claude_questions(fields: list[dict[str, Any]]) -> list[ShortQuestion]:
-    """Unfilled, non-sensitive, non-textarea, non-file controls left for Claude.
+    """Unfilled, non-sensitive, non-prose, non-file controls left for Claude.
 
     Radio/checkbox groups with no option checked (options = the group's option
     labels), selects and typeaheads with a known menu (their options), and
@@ -201,12 +202,9 @@ def _claude_questions(fields: list[dict[str, Any]]) -> list[ShortQuestion]:
     for item in fields:
         field_type = str(item.get("type") or "").casefold()
         tag = str(item.get("tag") or "").casefold()
-        if field_type in {"file", "submit", "button", "reset", "hidden"} or tag in {
-            "textarea",
-            "button",
-        }:
+        if field_type in {"file", "submit", "button", "reset", "hidden"} or tag == "button":
             continue
-        if is_sensitive_field(item):
+        if is_sensitive_field(item) or is_long_form_field(item):
             continue
         if field_type in {"radio", "checkbox"}:
             group = str(item.get("group") or "").strip()
@@ -452,9 +450,12 @@ class AutofillSession:
         for item in fields:
             item["ats"] = self.ctx.adapter_name
         if not self.ctx.dry_run:
-            # Textareas are seeded by fill_long_form, which knows their source.
+            # Prose controls are seeded by fill_long_form, which knows their source.
             plan = type(plan)(
-                tuple(fill for fill in plan.fills if fields[fill.index].get("tag") != "textarea"),
+                tuple(
+                    fill for fill in plan.fills
+                    if not is_long_form_field(fields[fill.index])
+                ),
                 plan.unanswered_required_questions,
             )
         console.print()
@@ -635,7 +636,9 @@ class AutofillSession:
 
     # ----- long-form drafts ------------------------------------------------
 
-    def seed_for(self, question: str) -> tuple[str, str, str, list[dict[str, Any]]]:
+    def seed_for(
+        self, question: str, *, limit: int | None = None
+    ) -> tuple[str, str, str, list[dict[str, Any]]]:
         """Return (seed text, seed source, human note, similar answers)."""
         matched = answer_match(question, self.ctx.answers)
         similar = similar_answers(question, self.ctx.answers)
@@ -662,6 +665,7 @@ class AutofillSession:
             resume=self.ctx.resume_json,
             profile=self.ctx.profile,
             scoped_variants=[*self.ctx.scoped, *similar],
+            limit=limit,
         )
         if draft:
             note = (
@@ -675,14 +679,14 @@ class AutofillSession:
         return "", "empty", "no library match and no claude draft; write from scratch", similar
 
     def fill_long_form(self, fields: list[dict[str, Any]]) -> None:
-        """Seed every textarea with its best answer and say which ones deserve a look.
+        """Seed every prose control with its best answer and say which deserve a look.
 
         An exact library answer goes in as is. Otherwise a Claude draft grounded
-        in the posting goes in and is flagged for review. A textarea that
-        already holds text is kept, and one with nothing to offer is left alone.
+        in the posting goes in and is flagged for review. A control that already
+        holds text is kept, and one with nothing to offer is left alone.
         """
         for item in fields:
-            if item.get("tag") != "textarea" or is_sensitive_field(item):
+            if not is_long_form_field(item):
                 continue
             if is_cover_letter_field(item):
                 continue  # fill_cover_letter owns it
@@ -692,7 +696,17 @@ class AutofillSession:
             if item.get("filled") is True:
                 echo("kept", question, note="already has text")
                 continue
-            seed, source, note, _similar = self.seed_for(question)
+            limit = item.get("max_length")
+            seed, source, note, _similar = self.seed_for(question, limit=limit)
+            if seed and limit is not None and len(seed) > int(limit):
+                # Writing past the cap registers and reads back, but the form
+                # rejects it on submit. Say so rather than send it.
+                echo(
+                    "left",
+                    question,
+                    note=f"best answer runs {len(seed)} characters; the form caps it at {limit}",
+                )
+                continue
             self.state.seeds[question] = (seed, source)
             if source == "model":
                 self.state.tier_resolver[question] = "model:long_form_v1"
@@ -717,7 +731,7 @@ class AutofillSession:
             )
             key = f"{self.state.step}:{item.get('fingerprint') or ''}#{item['index']}"
             self.state.resolutions[key] = AnswerResolution(seed, source, resolver_id)
-            self.state.announced[question] = seed
+            self.state.announced[key] = seed
             label = "claude draft" if source == "model" else "library"
             echo("long-form", question, seed, note=label)
             if source == "model":
@@ -800,7 +814,8 @@ class AutofillSession:
                 ok = False
                 echo("failed", question, note=str(error)[:120])
             if ok:
-                self.state.announced[question] = shown
+                letter_key = f"{self.state.step}:{item.get('fingerprint') or ''}#{item['index']}"
+                self.state.announced[letter_key] = shown
                 echo("letter", question, shown)
             else:
                 self.report_page_failure(
@@ -916,8 +931,8 @@ class AutofillSession:
                     }
                 )
             # Echo what the user typed or chose so they can see it was picked up.
-            if source == "manual" and self.state.announced.get(question) != value:
-                self.state.announced[question] = value
+            if source == "manual" and self.state.announced.get(control_key) != value:
+                self.state.announced[control_key] = value
                 echo("picked up", question, value)
 
     def wait_and_advance(self, fields: list[dict[str, Any]]) -> ApplicationPageState:

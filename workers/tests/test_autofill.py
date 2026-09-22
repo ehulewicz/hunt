@@ -1,4 +1,9 @@
-from personal_os_worker.autofill import affirmative_option, build_autofill_plan, choose_option
+from personal_os_worker.autofill import (
+    affirmative_option,
+    build_autofill_plan,
+    choose_option,
+    is_long_form_field,
+)
 from personal_os_worker.browser import audit_filled_form
 from personal_os_worker.patterns import resolve_priority_answer
 
@@ -904,3 +909,31 @@ def test_a_comma_joined_answer_checks_every_matching_box_in_a_checkbox_group() -
     )
     assert [fill.index for fill in plan.fills] == [0, 2, 3]  # Go is not a prefix match for Google
     assert plan.unanswered_required_questions == ()
+
+
+def test_greenhouse_short_answer_input_asking_for_sentences_is_long_form() -> None:
+    """Greenhouse renders an essay prompt as input[type=text], not a textarea."""
+    field = {
+        "tag": "input",
+        "type": "text",
+        "label": (
+            "Please share 3-5 sentences explaining your interest in the "
+            "Blockchain/Web3 industry."
+        ),
+        "max_length": 255,
+        "required": True,
+    }
+    assert is_long_form_field(field) is True
+
+
+def test_ordinary_short_inputs_are_not_long_form() -> None:
+    for label in ("First Name", "LinkedIn Profile", "Website", "How did you hear about this job?"):
+        field = {"tag": "input", "type": "text", "label": label, "max_length": 255}
+        assert is_long_form_field(field) is False, label
+
+
+def test_a_textarea_is_still_long_form_and_a_consent_box_never_is() -> None:
+    assert is_long_form_field({"tag": "textarea", "type": None, "label": "Why us?"}) is True
+    assert is_long_form_field(
+        {"tag": "input", "type": "checkbox", "label": "Tell us why you agree to our terms"}
+    ) is False
