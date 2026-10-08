@@ -20,7 +20,7 @@ def test_api_started_from_older_backend_source_is_restarted(
 ) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setattr(service, "state_dir", lambda: tmp_path)
     monkeypatch.setattr(service, "log_path", lambda: tmp_path / "api.log")
-    monkeypatch.setattr(service.shutil, "which", lambda _: "/usr/bin/personal-os-api")
+    monkeypatch.setattr(service.shutil, "which", lambda _: "/usr/bin/personal-os-backend")
     monkeypatch.setattr(service, "backend_source_fingerprint", lambda: "after-pull")
     service.record_service("api", 4242, "8000", source="before-pull")
     events: list[str] = []
@@ -65,7 +65,7 @@ def test_start_waits_for_health_then_reports_it_started(
 ) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setattr(service, "state_dir", lambda: tmp_path)
     monkeypatch.setattr(service, "log_path", lambda: tmp_path / "api.log")
-    monkeypatch.setattr(service.shutil, "which", lambda _: "/usr/bin/personal-os-api")
+    monkeypatch.setattr(service.shutil, "which", lambda _: "/usr/bin/personal-os-backend")
     spawned: list[list[str]] = []
 
     def fake_popen(command: list[str], **kwargs: object) -> object:
@@ -80,7 +80,7 @@ def test_start_waits_for_health_then_reports_it_started(
     monkeypatch.setattr(service.time, "sleep", lambda _: None)
 
     assert service.ensure_running("http://127.0.0.1:8000", quiet=True) is True
-    assert spawned == [["/usr/bin/personal-os-api", "--port", "8000"]]
+    assert spawned == [["/usr/bin/personal-os-backend", "--port", "8000"]]
 
 
 def test_start_gives_up_and_points_at_the_log(
@@ -89,7 +89,7 @@ def test_start_gives_up_and_points_at_the_log(
     log = tmp_path / "api.log"
     monkeypatch.setattr(service, "state_dir", lambda: tmp_path)
     monkeypatch.setattr(service, "log_path", lambda: log)
-    monkeypatch.setattr(service.shutil, "which", lambda _: "/usr/bin/personal-os-api")
+    monkeypatch.setattr(service.shutil, "which", lambda _: "/usr/bin/personal-os-backend")
     monkeypatch.setattr(
         service.subprocess, "Popen", lambda *a, **k: type("P", (), {"pid": 4242})()
     )

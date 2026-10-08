@@ -10,9 +10,9 @@ from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
 from personal_os_worker.core.doctor import run_doctor
 from personal_os_worker.core.service import ensure_chrome, open_external_url
-from personal_os_worker.core.tables import (
-    console,
-    pick,
+from personal_os_worker.core.tables import console, pick
+from personal_os_worker.documents.doctor import CHECKS as DOCUMENT_CHECKS
+from personal_os_worker.jobs.tables import (
     render_answers,
     render_applications,
     render_listings,
@@ -348,7 +348,7 @@ def run_answer_edit(
 
 def run_doctor_command() -> int:
     config, token = connected()
-    checks = run_doctor(config, token)
+    checks = run_doctor(config, token, extra=DOCUMENT_CHECKS)
     for check in checks:
         console.print(f"[{'OK' if check.ok else 'FAIL'}] {check.name}: {check.detail}")
     return 0 if all(check.ok for check in checks) else 1
@@ -423,7 +423,7 @@ def run_mark_applied(reference: str) -> int:
 
 def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> str:
     """Run one interactive apply session: "submitted", "skipped", or "stopped"."""
-    from personal_os_worker.core.doctor import latex_toolchain_check
+    from personal_os_worker.documents.doctor import latex_toolchain_check
     from personal_os_worker.documents.resume import ensure_resume, load_resume, transcript_pdf_path
     from personal_os_worker.jobs.adapters import adapter_version, detect_ats, failure_signature
     from personal_os_worker.jobs.autofill_session import AutofillSession, SessionContext

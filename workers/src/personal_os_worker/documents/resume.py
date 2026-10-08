@@ -17,9 +17,8 @@ from pathlib import Path
 from typing import Any
 
 from personal_os_worker.core.config import load_cli_config
-from personal_os_worker.core.service import ensure_chrome
+from personal_os_worker.core.service import ensure_chrome, open_url
 from personal_os_worker.documents.resume_pdf import ENTRY_SECTIONS, compile_resume
-from personal_os_worker.jobs.browser import VisibleBrowser
 
 DEFAULT_CDP_URL = "http://127.0.0.1:9333"
 
@@ -243,8 +242,7 @@ def open_live_preview(url: str) -> None:
     except RuntimeError:
         cdp_url = DEFAULT_CDP_URL
     ensure_chrome(cdp_url)
-    with VisibleBrowser(cdp_url) as browser:
-        browser.open_page(url)
+    open_url(cdp_url, url)
 
 
 def watch_resume(

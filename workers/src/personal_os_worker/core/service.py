@@ -22,7 +22,7 @@ from pathlib import Path
 
 import httpx
 
-API_EXECUTABLE = "personal-os-api"
+API_EXECUTABLE = "personal-os-backend"
 STARTUP_TIMEOUT_SECONDS = 45.0
 _POLL_SECONDS = 0.25
 POWERSHELL = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
@@ -214,6 +214,25 @@ def chrome_is_running(cdp_url: str, *, timeout: float = 2.0) -> bool:
     except httpx.HTTPError:
         return False
     return response.status_code == 200
+
+
+def open_url(cdp_url: str, url: str) -> None:
+    """Open a URL in the automation browser and leave the tab there.
+
+    Under WSL `webbrowser.open` cannot reach Windows Chrome, so the only
+    browser this machine can drive is the one `ensure_chrome` manages. Core
+    already owns that browser's lifecycle, so it owns opening a page in it.
+
+    Stopping Playwright does not close the tab: the browser was connected to,
+    not launched by, this process.
+    """
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.connect_over_cdp(cdp_url)
+        page = browser.contexts[0].new_page()
+        page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+        page.wait_for_timeout(1500)
 
 
 def ensure_chrome(cdp_url: str, *, quiet: bool = False) -> bool:
