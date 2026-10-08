@@ -12,10 +12,18 @@ Required repository variables are `GCP_PROJECT_ID`, `GCP_REGION`,
 `GCP_WIF_PROVIDER`, and `GCP_DEPLOYER_SA`. The database URL, Supabase access token,
 and Google OAuth client credentials remain in GCP Secret Manager.
 
+## Test ports
+
+There is no local product stack. Short-lived test processes may use:
+
+| Process | Port | Purpose |
+|---|---:|---|
+| Next.js | 3000 | frontend browser and visual tests |
+| FastAPI | 8000 | backend HTTP tests when a real process is required |
+
 ## One-time Google login bootstrap
 
-The current blocker and verification state live in `CURRENT.md` at the repository root. To create
-the missing provider credentials:
+To create the missing provider credentials:
 
 1. Open Google Auth Platform for GCP project `example-gcp-project`.
 2. Configure the app as **Personal OS** with `eahtree@gmail.com` as the support
