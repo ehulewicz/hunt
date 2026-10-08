@@ -1,8 +1,21 @@
 # Backend
 
-Python 3.13 FastAPI service deployed to Cloud Run as `personal-os-api`. It is the
-only application client of the private `app` PostgreSQL schema and of the private
-Storage buckets, and it owns authorization and all Jobs business logic.
+Python 3.13 FastAPI service. It is the only application client of the private
+`app` PostgreSQL schema and of the private Storage buckets, and it owns
+authorization and all Jobs business logic.
+
+This one directory produces **two** deployed artifacts from the same image:
+
+| Artifact | What it is | Entrypoint |
+|---|---|---|
+| `personal-os-api` | Cloud Run **service** — the HTTP API | `uvicorn personal_os_backend.main:app` (`Dockerfile`) |
+| `personal-os-jobs-sync` | Cloud Run **job** — the daily importer | `python -m personal_os_backend.jobs_sync` (`deploy.yml`) |
+
+The names differ by viewpoint, not by thing: `backend/` is the source boundary,
+`personal-os-api` is what it is called once deployed. The Cloud Run service, its
+service account, the GCP secret names and the `PERSONAL_OS_API_` settings prefix
+all keep the `api` spelling because they are live infrastructure, not Python
+names.
 
 ## How it works
 
@@ -62,13 +75,20 @@ remote forms; rejects visibly international primary locations and titles contain
 parse fails before any mutation, so an upstream format change cannot silently close
 the whole listing set. The browser cannot trigger a sync.
 
-It runs as `python -m personal_os.jobs_sync`, a standalone script with its own
-database pool that never goes through the HTTP server. In production it is the
-Cloud Run Job `personal-os-jobs-sync` (same image and runtime service account as the
-API, region `us-east1`), triggered daily at 9:00 AM America/New_York by Cloud
-Scheduler job `personal-os-jobs-sync-daily`, which runs as `personal-os-scheduler`
-and holds `run.invoker` on that job only. `deploy.yml` updates the job image on
-every deploy. GitHub Actions no longer runs this sync; its cron drifted hours late.
+It runs as `python -m personal_os_backend.jobs_sync`, a standalone script with
+its own database pool that never goes through the HTTP server. In production it
+is the Cloud Run Job `personal-os-jobs-sync` (same image and runtime service
+account as the API, region `us-east1`), triggered daily at 9:00 AM
+America/New_York by Cloud Scheduler job `personal-os-jobs-sync-daily`, which runs
+as `personal-os-scheduler` and holds `run.invoker` on that job only. GitHub
+Actions no longer runs this sync; its cron drifted hours late.
+
+`deploy.yml` sets the job's image **and its entrypoint** on every deploy. The
+entrypoint previously lived only in the job's stored GCP config, so renaming the
+backend package left the two disagreeing and the next scheduled run would have
+failed. The schedule itself is still only in Cloud Scheduler, declared nowhere in
+this repository.
+
 A manual run:
 
 ```bash
@@ -85,17 +105,17 @@ cd backend && uv run ruff check . && uv run mypy src/ && uv run pytest -q
 ```
 
 Currently 73 tests. `mypy` is scoped to `src/` because the test suite is not
-annotated; `pyproject.toml` already pins `packages = ["personal_os"]`, so bare
+annotated; `pyproject.toml` already pins `packages = ["personal_os_backend"]`, so bare
 `uv run mypy` — the form CI uses — checks the same files.
 
 Serve the API locally with `uv run personal-os-backend`. It reads
-`src/personal_os/.env`, resolved from the package rather than the working
+`src/personal_os_backend/.env`, resolved from the package rather than the working
 directory, so it starts the same way from anywhere.
 
 ## Structure
 
 ```text
-src/personal_os/
+src/personal_os_backend/
   main.py           create_app, CORS, error middleware, /health and /v1/account
   auth.py           JWKS fetch, JWT validation, single-identity enforcement
   config.py         pydantic-settings Settings, PERSONAL_OS_API_* env vars
