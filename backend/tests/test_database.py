@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from personal_os.database import canonical_resume_path
+from personal_os_backend.database import canonical_resume_path
 
 
 def test_canonical_resume_is_the_root_git_artifact() -> None:

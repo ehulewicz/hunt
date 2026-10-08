@@ -9,11 +9,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
-from personal_os.auth import CurrentPrincipal, JwtValidator
-from personal_os.config import Settings
-from personal_os.database import BootstrapStore, create_pool, database_is_ready, get_bootstrap_store
-from personal_os.jobs_router import router as jobs_router
-from personal_os.models import AccountResponse, HealthResponse
+from personal_os_backend.auth import CurrentPrincipal, JwtValidator
+from personal_os_backend.config import Settings
+from personal_os_backend.database import (
+    BootstrapStore,
+    create_pool,
+    database_is_ready,
+    get_bootstrap_store,
+)
+from personal_os_backend.jobs_router import router as jobs_router
+from personal_os_backend.models import AccountResponse, HealthResponse
 
 Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None]]
 

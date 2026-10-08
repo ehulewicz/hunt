@@ -3,9 +3,9 @@ from uuid import UUID
 
 import pytest
 
-from personal_os.jobs_models import ListingSyncResponse
-from personal_os.jobs_sources import SourceListing
-from personal_os.jobs_sync import run_sync
+from personal_os_backend.jobs_models import ListingSyncResponse
+from personal_os_backend.jobs_sources import SourceListing
+from personal_os_backend.jobs_sync import run_sync
 
 
 class FakeSource:

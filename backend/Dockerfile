@@ -18,4 +18,4 @@ COPY artifacts/career/main.json ./artifacts/career/main.json
 RUN uv sync --frozen --no-dev --package personal-os-backend
 
 ENV PATH="/app/.venv/bin:$PATH"
-CMD ["sh", "-c", "uvicorn personal_os.main:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "uvicorn personal_os_backend.main:app --host 0.0.0.0 --port ${PORT}"]

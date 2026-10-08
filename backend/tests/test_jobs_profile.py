@@ -4,8 +4,8 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from personal_os.jobs_models import JobsProfile, JobsProfileUpdate
-from personal_os.jobs_store import PROFILE_COLUMNS
+from personal_os_backend.jobs_models import JobsProfile, JobsProfileUpdate
+from personal_os_backend.jobs_store import PROFILE_COLUMNS
 
 
 def test_autofill_profile_serializes_new_standing_facts_without_rounding() -> None:

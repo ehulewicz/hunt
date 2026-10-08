@@ -9,7 +9,7 @@ from fastapi import Request
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
-from personal_os.config import Settings
+from personal_os_backend.config import Settings
 
 
 def canonical_resume_path() -> Path:

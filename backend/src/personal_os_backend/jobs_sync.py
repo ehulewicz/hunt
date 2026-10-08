@@ -7,11 +7,11 @@ from uuid import UUID
 
 import httpx
 
-from personal_os.config import Settings
-from personal_os.database import create_pool, opened_pool
-from personal_os.jobs_models import ListingSyncResponse
-from personal_os.jobs_sources import SourceListing, SpeedyApplySource
-from personal_os.jobs_store import PostgresJobsStore
+from personal_os_backend.config import Settings
+from personal_os_backend.database import create_pool, opened_pool
+from personal_os_backend.jobs_models import ListingSyncResponse
+from personal_os_backend.jobs_sources import SourceListing, SpeedyApplySource
+from personal_os_backend.jobs_store import PostgresJobsStore
 
 
 class ListingSource(Protocol):

@@ -17,8 +17,8 @@ from fastapi import (
     status,
 )
 
-from personal_os.auth import CurrentPrincipal
-from personal_os.jobs_models import (
+from personal_os_backend.auth import CurrentPrincipal
+from personal_os_backend.jobs_models import (
     AnswerLibraryCreate,
     AnswerLibraryItem,
     AnswerLibraryUpdate,
@@ -45,10 +45,15 @@ from personal_os.jobs_models import (
     MasterResumeContent,
     RoleFamily,
 )
-from personal_os.jobs_sources import SpeedyApplySource
-from personal_os.jobs_storage import JobsDocumentStorage
-from personal_os.jobs_store import AmbiguousReference, CompletionConflict, JobsStore, get_jobs_store
-from personal_os.jobs_sync import run_sync
+from personal_os_backend.jobs_sources import SpeedyApplySource
+from personal_os_backend.jobs_storage import JobsDocumentStorage
+from personal_os_backend.jobs_store import (
+    AmbiguousReference,
+    CompletionConflict,
+    JobsStore,
+    get_jobs_store,
+)
+from personal_os_backend.jobs_sync import run_sync
 
 router = APIRouter(prefix="/v1/jobs", tags=["jobs"])
 Store = Annotated[JobsStore, Depends(get_jobs_store)]

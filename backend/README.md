@@ -88,7 +88,7 @@ Currently 73 tests. `mypy` is scoped to `src/` because the test suite is not
 annotated; `pyproject.toml` already pins `packages = ["personal_os"]`, so bare
 `uv run mypy` — the form CI uses — checks the same files.
 
-Serve the API locally with `uv run personal-os-api`. It reads
+Serve the API locally with `uv run personal-os-backend`. It reads
 `src/personal_os/.env`, resolved from the package rather than the working
 directory, so it starts the same way from anywhere.
 

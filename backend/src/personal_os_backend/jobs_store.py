@@ -10,9 +10,9 @@ from psycopg import sql
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
-from personal_os.config import Settings
-from personal_os.jobs_answers import answer_storage_key, normalize_answer_key
-from personal_os.jobs_models import (
+from personal_os_backend.config import Settings
+from personal_os_backend.jobs_answers import answer_storage_key, normalize_answer_key
+from personal_os_backend.jobs_models import (
     DEFAULT_TECHNICAL_FAMILIES,
     AnswerLibraryCreate,
     AnswerLibraryItem,
@@ -37,7 +37,7 @@ from personal_os.jobs_models import (
     ListingSyncResponse,
     MasterResumeContent,
 )
-from personal_os.jobs_sources import SOURCE_NAME, SourceListing
+from personal_os_backend.jobs_sources import SOURCE_NAME, SourceListing
 
 ANSWER_SOURCES = frozenset({"jobs_profile", "answer_library", "model", "pattern", "manual"})
 

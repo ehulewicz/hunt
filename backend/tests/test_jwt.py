@@ -5,8 +5,8 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from personal_os.auth import InvalidAccessToken, JwtValidator
-from personal_os.config import Settings
+from personal_os_backend.auth import InvalidAccessToken, JwtValidator
+from personal_os_backend.config import Settings
 
 
 def settings() -> Settings:

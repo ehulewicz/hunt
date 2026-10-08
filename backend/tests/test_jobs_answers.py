@@ -1,7 +1,7 @@
 import pytest
 
-from personal_os.jobs_answers import answer_storage_key, normalize_answer_key
-from personal_os.jobs_models import AnswerLibraryCreate, AnswerLibraryUpdate
+from personal_os_backend.jobs_answers import answer_storage_key, normalize_answer_key
+from personal_os_backend.jobs_models import AnswerLibraryCreate, AnswerLibraryUpdate
 
 
 def test_answer_keys_ignore_case_spacing_and_harmless_punctuation() -> None:

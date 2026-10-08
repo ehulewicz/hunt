@@ -2,7 +2,7 @@ from datetime import date
 
 import httpx
 
-from personal_os.jobs_sources import (
+from personal_os_backend.jobs_sources import (
     Feed,
     SpeedyApplySource,
     classify_role_families,

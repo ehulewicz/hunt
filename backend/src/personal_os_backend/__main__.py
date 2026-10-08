@@ -23,7 +23,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     import uvicorn
 
     uvicorn.run(
-        "personal_os.main:app",
+        "personal_os_backend.main:app",
         host=args.host,
         port=args.port,
         reload=args.reload,

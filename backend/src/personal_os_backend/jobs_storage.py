@@ -4,7 +4,7 @@ from urllib.parse import quote
 
 import httpx
 
-from personal_os.config import Settings
+from personal_os_backend.config import Settings
 
 BUCKET = "jobs-documents"
 AUTOFILL_BUCKET = "jobs-autofill-artifacts"

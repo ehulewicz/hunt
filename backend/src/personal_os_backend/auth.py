@@ -7,8 +7,8 @@ import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from personal_os.config import Settings
-from personal_os.models import Principal
+from personal_os_backend.config import Settings
+from personal_os_backend.models import Principal
 
 ALLOWED_ALGORITHMS = frozenset({"RS256", "ES256", "EdDSA"})
 bearer = HTTPBearer(auto_error=False)

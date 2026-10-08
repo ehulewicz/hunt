@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from personal_os.jobs_models import MasterResumeContent
+from personal_os_backend.jobs_models import MasterResumeContent
 
 USER_ID = uuid4()
 APPLICATION_ID = uuid4()
@@ -87,7 +87,9 @@ class FakePool:
 
 def test_no_query_locks_a_grouped_select() -> None:
     """PostgreSQL rejects FOR UPDATE combined with GROUP BY."""
-    source = (Path(__file__).resolve().parents[1] / "src/personal_os/jobs_store.py").read_text()
+    source = (
+        Path(__file__).resolve().parents[1] / "src/personal_os_backend/jobs_store.py"
+    ).read_text()
     offending = [
         " ".join(statement.split())
         for statement in source.split('"""')
@@ -99,7 +101,9 @@ def test_no_query_locks_a_grouped_select() -> None:
 
 def test_autofill_run_cte_returns_the_selected_ats() -> None:
     """PostgreSQL exposes only columns named by a data-modifying CTE RETURNING."""
-    source = (Path(__file__).resolve().parents[1] / "src/personal_os/jobs_store.py").read_text()
+    source = (
+        Path(__file__).resolve().parents[1] / "src/personal_os_backend/jobs_store.py"
+    ).read_text()
     query = source.split("async def create_autofill_run", 2)[2].split(
         "async def persist_autofill_step", 1
     )[0]
@@ -154,7 +158,7 @@ def test_master_resume_content_accepts_the_canonical_shape() -> None:
 
 def test_board_numbers_listings_once_before_any_filter() -> None:
     """The row number is a window over the whole board, so every view agrees."""
-    from personal_os.jobs_store import BOARD_QUERY
+    from personal_os_backend.jobs_store import BOARD_QUERY
 
     board = " ".join(BOARD_QUERY.as_string(None).split())
     assert "row_number() over ( order by case when posting.role_families && %s::text[]" in board
@@ -167,7 +171,9 @@ def test_board_numbers_listings_once_before_any_filter() -> None:
 
 
 def test_lists_that_are_addressed_by_row_have_deterministic_order() -> None:
-    source = (Path(__file__).resolve().parents[1] / "src/personal_os/jobs_store.py").read_text()
+    source = (
+        Path(__file__).resolve().parents[1] / "src/personal_os_backend/jobs_store.py"
+    ).read_text()
     assert "application.updated_at desc, application.id" in source
     assert "order by updated_at desc, id" in source
     assert "order by last_seen_at desc, id" in source

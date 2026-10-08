@@ -5,12 +5,12 @@ from uuid import UUID, uuid4
 import pytest
 from pydantic import ValidationError
 
-from personal_os.jobs_models import (
+from personal_os_backend.jobs_models import (
     AutofillObservation,
     AutofillRunComplete,
     AutofillStepCreate,
 )
-from personal_os.jobs_store import PostgresJobsStore
+from personal_os_backend.jobs_store import PostgresJobsStore
 
 
 class RecordingConnection:
@@ -295,7 +295,7 @@ async def test_review_query_keeps_owner_and_control_context() -> None:
     'target,submitted', [('applied', True), ('skipped', False), ('archived', False)]
 )
 async def test_finish_saves_lifecycle_with_history(target: str, submitted: bool) -> None:
-    from personal_os.jobs_models import AutofillRunFinish
+    from personal_os_backend.jobs_models import AutofillRunFinish
 
     user_id, application_id = uuid4(), uuid4()
     connection = RecordingConnection({'application_id': application_id})
@@ -316,7 +316,7 @@ async def test_finish_saves_lifecycle_with_history(target: str, submitted: bool)
 
 
 def test_finish_rejects_inconsistent_submission_status() -> None:
-    from personal_os.jobs_models import AutofillRunFinish
+    from personal_os_backend.jobs_models import AutofillRunFinish
 
     with pytest.raises(ValidationError):
         AutofillRunFinish(final_url='https://example.test', submitted=False,
@@ -324,8 +324,8 @@ def test_finish_rejects_inconsistent_submission_status() -> None:
 
 
 async def test_finish_conflict_exits_transaction_without_inserting_answers() -> None:
-    from personal_os.jobs_models import AutofillRunFinish
-    from personal_os.jobs_store import CompletionConflict
+    from personal_os_backend.jobs_models import AutofillRunFinish
+    from personal_os_backend.jobs_store import CompletionConflict
 
     class ConflictConnection(RecordingConnection):
         rolled_back = False
