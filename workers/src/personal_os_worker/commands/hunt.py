@@ -426,8 +426,14 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> str:
     from personal_os_worker.adapters import adapter_version, detect_ats, failure_signature
     from personal_os_worker.autofill_session import AutofillSession, SessionContext
     from personal_os_worker.browser import VisibleBrowser, inspect_fields, sanitized_evidence
+    from personal_os_worker.doctor import latex_toolchain_check
     from personal_os_worker.resume import ensure_resume, load_resume, transcript_pdf_path
 
+    # The cover letter is compiled mid-application, so a broken TeX install must
+    # fail here rather than after twenty seconds of drafting on a live form.
+    latex = latex_toolchain_check()
+    if not latex.ok:
+        raise RuntimeError(f"{latex.name}: {latex.detail}")
     resume = ensure_resume()
     resume_json = load_resume(resume.source)
     config, token = connected()

@@ -7,6 +7,7 @@ import unicodedata
 from difflib import SequenceMatcher
 from typing import Any
 
+from personal_os_worker import claude_usage
 from personal_os_worker.autofill import normalize_answer_question
 
 ZERO_WIDTH = re.compile("[\u200b-\u200f\u2060\ufeff]")
@@ -124,6 +125,7 @@ RELEVANT APPROVED VARIANTS: {json.dumps(scoped_variants, default=str)[:15000]}
             text=True,
             timeout=300,
         )
+        claude_usage.record(process.stdout)
         if process.returncode != 0:
             continue
         try:

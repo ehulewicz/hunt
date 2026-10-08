@@ -601,6 +601,78 @@ def test_cover_letter_is_drafted_once_edited_in_the_editor_then_filled_and_uploa
     assert printed.count("drafting the cover letter slots") == 1
 
 
+def test_cover_letter_pdf_build_failure_reports_the_latex_error_not_a_readback_mismatch(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A renderer that never produces a PDF is an artifact fault, not a DOM one."""
+    from personal_os_worker.cover_letter import LetterSlots, load_template
+
+    browser_page.set_content(
+        """
+        <form>
+          <label for="clf">Cover letter (PDF)</label>
+          <input id="clf" name="cover_letter_file" type="file" required>
+        </form>
+        """
+    )
+    template_file = tmp_path / "cover_letter.md"
+    template_file.write_text(
+        "## Letter\n\nDear {{hiring_manager}},\n\n{{hook}} {{proof_primary}}\n\n{{tie}}"
+        "\n\n## Modules\n\n### one\n\nProof one.\n"
+    )
+    message = (
+        "latexmk failed for cover_letter: ! LaTeX Error: File `newtxtext.sty' not found. "
+        "! ==> Fatal error occurred, no output PDF file produced!"
+    )
+
+    def renderer(contact: Any, text: str, directory: Path, *, company: str) -> Path:
+        raise RuntimeError(message)
+
+    api = FakeApi()
+    context = SessionContext(
+        api=api,  # type: ignore[arg-type]
+        run_id="run-letter-build",
+        adapter_name="greenhouse",
+        browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
+        page=browser_page,
+        console_errors=[],
+        profile={},
+        answers=[],
+        scoped=[],
+        resume_json={"contact": {"name": "Alex Example"}},
+        resume_pdf=tmp_path / "main.pdf",
+        company="Acme",
+        title="SWE Intern",
+        description="We build things.",
+        drafter=lambda **_: None,
+        letter_drafter=lambda *_, **__: LetterSlots("", "Hook.", "w", "one", None, "Tie."),
+        letter_template=lambda: load_template(template_file),
+        editor=lambda path: None,
+        letter_renderer=renderer,
+        letter_dir=tmp_path / "letters",
+        use_claude=True,
+        short_drafter=lambda questions, **_: {},
+        poll_seconds=0.01,
+        keys=ScriptedKeys([set(), {"skip"}]),
+    )
+    (tmp_path / "main.pdf").write_bytes(b"%PDF-1.4\n%%EOF")
+    AutofillSession(context).run()
+
+    failures = [failure for step in api.steps for failure in step.get("failures", [])]
+    categories = [failure["category"] for failure in failures]
+    assert "readback_mismatch" not in categories
+    built = [
+        failure for failure in failures if failure["category"] == "artifact_build_failed"
+    ]
+    assert len(built) == 1
+    assert "newtxtext.sty" in built[0]["error_message"]
+    assert "Rc files read" not in built[0]["error_message"]
+    printed = capsys.readouterr().out
+    assert "newtxtext.sty" in printed
+
+
 def test_session_seeds_long_form_records_every_answer_and_ends_on_submit(
     browser_page,  # type: ignore[no-untyped-def]
     tmp_path: Path,

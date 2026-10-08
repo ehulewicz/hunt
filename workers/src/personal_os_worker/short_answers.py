@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
+from personal_os_worker import claude_usage
 from personal_os_worker.adapters import is_non_answer_option
 from personal_os_worker.answers import clean_answer_text, valid_generated_answer
 
@@ -59,6 +60,7 @@ def run_claude(argv: list[str]) -> str:
         text=True,
         timeout=300,
     )
+    claude_usage.record(process.stdout)
     return process.stdout if process.returncode == 0 else ""
 
 

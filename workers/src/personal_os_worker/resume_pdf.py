@@ -126,6 +126,11 @@ PREAMBLE = r"""%-------------------------
 
 REPRODUCIBLE_EPOCH = "946684800"  # 2000-01-01T00:00:00Z
 
+# The preamble is the single declaration of what TeX must provide, so the
+# pre-flight check reads its loaders rather than keeping a second list.
+USEPACKAGE = re.compile(r"\\usepackage(?:\[[^\]]*\])?\{([^}]*)\}")
+INPUT_FILE = re.compile(r"\\input\{([^}]*)\}")
+
 # A resume build is valid only when the reference-style layout stays on one page.
 MAXIMUM_PAGES: int | None = 1
 
@@ -137,6 +142,31 @@ ENTRY_SECTIONS: tuple[tuple[str, str], ...] = (
     ("projects", "Projects"),
     ("leadership", "Leadership"),
 )
+
+
+def preamble_requirements() -> tuple[str, ...]:
+    """Every TeX file the preamble loads, named the way `kpsewhich` resolves it."""
+    names = [
+        f"{name.strip()}.sty"
+        for group in USEPACKAGE.findall(PREAMBLE)
+        for name in group.split(",")
+        if name.strip()
+    ]
+    names.extend(f"{name.strip()}.tex" for name in INPUT_FILE.findall(PREAMBLE) if name.strip())
+    return tuple(dict.fromkeys(names))
+
+
+def latex_errors(log: Path) -> list[str]:
+    """The `! ...` lines latexmk wrote, which name what actually failed.
+
+    latexmk's console output opens with a banner and is only a few lines long,
+    so neither end of it is reliably informative. The log's error lines are.
+    """
+    try:
+        text = log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    return [line.strip() for line in text.splitlines() if line.startswith("! ")]
 
 
 def latex_environment() -> dict[str, str]:
@@ -172,7 +202,15 @@ def compile_pdf(latex: str, output_directory: Path, stem: str, *, pages: int | N
     )
     pdf = output_directory / f"{stem}.pdf"
     if process.returncode != 0 or not pdf.exists():
-        raise RuntimeError((process.stdout + "\n" + process.stderr)[-2000:])
+        reported = latex_errors(output_directory / f"{stem}.log")
+        if not reported:
+            console = [
+                line.strip()
+                for line in (process.stdout + "\n" + process.stderr).splitlines()
+                if line.strip()
+            ]
+            reported = console[-1:] or ["latexmk reported no error"]
+        raise RuntimeError(f"latexmk failed for {stem}: {' '.join(reported[:3])[:500]}")
     page_check = subprocess.run(
         ["pdfinfo", str(pdf)], check=False, capture_output=True, text=True, timeout=15
     )

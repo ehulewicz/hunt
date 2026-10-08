@@ -12,6 +12,7 @@ paths save the collected answers.
 from __future__ import annotations
 
 import json
+import subprocess
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -145,6 +146,19 @@ def preview(value: str, *, limit: int = 100) -> str:
     """One terminal line of a value, however long the textarea answer is."""
     flat = " ".join(value.split())
     return flat if len(flat) <= limit else flat[: limit - 3].rstrip() + "..."
+
+
+# A build that shells out can fail three ways: a bad exit (RuntimeError), no
+# executable (FileNotFoundError, an OSError), or the 120 s cap
+# (subprocess.TimeoutExpired, a SubprocessError). None of them is a DOM fault.
+ARTIFACT_BUILD_ERRORS = (RuntimeError, OSError, subprocess.SubprocessError)
+
+
+def error_note(error: BaseException, *, limit: int = 200) -> str:
+    """The informative line of an exception message, not a tool's startup banner."""
+    lines = [line.strip() for line in str(error).splitlines() if line.strip()]
+    text = lines[-1] if lines else error.__class__.__name__
+    return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
 
 TAG_WIDTH = 10
@@ -793,14 +807,30 @@ class AutofillSession:
             return
         for item in targets:
             question = str(item.get("label") or "Cover letter").strip()
-            try:
-                if str(item.get("type") or "").casefold() == "file":
+            upload = str(item.get("type") or "").casefold() == "file"
+            pdf: Path | None = None
+            if upload:
+                # Rendering the PDF is not a browser action. Keep its failure
+                # apart from a readback mismatch: "I never produced a file" and
+                # "the DOM refused my value" need different responses.
+                try:
                     pdf = self.ctx.letter_renderer(
                         self.ctx.resume_json.get("contact", {}),
                         text,
                         self.letter_directory(),
                         company=self.ctx.company,
                     )
+                except ARTIFACT_BUILD_ERRORS as error:
+                    note = error_note(error)
+                    echo("failed", question, note=note)
+                    self.report_page_failure(
+                        "artifact_build_failed",
+                        f"Cover letter PDF for {question!r} was never built: {note}",
+                    )
+                    continue
+            shown = ""
+            try:
+                if pdf is not None:
                     fresh_control(self.page, item).set_input_files(str(pdf))
                     self.page.wait_for_timeout(750)
                     ok = verify_control(self.page, item, None, resume=True, filename=pdf.name)
@@ -812,7 +842,7 @@ class AutofillSession:
                     self.state.seeds[question] = (shown, "model")
             except (Error, RuntimeError) as error:
                 ok = False
-                echo("failed", question, note=str(error)[:120])
+                echo("failed", question, note=error_note(error))
             if ok:
                 letter_key = f"{self.state.step}:{item.get('fingerprint') or ''}#{item['index']}"
                 self.state.announced[letter_key] = shown

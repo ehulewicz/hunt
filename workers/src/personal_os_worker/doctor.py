@@ -9,12 +9,48 @@ import httpx
 from personal_os_worker.api import WorkerApi
 from personal_os_worker.config import CliConfig
 
+LATEX_CHECK = "LaTeX toolchain"
+
 
 @dataclass(frozen=True, slots=True)
 class DoctorCheck:
     name: str
     ok: bool
     detail: str
+
+
+def latex_toolchain_check() -> DoctorCheck:
+    """latexmk runs and TeX can find every file the resume/letter preamble loads.
+
+    A missing package is a machine-level fact, knowable before a browser opens,
+    and it fails every cover-letter build. Checking it here turns a mid-
+    application surprise into a startup error.
+    """
+    from personal_os_worker.resume_pdf import preamble_requirements
+
+    binary = _command_check(LATEX_CHECK, "latexmk", ["-v"])
+    if not binary.ok:
+        return binary
+    kpsewhich = shutil.which("kpsewhich")
+    if kpsewhich is None:
+        return DoctorCheck(LATEX_CHECK, False, "kpsewhich is not installed or not on PATH")
+    required = preamble_requirements()
+    missing = [name for name in required if not _tex_file_found(kpsewhich, name)]
+    if missing:
+        hint = (
+            "install texlive-fonts-extra"
+            if any(name.startswith("newtx") for name in missing)
+            else "install the TeX Live packages that provide them"
+        )
+        return DoctorCheck(LATEX_CHECK, False, f"TeX cannot find {', '.join(missing)}; {hint}")
+    return DoctorCheck(LATEX_CHECK, True, f"latexmk and {len(required)} preamble file(s) are ready")
+
+
+def _tex_file_found(kpsewhich: str, name: str) -> bool:
+    result = subprocess.run(
+        [kpsewhich, name], check=False, capture_output=True, text=True, timeout=15
+    )
+    return result.returncode == 0 and bool(result.stdout.strip())
 
 
 def run_doctor(config: CliConfig, access_token: str) -> list[DoctorCheck]:
@@ -37,7 +73,7 @@ def run_doctor(config: CliConfig, access_token: str) -> list[DoctorCheck]:
         checks.append(DoctorCheck("Chrome CDP", False, _safe_http_error(error)))
 
     checks.append(_command_check("Claude authentication", "claude", ["auth", "status"]))
-    checks.append(_command_check("latexmk", "latexmk", ["-v"]))
+    checks.append(latex_toolchain_check())
     checks.append(_command_check("pdfinfo", "pdfinfo", ["-v"]))
     return checks
 

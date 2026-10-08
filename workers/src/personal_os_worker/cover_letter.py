@@ -19,6 +19,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from personal_os_worker import claude_usage
 from personal_os_worker.answers import TAG_LEAK
 from personal_os_worker.resume import repository_root
 from personal_os_worker.resume_pdf import PREAMBLE, build_header, compile_pdf, escape
@@ -156,6 +157,7 @@ CANONICAL RESUME: {json.dumps(resume, default=str)[:30000]}
 
 def run_claude(argv: list[str]) -> str:
     process = subprocess.run(argv, check=False, capture_output=True, text=True, timeout=300)
+    claude_usage.record(process.stdout)
     return process.stdout if process.returncode == 0 else ""
 
 
