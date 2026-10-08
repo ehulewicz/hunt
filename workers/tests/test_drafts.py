@@ -1,4 +1,4 @@
-from personal_os_worker.drafts import similar_answers
+from personal_os_worker.jobs.drafts import similar_answers
 
 
 def test_similar_answers_rank_near_questions_and_skip_the_exact_match() -> None:

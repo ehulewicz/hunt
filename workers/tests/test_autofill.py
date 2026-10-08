@@ -1,11 +1,11 @@
-from personal_os_worker.autofill import (
+from personal_os_worker.jobs.autofill import (
     affirmative_option,
     build_autofill_plan,
     choose_option,
     is_long_form_field,
 )
-from personal_os_worker.browser import audit_filled_form
-from personal_os_worker.patterns import resolve_priority_answer
+from personal_os_worker.jobs.browser import audit_filled_form
+from personal_os_worker.jobs.patterns import resolve_priority_answer
 
 
 def test_autofill_uses_profile_resume_and_exact_approved_long_form_answers() -> None:
@@ -650,7 +650,7 @@ def test_autofill_leaves_duplicate_exact_answers_empty_as_ambiguous() -> None:
 
 def test_ashby_style_labels_map_to_profile() -> None:
     """Bestow's Ashby form labels these exactly 'Name' and 'Address Line 1'."""
-    from personal_os_worker.autofill import PROFILE_LABELS
+    from personal_os_worker.jobs.autofill import PROFILE_LABELS
 
     assert PROFILE_LABELS["name"] == "legal_name"
     assert PROFILE_LABELS["address line 1"] == "address_line_1"
@@ -658,7 +658,7 @@ def test_ashby_style_labels_map_to_profile() -> None:
 
 def test_exact_matching_still_refuses_to_guess() -> None:
     """Matching is exact, so a qualified label must not borrow the bare mapping."""
-    from personal_os_worker.autofill import PROFILE_LABELS
+    from personal_os_worker.jobs.autofill import PROFILE_LABELS
 
     for label in ("company name", "reference name", "name of school"):
         assert label not in PROFILE_LABELS

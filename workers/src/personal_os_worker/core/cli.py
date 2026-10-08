@@ -14,14 +14,15 @@ from pathlib import Path
 import httpx
 
 from personal_os_worker import __version__
-from personal_os_worker.adapters import ATS_NAMES
-from personal_os_worker.auth import LoginError
-from personal_os_worker.commands import hunt, services
-from personal_os_worker.commands.hunt import APPLICATION_STATUSES, DEFAULT_TECHNICAL_FAMILIES
-from personal_os_worker.config import load_cli_config
-from personal_os_worker.resume import build_resume, watch_resume
-from personal_os_worker.service import ApiUnavailable, ChromeUnavailable
-from personal_os_worker.tables import ReferenceError, console
+from personal_os_worker.core import commands as services
+from personal_os_worker.core.auth import LoginError
+from personal_os_worker.core.config import load_cli_config
+from personal_os_worker.core.service import ApiUnavailable, ChromeUnavailable
+from personal_os_worker.core.tables import ReferenceError, console
+from personal_os_worker.documents.resume import build_resume, watch_resume
+from personal_os_worker.jobs import commands as hunt
+from personal_os_worker.jobs.adapters import ATS_NAMES
+from personal_os_worker.jobs.commands import APPLICATION_STATUSES, DEFAULT_TECHNICAL_FAMILIES
 
 HUNT_COMMANDS = ("today", "sync", "open", "apps", "skipped", "answers", "resume", "apply")
 LISTING_FLAGS = ("--faang", "--quant", "--location", "--family", "--all-roles", "--ats")

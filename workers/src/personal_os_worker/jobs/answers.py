@@ -7,8 +7,8 @@ import unicodedata
 from difflib import SequenceMatcher
 from typing import Any
 
-from personal_os_worker import claude_usage
-from personal_os_worker.autofill import normalize_answer_question
+from personal_os_worker.jobs import claude_usage
+from personal_os_worker.jobs.autofill import normalize_answer_question
 
 ZERO_WIDTH = re.compile("[\u200b-\u200f\u2060\ufeff]")
 CLICHES = ("delve", "tapestry", "game changer", "at the intersection of")

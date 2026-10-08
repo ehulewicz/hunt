@@ -1,4 +1,4 @@
-from personal_os_worker.answers import (
+from personal_os_worker.jobs.answers import (
     answer_match,
     changed_word_ratio,
     clean_answer_text,

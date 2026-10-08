@@ -9,7 +9,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 
 from playwright.sync_api import Error, Page
 
-from personal_os_worker.browser import has_submit_control, looks_like_application_form
+from personal_os_worker.jobs.browser import has_submit_control, looks_like_application_form
 
 
 class ApplicationPageState(StrEnum):

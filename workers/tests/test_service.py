@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from personal_os_worker import service
+from personal_os_worker.core import service
 
 
 def test_already_running_api_is_not_started_again(monkeypatch: pytest.MonkeyPatch) -> None:

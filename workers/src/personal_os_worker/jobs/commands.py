@@ -6,11 +6,11 @@ from typing import Any
 
 from playwright.sync_api import Error
 
-from personal_os_worker.api import WorkerApi
-from personal_os_worker.commands.services import connected
-from personal_os_worker.doctor import run_doctor
-from personal_os_worker.service import ensure_chrome, open_external_url
-from personal_os_worker.tables import (
+from personal_os_worker.core.api import WorkerApi
+from personal_os_worker.core.commands import connected
+from personal_os_worker.core.doctor import run_doctor
+from personal_os_worker.core.service import ensure_chrome, open_external_url
+from personal_os_worker.core.tables import (
     console,
     pick,
     render_answers,
@@ -110,7 +110,7 @@ def run_listings(
 
 def by_ats(items: list[dict[str, object]], ats: str) -> list[dict[str, object]]:
     """Listings whose direct application URL is on this form type."""
-    from personal_os_worker.adapters import detect_ats
+    from personal_os_worker.jobs.adapters import detect_ats
 
     return [
         item for item in items if detect_ats(str(item.get("application_url") or "")).name == ats
@@ -369,7 +369,7 @@ def run_autofill_top(
     *, today: bool, ats: str | None, dry_run: bool, no_claude: bool = False
 ) -> int:
     """Apply the first board row (or first of today) on the given ATS, else any supported one."""
-    from personal_os_worker.adapters import detect_ats
+    from personal_os_worker.jobs.adapters import detect_ats
 
     families = list(DEFAULT_TECHNICAL_FAMILIES)
     config, token = connected()
@@ -423,11 +423,11 @@ def run_mark_applied(reference: str) -> int:
 
 def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> str:
     """Run one interactive apply session: "submitted", "skipped", or "stopped"."""
-    from personal_os_worker.adapters import adapter_version, detect_ats, failure_signature
-    from personal_os_worker.autofill_session import AutofillSession, SessionContext
-    from personal_os_worker.browser import VisibleBrowser, inspect_fields, sanitized_evidence
-    from personal_os_worker.doctor import latex_toolchain_check
-    from personal_os_worker.resume import ensure_resume, load_resume, transcript_pdf_path
+    from personal_os_worker.core.doctor import latex_toolchain_check
+    from personal_os_worker.documents.resume import ensure_resume, load_resume, transcript_pdf_path
+    from personal_os_worker.jobs.adapters import adapter_version, detect_ats, failure_signature
+    from personal_os_worker.jobs.autofill_session import AutofillSession, SessionContext
+    from personal_os_worker.jobs.browser import VisibleBrowser, inspect_fields, sanitized_evidence
 
     # The cover letter is compiled mid-application, so a broken TeX install must
     # fail here rather than after twenty seconds of drafting on a live form.
@@ -652,7 +652,7 @@ def run_autofill_failure_command(
     import tempfile
     from pathlib import Path
 
-    from personal_os_worker.tables import short_id
+    from personal_os_worker.core.tables import short_id
 
     allowed = {"list", "show", "diagnose", "draft-fix", "apply-fix", "verify"}
     if action not in allowed:

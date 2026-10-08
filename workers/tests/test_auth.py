@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from personal_os_worker import auth
+from personal_os_worker.core import auth
 
 
 def test_pkce_challenge_is_unpadded_s256_of_the_verifier() -> None:
@@ -65,8 +65,8 @@ def test_active_session_without_a_stored_one_is_a_login_error(tmp_path, monkeypa
 def test_api_renews_the_token_once_on_401_and_retries(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     import httpx
 
-    from personal_os_worker.api import WorkerApi
-    from personal_os_worker.config import CliConfig
+    from personal_os_worker.core.api import WorkerApi
+    from personal_os_worker.core.config import CliConfig
 
     seen: list[str] = []
 

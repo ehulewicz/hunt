@@ -7,8 +7,8 @@ import time
 
 from rich.table import Table
 
-from personal_os_worker import service
-from personal_os_worker.auth import (
+from personal_os_worker.core import service
+from personal_os_worker.core.auth import (
     LoginError,
     Session,
     SupabaseAuth,
@@ -17,9 +17,9 @@ from personal_os_worker.auth import (
     login,
     save_session,
 )
-from personal_os_worker.config import CliConfig, load_cli_config
-from personal_os_worker.service import ensure_chrome
-from personal_os_worker.tables import console
+from personal_os_worker.core.config import CliConfig, load_cli_config
+from personal_os_worker.core.service import ensure_chrome
+from personal_os_worker.core.tables import console
 
 
 def _uptime(started_at: float) -> str:

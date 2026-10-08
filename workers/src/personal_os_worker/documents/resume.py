@@ -16,10 +16,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from personal_os_worker.browser import VisibleBrowser
-from personal_os_worker.config import load_cli_config
-from personal_os_worker.resume_pdf import ENTRY_SECTIONS, compile_resume
-from personal_os_worker.service import ensure_chrome
+from personal_os_worker.core.config import load_cli_config
+from personal_os_worker.core.service import ensure_chrome
+from personal_os_worker.documents.resume_pdf import ENTRY_SECTIONS, compile_resume
+from personal_os_worker.jobs.browser import VisibleBrowser
 
 DEFAULT_CDP_URL = "http://127.0.0.1:9333"
 
@@ -35,8 +35,8 @@ def repository_root() -> Path:
     configured = os.environ.get("PERSONAL_OS_REPOSITORY")
     if configured:
         return Path(configured).expanduser().resolve()
-    # workers/src/personal_os_worker/resume.py -> repository root
-    return Path(__file__).resolve().parents[3]
+    # workers/src/personal_os_worker/documents/resume.py -> repository root
+    return Path(__file__).resolve().parents[4]
 
 
 def canonical_resume_path() -> Path:

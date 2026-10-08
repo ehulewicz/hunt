@@ -18,7 +18,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from personal_os_worker.adapters import detect_ats
+from personal_os_worker.jobs.adapters import detect_ats
 
 SHORT_ID_LENGTH = 8
 

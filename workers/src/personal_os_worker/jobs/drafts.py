@@ -10,7 +10,7 @@ from __future__ import annotations
 from difflib import SequenceMatcher
 from typing import Any
 
-from personal_os_worker.autofill import normalize_answer_question
+from personal_os_worker.jobs.autofill import normalize_answer_question
 
 SIMILAR_THRESHOLD = 0.6
 SIMILAR_LIMIT = 5

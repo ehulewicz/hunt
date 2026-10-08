@@ -3,8 +3,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from personal_os_worker import claude_usage
-from personal_os_worker.autofill_timing import AutofillTimings
+from personal_os_worker.jobs import claude_usage
+from personal_os_worker.jobs.autofill_timing import AutofillTimings
 
 ENVELOPE = {
     "type": "result",

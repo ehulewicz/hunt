@@ -1,4 +1,4 @@
-from personal_os_worker.patterns import (
+from personal_os_worker.jobs.patterns import (
     resolve_pattern_answer,
     resolve_pattern_match,
     resolve_priority_answer,

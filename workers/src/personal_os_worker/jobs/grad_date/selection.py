@@ -21,7 +21,7 @@ import json
 import subprocess
 from collections.abc import Callable
 
-from personal_os_worker.grad_date.variants import CANONICAL_GRADUATION
+from personal_os_worker.jobs.grad_date.variants import CANONICAL_GRADUATION
 
 SCHEMA = {
     "type": "object",

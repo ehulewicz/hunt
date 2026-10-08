@@ -22,18 +22,19 @@ from typing import Any
 from playwright.sync_api import Error, Page
 from rich.markup import escape
 
-from personal_os_worker.adapters import failure_signature
-from personal_os_worker.answers import answer_match, draft_contextual_answer
-from personal_os_worker.api import WorkerApi
-from personal_os_worker.autofill import (
+from personal_os_worker.core.api import WorkerApi
+from personal_os_worker.core.tables import console
+from personal_os_worker.jobs.adapters import failure_signature
+from personal_os_worker.jobs.answers import answer_match, draft_contextual_answer
+from personal_os_worker.jobs.autofill import (
     AnswerResolution,
     is_cover_letter_field,
     is_long_form_field,
     is_resume_field,
     is_sensitive_field,
 )
-from personal_os_worker.autofill_timing import AutofillTimings
-from personal_os_worker.browser import (
+from personal_os_worker.jobs.autofill_timing import AutofillTimings
+from personal_os_worker.jobs.browser import (
     BrowserClosedError,
     VisibleBrowser,
     apply_autofill,
@@ -50,7 +51,7 @@ from personal_os_worker.browser import (
     snapshot_entries,
     verify_control,
 )
-from personal_os_worker.cover_letter import (
+from personal_os_worker.jobs.cover_letter import (
     LetterSlots,
     LetterTemplate,
     draft_slots,
@@ -60,17 +61,16 @@ from personal_os_worker.cover_letter import (
     placeholder_slots,
     render_letter,
 )
-from personal_os_worker.drafts import similar_answers
-from personal_os_worker.keys import KeyWatcher, NoKeys
-from personal_os_worker.page_state import (
+from personal_os_worker.jobs.drafts import similar_answers
+from personal_os_worker.jobs.keys import KeyWatcher, NoKeys
+from personal_os_worker.jobs.page_state import (
     ApplicationPageState,
     AshbyNavigation,
     capture_ashby_navigation,
     classify_application_page,
 )
-from personal_os_worker.patterns import resolve_pattern_match, resolve_priority_answer
-from personal_os_worker.short_answers import ShortQuestion, draft_short_answers
-from personal_os_worker.tables import console
+from personal_os_worker.jobs.patterns import resolve_pattern_match, resolve_priority_answer
+from personal_os_worker.jobs.short_answers import ShortQuestion, draft_short_answers
 
 
 class SubmittedByUser(Exception):
@@ -756,7 +756,7 @@ class AutofillSession:
     def letter_directory(self) -> Path:
         if self.ctx.letter_dir is not None:
             return self.ctx.letter_dir
-        from personal_os_worker.service import state_dir
+        from personal_os_worker.core.service import state_dir
 
         return state_dir() / "cover-letters" / self.ctx.run_id
 

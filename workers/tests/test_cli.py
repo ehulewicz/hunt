@@ -1,11 +1,12 @@
 import httpx
 import pytest
 
-from personal_os_worker import cli
-from personal_os_worker.auth import LoginError, Session
-from personal_os_worker.cli import build_parser, main
-from personal_os_worker.commands import hunt, services
-from personal_os_worker.config import CliConfig
+from personal_os_worker.core import cli
+from personal_os_worker.core import commands as services
+from personal_os_worker.core.auth import LoginError, Session
+from personal_os_worker.core.cli import build_parser, main
+from personal_os_worker.core.config import CliConfig
+from personal_os_worker.jobs import commands as hunt
 
 
 def test_help_describes_the_personal_os_cli(capsys: pytest.CaptureFixture[str]) -> None:
@@ -74,7 +75,7 @@ def test_api_errors_exit_with_the_backend_detail_instead_of_a_traceback(
 
 
 def test_everyday_commands_have_short_spellings() -> None:
-    from personal_os_worker.cli import expand_shorthand
+    from personal_os_worker.core.cli import expand_shorthand
 
     assert expand_shorthand(["hunt"]) == ["hunt", "list"]
     assert expand_shorthand(["hunt", "20"]) == ["hunt", "list", "20"]
@@ -440,7 +441,7 @@ def test_pairing_is_gone() -> None:
 def test_clean_terminal_outcome_persists_before_closing_one_page(
     flags: dict[str, bool], lifecycle: tuple[str, str | None], expected: str
 ) -> None:
-    from personal_os_worker.commands.hunt import finalize_application_outcome
+    from personal_os_worker.jobs.commands import finalize_application_outcome
 
     calls: list[tuple[str, object]] = []
 
@@ -473,7 +474,7 @@ def test_clean_terminal_outcome_persists_before_closing_one_page(
 
 
 def test_persistence_failure_keeps_the_session_page_for_recovery() -> None:
-    from personal_os_worker.commands.hunt import finalize_application_outcome
+    from personal_os_worker.jobs.commands import finalize_application_outcome
 
     calls: list[str] = []
 

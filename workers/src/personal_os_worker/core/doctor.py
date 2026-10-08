@@ -6,8 +6,8 @@ from dataclasses import dataclass
 
 import httpx
 
-from personal_os_worker.api import WorkerApi
-from personal_os_worker.config import CliConfig
+from personal_os_worker.core.api import WorkerApi
+from personal_os_worker.core.config import CliConfig
 
 LATEX_CHECK = "LaTeX toolchain"
 
@@ -26,7 +26,7 @@ def latex_toolchain_check() -> DoctorCheck:
     and it fails every cover-letter build. Checking it here turns a mid-
     application surprise into a startup error.
     """
-    from personal_os_worker.resume_pdf import preamble_requirements
+    from personal_os_worker.documents.resume_pdf import preamble_requirements
 
     binary = _command_check(LATEX_CHECK, "latexmk", ["-v"])
     if not binary.ok:

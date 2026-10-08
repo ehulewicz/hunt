@@ -19,9 +19,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
-from personal_os_worker import claude_usage
-from personal_os_worker.adapters import is_non_answer_option
-from personal_os_worker.answers import clean_answer_text, valid_generated_answer
+from personal_os_worker.jobs import claude_usage
+from personal_os_worker.jobs.adapters import is_non_answer_option
+from personal_os_worker.jobs.answers import clean_answer_text, valid_generated_answer
 
 MAX_CONCURRENT_CALLS = 6
 SCHEMA = {

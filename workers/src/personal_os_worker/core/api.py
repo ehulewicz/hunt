@@ -5,9 +5,9 @@ from typing import Any
 
 import httpx
 
-from personal_os_worker.auth import LoginError, SupabaseAuth, renewed_access_token
-from personal_os_worker.config import CliConfig
-from personal_os_worker.tables import ReferenceError
+from personal_os_worker.core.auth import LoginError, SupabaseAuth, renewed_access_token
+from personal_os_worker.core.config import CliConfig
+from personal_os_worker.core.tables import ReferenceError
 
 
 class RenewingBearer(httpx.Auth):

@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import Error, sync_playwright
 
-from personal_os_worker.autofill import build_autofill_plan
-from personal_os_worker.browser import (
+from personal_os_worker.jobs.autofill import build_autofill_plan
+from personal_os_worker.jobs.browser import (
     apply_autofill,
     audit_filled_form,
     click_safe_transition,
@@ -16,12 +16,12 @@ from personal_os_worker.browser import (
     snapshot_entries,
     snapshot_values,
 )
-from personal_os_worker.page_state import (
+from personal_os_worker.jobs.page_state import (
     ApplicationPageState,
     capture_ashby_navigation,
     classify_application_page,
 )
-from personal_os_worker.patterns import resolve_pattern_answer, resolve_priority_answer
+from personal_os_worker.jobs.patterns import resolve_pattern_answer, resolve_priority_answer
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -330,7 +330,7 @@ def test_snapshot_joins_every_checked_box_of_a_group(
 def test_snapshot_distinguishes_empty_controls_from_failed_reads(
     browser_page, monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
 ) -> None:
-    from personal_os_worker import browser as browser_module
+    from personal_os_worker.jobs import browser as browser_module
 
     browser_page.set_content("""
         <label for="location">Location</label><input id="location">

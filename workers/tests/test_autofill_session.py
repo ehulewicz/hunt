@@ -7,9 +7,9 @@ from typing import Any, cast
 import pytest
 from playwright.sync_api import Error, sync_playwright
 
-from personal_os_worker.autofill_session import AutofillSession, SessionContext
-from personal_os_worker.browser import BrowserClosedError, VisibleBrowser, inspect_fields
-from personal_os_worker.page_state import ApplicationPageState, classify_application_page
+from personal_os_worker.jobs.autofill_session import AutofillSession, SessionContext
+from personal_os_worker.jobs.browser import BrowserClosedError, VisibleBrowser, inspect_fields
+from personal_os_worker.jobs.page_state import ApplicationPageState, classify_application_page
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -94,7 +94,7 @@ def test_repeated_question_on_two_controls_keeps_both_observations(
          "field_fingerprint": "location-secondary"},
     ]
     monkeypatch.setattr(
-        "personal_os_worker.autofill_session.snapshot_entries",
+        "personal_os_worker.jobs.autofill_session.snapshot_entries",
         lambda *_: entries,
     )
 
@@ -117,7 +117,7 @@ def test_cleared_control_is_removed_from_final_answers_and_logged(
           "field_fingerprint": "location#1"}],
     ])
     monkeypatch.setattr(
-        "personal_os_worker.autofill_session.snapshot_entries", lambda *_: next(snapshots)
+        "personal_os_worker.jobs.autofill_session.snapshot_entries", lambda *_: next(snapshots)
     )
 
     fields = [{"fingerprint": "location", "index": 1}]
@@ -139,7 +139,7 @@ def test_failed_control_read_preserves_last_known_answer(
         [],  # The reader omitted a control it could not read.
     ])
     monkeypatch.setattr(
-        "personal_os_worker.autofill_session.snapshot_entries", lambda *_: next(snapshots)
+        "personal_os_worker.jobs.autofill_session.snapshot_entries", lambda *_: next(snapshots)
     )
     fields = [{"fingerprint": "location", "index": 1}]
     session.record_snapshot(fields)
@@ -163,7 +163,7 @@ def test_edit_retains_resolver_responsible_for_initial_answer(
         for value in ("Atlanta", "Remote")
     ])
     monkeypatch.setattr(
-        "personal_os_worker.autofill_session.snapshot_entries", lambda *_: next(snapshots)
+        "personal_os_worker.jobs.autofill_session.snapshot_entries", lambda *_: next(snapshots)
     )
     session.record_snapshot([])
     session.record_snapshot([])
@@ -221,12 +221,14 @@ def test_overview_return_stays_in_the_same_wait_step(
     states = iter(
         [ApplicationPageState.OVERVIEW, ApplicationPageState.FORM, ApplicationPageState.SUBMITTED]
     )
-    monkeypatch.setattr("personal_os_worker.autofill_session.inspect_fields", lambda _: fields)
+    monkeypatch.setattr("personal_os_worker.jobs.autofill_session.inspect_fields", lambda _: fields)
     monkeypatch.setattr(
-        "personal_os_worker.autofill_session.classify_application_page",
+        "personal_os_worker.jobs.autofill_session.classify_application_page",
         lambda *_: next(states),
     )
-    monkeypatch.setattr("personal_os_worker.autofill_session.has_submit_control", lambda _: False)
+    monkeypatch.setattr(
+        "personal_os_worker.jobs.autofill_session.has_submit_control", lambda _: False
+    )
     session.sleep = lambda: None  # type: ignore[method-assign]
     session.record_snapshot = lambda _: None  # type: ignore[method-assign]
 
@@ -243,13 +245,15 @@ def test_temporary_empty_application_rerender_does_not_report_a_wall(
         [ApplicationPageState.LOADING, ApplicationPageState.FORM, ApplicationPageState.SUBMITTED]
     )
     failures: list[str] = []
-    monkeypatch.setattr("personal_os_worker.autofill_session.inspect_fields", lambda _: fields)
+    monkeypatch.setattr("personal_os_worker.jobs.autofill_session.inspect_fields", lambda _: fields)
     monkeypatch.setattr(
-        "personal_os_worker.autofill_session.classify_application_page",
+        "personal_os_worker.jobs.autofill_session.classify_application_page",
         lambda *_: next(states),
     )
-    monkeypatch.setattr("personal_os_worker.autofill_session.has_submit_control", lambda _: False)
-    monkeypatch.setattr("personal_os_worker.autofill_session.time.monotonic", lambda: 1.0)
+    monkeypatch.setattr(
+        "personal_os_worker.jobs.autofill_session.has_submit_control", lambda _: False
+    )
+    monkeypatch.setattr("personal_os_worker.jobs.autofill_session.time.monotonic", lambda: 1.0)
     session.sleep = lambda: None  # type: ignore[method-assign]
     session.record_snapshot = lambda _: None  # type: ignore[method-assign]
     session.report_page_failure = (  # type: ignore[method-assign]
@@ -278,13 +282,17 @@ def test_unrelated_foreground_tab_stands_by_until_the_form_returns(
     )
     times = iter([1.0, 1.0, 7.0, 8.0, 9.0, 10.0])
     failures: list[str] = []
-    monkeypatch.setattr("personal_os_worker.autofill_session.inspect_fields", lambda _: fields)
+    monkeypatch.setattr("personal_os_worker.jobs.autofill_session.inspect_fields", lambda _: fields)
     monkeypatch.setattr(
-        "personal_os_worker.autofill_session.classify_application_page",
+        "personal_os_worker.jobs.autofill_session.classify_application_page",
         lambda *_: next(states),
     )
-    monkeypatch.setattr("personal_os_worker.autofill_session.has_submit_control", lambda _: False)
-    monkeypatch.setattr("personal_os_worker.autofill_session.time.monotonic", lambda: next(times))
+    monkeypatch.setattr(
+        "personal_os_worker.jobs.autofill_session.has_submit_control", lambda _: False
+    )
+    monkeypatch.setattr(
+        "personal_os_worker.jobs.autofill_session.time.monotonic", lambda: next(times)
+    )
     session.sleep = lambda: None  # type: ignore[method-assign]
     session.record_snapshot = lambda _: None  # type: ignore[method-assign]
     session.report_page_failure = (  # type: ignore[method-assign]
@@ -373,9 +381,11 @@ def test_session_stops_when_page_closes_during_form_inspection(
         raise Error("Target page, context or browser has been closed")
 
     monkeypatch.setattr(
-        "personal_os_worker.autofill_session.reveal_application_form", lambda _: False
+        "personal_os_worker.jobs.autofill_session.reveal_application_form", lambda _: False
     )
-    monkeypatch.setattr("personal_os_worker.autofill_session.inspect_fields", closed_inspection)
+    monkeypatch.setattr(
+        "personal_os_worker.jobs.autofill_session.inspect_fields", closed_inspection
+    )
     context = SessionContext(
         api=FakeApi(),  # type: ignore[arg-type]
         run_id="run-race",
@@ -413,9 +423,11 @@ def test_session_reraises_unrelated_playwright_error_that_mentions_target_closed
         raise Error('Locator.click: Timeout waiting for get_by_text("Target closed")')
 
     monkeypatch.setattr(
-        "personal_os_worker.autofill_session.reveal_application_form", lambda _: False
+        "personal_os_worker.jobs.autofill_session.reveal_application_form", lambda _: False
     )
-    monkeypatch.setattr("personal_os_worker.autofill_session.inspect_fields", failed_inspection)
+    monkeypatch.setattr(
+        "personal_os_worker.jobs.autofill_session.inspect_fields", failed_inspection
+    )
     context = SessionContext(
         api=FakeApi(),  # type: ignore[arg-type]
         run_id="run-error",
@@ -453,7 +465,7 @@ def test_session_stops_cleanly_when_browser_or_application_tab_closes(
         is_closed=lambda: False,
     )
     monkeypatch.setattr(
-        "personal_os_worker.autofill_session.reveal_application_form", lambda _: False
+        "personal_os_worker.jobs.autofill_session.reveal_application_form", lambda _: False
     )
     browser = VisibleBrowser("http://unused")
     browser._browser = cast(Any, SimpleNamespace(contexts=contexts))
@@ -519,7 +531,7 @@ def test_cover_letter_is_drafted_once_edited_in_the_editor_then_filled_and_uploa
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from personal_os_worker.cover_letter import LetterSlots, load_template
+    from personal_os_worker.jobs.cover_letter import LetterSlots, load_template
 
     browser_page.set_content(
         """
@@ -607,7 +619,7 @@ def test_cover_letter_pdf_build_failure_reports_the_latex_error_not_a_readback_m
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A renderer that never produces a PDF is an artifact fault, not a DOM one."""
-    from personal_os_worker.cover_letter import LetterSlots, load_template
+    from personal_os_worker.jobs.cover_letter import LetterSlots, load_template
 
     browser_page.set_content(
         """
@@ -1053,7 +1065,7 @@ def test_submitting_during_the_claude_pass_ends_the_session_promptly(
 def test_duplicate_labels_keep_control_resolver_after_edit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from personal_os_worker.autofill import AnswerResolution
+    from personal_os_worker.jobs.autofill import AnswerResolution
 
     session = state_machine_session()
     session.ctx.answers = []
@@ -1061,7 +1073,7 @@ def test_duplicate_labels_keep_control_resolver_after_edit(
         "0:home#0": AnswerResolution("Atlanta", "jobs_profile", "profile:city"),
         "0:office#1": AnswerResolution("Rochester", "pattern", "builtin:office"),
     }
-    monkeypatch.setattr("personal_os_worker.autofill_session.snapshot_entries", lambda *_: [
+    monkeypatch.setattr("personal_os_worker.jobs.autofill_session.snapshot_entries", lambda *_: [
         {"question": "Location", "answer_text": value, "control_kind": "text",
          "field_fingerprint": fingerprint}
         for value, fingerprint in [("Atlanta", "home#0"), ("Remote", "office#1")]
@@ -1122,7 +1134,7 @@ def test_consent_group_with_two_boxes_announces_each_box_once(
          "control_kind": "checkbox", "field_fingerprint": "consent#18"},
     ]
     monkeypatch.setattr(
-        "personal_os_worker.autofill_session.snapshot_entries", lambda *_: entries
+        "personal_os_worker.jobs.autofill_session.snapshot_entries", lambda *_: entries
     )
 
     for _ in range(5):

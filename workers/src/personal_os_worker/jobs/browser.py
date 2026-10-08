@@ -8,8 +8,8 @@ from typing import Any, cast
 
 from playwright.sync_api import Browser, Error, Page, Playwright, sync_playwright
 
-from personal_os_worker.adapters import failure_signature, option_match
-from personal_os_worker.autofill import (
+from personal_os_worker.jobs.adapters import failure_signature, option_match
+from personal_os_worker.jobs.autofill import (
     FILE_KINDS,
     AnswerFallback,
     AutofillPlan,

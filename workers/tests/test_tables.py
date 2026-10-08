@@ -5,8 +5,8 @@ from io import StringIO
 import pytest
 from rich.console import Console
 
-from personal_os_worker import tables
-from personal_os_worker.tables import ReferenceError, pick
+from personal_os_worker.core import tables
+from personal_os_worker.core.tables import ReferenceError, pick
 
 ITEMS = [
     {"id": "3f2a8c91-1111-4444-8888-aaaaaaaaaaaa", "title": "first"},

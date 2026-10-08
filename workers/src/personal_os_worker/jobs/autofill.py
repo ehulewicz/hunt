@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from personal_os_worker.adapters import is_non_answer_option, option_match
+from personal_os_worker.jobs.adapters import is_non_answer_option, option_match
 
 FILE_KINDS = frozenset({"resume", "transcript"})
 

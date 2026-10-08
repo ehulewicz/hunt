@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from personal_os_worker.resume import build_resume, canonical_resume_path, load_resume
+from personal_os_worker.documents.resume import build_resume, canonical_resume_path, load_resume
 
 CANONICAL_GRADUATION = "December 2027"
 LATER_GRADUATION = "May 2028"
@@ -29,7 +29,7 @@ def later_graduation_resume_pdf() -> Path:
     newer than the cached copy, the same staleness rule `ensure_resume` uses
     for the canonical PDF.
     """
-    from personal_os_worker.service import state_dir
+    from personal_os_worker.core.service import state_dir
 
     source = canonical_resume_path()
     cached = state_dir() / "resume-variants" / "later-graduation.pdf"

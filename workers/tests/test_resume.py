@@ -3,8 +3,12 @@ from pathlib import Path
 import httpx
 import pytest
 
-from personal_os_worker import resume
-from personal_os_worker.resume_pdf import REPRODUCIBLE_EPOCH, build_latex, latex_environment
+from personal_os_worker.documents import resume
+from personal_os_worker.documents.resume_pdf import (
+    REPRODUCIBLE_EPOCH,
+    build_latex,
+    latex_environment,
+)
 
 
 def valid_resume() -> str:

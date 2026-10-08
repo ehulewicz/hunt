@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from personal_os_worker import resume
-from personal_os_worker.grad_date import variants
+from personal_os_worker.documents import resume
+from personal_os_worker.jobs.grad_date import variants
 
 
 def valid_resume() -> str:
@@ -22,7 +22,7 @@ def valid_resume() -> str:
 def test_later_graduation_resume_is_cached_and_rebuilt_when_the_source_changes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from personal_os_worker import service
+    from personal_os_worker.core import service
 
     source = tmp_path / "main.json"
     source.write_text(valid_resume())

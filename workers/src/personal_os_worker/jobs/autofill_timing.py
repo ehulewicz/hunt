@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from time import perf_counter
 from typing import Any
 
-from personal_os_worker import claude_usage
+from personal_os_worker.jobs import claude_usage
 
 
 class AutofillTimings:

@@ -19,10 +19,10 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from personal_os_worker import claude_usage
-from personal_os_worker.answers import TAG_LEAK
-from personal_os_worker.resume import repository_root
-from personal_os_worker.resume_pdf import PREAMBLE, build_header, compile_pdf, escape
+from personal_os_worker.documents.resume import repository_root
+from personal_os_worker.documents.resume_pdf import PREAMBLE, build_header, compile_pdf, escape
+from personal_os_worker.jobs import claude_usage
+from personal_os_worker.jobs.answers import TAG_LEAK
 
 SLOT = re.compile(r"\{\{(\w+)\}\}")
 CLAUDE_SLOTS = ("hook", "why_this", "tie")

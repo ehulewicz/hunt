@@ -1,4 +1,4 @@
-from personal_os_worker.adapters import detect_ats, failure_signature, option_match
+from personal_os_worker.jobs.adapters import detect_ats, failure_signature, option_match
 
 
 def test_supported_ats_detection_is_host_based() -> None:

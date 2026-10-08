@@ -1,4 +1,4 @@
-from personal_os_worker.autofill import AnswerResolution, AnswerResolver, build_autofill_plan
+from personal_os_worker.jobs.autofill import AnswerResolution, AnswerResolver, build_autofill_plan
 
 
 def test_resolver_keeps_profile_and_priority_precedence() -> None:

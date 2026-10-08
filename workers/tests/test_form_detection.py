@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from personal_os_worker.browser import looks_like_application_form
+from personal_os_worker.jobs.browser import looks_like_application_form
 
 
 def field(**kwargs: object) -> dict[str, str | bool | None]:

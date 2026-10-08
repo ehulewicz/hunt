@@ -102,7 +102,7 @@ class ServiceRecord:
 
 def backend_source_fingerprint() -> str:
     """A digest of the backend source tree, so a pull is visible to the CLI."""
-    root = Path(__file__).resolve().parents[3] / "backend" / "src"
+    root = Path(__file__).resolve().parents[4] / "backend" / "src"
     digest = hashlib.sha256()
     for path in sorted(root.rglob("*.py")):
         stat = path.stat()

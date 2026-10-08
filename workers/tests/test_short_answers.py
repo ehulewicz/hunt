@@ -1,7 +1,7 @@
 import json
 from typing import Any
 
-from personal_os_worker.short_answers import ShortQuestion, draft_short_answers
+from personal_os_worker.jobs.short_answers import ShortQuestion, draft_short_answers
 
 RESUME = {"education": [{"org": "Example Institute of Technology"}]}
 PROFILE: dict[str, Any] = {}
