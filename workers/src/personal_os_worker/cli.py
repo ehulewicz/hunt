@@ -23,8 +23,12 @@ from personal_os_worker.documents.resume import build_resume, watch_resume
 from personal_os_worker.jobs import commands as hunt
 from personal_os_worker.jobs.adapters import ATS_NAMES
 from personal_os_worker.jobs.commands import APPLICATION_STATUSES, DEFAULT_TECHNICAL_FAMILIES
+from personal_os_worker.jobs.facts import commands as facts
+from personal_os_worker.jobs.facts.commands import VALUE_TYPES
 
-HUNT_COMMANDS = ("today", "sync", "open", "apps", "skipped", "answers", "resume", "apply")
+HUNT_COMMANDS = (
+    "today", "sync", "open", "apps", "skipped", "answers", "facts", "resume", "apply"
+)
 LISTING_FLAGS = ("--faang", "--quant", "--location", "--family", "--all-roles", "--ats")
 
 
@@ -171,6 +175,27 @@ def build_parser() -> argparse.ArgumentParser:
     answer_edit.set_defaults(approved=None)
     answer_edit.add_argument("--reuse", choices=["exact", "contextual", "pattern"])
 
+    facts_parser = jobs_commands.add_parser(
+        "facts", help="List, review, or set what is true about you"
+    )
+    fact_commands = facts_parser.add_subparsers(dest="fact_command", required=True)
+    facts_list = fact_commands.add_parser("list", help="Stored and derived facts")
+    facts_list.add_argument("--show", action="store_true", help="Show sensitive values")
+    fact_commands.add_parser("review", help="Accept, edit, or delete each unverified fact")
+    facts_set = fact_commands.add_parser("set", help="Set one fact; setting it verifies it")
+    facts_set.add_argument("key", help="Dotted fact key, e.g. education.graduation_date")
+    facts_set.add_argument("value", help="Value; JSON for list and object facts")
+    facts_set.add_argument("--type", choices=VALUE_TYPES, dest="value_type")
+    facts_set.add_argument("--label", help="Plain-language description, required for a new fact")
+    facts_sensitivity = facts_set.add_mutually_exclusive_group()
+    facts_sensitivity.add_argument(
+        "--sensitive", action="store_const", const=True, dest="sensitive"
+    )
+    facts_sensitivity.add_argument(
+        "--not-sensitive", action="store_const", const=False, dest="sensitive"
+    )
+    facts_set.set_defaults(sensitive=None)
+
     resume = jobs_commands.add_parser("resume", help="Build or watch the canonical one-page resume")
     resume_commands = resume.add_subparsers(dest="resume_command", required=True)
     resume_build = resume_commands.add_parser("build", help="Compile resume JSON to PDF")
@@ -313,6 +338,19 @@ def _dispatch(args: argparse.Namespace) -> int:
                     approved=args.approved,
                     reuse=args.reuse,
                 )
+        if args.hunt_command == "facts":
+            if args.fact_command == "list":
+                return facts.run_facts_list(show_sensitive=args.show)
+            if args.fact_command == "review":
+                return facts.run_facts_review()
+            if args.fact_command == "set":
+                return facts.run_facts_set(
+                    args.key,
+                    args.value,
+                    value_type=args.value_type,
+                    label=args.label,
+                    sensitive=args.sensitive,
+                )
         if args.hunt_command == "resume":
             source = Path(args.input).expanduser() if args.input else None
             output = Path(args.output).expanduser() if args.output else None
@@ -360,7 +398,8 @@ def expand_shorthand(arguments: list[str]) -> list[str]:
     """The short spellings of the everyday commands.
 
     `hunt` is `hunt list`, `hunt 20` is `hunt list 20`, `hunt answers` is
-    `hunt answers list`, and `hunt resume` is `hunt resume watch --open`.
+    `hunt answers list`, `hunt facts` is `hunt facts list`, and `hunt resume`
+    is `hunt resume watch --open`.
     """
     if not arguments or arguments[0] != "hunt":
         return arguments
@@ -369,6 +408,8 @@ def expand_shorthand(arguments: list[str]) -> list[str]:
         return ["hunt", "list", *rest]
     if rest == ["answers"]:
         return ["hunt", "answers", "list"]
+    if rest == ["facts"]:
+        return ["hunt", "facts", "list"]
     if rest == ["resume"]:
         return ["hunt", "resume", "watch", "--open"]
     if rest[0] not in (*HUNT_COMMANDS, "list") and not rest[0].startswith("-"):

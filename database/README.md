@@ -18,7 +18,7 @@ a request body. There is no RLS, by design, because the product is single-user.
 
 ### What the Jobs tables hold
 
-Structured profile facts, source listings, recoverably archived applications with
+Facts, source listings, recoverably archived applications with
 a lifecycle status (`queued`, `applied`, `oa`, `oa_completed`, `interview`, `offer`,
 `rejected`, `archived`), immutable versioned documents, approved long-form answers,
 application-question event history, synchronous autofill runs, deduplicated failure
@@ -34,11 +34,16 @@ Composite, partial, and GIN indexes support newest-first discovery, unanswered
 questions, and location overlap. The worker task queue and tailoring audit tables
 were dropped when the task worker was retired.
 
-The profile stores graduation date separately from the explicit academic term, a
-decimal completed-co-op-term count, and salary amount separately from its
-`hour|year` period. Current bootstrap facts are December 15 2027 / Fall, 4.5
-completed terms, and USD 35/hour; the worker picks a form-specific rendering rather
-than copying those facts per application.
+`jobs_facts` holds one row per fact, keyed per user by a dotted name, with a
+`jsonb` value whose shape a check constraint ties to `value_type` (`text`,
+`boolean`, `number`, `date`, `choice`, `list`, `object`). `sensitive` marks values
+to withhold from model calls; `verified_at` records the user's review. Facts that
+change with time — completed co-op rotations, graduation term, annual minimum
+compensation — are derived by the worker and never stored; `coop.anchor` and
+`compensation.minimum` are their stored inputs. The worker picks a form-specific
+rendering rather than copying facts per application. `jobs_profile` was seeded
+into `jobs_facts` and is no longer read; it is dropped once every fact is
+verified.
 
 ### Storage buckets
 

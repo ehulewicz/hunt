@@ -17,6 +17,7 @@ from personal_os_backend.database import (
     database_is_ready,
     get_bootstrap_store,
 )
+from personal_os_backend.jobs_facts import router as facts_router
 from personal_os_backend.jobs_router import router as jobs_router
 from personal_os_backend.models import AccountResponse, HealthResponse
 
@@ -93,6 +94,7 @@ def create_app(settings: Settings | None = None, *, lifespan: Lifespan | None = 
         return AccountResponse.from_principal(principal)
 
     application.include_router(jobs_router)
+    application.include_router(facts_router)
 
     return application
 

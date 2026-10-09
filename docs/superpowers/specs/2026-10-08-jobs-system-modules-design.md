@@ -409,6 +409,8 @@ verified by you, row by row. It is never inferred silently.
 Keys and types only. Values are reviewed in the database (R6). *Derived*
 entries are computed in code and never stored. Entries marked *career* are
 derived from the career record (§7.6) rather than stored as facts.
+Until slice B builds the career record, the *career* entries are seeded and
+stored as ordinary facts; B moves them out.
 
 | Key | Type | Notes |
 |---|---|---|
@@ -418,7 +420,7 @@ derived from the career record (§7.6) rather than stored as facts.
 | `contact.email` | text | also the resume header |
 | `contact.phone` | text | sensitive; also the resume header |
 | `contact.linkedin_url` / `github_url` / `portfolio_url` | text | also the resume header |
-| `address.line_1` / `line_2` / `city` / `region` / `postal_code` / `country` | text | sensitive; `city`, `region` answer "current location" |
+| `address.line_1` / `line_2` / `city` / `region` / `postal_code` / `country` | text | `line_1`, `line_2`, `postal_code` sensitive; `city`, `region`, `country` answer "current location" and are not |
 | `education.school_name` / `degree_type` / `field_of_study` | *career* | from the primary education row |
 | `education.graduation_date` | *career* | base for every graduation rendering |
 | `education.gpa` | *career* | |

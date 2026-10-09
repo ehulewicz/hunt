@@ -28,16 +28,21 @@ Each PostgreSQL transaction assumes the non-login `personal_os_api` role before
 touching the `app` schema. Private PDF objects are read and written server-side
 with a Supabase secret key from GCP Secret Manager.
 
-`POST /v1/bootstrap` idempotently seeds the known Jobs profile and the approved
-canonical `main` resume from `artifacts/career/main.json`. The Docker image copies
-that same tracked file from the repository-root build context, so local resume
-generation and hosted bootstrap never maintain duplicate JSON. Application facts
-stay in Profile; Answers holds only user-created long-form responses, and unknown
-or optional EEO values are not inferred.
+`POST /v1/bootstrap` idempotently seeds the approved canonical `main` resume from
+`artifacts/career/main.json`. The Docker image copies that same tracked file from
+the repository-root build context, so local resume generation and hosted bootstrap
+never maintain duplicate JSON. It still fills defaults into the retired
+`jobs_profile` table, which nothing reads; both go when that table is dropped.
+
+Application facts live in `jobs_facts`, one row per fact keyed by a dotted name
+(`education.graduation_date`), with a JSON value typed by `value_type`.
+`/v1/jobs/facts` lists, sets, verifies, and deletes them; a write is validated
+against its type here and by a database check. Setting a value marks it verified.
+Unknown or optional EEO values are not inferred.
 
 ### Jobs endpoints
 
-`/v1/jobs/*` owns profile editing, listing filtering, the application queue and
+`/v1/jobs/*` owns facts, listing filtering, the application queue and
 lifecycle, document review, answer-library management, synchronous autofill runs,
 and failure history. Discovery is always limited to internships/co-ops, ordered
 newest-first by `jobs_postings.created_at` (discovery into this system, not
@@ -46,7 +51,7 @@ source section retained. The direct company/ATS URL is used for application work
 while the GitHub file remains the discovery URL.
 
 The signed-in CLI creates an autofill run from a posting ID. FastAPI upserts the
-application and returns only that user's direct URL, posting context, profile,
+application and returns only that user's direct URL, posting context, facts,
 approved answer bases, scoped variants, and duplicate-company warnings. Step
 results, changed-answer observations, and final values come back through
 authenticated endpoints and are stored as application history — only explicit

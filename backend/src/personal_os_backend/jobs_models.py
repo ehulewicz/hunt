@@ -1,6 +1,5 @@
 import re
 from datetime import date, datetime
-from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
@@ -8,7 +7,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    HttpUrl,
     field_validator,
     model_validator,
 )
@@ -38,100 +36,6 @@ FailureStatus = Literal[
 
 def internship_default() -> list[CareerStage]:
     return ["internship"]
-
-
-class JobsProfile(BaseModel):
-    legal_name: str | None = None
-    preferred_name: str | None = None
-    email: str | None = None
-    phone: str | None = None
-    address_line_1: str | None = None
-    address_line_2: str | None = None
-    city: str | None = None
-    region: str | None = None
-    postal_code: str | None = None
-    country: str | None = None
-    linkedin_url: str | None = None
-    github_url: str | None = None
-    portfolio_url: str | None = None
-    work_authorization_status: str | None = None
-    visa_status: str | None = None
-    sponsorship_required: bool | None = None
-    school_name: str | None = None
-    degree_type: str | None = None
-    field_of_study: str | None = None
-    graduation_date: date | None = None
-    graduation_term: Literal["Spring", "Summer", "Fall", "Winter"] | None = None
-    completed_coop_terms: Decimal | None = Field(default=None, ge=0)
-    gpa: Decimal | None = Field(default=None, ge=0, le=5)
-    earliest_start_date: date | None = None
-    earliest_start_text: str | None = None
-    years_professional_experience: Decimal | None = Field(default=None, ge=0)
-    remote_preference: str | None = None
-    willing_to_relocate: bool | None = None
-    willing_to_travel: bool | None = None
-    target_roles: list[str] = Field(default_factory=list)
-    target_locations: list[str] = Field(default_factory=list)
-    target_career_stages: list[CareerStage] = Field(default_factory=internship_default)
-    minimum_salary: Decimal | None = Field(default=None, ge=0)
-    minimum_salary_period: Literal["hour", "year"] | None = None
-    professional_summary: str | None = None
-    eeo_gender_identity: str | None = None
-    eeo_race_ethnicities: list[str] = Field(default_factory=list)
-    eeo_veteran_status: str | None = None
-    eeo_disability_status: str | None = None
-    completed_at: datetime | None = None
-    updated_at: datetime
-
-
-class JobsProfileUpdate(BaseModel):
-    legal_name: str | None = Field(default=None, max_length=200)
-    preferred_name: str | None = Field(default=None, max_length=200)
-    email: str | None = Field(default=None, max_length=320)
-    phone: str | None = Field(default=None, max_length=80)
-    address_line_1: str | None = Field(default=None, max_length=300)
-    address_line_2: str | None = Field(default=None, max_length=300)
-    city: str | None = Field(default=None, max_length=120)
-    region: str | None = Field(default=None, max_length=120)
-    postal_code: str | None = Field(default=None, max_length=40)
-    country: str | None = Field(default=None, max_length=120)
-    linkedin_url: HttpUrl | None = None
-    github_url: HttpUrl | None = None
-    portfolio_url: HttpUrl | None = None
-    work_authorization_status: str | None = Field(default=None, max_length=200)
-    visa_status: str | None = Field(default=None, max_length=200)
-    sponsorship_required: bool | None = None
-    school_name: str | None = Field(default=None, max_length=250)
-    degree_type: str | None = Field(default=None, max_length=200)
-    field_of_study: str | None = Field(default=None, max_length=200)
-    graduation_date: date | None = None
-    graduation_term: Literal["Spring", "Summer", "Fall", "Winter"] | None = None
-    completed_coop_terms: Decimal | None = Field(default=None, ge=0)
-    gpa: Decimal | None = Field(default=None, ge=0, le=5)
-    earliest_start_date: date | None = None
-    earliest_start_text: str | None = Field(default=None, max_length=300)
-    years_professional_experience: Decimal | None = Field(default=None, ge=0)
-    remote_preference: str | None = Field(default=None, max_length=200)
-    willing_to_relocate: bool | None = None
-    willing_to_travel: bool | None = None
-    target_roles: list[str] | None = Field(default=None, max_length=24)
-    target_locations: list[str] | None = Field(default=None, max_length=50)
-    target_career_stages: list[CareerStage] | None = None
-    minimum_salary: Decimal | None = Field(default=None, ge=0)
-    minimum_salary_period: Literal["hour", "year"] | None = None
-    professional_summary: str | None = Field(default=None, max_length=4000)
-    eeo_gender_identity: str | None = Field(default=None, max_length=120)
-    eeo_race_ethnicities: list[str] | None = Field(default=None, max_length=20)
-    eeo_veteran_status: str | None = Field(default=None, max_length=120)
-    eeo_disability_status: str | None = Field(default=None, max_length=120)
-    completed: bool | None = None
-
-    @field_validator("target_roles", "target_locations", "eeo_race_ethnicities")
-    @classmethod
-    def normalize_list(cls, value: list[str] | None) -> list[str] | None:
-        if value is None:
-            return None
-        return list(dict.fromkeys(item.strip() for item in value if item.strip()))
 
 
 class JobListing(BaseModel):
@@ -401,7 +305,7 @@ class AutofillRunContext(BaseModel):
     company_name: str
     title: str
     description_text: str | None
-    profile: dict[str, Any]
+    facts: list[dict[str, Any]]
     approved_answers: list[dict[str, Any]]
     scoped_answers: list[dict[str, Any]]
     duplicate_company_applications: list[dict[str, Any]]

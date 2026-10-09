@@ -32,8 +32,6 @@ from personal_os_backend.jobs_models import (
     JobDocument,
     JobListing,
     JobListingPage,
-    JobsProfile,
-    JobsProfileUpdate,
     ListingSyncResponse,
     MasterResumeContent,
 )
@@ -84,10 +82,6 @@ class AmbiguousReference(LookupError):
 
 
 class JobsStore(Protocol):
-    async def get_profile(self, user_id: UUID) -> JobsProfile: ...
-
-    async def update_profile(self, user_id: UUID, update: JobsProfileUpdate) -> JobsProfile: ...
-
     async def sync_listings(
         self, user_id: UUID, listings: Sequence[SourceListing]
     ) -> ListingSyncResponse: ...
@@ -179,97 +173,10 @@ class JobsStore(Protocol):
         self, user_id: UUID, issue_id: UUID, item: AutofillFailureUpdate
     ) -> AutofillFailureIssue | None: ...
 
-PROFILE_COLUMNS = (
-    "legal_name",
-    "preferred_name",
-    "email",
-    "phone",
-    "address_line_1",
-    "address_line_2",
-    "city",
-    "region",
-    "postal_code",
-    "country",
-    "linkedin_url",
-    "github_url",
-    "portfolio_url",
-    "work_authorization_status",
-    "visa_status",
-    "sponsorship_required",
-    "school_name",
-    "degree_type",
-    "field_of_study",
-    "graduation_date",
-    "graduation_term",
-    "completed_coop_terms",
-    "gpa",
-    "earliest_start_date",
-    "earliest_start_text",
-    "years_professional_experience",
-    "remote_preference",
-    "willing_to_relocate",
-    "willing_to_travel",
-    "target_roles",
-    "target_locations",
-    "target_career_stages",
-    "minimum_salary",
-    "minimum_salary_period",
-    "professional_summary",
-    "eeo_gender_identity",
-    "eeo_race_ethnicities",
-    "eeo_veteran_status",
-    "eeo_disability_status",
-    "completed_at",
-    "updated_at",
-)
-
-
 class PostgresJobsStore:
     def __init__(self, pool: AsyncConnectionPool[Any], timeout: float) -> None:
         self._pool = pool
         self._timeout = timeout
-
-    async def get_profile(self, user_id: UUID) -> JobsProfile:
-        columns = sql.SQL(", ").join(map(sql.Identifier, PROFILE_COLUMNS))
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                sql.SQL("select {} from app.jobs_profile where user_id = %s").format(columns),
-                (user_id,),
-            )
-            row = await cursor.fetchone()
-        if row is None:
-            raise LookupError("Jobs profile is missing")
-        return JobsProfile.model_validate(row)
-
-    async def update_profile(self, user_id: UUID, update: JobsProfileUpdate) -> JobsProfile:
-        values = update.model_dump(exclude_unset=True)
-        completed = values.pop("completed", None)
-        values = {
-            key: str(value) if key.endswith("_url") and value is not None else value
-            for key, value in values.items()
-        }
-        if completed is not None:
-            values["completed_at"] = datetime.now(UTC) if completed else None
-        if values:
-            assignments = sql.SQL(", ").join(
-                sql.SQL("{} = %s").format(sql.Identifier(key)) for key in values
-            )
-            async with (
-                self._pool.connection(timeout=self._timeout) as connection,
-                connection.transaction(),
-            ):
-                await connection.execute("set local role personal_os_api")
-                await connection.execute(
-                    sql.SQL("update app.jobs_profile set {} where user_id = %s").format(
-                        assignments
-                    ),
-                    (*values.values(), user_id),
-                )
-        return await self.get_profile(user_id)
 
     async def sync_listings(
         self, user_id: UUID, listings: Sequence[SourceListing]
@@ -960,12 +867,11 @@ class PostgresJobsStore:
             row = await cursor.fetchone()
             if row is None:
                 return None
-            profile_cursor = await connection.execute(
-                "select to_jsonb(profile) - 'user_id' as profile "
-                "from app.jobs_profile profile where user_id = %s",
+            facts_cursor = await connection.execute(
+                "select key, value, value_type from app.jobs_facts "
+                "where user_id = %s order by key",
                 (user_id,),
             )
-            profile_row = await profile_cursor.fetchone()
             answers_cursor = await connection.execute(
                 """
                 select id, normalized_question, normalized_key, answer_text,
@@ -1010,14 +916,13 @@ class PostgresJobsStore:
                 """,
                 (user_id, row["company_id"], row["application_id"]),
             )
+            facts = await facts_cursor.fetchall()
             answers = await answers_cursor.fetchall()
             scoped = await scoped_cursor.fetchall()
             duplicates = await duplicate_cursor.fetchall()
-        if profile_row is None:
-            return None
         return AutofillRunContext(
             **{key: value for key, value in row.items() if key != "company_id"},
-            profile=profile_row["profile"],
+            facts=[dict(fact) for fact in facts],
             approved_answers=[dict(answer) for answer in answers],
             scoped_answers=[dict(answer) for answer in scoped],
             duplicate_company_applications=[dict(item) for item in duplicates],

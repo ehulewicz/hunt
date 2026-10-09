@@ -39,8 +39,6 @@ from personal_os_backend.jobs_models import (
     JobDocument,
     JobListing,
     JobListingPage,
-    JobsProfile,
-    JobsProfileUpdate,
     ListingSyncResponse,
     MasterResumeContent,
     RoleFamily,
@@ -57,21 +55,6 @@ from personal_os_backend.jobs_sync import run_sync
 
 router = APIRouter(prefix="/v1/jobs", tags=["jobs"])
 Store = Annotated[JobsStore, Depends(get_jobs_store)]
-
-
-@router.get("/profile", response_model=JobsProfile)
-async def get_profile(principal: CurrentPrincipal, store: Store) -> JobsProfile:
-    try:
-        return await store.get_profile(principal.user_id)
-    except LookupError:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Jobs profile not found") from None
-
-
-@router.patch("/profile", response_model=JobsProfile)
-async def update_profile(
-    update: JobsProfileUpdate, principal: CurrentPrincipal, store: Store
-) -> JobsProfile:
-    return await store.update_profile(principal.user_id, update)
 
 
 @router.get("/listings", response_model=JobListingPage)

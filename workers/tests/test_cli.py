@@ -101,7 +101,7 @@ def test_hunt_help_lists_only_the_public_commands(capsys: pytest.CaptureFixture[
     assert exit_info.value.code == 0
     output = capsys.readouterr().out
     assert "os hunt [N]" in output
-    assert "{today,sync,open,apps,skipped,answers,resume,apply}" in output
+    assert "{today,sync,open,apps,skipped,answers,facts,resume,apply}" in output
     assert "queue" not in output
     assert "{list," not in output and "\n    list " not in output
 

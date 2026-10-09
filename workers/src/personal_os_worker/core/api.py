@@ -101,13 +101,49 @@ class WorkerApi:
             raise RuntimeError("Listing sync response was invalid")
         return payload
 
-    def profile(self) -> dict[str, Any]:
-        response = self._client.get("/v1/jobs/profile")
+    def facts(self) -> list[dict[str, Any]]:
+        response = self._client.get("/v1/jobs/facts")
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, list):
+            raise RuntimeError("Facts response was invalid")
+        return payload
+
+    def set_fact(
+        self,
+        key: str,
+        value: Any,
+        *,
+        label: str | None = None,
+        value_type: str | None = None,
+        sensitive: bool | None = None,
+        verified: bool = True,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"value": value, "verified": verified}
+        if label is not None:
+            body["label"] = label
+        if value_type is not None:
+            body["value_type"] = value_type
+        if sensitive is not None:
+            body["sensitive"] = sensitive
+        response = self._client.put(f"/v1/jobs/facts/{key}", json=body)
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict):
-            raise RuntimeError("Profile response was invalid")
+            raise RuntimeError("Fact response was invalid")
         return payload
+
+    def verify_fact(self, key: str) -> dict[str, Any]:
+        response = self._client.post(f"/v1/jobs/facts/{key}/verify")
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Fact response was invalid")
+        return payload
+
+    def delete_fact(self, key: str) -> None:
+        response = self._client.delete(f"/v1/jobs/facts/{key}")
+        response.raise_for_status()
 
     def answer_review(self, *, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
         response = self._client.get(

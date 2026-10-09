@@ -17,6 +17,7 @@ os hunt            # list
 os hunt 20         # list 20
 os hunt today
 os hunt answers list
+os hunt facts review
 os hunt resume watch --open
 os hunt queue add 1
 os hunt queue empty

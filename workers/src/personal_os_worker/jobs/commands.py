@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from playwright.sync_api import Error
@@ -12,6 +13,7 @@ from personal_os_worker.core.doctor import run_doctor
 from personal_os_worker.core.service import ensure_chrome, open_external_url
 from personal_os_worker.core.tables import console, pick
 from personal_os_worker.documents.doctor import CHECKS as DOCUMENT_CHECKS
+from personal_os_worker.jobs.facts.profile import legacy_profile
 from personal_os_worker.jobs.tables import (
     render_answers,
     render_applications,
@@ -475,7 +477,7 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> str:
             )
         if run.get("ats") != adapter.name:
             raise RuntimeError("The backend and browser disagreed on the ATS adapter")
-        profile = dict(run.get("profile") or {})
+        profile = legacy_profile(list(run.get("facts") or []), date.today())
         answers = list(run.get("approved_answers") or [])
         scoped = list(run.get("scoped_answers") or [])
         duplicates = list(run.get("duplicate_company_applications") or [])

@@ -24,6 +24,11 @@ os hunt answers add --question "Are you authorized?" --text "Yes" --reuse exact
 os hunt answers add --question "Why this company?" --file ./answer.md --reuse contextual
 os hunt answers add --question "consider me for other (job )?opportunities" --text "Yes" --reuse pattern
 os hunt answers edit 1 --file ./revised-answer.md --reuse contextual --approve
+os hunt facts        # = os hunt facts list; stored and derived facts, sensitive values masked
+os hunt facts list --show
+os hunt facts review # accept, edit, or delete each unverified fact
+os hunt facts set education.gpa 3.78
+os hunt facts set work_auth.security_clearance no --type boolean --label "Holds a security clearance"
 
 os hunt resume build
 os hunt resume       # = os hunt resume watch --open
@@ -109,7 +114,7 @@ terminal, Ctrl+S records what has been picked up so
 far for review, Ctrl+A records answers and marks the application applied when you have submitted
 it yourself, Ctrl+D skips the listing (it leaves the board as `skipped`, a
 resync cannot bring it back, and `os hunt skipped restore <n>` can), and
-Ctrl+C stops and records the application state. Whatever profile facts and exact answers leave unfilled goes
+Ctrl+C stops and records the application state. Whatever facts and exact answers leave unfilled goes
 through library and built-in pattern rules, then one bounded local Claude pass
 per page step over the remaining short and choice questions; `--no-claude`
 skips that last pass.
@@ -120,11 +125,19 @@ success panel ends automatically. On detected submission, Ctrl+A, Ctrl+D, or
 Ctrl+C, persistence finishes before the command closes only the application tab
 it opened. `--dry-run` and unexpected worker errors leave that tab open.
 
-Standing salary policy precedes saved exact answers: requirements are USD
-$35/hour (or 35 numeric), explicit annual requirements are $72,800 USD (or
-72800 numeric), and a stated compensation range is accepted. Graduation uses
-`Fall 2027` when a term is requested and `December 2027` otherwise; completed
-co-op terms are 4.5. Visa/work-permit expiration stays manual without a date.
+Standing salary policy precedes saved exact answers: requirements follow the
+`compensation.minimum` fact, USD $40/hour (or 40 numeric), explicit annual
+requirements are $83,200 USD (or 83200 numeric), and a stated compensation range
+is accepted. Graduation uses `Fall 2027` when a term is requested and `December
+2027` otherwise. Completed co-op rotations are derived, never stored: the
+`coop.anchor` fact says four were complete on 2026-08-01, and one more completes
+each May 1, August 1, and November 1 until graduation. Visa/work-permit
+expiration stays manual without a date.
+
+Facts are the single source the apply run fills from. `os hunt facts review`
+shows each unverified fact beside what the answer library says to similar
+questions, so a contradiction such as a second graduation date is settled once,
+on the fact.
 
 Failure diagnosis and fix drafting use subscription-authenticated local Claude.
 `apply-fix` requires the literal confirmation `apply`, changes only worker or

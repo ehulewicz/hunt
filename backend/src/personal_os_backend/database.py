@@ -146,7 +146,7 @@ async def database_is_ready(request: Request) -> bool:
         ):
             await connection.execute("set local role personal_os_api")
             cursor = await connection.execute(
-                "select to_regclass('app.jobs_profile') is not null"
+                "select to_regclass('app.jobs_facts') is not null"
             )
             row = await cursor.fetchone()
             return bool(row and next(iter(row.values())))
