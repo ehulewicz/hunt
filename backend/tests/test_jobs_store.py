@@ -156,29 +156,6 @@ def test_master_resume_content_accepts_the_canonical_shape() -> None:
     assert "meta" in content.model_dump()
 
 
-def test_master_resume_round_trip_preserves_research_presentation() -> None:
-    source = Path(__file__).resolve().parents[2] / "artifacts/career/main.json"
-    content = MasterResumeContent.model_validate_json(source.read_text())
-    restored = MasterResumeContent.model_validate_json(content.model_dump_json())
-    assert [(entry.title, entry.resumeSection) for entry in restored.research] == [
-        ("Sample Lab @ Example University Europe", "projects"),
-        ("Example Lab @ Example University", "experience"),
-    ]
-    assert all("Lab" not in entry.title for entry in restored.experience)
-    assert all("Lab" not in entry.title for entry in restored.projects)
-
-
-def test_master_resume_rejects_invalid_presentation_section() -> None:
-    with pytest.raises(ValueError, match="resumeSection"):
-        MasterResumeContent.model_validate(
-            {
-                "contact": {"name": "Candidate"},
-                "education": {"school": "School"},
-                "research": [{"title": "Lab", "resumeSection": "skills"}],
-            }
-        )
-
-
 def test_board_numbers_listings_once_before_any_filter() -> None:
     """The row number is a window over the whole board, so every view agrees."""
     from personal_os_backend.jobs_store import BOARD_QUERY

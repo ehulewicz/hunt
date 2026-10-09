@@ -13,12 +13,6 @@ change only when rendered content changes. The backend Docker image copies this
 same `main.json` from the repository-root build context, so `POST /v1/bootstrap`
 and local resume generation never diverge.
 
-Entry lists describe the underlying classification. An optional `resumeSection`
-on an entry chooses its PDF section (`experience`, `research`, `projects`, or
-`leadership`), defaulting to its source list. Both labs remain in `research`:
-iFAN displays in Experience and DREAM in Projects. Empty display sections are
-omitted, so the default order is Education, Experience, Projects, Technical Skills.
-
 `career/cover_letter.md` is fixed prose with `{{slots}}` and named proof modules.
 `os hunt apply` fills the listing facts, asks Claude for only the
 posting-dependent slots, opens the result in VS Code, and then fills or uploads

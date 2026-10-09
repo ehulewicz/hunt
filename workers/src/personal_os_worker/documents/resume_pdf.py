@@ -232,15 +232,8 @@ def build_latex(resume: dict[str, Any]) -> str:
     ]
     parts.extend(build_header(resume.get("contact", {})))
     parts.extend(build_education(resume.get("education", {})))
-    sections: dict[str, list[dict[str, Any]]] = {key: [] for key, _ in ENTRY_SECTIONS}
-    for source, _ in ENTRY_SECTIONS:
-        for entry in resume.get(source, []):
-            destination = entry.get("resumeSection") or source
-            if not isinstance(destination, str) or destination not in sections:
-                raise RuntimeError(f"Unknown resumeSection: {destination}")
-            sections[destination].append(entry)
     for key, label in ENTRY_SECTIONS:
-        parts.extend(build_entries(label, sections[key]))
+        parts.extend(build_entries(label, resume.get(key, [])))
     parts.extend(build_skills(resume.get("skills", [])))
     parts.append(r"\end{document}")
     return "\n".join(parts) + "\n"

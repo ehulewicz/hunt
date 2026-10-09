@@ -90,13 +90,6 @@ def _validate_resume_shape(resume: dict[str, Any]) -> None:
         for index, entry in enumerate(resume.get(section, [])):
             if not isinstance(entry, dict):
                 raise RuntimeError(f"Resume {section}[{index}] must be an object")
-            destination = entry.get("resumeSection")
-            if destination is not None and (
-                not isinstance(destination, str) or destination not in dict(ENTRY_SECTIONS)
-            ):
-                raise RuntimeError(
-                    f"Resume {section}[{index}].resumeSection must name an entry section"
-                )
             bullets = entry.get("bullets")
             if (
                 not isinstance(bullets, list)

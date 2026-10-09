@@ -257,7 +257,6 @@ class ResumeEntry(BaseModel):
     org: str = Field(default="", max_length=300)
     location: str = Field(default="", max_length=200)
     date: str = Field(default="", max_length=100)
-    resumeSection: Literal["experience", "research", "projects", "leadership"] | None = None
     bullets: list[str] = Field(default_factory=list, max_length=20)
 
     @field_validator("bullets")

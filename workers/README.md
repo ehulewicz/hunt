@@ -29,8 +29,6 @@ os hunt apply failures list
 
 Edit `artifacts/career/main.json`; `os hunt resume watch --open` keeps the
 Git-tracked `artifacts/career/Alex_Example.pdf` beside it up to date.
-The entry classification and PDF section rules are in
-[`../artifacts/README.md`](../artifacts/README.md).
 
 The CLI launches local FastAPI and the dedicated native Windows Chrome profile
 as needed. It never accesses Postgres directly and never submits an application.
