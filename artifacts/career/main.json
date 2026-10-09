@@ -64,6 +64,7 @@
   "research": [
     {
       "title": "Sample Lab @ Example University Europe",
+      "resumeSection": "projects",
       "org": "Data-driven Robotics for Environment Assessment and Monitoring",
       "location": "Metz, France",
       "date": "September 2024 – December 2024",
@@ -75,6 +76,7 @@
     },
     {
       "title": "Example Lab @ Example University",
+      "resumeSection": "experience",
       "org": "Example Nuclear Group",
       "location": "Atlanta, GA",
       "date": "April 2024 – September 2024",

@@ -35,6 +35,10 @@ generation and hosted bootstrap never maintain duplicate JSON. Application facts
 stay in Profile; Answers holds only user-created long-form responses, and unknown
 or optional EEO values are not inferred.
 
+Master-resume draft endpoints validate and preserve entry `resumeSection` values
+when serializing document JSON. The classification and display contract is
+documented in [`../artifacts/README.md`](../artifacts/README.md).
+
 ### Jobs endpoints
 
 `/v1/jobs/*` owns profile editing, listing filtering, the application queue and

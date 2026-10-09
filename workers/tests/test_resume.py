@@ -204,6 +204,39 @@ def test_research_renders_between_experience_and_projects() -> None:
     assert latex.count(r"\resumeItem{}") == 3
 
 
+def test_canonical_research_displays_in_experience_and_projects_without_reclassification() -> None:
+    payload = resume.load_resume(resume.canonical_resume_path())
+    labs = {entry["title"]: entry for entry in payload["research"]}
+    assert labs["Example Lab @ Example University"]["date"] == "April 2024 \u2013 September 2024"
+    assert labs["Sample Lab @ Example University Europe"]["date"] == "September 2024 \u2013 December 2024"
+    before = repr(payload)
+    latex = build_latex(payload)
+    assert repr(payload) == before
+    sections = ["Education", "Experience", "Projects", "Technical Skills"]
+    assert [line for line in latex.splitlines() if line.startswith(r"\section{")] == [
+        rf"\section{{{section}}}" for section in sections
+    ]
+    experience = latex.split(r"\section{Experience}")[1].split(r"\section{Projects}")[0]
+    projects = latex.split(r"\section{Projects}")[1].split(r"\section{Technical Skills}")[0]
+    assert "Example Lab" in experience and "Sample Lab" not in experience
+    assert "Sample Lab" in projects and "Example Lab" not in projects
+    assert latex.count("Example Lab") == latex.count("Sample Lab") == 1
+
+
+@pytest.mark.parametrize("destination", ["skills", "unknown", "", [], {}])
+def test_load_resume_rejects_invalid_presentation_section(
+    tmp_path: Path, destination: object
+) -> None:
+    import json
+
+    payload = json.loads(valid_resume())
+    payload["research"][0]["resumeSection"] = destination
+    source = tmp_path / "main.json"
+    source.write_text(json.dumps(payload))
+    with pytest.raises(RuntimeError, match="resumeSection"):
+        resume.load_resume(source)
+
+
 def test_education_renders_location_and_graduation_like_the_reference_template() -> None:
     latex = build_latex(
         {
