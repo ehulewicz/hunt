@@ -11,6 +11,8 @@ from pydantic import (
     model_validator,
 )
 
+from personal_os_backend.jobs_registry import FillEventCreate
+
 CareerStage = Literal["internship", "new_grad"]
 # The everyday view and the board's numbering start with these; the worker
 # mirrors the list for its --family choices.
@@ -345,6 +347,7 @@ class AutofillStepCreate(BaseModel):
     skipped_count: int = Field(default=0, ge=0)
     failures: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
     observations: list[AutofillObservation] = Field(default_factory=list, max_length=500)
+    fill_events: list[FillEventCreate] = Field(default_factory=list, max_length=500)
 
 
 class AutofillRunComplete(BaseModel):

@@ -70,6 +70,7 @@ from personal_os_worker.jobs.page_state import (
     classify_application_page,
 )
 from personal_os_worker.jobs.patterns import resolve_pattern_match, resolve_priority_answer
+from personal_os_worker.jobs.registry.events import planned_events, unresolved_events
 from personal_os_worker.jobs.short_answers import ShortQuestion, draft_short_answers
 
 
@@ -479,6 +480,14 @@ class AutofillSession:
             f"{len(plan.unanswered_required_questions)} required still open"
         )
         if self.ctx.dry_run:
+            self.ctx.api.persist_autofill_step(
+                self.ctx.run_id,
+                {
+                    "step_number": self.state.step,
+                    "url": self.page.url,
+                    "fill_events": planned_events(fields, plan),
+                },
+            )
             return {"filled_fields": [], "skipped_fields": [], "failures": [], "plan": plan}
         before = sanitized_evidence(self.page, fields, console_errors=self.ctx.console_errors)
         result = apply_autofill(
@@ -568,6 +577,12 @@ class AutofillSession:
                 "filled_count": len(result["filled_fields"]),
                 "skipped_count": len(result["skipped_fields"]),
                 "failures": result["failures"],
+                # Prose and cover letter controls are filled by their own paths.
+                "fill_events": result["events"] + unresolved_events(
+                    fields,
+                    plan,
+                    skip=lambda item: is_long_form_field(item) or is_cover_letter_field(item),
+                ),
             },
         )
         result["artifact_paths"] = artifact_paths
@@ -647,6 +662,15 @@ class AutofillSession:
                 )
                 echo("claude", question, applied)
         result["failures"].extend(claude_result["failures"])
+        if claude_result["events"]:
+            self.ctx.api.persist_autofill_step(
+                self.ctx.run_id,
+                {
+                    "step_number": self.state.step,
+                    "url": self.page.url,
+                    "fill_events": claude_result["events"],
+                },
+            )
 
     # ----- long-form drafts ------------------------------------------------
 

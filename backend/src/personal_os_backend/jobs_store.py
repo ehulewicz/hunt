@@ -35,6 +35,7 @@ from personal_os_backend.jobs_models import (
     ListingSyncResponse,
     MasterResumeContent,
 )
+from personal_os_backend.jobs_registry import record_fill_events
 from personal_os_backend.jobs_sources import SOURCE_NAME, SourceListing
 
 ANSWER_SOURCES = frozenset({"jobs_profile", "answer_library", "model", "pattern", "manual"})
@@ -1052,6 +1053,14 @@ class PostgresJobsStore:
                         observation.event_index,
                     ),
                 )
+            await record_fill_events(
+                connection,
+                user_id=user_id,
+                run_id=run_id,
+                step=item.step_number,
+                ats=run["ats"],
+                events=item.fill_events,
+            )
         return issues
 
     async def complete_autofill_run(

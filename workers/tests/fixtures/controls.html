@@ -1,0 +1,84 @@
+<!doctype html>
+<html><body>
+<!-- One of every control kind, with no ATS markup: the registry must classify
+     and operate each from generic HTML and ARIA alone. -->
+<form>
+  <label for="name">Full name</label>
+  <input id="name" name="name" type="text">
+
+  <label for="why">Anything else?</label>
+  <textarea id="why" name="why"></textarea>
+
+  <label for="degree">Degree</label>
+  <select id="degree" name="degree">
+    <option value="">Select...</option>
+    <option value="bs">Bachelor of Science</option>
+    <option value="ms">Master of Science</option>
+  </select>
+
+  <label for="langs">Languages</label>
+  <select id="langs" name="langs" multiple>
+    <option value="py">Python</option>
+    <option value="go">Go</option>
+    <option value="rs">Rust</option>
+  </select>
+
+  <fieldset>
+    <legend>Preferred shift</legend>
+    <label><input type="radio" name="shift" value="day">Day</label>
+    <label><input type="radio" name="shift" value="night">Night</label>
+  </fieldset>
+
+  <div class="question">
+    <label class="title">Do you enjoy puzzles?</label>
+    <div class="choices">
+      <button type="button" aria-pressed="false">Yes</button>
+      <button type="button" aria-pressed="false">No</button>
+      <input type="checkbox" id="puzzles" tabindex="-1" style="opacity:0">
+    </div>
+  </div>
+
+  <label><input type="checkbox" id="newsletter" name="newsletter" checked>Send me the newsletter</label>
+
+  <fieldset>
+    <legend>Interests</legend>
+    <label><input type="checkbox" name="interests" value="ml">Machine learning</label>
+    <label><input type="checkbox" name="interests" value="sys">Systems</label>
+    <label><input type="checkbox" name="interests" value="web">Web</label>
+  </fieldset>
+
+  <label for="resume">Resume</label>
+  <input id="resume" name="resume" type="file">
+
+  <label for="city">City</label>
+  <div class="combo">
+    <input id="city" role="combobox" aria-autocomplete="list" aria-expanded="false" autocomplete="off">
+    <ul role="listbox" id="city-list" hidden>
+      <li role="option">Atlanta, GA</li>
+      <li role="option">Chicago, IL</li>
+      <li role="option">Seattle, WA</li>
+    </ul>
+  </div>
+</form>
+<script>
+  document.querySelectorAll('.choices button').forEach(button => {
+    button.addEventListener('click', () => {
+      button.parentElement.querySelectorAll('button').forEach(
+        other => other.setAttribute('aria-pressed', 'false')
+      );
+      button.setAttribute('aria-pressed', 'true');
+      document.getElementById('puzzles').checked = button.textContent === 'Yes';
+    });
+  });
+  const city = document.getElementById('city');
+  const list = document.getElementById('city-list');
+  city.addEventListener('click', () => { list.hidden = false; });
+  city.addEventListener('keydown', event => { if (event.key === 'Escape') list.hidden = true; });
+  list.querySelectorAll('[role=option]').forEach(option => {
+    option.addEventListener('click', () => {
+      city.value = option.textContent;
+      list.hidden = true;
+    });
+  });
+</script>
+</body></html>

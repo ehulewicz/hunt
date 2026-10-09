@@ -35,3 +35,17 @@ The CLI launches local FastAPI and the dedicated native Windows Chrome profile
 as needed. It never accesses Postgres directly and never submits an application.
 See `../docs/jobs-cli.md` for the deterministic mapping, contextual Claude, and
 failure-learning workflows.
+
+## How a field is filled
+
+`jobs/registry/` names what the fill path does. `kinds.py` classifies every
+detected control into one of seven kinds — `text_entry`, `native_select`,
+`choice_group`, `multi_choice_group`, `toggle`, `dynamic_choice`, `file` — from
+generic HTML and ARIA alone; a group of `aria-pressed` buttons is found by that
+state, not by any site's class names. `strategies.py` lists each kind's candidate
+strategies in order, and `browser.OPERATIONS` performs them: candidates are tried
+until one operates, then the value is read back. `events.py` turns every attempt
+into a fill event (control, strategy, resolver, value hash, and where it stopped)
+that the step sends to FastAPI; a dry run sends one not-attempted event per
+question. A choice is refused, and left to you, only while an interactive captcha
+is on the page; an invisible-mode reCAPTCHA badge does not count.

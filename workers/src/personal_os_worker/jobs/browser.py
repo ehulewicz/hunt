@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -13,6 +14,7 @@ from personal_os_worker.jobs.autofill import (
     FILE_KINDS,
     AnswerFallback,
     AutofillPlan,
+    FormFill,
     PriorityPolicy,
     affirmative_option,
     build_autofill_plan,
@@ -21,15 +23,17 @@ from personal_os_worker.jobs.autofill import (
     normalize_question,
     preferred_source_option,
 )
+from personal_os_worker.jobs.registry.events import fill_event
+from personal_os_worker.jobs.registry.kinds import classify
+from personal_os_worker.jobs.registry.strategies import candidates
 
 # Playwright auto-waits 30s for a control before an action fails; a control that
 # vanished because the page moved on (the user submitted) must fail in seconds.
 CONTROL_TIMEOUT_MS = 4_000
 
-YESNO_CONTAINER_XPATH = (
-    "xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), "
-    "' ashby-application-form-input-yesno ')][1]"
-)
+# The nearest ancestor holding a group of aria-pressed buttons: the same
+# generic test the detector uses, so no site's class names are involved.
+BUTTON_GROUP_XPATH = "xpath=ancestor::*[count(.//button[@aria-pressed]) >= 2][1]"
 
 
 class BrowserClosedError(RuntimeError):
@@ -264,6 +268,177 @@ def plan_autofill(
     return fields, plan
 
 
+class NoMatchingOption(RuntimeError):
+    """The value has no unambiguous counterpart among the control's options."""
+
+
+class CaptchaPresent(RuntimeError):
+    """An interactive captcha is on the page, so the control is left to the user."""
+
+
+# Markers of a captcha that clicking a control may trigger. Invisible-mode
+# reCAPTCHA (the corner badge) cannot interrupt a click, so it does not count;
+# otherwise the test is the same on every ATS.
+CAPTCHA_SCRIPT = """
+() => [...document.querySelectorAll(
+  'iframe[src*="captcha" i], [data-sitekey], [class*="captcha" i]'
+)].some(element => {
+  if (element.closest('.grecaptcha-badge')) return false;
+  if ((element.getAttribute('data-size') || '').toLowerCase() === 'invisible') return false;
+  return !/[?&]size=invisible/i.test(element.getAttribute('src') || '');
+})
+"""
+
+
+def captcha_challenge_present(page: Page) -> bool:
+    try:
+        return bool(page.evaluate(CAPTCHA_SCRIPT))
+    except Error:
+        return False
+
+
+@dataclass(frozen=True, slots=True)
+class Attempt:
+    page: Page
+    control: Any
+    field: dict[str, Any]
+    fill: FormFill
+    document: Path | None
+
+
+def button_choice(texts: list[str], value: str) -> str | None:
+    """The one pressable button that answers the value."""
+    chosen = option_match(texts, value)
+    if chosen is None and {text.casefold() for text in texts} == {"yes", "no"}:
+        wanted = "yes" if value.strip().casefold() == "yes" else "no"
+        chosen = next(text for text in texts if text.casefold() == wanted)
+    return chosen
+
+
+def _button_group(control: Any) -> tuple[Any, list[str]]:
+    buttons = control.locator(BUTTON_GROUP_XPATH).locator("button[aria-pressed]")
+    texts = [str(buttons.nth(index).inner_text()).strip() for index in range(buttons.count())]
+    return buttons, texts
+
+
+def _upload_file(attempt: Attempt) -> str | None:
+    attempt.control.set_input_files(str(attempt.document), timeout=CONTROL_TIMEOUT_MS)
+    attempt.page.wait_for_timeout(750)
+    return None
+
+
+def _select_by_label(attempt: Attempt) -> str | None:
+    options = [str(value) for value in attempt.field.get("options", [])]
+    matched = option_match(options, str(attempt.fill.value))
+    if matched is None:
+        raise NoMatchingOption("no unambiguous select option")
+    attempt.control.select_option(label=matched, timeout=CONTROL_TIMEOUT_MS)
+    return matched
+
+
+def _select_by_value(attempt: Attempt) -> str | None:
+    attempt.control.select_option(value=attempt.fill.value, timeout=CONTROL_TIMEOUT_MS)
+    return attempt.fill.value
+
+
+def _select_multiple(attempt: Attempt) -> str | None:
+    options = [str(value) for value in attempt.field.get("options", [])]
+    parts = [part.strip() for part in str(attempt.fill.value).split(",") if part.strip()]
+    matched = [option_match(options, part) for part in parts]
+    chosen = [option for option in matched if option is not None]
+    if not parts or len(chosen) != len(parts):
+        raise NoMatchingOption("no unambiguous select options")
+    attempt.control.select_option(label=chosen, timeout=CONTROL_TIMEOUT_MS)
+    return ", ".join(chosen)
+
+
+def _combobox_choose_from_menu(attempt: Attempt) -> str | None:
+    label = str(attempt.field.get("label") or attempt.field.get("name") or "")
+    return choose_combobox_option(
+        attempt.page, attempt.control, str(attempt.fill.chooser), question=label
+    )
+
+
+def _combobox_type_and_select(attempt: Attempt) -> str | None:
+    return select_combobox_option(attempt.page, attempt.control, str(attempt.fill.value))
+
+
+def _click_option_button(attempt: Attempt) -> str | None:
+    buttons, texts = _button_group(attempt.control)
+    chosen = button_choice(texts, str(attempt.fill.value))
+    if chosen is None:
+        raise NoMatchingOption("no unambiguous option button")
+    buttons.nth(texts.index(chosen)).click(timeout=CONTROL_TIMEOUT_MS)
+    return chosen
+
+
+def _check_control(attempt: Attempt) -> str | None:
+    if captcha_challenge_present(attempt.page):
+        raise CaptchaPresent("choice left manual because a captcha is present")
+    attempt.control.check(timeout=CONTROL_TIMEOUT_MS)
+    return attempt.fill.value
+
+
+def _uncheck_control(attempt: Attempt) -> str | None:
+    if captcha_challenge_present(attempt.page):
+        raise CaptchaPresent("choice left manual because a captcha is present")
+    attempt.control.uncheck(timeout=CONTROL_TIMEOUT_MS)
+    return None
+
+
+def _set_value(attempt: Attempt) -> str | None:
+    set_registered_value(attempt.control, str(attempt.fill.value))
+    return attempt.fill.value
+
+
+# Every strategy in the registry, by name. `registry.strategies` decides which
+# are candidates for a fill and in what order.
+OPERATIONS: dict[str, Callable[[Attempt], str | None]] = {
+    "upload_file": _upload_file,
+    "select_by_label": _select_by_label,
+    "select_by_value": _select_by_value,
+    "select_multiple": _select_multiple,
+    "combobox_choose_from_menu": _combobox_choose_from_menu,
+    "combobox_type_and_select": _combobox_type_and_select,
+    "click_option_button": _click_option_button,
+    "check_control": _check_control,
+    "uncheck_control": _uncheck_control,
+    "set_value": _set_value,
+}
+
+
+def stopped_stage(error: BaseException) -> str:
+    """Where a failed attempt stopped: the value fit no option, or the widget refused."""
+    if isinstance(error, NoMatchingOption) or "unambiguous" in str(error):
+        return "format"
+    return "strategy"
+
+
+def failure_category(message: str) -> str:
+    return (
+        "ambiguous_mapping"
+        if "unambiguous" in message
+        else "captcha_guard"
+        if "captcha" in message.casefold()
+        else "stale_locator"
+        if "no longer present" in message or "strict mode" in message
+        else "fill_exception"
+    )
+
+
+def _attempt_event(
+    field: dict[str, Any],
+    fill: FormFill,
+    strategy: str | None,
+    stopped_at: str | None,
+    operated_ok: bool | None,
+) -> dict[str, Any]:
+    return fill_event(
+        field, strategy=strategy, stopped_at=stopped_at, operated_ok=operated_ok,
+        value=fill.value, resolution=fill.resolution, source=fill.chooser,
+    )
+
+
 def apply_autofill(
     page: Page,
     fields: list[dict[str, Any]],
@@ -273,11 +448,17 @@ def apply_autofill(
     assert_active: Callable[[], None],
     transcript_path: Path | None = None,
 ) -> dict[str, Any]:
+    """Operate every planned fill through its control kind's candidate strategies.
+
+    Candidates are tried in order until one operates; every attempt, failed or
+    not, becomes a fill event. A failure is recorded and the run moves on.
+    """
     filled_labels: list[str] = []
     skipped: list[str] = []
     applied: dict[int, str] = {}  # values that passed readback, keyed by control
     unanswered = list(plan.unanswered_required_questions)
     failures: list[dict[str, Any]] = []
+    events: list[dict[str, Any]] = []
     documents = {"resume": resume_path, "transcript": transcript_path}
     # Uploads first on boards that re-render the form after one.
     ordered_fills = sorted(
@@ -293,81 +474,52 @@ def apply_autofill(
         assert_active()
         field = fields[fill.index]
         label = str(field.get("label") or field.get("name") or fill.index)
-        control = fresh_control(page, field)
-        expected = fill.value
         document = documents.get(fill.kind)
         if fill.kind in FILE_KINDS and document is None:
             skipped.append(f"{label} (no {fill.kind} provided)")
+            events.append(_attempt_event(field, fill, None, None, None))
             continue
-        try:
-            if fill.kind in FILE_KINDS and document is not None:
-                control.set_input_files(str(document), timeout=CONTROL_TIMEOUT_MS)
-                page.wait_for_timeout(750)
-            elif field.get("tag") == "select" and fill.value is not None:
-                options = [str(value) for value in field.get("options", [])]
-                matched = option_match(options, fill.value)
-                if matched is None:
-                    raise RuntimeError("no unambiguous select option")
-                control.select_option(label=matched, timeout=CONTROL_TIMEOUT_MS)
-                expected = matched
-            elif field.get("role") == "combobox" and fill.chooser is not None:
-                expected = choose_combobox_option(page, control, fill.chooser, question=label)
-            elif field.get("role") == "combobox" and fill.value is not None:
-                expected = select_combobox_option(page, control, fill.value)
-            elif field.get("type") == "yesno" and fill.value is not None:
-                yesno_option = "yes" if fill.value.strip().casefold() == "yes" else "no"
-                control.locator(YESNO_CONTAINER_XPATH).locator(
-                    f'button[data-option="{yesno_option}"]'
-                ).click()
-            elif field.get("type") in {"radio", "checkbox"} and fill.value is not None:
-                if (
-                    field.get("ats") == "lever"
-                    and page.locator(
-                        'iframe[src*="captcha" i], [data-sitekey], [class*="captcha" i]'
-                    ).count()
-                ):
-                    raise RuntimeError("Lever choice left manual because captcha is present")
-                control.check(timeout=CONTROL_TIMEOUT_MS)
-            elif fill.value is not None:
-                set_registered_value(control, fill.value)
-        except (Error, RuntimeError) as error:
-            message = str(error)
-            category = (
-                "ambiguous_mapping"
-                if "unambiguous" in message
-                else "captcha_guard"
-                if "captcha" in message.casefold()
-                else "stale_locator"
-                if "no longer present" in message or "strict mode" in message
-                else "fill_exception"
-            )
-            if field.get("tag") == "select" and fill.value is not None:
-                try:
-                    control.select_option(value=fill.value, timeout=CONTROL_TIMEOUT_MS)
-                except Error:
-                    if field.get("required") is True:
-                        unanswered.append(label)
-                    failures.append(
-                        _failure(
-                            field, category, message, intended=fill.value
-                        )
-                    )
-                    continue
-            else:
-                if field.get("required") is True:
-                    unanswered.append(label)
-                failures.append(
-                    _failure(field, category, message, intended=fill.value)
-                )
+        control = fresh_control(page, field)
+        expected = fill.value
+        operated: str | None = None
+        first_error: Exception | None = None
+        for name in candidates(classify(field), field, fill, has_document=document is not None):
+            try:
+                result = OPERATIONS[name](Attempt(page, control, field, fill, document))
+            except (Error, RuntimeError) as error:
+                first_error = first_error or error
+                events.append(_attempt_event(field, fill, name, stopped_stage(error), False))
                 continue
+            operated = name
+            if result is not None:
+                expected = result
+            break
+        if operated is None and first_error is not None:
+            message = str(first_error)
+            if field.get("required") is True:
+                unanswered.append(label)
+            failures.append(
+                _failure(field, failure_category(message), message, intended=fill.value)
+            )
+            continue
         is_upload = fill.kind in FILE_KINDS
-        if verify_control(
-            page,
-            field,
-            expected,
-            resume=is_upload,
-            filename=document.name if is_upload and document is not None else None,
-        ):
+        if fill.clear:
+            try:
+                verified = not fresh_control(page, field).is_checked(timeout=CONTROL_TIMEOUT_MS)
+            except Error:
+                verified = False
+        else:
+            verified = verify_control(
+                page,
+                field,
+                expected,
+                resume=is_upload,
+                filename=document.name if is_upload and document is not None else None,
+            )
+        events.append(
+            _attempt_event(field, fill, operated, None if verified else "strategy", verified)
+        )
+        if verified:
             filled_labels.append(label)
             if expected is not None and not is_upload:
                 applied[fill.index] = (
@@ -398,6 +550,7 @@ def apply_autofill(
         "applied": applied,
         "unanswered_required_questions": list(dict.fromkeys(unanswered)),
         "failures": failures,
+        "events": events,
         "submitted": False,
     }
 
@@ -469,8 +622,10 @@ def _pick(texts: list[str], value: str) -> str | None:
 
 
 def _await_options(page: Page, options: Any, timeout_ms: int) -> bool:
+    # Any visible option, not the first in the DOM: a closed native <select>
+    # earlier on the page contributes hidden options that never become visible.
     try:
-        options.first.wait_for(state="visible", timeout=timeout_ms)
+        options.locator("visible=true").first.wait_for(state="visible", timeout=timeout_ms)
     except Error:
         return False
     page.wait_for_timeout(COMBOBOX_SETTLE_MS)
@@ -585,11 +740,18 @@ def verify_control(
     control = fresh_control(page, field)
     try:
         if field.get("type") == "yesno":
-            yesno_option = "yes" if str(value or "").strip().casefold() == "yes" else "no"
-            button = control.locator(YESNO_CONTAINER_XPATH).locator(
-                f'button[data-option="{yesno_option}"]'
+            buttons, texts = _button_group(control)
+            chosen = button_choice(texts, str(value or ""))
+            if chosen is None:
+                return False
+            return bool(buttons.nth(texts.index(chosen)).get_attribute("aria-pressed") == "true")
+        if field.get("tag") == "select" and field.get("multiple") is True:
+            selected = control.evaluate(
+                "element => [...element.selectedOptions].map(o => o.textContent.trim())",
+                timeout=CONTROL_TIMEOUT_MS,
             )
-            return bool(button.get_attribute("aria-pressed") == "true")
+            wanted = {part.strip() for part in str(value or "").split(",") if part.strip()}
+            return bool(wanted) and wanted <= set(selected)
         if field.get("type") in {"radio", "checkbox"}:
             return bool(control.is_checked(timeout=CONTROL_TIMEOUT_MS))
         observed = str(control.input_value(timeout=CONTROL_TIMEOUT_MS)).strip()
@@ -752,18 +914,41 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           // the option text; this span is the option's own text alone.
           const leverOptionLabel = wrapping
             ?.querySelector('.application-answer-alternative')?.textContent?.trim() || null;
-          // Ashby renders a boolean question as two buttons plus a hidden checkbox
-          // that mirrors their state; the question lives on a sibling label, not
-          // on the checkbox itself.
-          const yesnoContainer = element.closest('.ashby-application-form-input-yesno');
+          // A choice rendered as aria-pressed buttons with a hidden checkbox that
+          // mirrors their state (Ashby's yes/no is one). Found by the ARIA state
+          // that screen readers rely on rather than by a class name, so the same
+          // detection holds on any site: the nearest ancestor holding two or more
+          // pressable buttons and no other form input.
+          let yesnoContainer = null;
+          if (element.type === 'checkbox') {
+            let ancestor = element.parentElement;
+            for (let depth = 0; ancestor && depth < 3 && !yesnoContainer; depth += 1) {
+              const pressable = ancestor.querySelectorAll('button[aria-pressed]').length;
+              const inputs = ancestor.querySelectorAll(
+                'input:not([type="hidden"]), textarea, select'
+              ).length;
+              if (pressable >= 2 && inputs === 1) yesnoContainer = ancestor;
+              ancestor = ancestor.parentElement;
+            }
+          }
           const educationEntry = element.closest(
             '.ashby-application-form-input-education-entry'
           );
-          const yesnoLabel = yesnoContainer?.parentElement?.querySelector(
-            'label.ashby-application-form-question-title'
-          ) || null;
+          // The question sits beside the button group: Ashby's title label, or
+          // the first label or legend among the group's siblings.
+          const yesnoLabel = yesnoContainer
+            ? (
+                yesnoContainer.parentElement?.querySelector(
+                  'label.ashby-application-form-question-title'
+                )
+                || [...(yesnoContainer.parentElement?.children || [])].find(
+                  child => ['LABEL', 'LEGEND'].includes(child.tagName)
+                )
+                || null
+              )
+            : null;
           const yesnoButtons = yesnoContainer
-            ? [...yesnoContainer.querySelectorAll('button[data-option]')] : [];
+            ? [...yesnoContainer.querySelectorAll('button[aria-pressed]')] : [];
           const yesnoPressed = yesnoButtons.find(
             button => button.getAttribute('aria-pressed') === 'true'
           ) || null;
@@ -816,6 +1001,19 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
             }
             shell = shell.parentElement;
           }
+          // How many inputs answer the same question: options sharing a name,
+          // or, unnamed, sharing a fieldset or group. One checkbox is a toggle;
+          // several are a multi-choice group.
+          let groupSize = 1;
+          if (['radio', 'checkbox'].includes(element.type) && !yesnoContainer) {
+            const sameType = `input[type="${element.type}"]`;
+            groupSize = element.name
+              ? (element.form || document).querySelectorAll(
+                  `${sameType}[name="${CSS.escape(element.name)}"]`
+                ).length
+              : element.closest('fieldset, [role="group"], [role="radiogroup"]')
+                  ?.querySelectorAll(sameType).length || 1;
+          }
           const isCombobox = element.getAttribute('role') === 'combobox';
           // react-select empties its search input after a pick and renders the
           // choice in a sibling; that sibling is the value of the control.
@@ -865,7 +1063,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
             autocomplete: element.getAttribute('autocomplete'),
             section: educationEntry ? 'education' : null,
             options: yesnoContainer
-              ? ['Yes', 'No']
+              ? yesnoButtons.map(button => button.textContent.trim()).filter(Boolean)
               : element.tagName === 'SELECT'
                 ? [...element.options]
                     .filter(option => option.value !== '' && !option.disabled)
@@ -875,6 +1073,12 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
               ? (yesnoPressed ? yesnoPressed.textContent.trim() : null)
               : ['radio', 'checkbox'].includes(element.type)
                 ? (element.getAttribute('value') || '') : null,
+            multiple: element.tagName === 'SELECT' && element.multiple === true,
+            group_size: groupSize,
+            aria: {
+              autocomplete: element.getAttribute('aria-autocomplete'),
+              haspopup: element.getAttribute('aria-haspopup'),
+            },
             fingerprint: [element.tagName, finalType,
               element.getAttribute('name'), label, element.getAttribute('role')
             ].join('|').toLowerCase(),
@@ -978,7 +1182,7 @@ def snapshot_entries(page: Page, fields: list[dict[str, Any]]) -> list[dict[str,
         try:
             control = fresh_control(page, field)
             if field_type == "yesno":
-                pressed = control.locator(YESNO_CONTAINER_XPATH).locator(
+                pressed = control.locator(BUTTON_GROUP_XPATH).locator(
                     'button[aria-pressed="true"]'
                 )
                 count = pressed.count()

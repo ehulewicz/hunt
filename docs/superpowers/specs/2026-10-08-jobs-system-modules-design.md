@@ -1144,8 +1144,15 @@ re-seeded.
 | `source` | text | `pattern` / `model` / `manual` / `prose` |
 | `value_hash` | text | hash only |
 | `ats` | text | dimension only, never control identity |
-| `stopped_at` | text null | `pattern` / `format` / `strategy`; null = filled |
-| `operated_ok` | boolean | readback passed |
+| `stopped_at` | text null | `pattern` / `format` / `strategy`; null = filled or not attempted |
+| `operated_ok` | boolean null | true = read back; false = failed; null = not attempted (a dry run, a missing document) |
+
+As built in slice D, `question_id` and `pattern_id` are not yet columns: their
+tables belong to slice C. The event carries `question_key` (the normalized
+question) and `resolver_id` (the pattern's existing stable id) instead, and
+slice C's migration adds the two foreign keys and backfills them from those
+columns. `jobs_controls` is unique on `(user_id, kind, attributes)`, where
+`attributes` is the structural vector only.
 
 ### Changed: `jobs_answer_library` → `jobs_prose`
 
@@ -1249,8 +1256,11 @@ The 198 library rows are sorted once, with you, during fact validation (§7.1):
 - **Radio, lone checkbox, and checkbox group are one branch**, so three distinct
   kinds share one strategy and one undifferentiated failure mode.
 - **Generalising the captcha guard changes behavior.** Dropping `ats == "lever"`
-  makes it fire on every ATS. That is more correct, and it will look like a drop
-  in fill rate until metrics distinguish "refused on purpose" from "failed."
+  makes it fire on every ATS. As built, it ignores invisible-mode reCAPTCHA (the
+  corner badge, `data-size="invisible"`, `size=invisible` frames): taken
+  literally, the presence test would have parked every choice on boards that
+  carry only that badge. A refusal is recorded as `stopped_at = strategy` with
+  failure category `captcha_guard`, so "refused on purpose" stays distinguishable.
 - **AGENTS.md's model-call list was incomplete.** It named three call sites, but
   `failures diagnose` and `draft-fix` call `claude -p` too (`_failure_claude`,
   `commands.py:615`), and Repair leans on that path.

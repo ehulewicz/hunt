@@ -66,6 +66,13 @@ rolls back. The legacy `/complete` endpoint keeps its history-only contract, and
 completed-run retries return `404` so they cannot duplicate final history. Invalid
 question/value/provenance metadata fails with `422` before persistence.
 
+Every step can also carry fill events, one per attempt to fill a control,
+written in the step's transaction by `jobs_registry.py`. A control is upserted
+by its kind and structural attributes — never the ATS or the question — so one
+widget accumulates observations across companies; a strategy the seed did not
+know is registered at precedence 100. Success rates are queries over
+`jobs_fill_events`; nothing keeps a counter.
+
 Failure signatures deduplicate issues while occurrence rows preserve run/step
 evidence. FastAPI alone writes sanitized artifacts to the private autofill bucket
 and verifies ownership on upload and download; storage paths are never trusted as
@@ -126,7 +133,9 @@ src/personal_os_backend/
   config.py         pydantic-settings Settings, PERSONAL_OS_API_* env vars
   database.py       psycopg async pool, role assumption, bootstrap store
   models.py         non-Jobs response models
-  jobs_router.py    every /v1/jobs/* route
+  jobs_router.py    every /v1/jobs/* route except facts
+  jobs_facts.py     /v1/jobs/facts: models, store, routes, per-type value validation
+  jobs_registry.py  fill-event models and recording, with control and strategy upserts
   jobs_models.py    Jobs request/response schemas and validation
   jobs_store.py     all Jobs SQL (the largest module by far)
   jobs_sources.py   SpeedyApply README parsing and location normalization

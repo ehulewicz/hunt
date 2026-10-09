@@ -7,9 +7,11 @@ from typing import Any, cast
 import pytest
 from playwright.sync_api import Error, sync_playwright
 
+from personal_os_worker.jobs.autofill import normalize_question
 from personal_os_worker.jobs.autofill_session import AutofillSession, SessionContext
 from personal_os_worker.jobs.browser import BrowserClosedError, VisibleBrowser, inspect_fields
 from personal_os_worker.jobs.page_state import ApplicationPageState, classify_application_page
+from personal_os_worker.jobs.registry.kinds import question_of
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -872,8 +874,9 @@ def test_dry_run_plans_without_opening_tabs_or_writing(
     tmp_path: Path,
 ) -> None:
     browser_page.set_content((FIXTURES / "greenhouse.html").read_text())
+    api = FakeApi()
     context = SessionContext(
-        api=FakeApi(),  # type: ignore[arg-type]
+        api=api,  # type: ignore[arg-type]
         run_id="run-2",
         adapter_name="greenhouse",
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
@@ -894,6 +897,17 @@ def test_dry_run_plans_without_opening_tabs_or_writing(
     assert outcome["dry_run"] is True
     assert browser_page.locator("#first").input_value() == ""
     assert not (tmp_path / "drafts").exists()
+    # The dry run still measures: one event per question, none attempted.
+    [step] = api.steps
+    events = step["fill_events"]
+    questions = {
+        normalize_question(question_of(field))
+        for field in inspect_fields(browser_page)
+        if str(field.get("type") or "") not in {"submit", "button", "reset", "hidden"}
+        and field.get("filled") is not True
+    }
+    assert {normalize_question(event["question"]) for event in events} == questions
+    assert all(event["strategy"] is None and event["operated_ok"] is None for event in events)
 
 
 def test_ctrl_c_ends_cleanly_with_the_answers_picked_up_so_far(

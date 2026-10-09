@@ -30,6 +30,8 @@ class FormFill:
     # (how did you hear) or "consent" (terms, privacy, attestations).
     chooser: str | None = None
     resolution: AnswerResolution | None = None
+    # Clear the control instead of setting it: uncheck a box a prior pass checked.
+    clear: bool = False
 
 
 @dataclass(frozen=True, slots=True)

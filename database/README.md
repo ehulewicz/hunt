@@ -34,6 +34,17 @@ Composite, partial, and GIN indexes support newest-first discovery, unanswered
 questions, and location overlap. The worker task queue and tailoring audit tables
 were dropped when the task worker was retired.
 
+`jobs_controls`, `jobs_strategies`, and `jobs_fill_events` measure the fill
+path. A control is a kind (one of seven) plus a `jsonb` structural attribute
+vector, unique per user, and never includes the ATS or the question. A strategy
+is a named way of operating a kind, with a precedence and a lifecycle status; the
+ten that exist in code are seeded `active`. A fill event is one attempt: the
+question's normalized key, the resolver id, the control, the strategy, the ATS
+as a dimension only, a value hash, and `stopped_at` (`pattern`, `format`,
+`strategy`, or null) with `operated_ok` (true read back, false failed, null not
+attempted). `question_key` and `resolver_id` stand in until `jobs_questions` and
+`jobs_patterns` exist and add real foreign keys.
+
 `jobs_facts` holds one row per fact, keyed per user by a dotted name, with a
 `jsonb` value whose shape a check constraint ties to `value_type` (`text`,
 `boolean`, `number`, `date`, `choice`, `list`, `object`). `sensitive` marks values
