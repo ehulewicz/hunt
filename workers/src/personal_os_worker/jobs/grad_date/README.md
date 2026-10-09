@@ -54,4 +54,5 @@ and today they cannot:
    `--no-claude`, and pass `resume_pdf` / `resume_json` (and the profile patch)
    into `SessionContext`.
 3. Run live against one "class of 2028" posting with `--dry-run`, then for real.
-4. Move the AGENTS.md convention line back to three model calls.
+4. Move `grad_date/selection.py` from parked to fill-time in the AGENTS.md
+   model-call list.

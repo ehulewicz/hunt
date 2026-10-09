@@ -1,14 +1,15 @@
 # Jobs system: modules, registry, and the application path
 
-Date: 2026-10-08. Status: proposed, awaiting review and schema sign-off.
+Date: 2026-10-08. Status: schema approved 2026-10-08 except the additions marked
+in §12; ready to build in the slices of §16.
 
 This document describes the Jobs system as a set of modules with explicit
 boundaries, and specifies them in enough detail to build. It replaces the
 implicit structure that grew inside `workers/` with named parts, measurable
 rules, and a path that gets more deterministic over time.
 
-Nothing here is built. Every schema change in §12 needs explicit confirmation
-before implementation, per AGENTS.md.
+Nothing here is built yet. The schema in §12 was approved on 2026-10-08; the
+entries marked **added after approval** still need confirmation, per AGENTS.md.
 
 **Reading the recommendations.** Where the design was unclear, a decision has
 been taken and marked as a numbered recommendation:
@@ -16,7 +17,8 @@ been taken and marked as a numbered recommendation:
 > **R0 — Example.** The decision, then why.
 
 Each is a default, not a question. Disagree with one by number; anything not
-disputed is treated as agreed. §17 indexes them all.
+disputed is treated as agreed. §17 indexes them all with their status; the text
+of a recommendation you changed already reflects your decision.
 
 ---
 
@@ -54,6 +56,11 @@ authorization fact, one string per phrasing, so phrasing 26 still misses.
 
 **Time-dependent facts are frozen.** `completed_coop_terms = 4.5` is a stored
 number with no date, and it goes wrong the day a term ends.
+
+**The resume is a display string, not a record.** `artifacts/career/main.json`
+stores dates as `"May 2025 – Present"`. Nothing can compute tenure, prior
+employers, or graduation from it without parsing prose, so the same facts are
+re-typed into the profile and the library instead.
 
 The goal is a system where every fact is stored once, every fill is attributable
 to exactly one pattern and one control, every outcome is a measurement, and
@@ -112,6 +119,7 @@ to fully deterministic — without ever stalling the application in front of you
 | Module | Does | Owns | Status |
 |---|---|---|---|
 | **Facts** | Base facts about you, derived facts computed from them | what is true about you | replaces `jobs_profile` |
+| **Career record** | Your resume as structured rows: education, experience, research, projects, bullets, skills | what you have done | replaces `main.json` as the source |
 | **Prose** | Saved long-form writing and how a new question matches it | your voice | replaces the long-form half of the library |
 | **Registry** | Deterministic fill rules: questions, patterns, formatters, controls, strategies | *how* to fill | partial |
 | **Apply** | Runs one application: open, read, fill, verify, submit | browser session, run record | exists |
@@ -142,22 +150,25 @@ to fully deterministic — without ever stalling the application in front of you
 
 ### Build order
 
-0. **Facts** — catalog, your validation pass, `jobs_facts`, derived facts,
-   `jobs_profile` retired
-1. **Registry instrumentation** — questions, patterns, formatters, controls,
-   strategies, attributable fill events with the stage they stopped at
-2. **Repair and validate** — the second-browser repair lane and `hunt validate`
-3. **Inbox** — unify `failures list`, `answers review`, new questions, and
-   validation
-4. **Audit** — per-pair correctness verdicts, sampled
-5. **Condenser** — the offline loop
-6. **Unattended batch** — last
+The work is cut into slices with explicit file ownership and dependencies, so
+several can be built at once without colliding. §16 has the full breakdown.
+
+```
+A Facts ──┬──► B Career record
+          ├──► C Answers (questions, patterns, prose)
+          │         │
+D Registry ─────────┴──► E Fill policy ──► F Repair and validate
+```
+
+Later, in order: Inbox, Audit, Condenser, unattended batch.
 
 > **R1 — Facts go first, and Repair moves ahead of Audit.** Patterns point at
 > facts, so the fact store has to exist before patterns can be rebuilt on it.
 > Repair moves up because you are applying now: every failure that the repair
 > lane turns into a validated rule pays off on the very next application,
 > whereas Audit only pays off once the Condenser exists to act on its verdicts.
+> Registry instrumentation (D) depends on none of the answer work and runs in
+> parallel from the start.
 
 ---
 
@@ -202,14 +213,18 @@ informally, trying `select_option(label=)` and falling back to
 success rate tells you nothing about what succeeded. Formatter and strategy are
 recorded as dimensions on the event, not as further chosen components.
 
-**The live run never restarts and never stalls on a fixable error.** A failure
-is recorded, the field is handed to you, and the run continues. Fixing happens
-in parallel, elsewhere (§10). You are applying now; the system learns beside
-you, not in front of you.
+**The live run never restarts on a fixable error.** A failure is recorded, the
+field is handed to you, and the run continues. With `--repair`, fixing happens
+in parallel in a second browser (§10.3). You are applying now; the system
+learns beside you, not in front of you.
 
-**No page is left with a required field empty.** The run does not advance past a
-page while any required field is unfilled. When every rule and the model pass
-have come up empty, it waits for you.
+**No field is left empty.** Required or optional, every field is filled; the run
+does not advance past a page while any field is unfilled. A field stays blank
+only when a fact says the true answer is empty. When every rule and the model
+pass have come up empty, it waits for you (§10.2).
+
+**The cover letter is always attached.** If the form offers a cover letter, by
+upload or by text, it gets one, whether or not it is required.
 
 **No stored counters.** `fill_events` is the only thing written per field during
 a run. Every rate — per control, per pattern, per pair, per strategy, per ATS —
@@ -239,7 +254,8 @@ over-fitting.
 
 **Probing is never done on the live application.** Clicking a widget to learn
 how it behaves mutates the form, can fire side effects, and is not always
-reversible. It happens only in the repair browser (§10).
+reversible. It happens only in the repair browser (§10.3), or on the current
+page of a run that opted into in-place mode (§10.4, R36).
 
 **CAPTCHAs are detected and handed off, never solved.** Detection becomes
 generic by dropping the `ats == "lever"` conjunct; the selectors are already
@@ -370,39 +386,42 @@ the library's two regex policy rows all collapse into it.
 > every pattern carry polarity logic, and the two facts are genuinely
 > independent for many people.
 
-**Validation before cut-over.** The fact catalog is generated, then validated by
-you, then imported. It is never inferred silently.
+**Validation happens in the database.** The fact catalog is seeded, then
+verified by you, row by row. It is never inferred silently.
 
-1. Generate a draft catalog: every `jobs_profile` column plus every distinct
-   value the library restates, deduplicated, with conflicts listed side by side
-   ("graduation: profile says 2027-12-15; library also says May 2028, Fall
-   2027").
-2. You correct it.
-3. Import writes `jobs_facts`. Only then is `jobs_profile` retired.
+1. Seed `jobs_facts` from every `jobs_profile` column, each row unverified.
+2. `os hunt facts review` walks the unverified rows. For each it shows the
+   seeded value and every conflicting value the library restates ("graduation:
+   profile says 2027-12-15; library also says May 2028, Fall 2027"), and you
+   accept, edit, or delete it. Accepting sets `verified_at`.
+3. Once every row is verified, `jobs_profile` is retired.
 
-> **R6 — Fact values are reviewed in an untracked local file, not in this
-> repository.** The catalog holds phone, address, and EEO answers. The keys and
-> types belong in this spec (§7.2); the values belong in the database and in a
-> review file under `~/.personal-os/` that is never committed. `os hunt facts
-> review` generates it and `os hunt facts import` loads it.
+> **R6 — Fact values are reviewed in the database, not in a file.** The keys and
+> types belong in this spec (§7.2); the values belong only in `jobs_facts`, so
+> phone, address, and EEO answers never touch the repository or a local file.
+> `verified_at` records the review on the row itself. Unverified rows still
+> fill exactly as the profile does today, so seeding does not regress applying
+> while the review is in progress. *Changed by you: originally an untracked
+> local file.*
 
 ### 7.2 Draft fact catalog
 
-Keys and types only. Values are reviewed in the local file (R6). *Derived*
-entries are computed in code and never stored.
+Keys and types only. Values are reviewed in the database (R6). *Derived*
+entries are computed in code and never stored. Entries marked *career* are
+derived from the career record (§7.6) rather than stored as facts.
 
 | Key | Type | Notes |
 |---|---|---|
 | `identity.legal_name` | text | |
 | `identity.preferred_name` | text | |
 | `identity.adult` | boolean | currently a builtin rule |
-| `contact.email` | text | |
-| `contact.phone` | text | sensitive |
-| `contact.linkedin_url` / `github_url` / `portfolio_url` | text | |
+| `contact.email` | text | also the resume header |
+| `contact.phone` | text | sensitive; also the resume header |
+| `contact.linkedin_url` / `github_url` / `portfolio_url` | text | also the resume header |
 | `address.line_1` / `line_2` / `city` / `region` / `postal_code` / `country` | text | sensitive; `city`, `region` answer "current location" |
-| `education.school_name` / `degree_type` / `field_of_study` | text | |
-| `education.graduation_date` | date | base for every graduation rendering |
-| `education.gpa` | number | |
+| `education.school_name` / `degree_type` / `field_of_study` | *career* | from the primary education row |
+| `education.graduation_date` | *career* | base for every graduation rendering |
+| `education.gpa` | *career* | |
 | `education.graduation_term` | *derived* | from `graduation_date` — December → Fall |
 | `education.currently_enrolled` | *derived* | today < `graduation_date` |
 | `education.year_in_school` | *derived* | from `graduation_date` and today |
@@ -417,11 +436,11 @@ entries are computed in code and never stored.
 | `preferences.willing_to_relocate` / `willing_to_travel` | boolean | |
 | `preferences.remote` | choice | |
 | `preferences.location_strategy` | object | §9 |
-| `compensation.minimum` | object | `{amount, currency, period}`; annual is derived (× 2080) |
-| `compensation.disclosure` | choice | `number` / `deflect` — see R7 |
-| `experience.years_professional` | number | see R8 |
+| `compensation.minimum` | object | `{amount: 40, currency: USD, period: hour}`; R7 |
+| `compensation.minimum_annual` | *derived* | hourly × 2080 = $83,200 |
+| `experience.years_professional` | *career* | see R8 |
 | `experience.prior_internship` | *derived* | `coop.completed_rotations > 0` |
-| `employment.worked_for` | *derived* | from resume employers in `artifacts/career/main.json`, given the posting's company |
+| `employment.worked_for` | *career* | experience organizations, given the posting's company |
 | `referral.status` | choice | default `none` |
 | `eeo.gender_identity` / `transgender` / `race_ethnicities` / `hispanic_latino` / `veteran_status` / `disability_status` | text, boolean, list | sensitive |
 | `discovery.target_roles` / `target_locations` / `target_career_stages` | list | not application facts; used by discovery |
@@ -433,17 +452,16 @@ Dropped: `completed_at` (a form-completion marker, not a fact),
 and `visa_status` free text (replaced by the R5 booleans and
 `work_auth.us_citizen`).
 
-> **R7 — Salary needs a disclosure policy fact.** The library answers "salary
-> requirements" with "35" and "salary expectations" with "I'm open to
-> discussing…". Both cannot be policy. Proposed: `compensation.disclosure =
-> number`; a free-text field gets the formatted minimum, and a required numeric
-> field always gets the number. Flip it to `deflect` if you prefer to deflect on
-> free text.
+> **R7 — Minimum compensation is $40/hour, and every salary question gets a
+> number.** The library's "I'm open to discussing…" rows are dropped. Hourly
+> questions get `$40/hour` (or `40` in a numeric field); annual questions get the
+> derived `$83,200` (or `83200`). *Changed by you: the profile's $35 becomes
+> $40, and the disclosure-policy fact is not needed.*
 
-> **R8 — `experience.years_professional` is flagged for your check.** The
-> backend bootstrap seeds it as `3` when empty (`database.py:80`). Whether that
-> is right for an internship candidate is your call during validation; if it
-> should follow the co-op count, it becomes derived instead.
+> **R8 — `experience.years_professional` is derived from the career record.**
+> The backend bootstrap seeds it as `3` when empty (`database.py:80`). With
+> structured experience dates (§7.6) it is computed instead: the union of
+> experience spans, in whole years, rounded down. The seeded `3` goes away.
 
 ### 7.3 Derived facts: co-op rotations
 
@@ -474,10 +492,14 @@ completed_rotations(today) =
 
 Always a whole number. No partial rotation is ever reported.
 
+The anchor stays even once experience has real dates (§7.6): the rotation count
+is your rule, not a sum of job spans, and the two are allowed to differ.
+
 Derived facts live in one module (`jobs/facts/derived.py`), each declaring its
-key, the base facts it reads, and whether it needs today's date or the posting.
-They are listed in `os hunt facts list` beside base facts, marked *derived*, so
-there is one place to see everything the system will say about you.
+key, the base facts or career rows it reads, and whether it needs today's date
+or the posting. They are listed in `os hunt facts list` beside base facts,
+marked *derived*, so there is one place to see everything the system will say
+about you.
 
 ### 7.4 Questions
 
@@ -562,6 +584,71 @@ question, and compare. The same index serves one-off promotion (R10).
 > with pgvector storage in the existing database. This still needs AGENTS.md's
 > model-call rule amended to admit embeddings, and that amendment lands with
 > the feature, not before.
+
+### 7.6 Career record: the resume in the database
+
+Everything in `artifacts/career/main.json` moves into the database as
+structured rows. Facts that the resume and the forms both need — graduation,
+GPA, degree, prior employers, tenure — are then derived from one place instead
+of being typed into the profile, the library, and the resume separately.
+
+| Resume section today | Becomes |
+|---|---|
+| `contact` | facts (`contact.*`, `work_auth.us_citizen`) — the resume header reads them |
+| `education` | a `jobs_education` row, `is_primary` |
+| `experience`, `research`, `projects` | `jobs_resume_entries` rows, by `section` |
+| each entry's `bullets` | `jobs_resume_bullets` rows, ordered |
+| `skills` | `jobs_skills` rows, ordered |
+| `meta` | dropped; `updatedAt` is the latest row update |
+
+**Dates become dates.** `"May 2025 – Present"` is stored as `start_date =
+2025-05-01`, `end_date = null`; the display string is rendered. A project with a
+single month stores it as `end_date`. Month precision is enough everywhere a
+resume or a form asks.
+
+**Display text is rendered, never stored twice.** "Middleware Engineer (Co-op)"
+is `title = Middleware Engineer` plus `employment_type = coop`; "BS Computer
+Science" is `degree_type = BS` plus `field_of_study = Computer Science`;
+"December 2027" is `graduation_date`. A form asking for the degree type gets
+`degree_type` through a formatter ("Bachelor's", "Bachelor of Science"), so the
+resume and the form can never disagree.
+
+**Every consumer keeps the shape it has.** Resume build, the cover letter, the
+model passes, and the pattern `RuleContext` all read a resume dict today. The
+API assembles that same dict from the rows, so none of them change in this
+slice. Only where the dict comes from changes.
+
+**Editing stays a text-editor workflow.**
+
+- `os hunt resume edit` exports the record to a temporary JSON file in the
+  familiar shape, opens your editor, and on each save validates it, writes the
+  rows in one transaction, and rebuilds the PDF. It replaces `resume watch`.
+- `os hunt resume build` renders from the database.
+
+**The resume rules are enforced on write.** FastAPI rejects a bullet containing
+a semicolon or keyword emphasis. The two-rendered-lines rule depends on layout,
+so the build checks it and names the offending bullet.
+
+> **R32 — `main.json` and the PDF remain as generated exports, committed.**
+> `artifacts/` exists to keep a portable, versioned copy of your career
+> documents, and git history of the resume is worth keeping. Build writes both;
+> neither is ever read back as a source, so there is still exactly one writable
+> copy — the database. AGENTS.md's resume rule is amended in the same change:
+> the career record is canonical; `main.json` and `Alex_Example.pdf` are its
+> generated exports.
+
+> **R33 — Experience entries carry `employment_type`.** `coop`, `contract`,
+> `founder`, `internship`, `full_time`, `part_time`; null for research and
+> projects. It drives the rendered title suffix and the derived facts:
+> `experience.years_professional` (R8) is the union of experience spans of any
+> employment type, which today gives 2 years (May–Dec 2023, then May 2025 to
+> now). Research and projects do not count toward it. Dispute if research
+> should.
+
+> **R34 — Tailored resume variants are out of scope.** `meta.clonedFrom` hints
+> at per-company copies; there is one resume today and AGENTS.md forbids a
+> second writable copy. If tailoring returns, it selects and orders bullets from
+> the one record rather than copying it.
 
 ---
 
@@ -664,22 +751,29 @@ Random draws are seeded by the application id (§4).
 > US-West = the Pacific and Mountain states. An option that cannot be parsed is
 > treated as non-US.
 
-> **R17 — Texas and the South Central states fall in no acceptable region.**
-> Austin and Dallas are common internship offices; as written they are reachable
-> only through step 4. Confirm that is intended, or add `US-South`.
+> **R17 — Texas and the South Central states stay outside every tier.** Austin
+> and Dallas are reachable only through step 4. *Decided by you.*
 
-> **R18 — Washington is in tier 1 (Seattle) but not tier 2.** A Redmond or
-> Bellevue office therefore skips straight to tier 3 (US-West). Proposed: add
-> `WA` to tier 2 for symmetry with the other tier 1 cities.
+> **R18 — Washington counts only as Seattle.** `WA` is deliberately absent from
+> tier 2; a Redmond or Bellevue office falls to tier 3 (US-West). *Decided by
+> you.*
 
 > **R19 — "Remote" ranks after tier 3 and before step 4.** It is chosen only
 > when no preferred or acceptable office is offered. Change to tier 1 if you
 > would rather take remote over any office.
 
-> **R20 — Multi-select office questions select every tier 1 and tier 2 match.**
-> "Select all locations you are open to" is not a single pick; selecting tiers 1
-> and 2 states real willingness without opening every acceptable region. If
-> none match, it falls back to the single-choice steps.
+> **R20 — Multi-location questions.** *Decided by you.* Three shapes:
+>
+> - **Select all that apply, no limit** — every tier 1 and tier 2 match is
+>   selected. If none match, it falls back to the single-choice steps.
+> - **Select up to *k*** — tier 1 matches in random order fill the slots; once
+>   tier 1 is exhausted, tier 2 matches in random order fill the rest.
+> - **Typed entries** (several "Preferred location" text or typeahead slots) —
+>   tier 1 cities only, in random order. Running out of tier 1 cities before
+>   running out of slots is fine; extra slots stay empty unless required, in
+>   which case step 4 applies.
+>
+> All draws use the per-application seed.
 
 ---
 
@@ -694,38 +788,63 @@ hunt apply
               ├─► short-form: pattern ─► format ─► strategy   (§8)
               │      ├─ filled + readback ok ─────────────────────────┐
               │      └─ any failure ─► fill_event(stopped_at)        │
-              │             ├─► enqueue repair (§10.3)                │
+              │             ├─► enqueue repair (§10.3, --repair)      │
               │             └─► field handed to you ─► you fill it ───┤
               │                                                        │
               ├─► long-form: nearest prose                            │
               │      ├─ above threshold ─► adapt ─────────────────────┤
               │      └─ below ─► you write ─► saved to prose ─────────┤
               │                                                        ▼
-              └─► page gate: every required field filled? ── no ─► wait for you
+              ├─► cover letter offered? ─► always attached (§10.2)    │
+              │                                                        ▼
+              └─► page gate: every field filled? ── no ─► wait for you
                                     │ yes
                                     ▼
                          next page … ─► Audit (sampled) ─► submit
 ```
 
-### 10.2 Required fields
+### 10.2 Every field is filled
 
-The run never advances past a page with a required field empty. For a required
-field, the full order is: pattern → model pass → you. The run waits on the
-page, highlights the field in the visible browser, and continues once readback
-shows a value. What you type is captured as a `manual` fill, which is exactly
-the evidence the Inbox and Condenser need.
+The run never advances past a page with a field empty, required or optional.
+The full order for any field is: pattern → model pass → you. When it reaches
+you, the run waits on the page, highlights the field in the visible browser, and
+continues once readback shows a value. What you type is captured as a `manual`
+fill, which is exactly the evidence the Inbox and Condenser need.
 
-> **R21 — Optional fields are attempted fully but never block.** An optional
-> field gets every rule and the model pass. If nothing fills it, it is left
-> blank and the question goes to the Inbox. Pausing for optional questions
-> would make every new form a manual session; leaving required ones blank is
-> what the page gate exists to prevent.
+> **R21 — Optional fields are filled like required ones.** *Changed by you:
+> originally optional fields never blocked.* The one exception is a field whose
+> true answer is empty, and only when a fact says so — no second address line,
+> no referrer when `referral.status = none`. That is recorded as a deliberate
+> empty fill (`source = pattern`, empty value hash), so "left blank on purpose"
+> and "could not fill" are distinguishable in the metrics.
 
-### 10.3 Repair: fix in a second browser, never restart
+**The cover letter is always attached.** Any cover letter field —
+`is_cover_letter_field` already detects upload and text variants — is filled
+whether or not it is required. An upload gets the generated PDF; a text field
+gets the same letter as text. The page gate treats a cover letter field like
+any other: it does not pass empty.
 
-Any failure — format or strategy, on any field — is enqueued for repair and the
-live run carries on. A repair worker opens the same application in a **separate
-browser context**, advances to the failing step, and works on *only that field*:
+> **R35 — With `--no-claude`, the cover letter waits for you.** The letter's
+> tailoring slots are one of the three model call sites, so `--no-claude` cannot
+> produce it. Rather than attach an untailored template, the gate hands the field
+> to you. Dispute if an untailored letter is better than a pause.
+
+### 10.3 Repair: fix in a second browser, behind a flag
+
+Repair runs only when you ask for it: `os hunt apply --repair`. The flag stays
+explicit while the system is being built up, so running it is a deliberate
+choice; once fills are reliable you stop passing it. *Decided by you.*
+
+| | `hunt apply` | `hunt apply --repair` |
+|---|---|---|
+| failure | recorded; field handed to you; run continues | same, plus enqueued for repair |
+| repair worker | not started | started in the background |
+| Workday and account-gated ATSs | same as any ATS | in-place mode (§10.4) |
+| queue | accumulates for a later `os hunt repair` | drained while you apply |
+
+With the flag, a format or strategy failure is enqueued and the live run carries
+on. A repair worker opens the same application in a **separate browser
+context**, advances to the failing step, and works on *only that field*:
 
 1. Navigate to the application URL in the isolated context.
 2. Replay earlier steps with active rules, never submitting.
@@ -755,19 +874,60 @@ fact. They go to the Inbox (§7.4).
 > repair worker itself. Two independent guards, because a stray submit is the
 > one irreversible mistake in this design.
 
-> **R24 — Account-gated applications are not repaired on the live draft.**
-> Workday and similar ATSs save drafts server-side per account; a second context
-> editing the same draft would race the live run. For those, repair waits until
-> the live application is submitted or abandoned, or uses another open posting
-> on the same tenant that shows the same question.
+> **R24 — Account-gated ATSs are never repaired in a second browser.** Workday
+> and similar ATSs save drafts server-side per account; a second context editing
+> the same draft would race the live run. Under `--repair` they use in-place
+> mode instead (§10.4). *Decided by you.*
 
-> **R25 — Repairs run in a background process started by `hunt apply`.**
-> One worker, one repair at a time, consuming the queue while you apply. It also
-> runs standalone (`os hunt repair`) to drain the queue. Its progress shows as a
-> single status line in the apply session, so it never interleaves with prompts
-> that need you.
+> **R25 — Repairs run in one background process started by `hunt apply
+> --repair`.** One worker, one repair at a time, consuming the queue while you
+> apply. It also runs standalone (`os hunt repair`) to drain what accumulated
+> without the flag. Its progress shows as a single status line in the apply
+> session, so it never interleaves with prompts that need you.
 
-### 10.4 Rule status and `hunt validate`
+### 10.4 In-place mode: Workday as the training ground
+
+For Workday and other account-gated ATSs, `--repair` changes the run instead of
+starting a worker: **the run stays on the current page until every field on it
+has a working pattern and control, then moves on.**
+
+```
+read page ─► fill every field
+                │
+                ├─ all filled + read back ──────────────► next page
+                │
+                └─ any failure ─► try candidates on this page (§10.3 step 3)
+                      ├─ repaired ─► re-read page, loop
+                      ├─ needs a fact / prose / your review ─► Inbox item, wait
+                      └─ no candidate works ─► you fill it; issue to draft-fix
+```
+
+Workday asks many questions no other ATS asks, so a Workday application left
+running on the side is the fastest way to build both a pristine Workday filler
+and the fact base. It is expected to block on you often at first — mostly for
+facts — and less over time.
+
+> **R36 — In-place mode probes the live page, and that is the point.** Probing
+> is otherwise forbidden on a live application (§4). A run started with
+> `--repair` on an account-gated ATS has opted into being a training run, so
+> probing its own current page is allowed. Submitting still requires your
+> confirmation exactly as today.
+
+> **R37 — A blocked in-place run waits on the Inbox, not on the terminal.** When
+> it needs a fact, prose, or a review, it creates an Inbox item and polls for its
+> resolution, resuming by itself once you answer. Because Inbox items are readable
+> through FastAPI, an agent running the Workday session elsewhere — Muse in its
+> VM, eventually — can see what is blocked and ping you, and you can answer from
+> anywhere rather than at the machine running Chrome. Push notification itself is
+> left to that agent; this system only makes the waiting state readable.
+
+> **R38 — In-place mode needs the Inbox's read API early.** That makes a minimal
+> Inbox (list blocked items, resolve one) part of slice F rather than waiting for
+> the full Inbox unification. It needs no table: an Inbox item is a view over
+> rows that already exist — an `unbound` question, a `repaired` rule, an open
+> repair issue — so resolving one is an ordinary write to that row.
+
+### 10.5 Rule status and `hunt validate`
 
 A rule — a pattern binding, a formatter choice, or a strategy precedence — has a
 status:
@@ -854,12 +1014,14 @@ premature.
 
 ---
 
-## 12. Schema — requires explicit approval
+## 12. Schema
 
-AGENTS.md requires confirmation before any schema entity or field is added.
-Nothing below is created until you approve it. Fields marked *derived* are not
-stored. Every table also carries `user_id` and `created_at`/`updated_at` as the
-existing tables do; they are omitted below.
+**Approved 2026-10-08.** Everything in this section is approved except the
+entries marked **added after approval**, which arose from your answers to the
+review and still need a yes before they are built.
+
+Fields marked *derived* are not stored. Every table also carries `user_id` and
+`created_at`/`updated_at` as the existing tables do; they are omitted below.
 
 ### New: `jobs_facts` (replaces `jobs_profile`)
 
@@ -871,11 +1033,57 @@ existing tables do; they are omitted below.
 | `value` | jsonb | R3 |
 | `value_type` | text | `text` / `boolean` / `number` / `date` / `choice` / `list` / `object` |
 | `sensitive` | boolean | R4 |
+| `verified_at` | timestamptz null | **added after approval** — R6; null until you accept the row |
 
 ### Retired: `jobs_profile`
 
-Dropped after the validated import (§7.1). FastAPI's profile endpoints move to
-facts; `database.py`'s bootstrap defaults are removed rather than re-seeded.
+Dropped once every seeded fact is verified (§7.1). FastAPI's profile endpoints
+move to facts; `database.py`'s bootstrap defaults are removed rather than
+re-seeded.
+
+### New, added after approval: the career record (§7.6)
+
+| `jobs_education` | Type | Notes |
+|---|---|---|
+| `id` | uuid | |
+| `school` | text | |
+| `location` | text | |
+| `degree_type` | text | `BS`; formatted per form |
+| `field_of_study` | text | |
+| `concentrations` | text | today's `threads` |
+| `coursework` | text | |
+| `graduation_date` | date | |
+| `gpa` | numeric | |
+| `gpa_scale` | numeric | |
+| `is_primary` | boolean | the row education facts derive from; one per user |
+| `display_order` | integer | |
+
+| `jobs_resume_entries` | Type | Notes |
+|---|---|---|
+| `id` | uuid | |
+| `section` | text | `experience` / `research` / `project` |
+| `title` | text | without the employment-type suffix |
+| `org` | text null | |
+| `location` | text null | |
+| `qualifier` | text null | e.g. "Continuous Employment", an award |
+| `employment_type` | text null | R33 |
+| `start_date` | date null | month precision |
+| `end_date` | date null | null with a start date = present |
+| `display_order` | integer | |
+
+| `jobs_resume_bullets` | Type | Notes |
+|---|---|---|
+| `id` | uuid | |
+| `entry_id` | uuid | |
+| `text` | text | no semicolons, no emphasis — checked on write |
+| `display_order` | integer | |
+
+| `jobs_skills` | Type | Notes |
+|---|---|---|
+| `id` | uuid | |
+| `category` | text | |
+| `items` | text[] | today a comma-separated string |
+| `display_order` | integer | |
 
 ### New: `jobs_questions`
 
@@ -898,7 +1106,7 @@ facts; `database.py`'s bootstrap defaults are removed rather than re-seeded.
 | `expression` | text null | case-insensitive regex for `expression` patterns stored as data |
 | `fact_key` | text null | the fact a data pattern reads; null for code-defined builtins |
 | `origin` | text | `builtin` / `inbox` / `model` / `condensed` |
-| `status` | text | §10.4 |
+| `status` | text | §10.5 |
 | `superseded_by` | uuid null | set when condensed |
 
 ### New: `jobs_controls`, `jobs_strategies`
@@ -916,7 +1124,7 @@ facts; `database.py`'s bootstrap defaults are removed rather than re-seeded.
 | `name` | text | e.g. `select_by_label` |
 | `control_kind` | text | the kind it operates |
 | `precedence` | integer | candidate ordering within a kind |
-| `status` | text | §10.4 |
+| `status` | text | §10.5 |
 
 ### New: `jobs_fill_events`
 
@@ -981,7 +1189,7 @@ failure (DOM signals, artifact paths, intended vs observed value).
 ### Withdrawn
 
 `review_disposition`, `review_notes`, `reviewed_at` on answer history — the
-earlier pending proposal. Question dispositions (§7.4) and rule status (§10.4)
+earlier pending proposal. Question dispositions (§7.4) and rule status (§10.5)
 replace it.
 
 ### Later, with embeddings (not part of this approval)
@@ -1000,7 +1208,7 @@ trigger and the decision it informs; without both, the field is not collected.
 | Raw control attribute vector | Is a kind really two kinds? | a kind's strategy success goes bimodal, or n >= 50 observations | split `dynamic_choice` into local-filter vs server-search |
 | Typeahead behavior — does a menu appear on keystroke | Which combobox subkinds need which strategy | first repeated failure of a `dynamic_choice` strategy | add a strategy, or split the kind |
 | `aria-*` state attributes beyond those dispatched on | Which generic signals predict operability | before adding any new ATS-specific selector | replace a hardcoded selector with a generic one |
-| Audit verdicts per pair | Which patterns are wrong vs which controls are broken | Condenser build, module 5 | pattern merge or retire |
+| Audit verdicts per pair | Which patterns are wrong vs which controls are broken | Condenser build | pattern merge or retire |
 | Model-pass `no_fact` names | Which facts are missing most often | 20 `no_fact` verdicts | which facts to ask you for first |
 | Prose `none_fits` verdicts with nearest candidate | Where the similarity threshold sits | 30 long-form questions | the threshold value, and whether vectors are needed |
 
@@ -1041,86 +1249,172 @@ The 198 library rows are sorted once, with you, during fact validation (§7.1):
 - **Generalising the captcha guard changes behavior.** Dropping `ats == "lever"`
   makes it fire on every ATS. That is more correct, and it will look like a drop
   in fill rate until metrics distinguish "refused on purpose" from "failed."
-- **AGENTS.md's model-call list is already incomplete.** It names three call
-  sites, but `failures diagnose` and `draft-fix` call `claude -p` too
-  (`_failure_claude`, `commands.py:615`), and Repair leans on that path.
+- **AGENTS.md's model-call list was incomplete.** It named three call sites, but
+  `failures diagnose` and `draft-fix` call `claude -p` too (`_failure_claude`,
+  `commands.py:615`), and Repair leans on that path.
+- **`_failure_claude` is not metered.** Every other call site runs
+  `--output-format json` and reports usage through `claude_usage`; this one
+  reads plain text, so its cost is invisible.
 
-> **R31 — Amend the AGENTS.md rule to separate fill-time calls from maintenance
-> calls.** Fill-time stays at exactly three call sites. Maintenance calls —
-> diagnosing a captured failure, drafting a patch for you to review — are
-> listed separately and never run inside a live fill. This is a documentation
-> fix for something that already exists, made in the same change that builds
-> Repair.
+> **R31 — Every model call site is listed in AGENTS.md, by file and purpose.**
+> *Done, by your decision.* Fill-time calls (the three `--no-claude` disables)
+> and maintenance calls (run by you on a captured failure, never inside a live
+> fill) are listed separately, plus the parked graduation-date call. Adding a
+> call site means adding it to that list in the same change.
+
+> **R39 — Meter `_failure_claude` like every other call.** Switch it to
+> `--output-format json` and route it through `claude_usage`, so the list in
+> AGENTS.md and the usage records cover the same set of callers. Part of slice
+> F, since Repair is what makes that path frequent.
 
 ---
 
-## 16. Scope
+## 16. Slices
 
-**Module 0, Facts:** `jobs_facts`, the catalog generator, `facts review` and
-`facts import`, derived facts including co-op rotations, the library migration
-(§14), and retiring `jobs_profile`.
+The work is large and lands as six slices. Each slice owns its migration, its
+modules, and its tests, so independent slices can be built at the same time
+without editing each other's files.
 
-**Module 1, Registry instrumentation:** questions, patterns, formatters,
-controls, strategies, fill events with `stopped_at`; generic ARIA detection
-replacing the Ashby selector; checkbox group cardinality; classification into
-the 7 kinds; the raw attribute vector; refactoring the if/elif dispatch into
-control-kind → ordered strategies; `uncheck_control`; `select_multiple`; the
-generic captcha guard; the `resolve_priority_answer` split (R14); office
-selection (§9); the required-field page gate; the model pass's
-`fits_fact`/`no_fact`/`unsure` verdicts.
+**Separation rules.**
 
-**Module 2, Repair and validate:** the repair queue, the repair worker and its
-isolated context, rule status, `os hunt repair`, `os hunt validate`.
+- One migration file per slice. A slice never edits another slice's migration;
+  a later correction is a new migration in the slice that needs it.
+- New backend storage goes in a new module per slice (`jobs_facts.py`,
+  `jobs_career.py`, `jobs_registry.py`) rather than growing `jobs_store.py`.
+- Hot files have one owner at a time: `browser.py` belongs to D;
+  `autofill.py` resolution and `patterns.py` belong to C until C lands, then E.
+- Each slice ends with the verification gates in AGENTS.md green, its owning
+  README updated, and a commit on `main`.
 
-**Later:** Inbox unification, Audit, Condenser, prose vectors, unattended batch.
+```
+A Facts ──┬──► B Career record
+          ├──► C Answers ──┐
+          │                ▼
+D Registry ──────────────► E Fill policy ──► F Repair and validate
+```
 
-**Not doing:** vision or computer-use fallback for control operation; CAPTCHA
-solving; any port off the `claude -p` CLI.
+Lanes that can run at once: **A → B**, **A → C**, and **D** from the start. E
+waits for A, C, and D; F waits for D and E.
+
+### A — Facts
+
+| | |
+|---|---|
+| **Delivers** | `jobs_facts`, seeded from `jobs_profile`; derived facts including co-op rotations; `os hunt facts list \| review \| set` |
+| **Owns** | migration `…_jobs_facts.sql`; `backend/…/jobs_facts.py`; `workers/…/jobs/facts/` |
+| **Cut-over** | the worker reads facts through an adapter that presents the old profile dict, so resolution logic is untouched until E |
+| **Done when** | every catalog key listed; co-op derivation tested at each boundary date and at graduation; a dry run over saved fixtures produces the same fill plan as before |
+| **Then** | `jobs_profile` is dropped in a follow-up migration once every fact is verified (A2) |
+
+### B — Career record
+
+| | |
+|---|---|
+| **Delivers** | the four career tables; a one-time `os hunt resume import` from `main.json`; build and `resume edit` from the database; career-derived facts; the AGENTS.md resume rule amendment (R32) |
+| **Owns** | migration `…_jobs_career.sql`; `backend/…/jobs_career.py`; `workers/…/documents/` |
+| **Depends on** | A, for the `contact.*` facts in the header |
+| **Done when** | the PDF built from the database matches the current PDF; export after import round-trips to the current `main.json` except the dropped `meta` |
+
+### C — Answers
+
+| | |
+|---|---|
+| **Delivers** | `jobs_questions`, `jobs_patterns`, `jobs_prose` (renamed), `question_id` on answer history; the §14 library migration, done with you; the regression corpus (R30) |
+| **Owns** | migration `…_jobs_answers.sql`; `backend/…/jobs_answers.py`; `workers/…/jobs/autofill.py` resolution, `patterns.py`, `answers.py` |
+| **Depends on** | A |
+| **Done when** | every migrated phrasing resolves to its fact through a pattern; no library row is left with `reuse_policy` `exact` or `pattern` |
+
+### D — Registry instrumentation
+
+| | |
+|---|---|
+| **Delivers** | `jobs_controls`, `jobs_strategies`, `jobs_fill_events`; classification into the 7 kinds; generic ARIA detection; checkbox group cardinality; the dispatch refactored to kind → ordered strategies; `uncheck_control`, `select_multiple`; the generic captcha guard; fill events written with `stopped_at` |
+| **Owns** | migration `…_jobs_registry.sql`; `backend/…/jobs_registry.py`; `workers/…/jobs/browser.py` and a new `jobs/registry/` |
+| **Depends on** | nothing |
+| **Done when** | replay fixtures exist for every control kind; a dry run writes one fill event per field; existing tests pass unchanged |
+
+### E — Fill policy
+
+| | |
+|---|---|
+| **Delivers** | formatters; the `resolve_priority_answer` split (R14); office selection (§9); the every-field page gate (§10.2); the cover letter always attached; model-pass verdicts `fits_fact` / `no_fact` / `unsure`; sensitive facts withheld from model calls; $40/hour |
+| **Owns** | `workers/…/jobs/formatters.py`, `jobs/office.py`; `autofill.py`, `autofill_session.py`, `short_answers.py` |
+| **Depends on** | A, C, D |
+| **Done when** | formatter tests cover every `value_type` × control kind pair in use; office selection is tested for every tier and multi-location shape with a fixed seed; a fixture page with an empty optional field does not advance |
+
+### F — Repair and validate
+
+| | |
+|---|---|
+| **Delivers** | `--repair`; the repair worker and its isolated context; in-place mode for account-gated ATSs; rule status; `os hunt repair`; `os hunt validate`; the minimal Inbox read API (R38); metering for `_failure_claude` (R39) |
+| **Owns** | migration `…_jobs_repair.sql`; `workers/…/jobs/repair/`; `commands.py` failure path |
+| **Depends on** | D, E |
+| **Done when** | a seeded strategy failure is repaired and validated end to end on a fixture; the repair context's submit is refused by both guards; an in-place run blocks on a missing fact and resumes when it is set |
+
+### Later
+
+Inbox unification, Audit, Condenser, prose vectors, unattended batch.
+
+### Not doing
+
+Vision or computer-use fallback for control operation; CAPTCHA solving; any port
+off the `claude -p` CLI; tailored resume variants (R34).
 
 ---
 
 ## 17. Recommendations index
 
-| # | Decision |
-|---|---|
-| R1 | Build Facts first; Repair before Audit |
-| R2 | Retire `jobs_profile` entirely |
-| R3 | Fact values are `jsonb` typed by `value_type` |
-| R4 | `sensitive` facts are withheld from model calls |
-| R5 | Authorization and sponsorship are separate facts |
-| R6 | Fact values reviewed in an untracked local file |
-| R7 | Salary disclosure is a policy fact, default `number` |
-| R8 | `years_professional` flagged for your check |
-| R9 | `no_fact` names the missing fact |
-| R10 | One-offs promote on the second sighting |
-| R11 | Long-form matches question to question |
-| R12 | Day 1 long-form matching uses the existing drafting call |
-| R13 | Embeddings run locally, with an AGENTS.md amendment |
-| R14 | Split `resolve_priority_answer` into derived facts and formatters |
-| R15 | Office policy applies to office choice, never current location |
-| R16 | Option parsing and region table in code |
-| R17 | Texas / South Central reachable only via step 4 — confirm |
-| R18 | Add `WA` to tier 2 |
-| R19 | "Remote" ranks after tier 3 |
-| R20 | Multi-select office questions select tiers 1 and 2 |
-| R21 | Optional fields are attempted fully but never block |
-| R22 | Repair runs in a separate headed context, headless later |
-| R23 | Two independent submit guards in Repair |
-| R24 | Account-gated drafts are not repaired concurrently |
-| R25 | One background repair worker started by `hunt apply` |
-| R26 | Validation prefers a fresh posting |
-| R27 | Existing builtin rules start `active` |
-| R28 | Rename `jobs_answer_library` to `jobs_prose` |
-| R29 | Event columns dropped one release after fill events land |
-| R30 | Every migrated phrasing becomes a regression test |
-| R31 | AGENTS.md separates fill-time from maintenance model calls |
+*new* = added in this revision, not yet reviewed.
+
+| # | Decision | Status |
+|---|---|---|
+| R1 | Build Facts first; Repair before Audit; Registry in parallel | agreed |
+| R2 | Retire `jobs_profile` entirely | agreed |
+| R3 | Fact values are `jsonb` typed by `value_type` | agreed |
+| R4 | `sensitive` facts are withheld from model calls | agreed |
+| R5 | Authorization and sponsorship are separate facts | agreed |
+| R6 | Fact values reviewed in the database, `verified_at` per row | changed by you |
+| R7 | Minimum $40/hour; annual derived; always a number | changed by you |
+| R8 | `years_professional` derived from the career record | changed by your resume decision |
+| R9 | `no_fact` names the missing fact | agreed |
+| R10 | One-offs promote on the second sighting | agreed |
+| R11 | Long-form matches question to question | agreed |
+| R12 | Day 1 long-form matching uses the existing drafting call | agreed |
+| R13 | Embeddings run locally, with an AGENTS.md amendment | agreed |
+| R14 | Split `resolve_priority_answer` into derived facts and formatters | agreed |
+| R15 | Office policy applies to office choice, never current location | agreed |
+| R16 | Option parsing and region table in code | agreed |
+| R17 | Texas / South Central stay outside every tier | decided by you |
+| R18 | Washington counts only as Seattle | decided by you |
+| R19 | "Remote" ranks after tier 3 | agreed |
+| R20 | Multi-location: all of tiers 1–2; limited slots tier 1 then 2; typed slots tier 1 only | decided by you |
+| R21 | Optional fields are filled like required ones | changed by you |
+| R22 | Repair runs in a separate headed context, headless later | agreed |
+| R23 | Two independent submit guards in Repair | agreed |
+| R24 | Account-gated ATSs use in-place mode, never a second browser | decided by you |
+| R25 | One background repair worker, only under `--repair` | decided by you |
+| R26 | Validation prefers a fresh posting | agreed |
+| R27 | Existing builtin rules start `active` | agreed |
+| R28 | Rename `jobs_answer_library` to `jobs_prose` | agreed |
+| R29 | Event columns dropped one release after fill events land | agreed |
+| R30 | Every migrated phrasing becomes a regression test | agreed |
+| R31 | Every model call site listed in AGENTS.md | done |
+| R32 | `main.json` and the PDF stay as committed generated exports | new |
+| R33 | Experience entries carry `employment_type`; research does not count toward tenure | new |
+| R34 | Tailored resume variants out of scope | new |
+| R35 | With `--no-claude`, the cover letter waits for you | new |
+| R36 | In-place mode may probe its own current page | new |
+| R37 | A blocked in-place run waits on the Inbox, readable over the API | new |
+| R38 | Minimal Inbox read API in slice F, no table | new |
+| R39 | Meter `_failure_claude` | new |
 
 ## 18. Open questions
 
 Only the things a recommendation cannot settle:
 
-1. Approval of every schema change in §12.
-2. The fact values themselves — settled in your validation pass (§7.1).
+1. Approval of the §12 entries marked *added after approval*: `verified_at` on
+   `jobs_facts`, and the four career-record tables.
+2. The fact values themselves — settled in your review pass (§7.1).
 3. The long-form similarity threshold — evidence collected per §13 before it is
    fixed.
 4. Audit sampling rates and the bound that keeps it off the critical path.
