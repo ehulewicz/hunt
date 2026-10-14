@@ -134,3 +134,19 @@ def test_the_model_verdict_renders_its_fact_like_any_other() -> None:
         "Example Institute of Technology", "model", "model:fact_v1", "education.school_name"
     )
     assert resolver.resolve({"tag": "input", "label": "Other?"}) is None
+
+
+def test_agreement_is_by_whole_words_and_sensitive_notes_withhold_values() -> None:
+    from personal_os_worker.jobs.formatters import Rendering
+    from personal_os_worker.jobs.resolve import agrees
+
+    assert not agrees(Rendering("Example Institute of Technology", "text_as_is"), [], ["No"])
+    assert agrees(Rendering("I am not a protected veteran", "boolean_as_option"), [],
+                  ["I am not a protected veteran"])
+    archive = [{"id": "a1", "normalized_key": "disability status", "answer_text": "Yes",
+                "reuse_policy": "exact"}]
+    rows = [{"key": "eeo.disability_status", "value": "No", "sensitive": True}]
+    resolver = Resolver(Knowledge.build(facts=rows, career=None, archive=archive))
+    assert ask(resolver, "Disability Status", {"tag": "input"}) is None
+    note = resolver.misses["disability status"].note
+    assert "Yes" not in note and "No" not in note and "(withheld)" in note

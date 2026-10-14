@@ -149,6 +149,10 @@ def agrees(rendering: Rendering, every: list[str], hints: Iterable[str]) -> bool
     def words(value: str) -> str:
         return " ".join(re.sub(r"[^a-z0-9]+", " ", value.casefold()).split())
 
+    def within(outer: str, inner: str) -> bool:
+        # Whole words only: "no" is not inside "technology".
+        return f" {inner} " in f" {outer} "
+
     known = [words(text) for text in texts if words(text)]
     hints = [hint for hint in hints if hint.strip()]
     if not hints:
@@ -157,7 +161,7 @@ def agrees(rendering: Rendering, every: list[str], hints: Iterable[str]) -> bool
         said = words(hint)
         if not said:
             continue
-        if any(said == text or said in text or text in said for text in known):
+        if any(within(text, said) or within(said, text) for text in known):
             return True
         old, new = polarity(said.split()[0]), polarity(words(rendering.value).split()[0])
         if old is not None and old == new:
@@ -248,7 +252,10 @@ class Resolver:
         if hit is None:
             return None
         hints = [hint.answer for hint in hit.hints]
-        shown = ", ".join(repr(hint[:40]) for hint in hints[:2])
+        private = hit.fact_key in self.knowledge.sensitive
+        shown = (
+            "(withheld)" if private and hints else ", ".join(repr(hint[:40]) for hint in hints[:2])
+        )
         if hit.fact_key is None:
             self._miss(question, Miss(question, "pattern", note=f"archive answered {shown}"))
             return None
@@ -277,7 +284,8 @@ class Resolver:
                 question,
                 Miss(
                     question, "pattern", key, hit.resolver_id, rendering.formatter,
-                    f"the archive answered {shown}, but {key} gives {rendering.value!r}",
+                    f"the archive answered {shown}, but {key} gives "
+                    f"{'(withheld)' if private else repr(rendering.value)}",
                 ),
             )
             return None

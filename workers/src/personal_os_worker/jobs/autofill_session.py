@@ -489,10 +489,14 @@ class AutofillSession:
                     self.state.tier_answers[question] = applied
                     self.state.tier_source[question] = fill.resolution.source
                     self.state.tier_resolver[question] = fill.resolution.resolver_id
+                    shown = (
+                        "••••" if fill.resolution.fact_key in self.ctx.knowledge.sensitive
+                        else applied
+                    )
                     if fill.resolution.resolver_id.startswith("engine:"):
                         echo("source", question, applied)
                     else:
-                        echo(fill.resolution.source, question, applied,
+                        echo(fill.resolution.source, question, shown,
                              note=fill.resolution.fact_key)
         for question in result["unanswered_required_questions"]:
             item = next(
@@ -637,7 +641,11 @@ class AutofillSession:
                     applied, "model", fill.resolution.resolver_id,
                     fact_key=fill.resolution.fact_key, formatter=fill.resolution.formatter,
                 )
-                echo("claude", question, applied, note=fill.resolution.fact_key)
+                shown = (
+                    "••••" if fill.resolution.fact_key in self.ctx.knowledge.sensitive
+                    else applied
+                )
+                echo("claude", question, shown, note=fill.resolution.fact_key)
         result["failures"].extend(claude_result["failures"])
         if claude_result["events"]:
             self.ctx.api.persist_autofill_step(
