@@ -9,7 +9,6 @@ from fastapi import FastAPI
 
 from personal_os_backend.auth import InvalidAccessToken
 from personal_os_backend.config import Settings
-from personal_os_backend.database import BootstrapStore, get_bootstrap_store
 from personal_os_backend.jobs_models import (
     AnswerLibraryCreate,
     AnswerLibraryItem,
@@ -47,16 +46,6 @@ class FakeValidator:
                 None,
             )
         raise InvalidAccessToken
-
-
-class FakeStore(BootstrapStore):
-    def __init__(self) -> None:
-        self.rows: set[tuple[UUID, str]] = set()
-        self.calls = 0
-
-    async def bootstrap(self, user_id: UUID, email: str) -> None:
-        self.calls += 1
-        self.rows.add((user_id, email))
 
 
 class FakeJobsStore:
@@ -222,21 +211,14 @@ async def test_me_returns_google_identity(client: httpx.AsyncClient) -> None:
     }
 
 
-async def test_bootstrap_is_safe_to_repeat(app: FastAPI, client: httpx.AsyncClient) -> None:
-    store = FakeStore()
-
-    async def override_store() -> FakeStore:
-        return store
-
-    app.dependency_overrides[get_bootstrap_store] = override_store
+async def test_bootstrap_only_confirms_the_account(client: httpx.AsyncClient) -> None:
     headers = {"Authorization": "Bearer approved"}
 
     first = await client.post("/v1/bootstrap", headers=headers)
     second = await client.post("/v1/bootstrap", headers=headers)
 
     assert first.status_code == second.status_code == 200
-    assert store.rows == {(USER_ID, "eahtree@gmail.com")}
-    assert store.calls == 2
+    assert first.json()["email"] == "eahtree@gmail.com"
 
 
 async def test_listings_accept_category_and_multiple_normalized_locations(

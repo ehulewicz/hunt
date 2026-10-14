@@ -18,9 +18,9 @@ a request body. There is no RLS, by design, because the product is single-user.
 
 ### What the Jobs tables hold
 
-Facts, source listings, recoverably archived applications with
+Facts, the career record, source listings, recoverably archived applications with
 a lifecycle status (`queued`, `applied`, `oa`, `oa_completed`, `interview`, `offer`,
-`rejected`, `archived`), immutable versioned documents, approved long-form answers,
+`rejected`, `archived`), approved long-form answers,
 application-question event history, synchronous autofill runs, deduplicated failure
 issues, and failure occurrences.
 
@@ -44,6 +44,16 @@ as a dimension only, a value hash, and `stopped_at` (`pattern`, `format`,
 `strategy`, or null) with `operated_ok` (true read back, false failed, null not
 attempted). `question_key` and `resolver_id` stand in until `jobs_questions` and
 `jobs_patterns` exist and add real foreign keys.
+
+`jobs_education`, `jobs_resume_entries`, `jobs_resume_bullets`, and `jobs_skills`
+are the career record, the canonical resume. Dates are month-precision `date`s
+(the first of the month); an entry's `end_date` is null with a start date for
+"Present", and a single-month project stores only `end_date`. Only experience
+carries an `employment_type`, so research and projects can never count toward
+tenure. One education row per user is `is_primary`, and a bullet can never hold a
+semicolon. `jobs_archive_documents` is the former `jobs_documents` — a 2026-08
+copy of the resume and two tailored resumes — renamed and frozen: the API role
+can only read it.
 
 `jobs_facts` holds one row per fact, keyed per user by a dotted name, with a
 `jsonb` value whose shape a check constraint ties to `value_type` (`text`,

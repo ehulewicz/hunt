@@ -4,10 +4,6 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-import pytest
-
-from personal_os_backend.jobs_models import MasterResumeContent
-
 USER_ID = uuid4()
 APPLICATION_ID = uuid4()
 TASK_ID = uuid4()
@@ -61,8 +57,6 @@ class FakeConnection:
                 },
                 1,
             )
-        if "document_type = 'master_resume'" in normalized:
-            return FakeCursor({"id": uuid4()}, 1)
         if "select company.name" in normalized:
             return FakeCursor({"name": "Wells Fargo"}, 1)
         return FakeCursor(None, 1)
@@ -109,51 +103,6 @@ def test_autofill_run_cte_returns_the_selected_ats() -> None:
     )[0]
 
     assert "returning id, application_id, ats" in " ".join(query.split())
-
-
-def test_master_resume_content_accepts_blank_bullet_slots() -> None:
-    content = MasterResumeContent.model_validate(
-        {
-            "contact": {"name": "Candidate"},
-            "education": {"school": "School"},
-            "experience": [{"title": "Engineer", "bullets": ["", "", "", ""]}],
-            "research": [{"title": "Researcher", "bullets": ["", "", ""]}],
-        }
-    )
-
-    assert content.experience[0].bullets == ["", "", "", ""]
-    assert content.research[0].bullets == ["", "", ""]
-
-
-def test_master_resume_content_requires_a_contact_name() -> None:
-    with pytest.raises(ValueError):
-        MasterResumeContent.model_validate(
-            {"contact": {}, "education": {"school": "School"}}
-        )
-
-
-def test_master_resume_content_accepts_the_canonical_shape() -> None:
-    content = MasterResumeContent.model_validate(
-        {
-            "meta": {"slug": "main"},
-            "contact": {"name": "Candidate", "email": "candidate@example.com"},
-            "education": {
-                "school": "School",
-                "location": "Atlanta, GA",
-                "degree": "B.S.",
-            },
-            "experience": [{"title": "Engineer", "org": "Company", "bullets": ["Built it"]}],
-            "research": [{"title": "Researcher", "org": "Lab", "bullets": ["Tested it"]}],
-            "projects": [],
-            "skills": [{"category": "Languages", "items": "Python"}],
-        }
-    )
-
-    assert content.experience[0].bullets == ["Built it"]
-    assert content.research[0].bullets == ["Tested it"]
-    assert content.education.location == "Atlanta, GA"
-    # Unknown keys such as meta survive so the worker template keeps its extras.
-    assert "meta" in content.model_dump()
 
 
 def test_board_numbers_listings_once_before_any_filter() -> None:

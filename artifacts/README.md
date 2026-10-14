@@ -5,19 +5,21 @@ Everything here is tracked, so a clone is a complete working set.
 
 ## How it works
 
-`career/main.json` is the **only** canonical resume. Never create a second
-writable resume copy. The deterministic Python LaTeX compiler in `workers/`
-renders it to `career/Alex_Example.pdf` with no model call and refuses anything
-other than one page. Rebuilding unchanged JSON is byte-stable, so Git sees a PDF
-change only when rendered content changes. The backend Docker image copies this
-same `main.json` from the repository-root build context, so `POST /v1/bootstrap`
-and local resume generation never diverge.
+The resume itself lives in the database as the career record (education,
+experience, research, projects, bullets, skills; see `../backend/README.md`).
+`career/main.json` and `career/Alex_Example.pdf` are its **exports**: every
+accepted edit rewrites both, and they are committed so a clone carries a
+portable, versioned copy. Neither is read back as a source, and there is never a
+second writable resume copy. The deterministic Python LaTeX compiler in
+`workers/` renders the PDF with no model call and refuses anything other than one
+page. Rebuilding an unchanged record is byte-stable, so Git sees a PDF change only
+when rendered content changes.
 
 `career/cover_letter.md` is fixed prose with `{{slots}}` and named proof modules.
 `os hunt apply` fills the listing facts, asks Claude for only the
 posting-dependent slots, opens the result in VS Code, and then fills or uploads
 whatever you left in the file. Edit the prose and modules here; its numbers should
-match `main.json`.
+match the resume.
 
 `career/Transcript.pdf`, when present, is uploaded to any file control the autofill
 worker recognizes as asking for a transcript (label or field name containing
@@ -27,20 +29,23 @@ that field for you.
 ## Run and verify
 
 ```bash
-os hunt resume build              # one-shot rebuild of the PDF
-os hunt resume                    # = os hunt resume watch --open
+os hunt resume                    # = os hunt resume edit --open
+os hunt resume build              # republish both exports from the record
+os hunt resume import             # once: load main.json into an empty record
 ```
 
-Run the watch form while editing the JSON to keep the PDF current. It atomically
-replaces the PDF and refreshes the browser preview whenever valid JSON changes; a
-failed build leaves the last good PDF open. Resume content rules (no semicolons,
-two rendered lines maximum, no keyword bolding, `|` between role and organization)
-are in [`../AGENTS.md`](../AGENTS.md).
+`edit` opens a working copy of the record as JSON (outside the repository) in VS
+Code. Each save goes to the API, which refuses a semicolon, keyword emphasis, an
+em dash in a heading, or a header that disagrees with the facts; an accepted save
+rewrites `main.json` and atomically replaces the PDF, and the browser preview
+refreshes. A refused save changes nothing and says why. Resume content rules
+(no semicolons, two rendered lines maximum, no keyword bolding, `|` between role
+and organization) are in [`../AGENTS.md`](../AGENTS.md).
 
 ## Structure
 
 ```text
-career/main.json              canonical structured resume — the single source
+career/main.json              JSON export of the career record (never edited here)
 career/Alex_Example.pdf     its generated one-page projection, tracked beside it
 career/Alex_Example.tex     build intermediate, untracked
 career/cover_letter.md        cover letter template: prose, {{slots}}, proof modules

@@ -1,8 +1,13 @@
-"""Derived facts: computed from base facts and today's date, never stored.
+"""Derived facts: computed from base facts, the career record, and today's date.
 
 A derived fact goes stale the moment it is written down, so nothing here is
 persisted. Each one is a pure function of the base facts (keyed by their dotted
-names) and the date it is asked on.
+names), the career record's rows, and the date it is asked on.
+
+Career-derived facts follow the resume: education from its primary row, tenure
+from the union of experience spans, the current employer, and every skill. Until
+the facts session settles them, a stored fact with the same key wins (R51);
+`shadowed` names the ones where the two disagree.
 """
 
 from __future__ import annotations
@@ -47,6 +52,28 @@ DERIVED_FACTS = (
         ("coop.anchor", "education.graduation_date"),
     ),
 )
+
+
+CAREER_FACTS = (
+    DerivedFact("education.school_name", "School", ("career.education",)),
+    DerivedFact("education.degree_type", "Degree type", ("career.education",)),
+    DerivedFact("education.field_of_study", "Field of study", ("career.education",)),
+    DerivedFact("education.graduation_date", "Graduation date", ("career.education",)),
+    DerivedFact("education.gpa", "GPA", ("career.education",)),
+    DerivedFact(
+        "experience.years_professional",
+        "Whole years of professional experience (union of experience spans)",
+        ("career.experience",),
+    ),
+    DerivedFact("employment.current_employer", "Current employer", ("career.experience",)),
+    DerivedFact(
+        "employment.organizations",
+        "Every organization on the resume, labs included",
+        ("career.experience", "career.research", "career.projects"),
+    ),
+    DerivedFact("skills.all", "Every skill on the resume, in order", ("career.skills",)),
+)
+DAYS_PER_YEAR = 365.25
 
 
 def _date(value: Any) -> date | None:
@@ -108,3 +135,101 @@ def derive(facts: dict[str, Any], today: date) -> dict[str, Any]:
         "experience.prior_internship": rotations > 0 if rotations is not None else None,
     }
     return {key: value for key, value in values.items() if value is not None}
+
+
+def _next_month(value: date) -> date:
+    return date(value.year + value.month // 12, value.month % 12 + 1, 1)
+
+
+def years_of_experience(entries: list[dict[str, Any]], today: date) -> int | None:
+    """Whole years covered by any experience entry, overlaps counted once.
+
+    An entry runs from its first month through the end of its last month, or
+    through today when it has no end. Research and projects never count.
+    """
+    spans: list[tuple[date, date]] = []
+    for entry in entries:
+        if entry.get("section") != "experience":
+            continue
+        start = _date(entry.get("start_date"))
+        if start is None:
+            continue
+        end = _date(entry.get("end_date"))
+        stop = _next_month(end) if end is not None else today
+        if stop > start:
+            spans.append((start, stop))
+    if not spans:
+        return None
+    covered = 0
+    current_start, current_stop = None, None
+    for start, stop in sorted(spans):
+        if current_stop is None or start > current_stop:
+            if current_start is not None and current_stop is not None:
+                covered += (current_stop - current_start).days
+            current_start, current_stop = start, stop
+        else:
+            current_stop = max(current_stop, stop)
+    if current_start is not None and current_stop is not None:
+        covered += (current_stop - current_start).days
+    return int(covered // DAYS_PER_YEAR)
+
+
+def career_facts(record: dict[str, Any] | None, today: date) -> dict[str, Any]:
+    """The facts the career record determines, keyed like stored facts."""
+    if not isinstance(record, dict):
+        return {}
+    values: dict[str, Any] = {}
+    education = record.get("education")
+    if isinstance(education, dict):
+        values["education.school_name"] = education.get("school")
+        values["education.degree_type"] = education.get("degree_type")
+        values["education.field_of_study"] = education.get("field_of_study")
+        graduation = _date(education.get("graduation_date"))
+        values["education.graduation_date"] = graduation.isoformat() if graduation else None
+        try:
+            values["education.gpa"] = (
+                float(education["gpa"]) if education.get("gpa") is not None else None
+            )
+        except (TypeError, ValueError):
+            values["education.gpa"] = None
+    entries = [entry for entry in record.get("entries") or [] if isinstance(entry, dict)]
+    values["experience.years_professional"] = years_of_experience(entries, today)
+    current = next(
+        (
+            entry
+            for entry in entries
+            if entry.get("section") == "experience"
+            and entry.get("start_date")
+            and not entry.get("end_date")
+            and entry.get("org")
+        ),
+        None,
+    )
+    values["employment.current_employer"] = current.get("org") if current else None
+    organizations: list[str] = []
+    for entry in entries:
+        # A lab's name is its research heading; its org spells out the acronym.
+        names = [entry.get("org")]
+        if entry.get("section") == "research":
+            names.append(entry.get("title"))
+        for name in names:
+            text = str(name or "").strip()
+            if text and text not in organizations:
+                organizations.append(text)
+    values["employment.organizations"] = organizations or None
+    skills: list[str] = []
+    for group in record.get("skills") or []:
+        items = group.get("items") if isinstance(group, dict) else None
+        for item in items or []:
+            name = str(item).strip()
+            if name and name not in skills:
+                skills.append(name)
+    values["skills.all"] = skills or None
+    return {key: value for key, value in values.items() if value not in (None, "")}
+
+
+def shadowed(stored: dict[str, Any], career: dict[str, Any]) -> dict[str, Any]:
+    """Career-derived values that a stored fact with the same key currently overrides."""
+    return {
+        key: value for key, value in career.items() if key in stored and stored[key] != value
+    }

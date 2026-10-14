@@ -83,7 +83,7 @@ def test_everyday_commands_have_short_spellings() -> None:
     assert expand_shorthand(["hunt", "--ats", "lever"]) == ["hunt", "list", "--ats", "lever"]
     assert expand_shorthand(["hunt", "20", "--ats=ashby"]) == ["hunt", "list", "20", "--ats=ashby"]
     assert expand_shorthand(["hunt", "answers"]) == ["hunt", "answers", "list"]
-    assert expand_shorthand(["hunt", "resume"]) == ["hunt", "resume", "watch", "--open"]
+    assert expand_shorthand(["hunt", "resume"]) == ["hunt", "resume", "edit", "--open"]
     # anything already spelled out is left alone
     assert expand_shorthand(["hunt", "apply", "7"]) == ["hunt", "apply", "7"]
     assert expand_shorthand(["hunt", "answers", "add"]) == ["hunt", "answers", "add"]
@@ -195,16 +195,23 @@ def test_apps_lists_or_marks_one_with_a_lifecycle_status() -> None:
         build_parser().parse_args(["hunt", "apps", "1", "submitted"])
 
 
-def test_resume_build_and_watch_are_cli_commands() -> None:
-    build = build_parser().parse_args(["hunt", "resume", "build", "--output", "/tmp/main.pdf"])
-    assert (build.hunt_command, build.resume_command, build.output) == (
+def test_resume_build_edit_and_import_are_cli_commands() -> None:
+    build = build_parser().parse_args(
+        ["hunt", "resume", "build", "--input", "/tmp/x.json", "--output", "/tmp/main.pdf"]
+    )
+    assert (build.hunt_command, build.resume_command, build.input, build.output) == (
         "resume",
         "build",
+        "/tmp/x.json",
         "/tmp/main.pdf",
     )
-    watch = build_parser().parse_args(["hunt", "resume", "watch", "--open", "--interval", "0.25"])
-    assert watch.resume_command == "watch" and watch.open is True
-    assert watch.interval == 0.25
+    edit = build_parser().parse_args(["hunt", "resume", "edit", "--open", "--interval", "0.25"])
+    assert edit.resume_command == "edit" and edit.open is True
+    assert edit.interval == 0.25
+    imported = build_parser().parse_args(["hunt", "resume", "import"])
+    assert imported.resume_command == "import" and imported.input is None
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "resume", "watch"])
 
 
 def test_autofill_requires_a_saved_listing_reference_and_has_no_lentra_provider() -> None:

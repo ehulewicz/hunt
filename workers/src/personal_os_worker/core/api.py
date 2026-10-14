@@ -145,6 +145,37 @@ class WorkerApi:
         response = self._client.delete(f"/v1/jobs/facts/{key}")
         response.raise_for_status()
 
+    def career(self) -> dict[str, Any]:
+        """The career record: its rows and the resume document rendered from them."""
+        response = self._client.get("/v1/jobs/career")
+        if response.status_code == 404:
+            raise RuntimeError("No career record yet; run 'os hunt resume import'")
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Career response was invalid")
+        return payload
+
+    def put_career(self, document: dict[str, Any]) -> dict[str, Any]:
+        response = self._client.put("/v1/jobs/career", json=document)
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Career response was invalid")
+        return payload
+
+    def import_career(self, document: dict[str, Any]) -> dict[str, Any]:
+        response = self._client.post("/v1/jobs/career/import", json=document)
+        if response.status_code == 409:
+            raise RuntimeError(
+                "The career record already exists; edit it with 'os hunt resume edit'"
+            )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Career response was invalid")
+        return payload
+
     def answer_review(self, *, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
         response = self._client.get(
             "/v1/jobs/answer-review", params={"limit": limit, "offset": offset}

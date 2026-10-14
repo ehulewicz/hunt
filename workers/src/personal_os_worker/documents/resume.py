@@ -1,4 +1,11 @@
-"""Deterministic resume commands built around the canonical Personal OS JSON."""
+"""Resume commands over the career record.
+
+The career record in the database is the resume. `artifacts/career/main.json`
+and `Alex_Example.pdf` are its exports, regenerated whenever it changes and
+committed for a portable, versioned copy; neither is read back as a source.
+`resume edit` writes a working copy outside the repository, sends each save to
+the API, and republishes the exports when the record accepts it.
+"""
 
 from __future__ import annotations
 
@@ -14,11 +21,16 @@ import webbrowser
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+import httpx
 
 from personal_os_worker.core.config import load_cli_config
-from personal_os_worker.core.service import ensure_chrome, open_url
+from personal_os_worker.core.service import ensure_chrome, open_url, state_dir
 from personal_os_worker.documents.resume_pdf import ENTRY_SECTIONS, compile_resume
+
+if TYPE_CHECKING:
+    from personal_os_worker.core.api import WorkerApi
 
 DEFAULT_CDP_URL = "http://127.0.0.1:9333"
 
@@ -39,6 +51,7 @@ def repository_root() -> Path:
 
 
 def canonical_resume_path() -> Path:
+    """Where the committed JSON export of the career record lives."""
     configured = os.environ.get("PERSONAL_OS_RESUME_JSON")
     if configured:
         return Path(configured).expanduser().resolve()
@@ -110,9 +123,16 @@ def _validate_resume_shape(resume: dict[str, Any]) -> None:
 
 
 def build_resume(source: Path | None = None, output: Path | None = None) -> ResumeBuild:
+    """Compile a resume document file to the PDF, without touching the record."""
     resolved_source = (source or canonical_resume_path()).expanduser().resolve()
+    return build_document(load_resume(resolved_source), output, source=resolved_source)
+
+
+def build_document(
+    resume: dict[str, Any], output: Path | None = None, *, source: Path
+) -> ResumeBuild:
+    _validate_resume_shape(resume)
     resolved_output = (output or default_pdf_path()).expanduser().resolve()
-    resume = load_resume(resolved_source)
     resolved_output.parent.mkdir(parents=True, exist_ok=True)
 
     # Compile away from the file a PDF viewer has open, then atomically replace
@@ -128,20 +148,81 @@ def build_resume(source: Path | None = None, output: Path | None = None) -> Resu
         temporary_pdf.replace(resolved_output)
         tex_output = resolved_output.with_suffix(".tex")
         temporary_tex.replace(tex_output)
-    return ResumeBuild(source=resolved_source, pdf=resolved_output, tex=tex_output)
+    return ResumeBuild(source=source, pdf=resolved_output, tex=tex_output)
 
 
-def ensure_resume() -> ResumeBuild:
-    """The tracked PDF as it is, compiling only when it does not exist yet.
+def document_text(document: dict[str, Any]) -> str:
+    """The export's stable text: two-space JSON, authored characters kept, final newline."""
+    return json.dumps(document, indent=2, ensure_ascii=False) + "\n"
+
+
+def write_export(document: dict[str, Any], path: Path | None = None) -> Path:
+    target = (path or canonical_resume_path()).expanduser().resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f".{target.name}.tmp")
+    temporary.write_text(document_text(document), encoding="utf-8")
+    temporary.replace(target)
+    return target
+
+
+def career_document(api: WorkerApi) -> dict[str, Any]:
+    document = api.career().get("document")
+    if not isinstance(document, dict):
+        raise RuntimeError("The career record response carried no document")
+    return document
+
+
+def publish(document: dict[str, Any]) -> ResumeBuild:
+    """Regenerate both exports, JSON then PDF, from a document the record accepted."""
+    export = write_export(document)
+    return build_document(document, source=export)
+
+
+def publish_record(api: WorkerApi) -> ResumeBuild:
+    return publish(career_document(api))
+
+
+def import_resume(api: WorkerApi, source: Path | None = None) -> ResumeBuild:
+    """Load a resume document into an empty career record, once, then republish."""
+    resolved = (source or canonical_resume_path()).expanduser().resolve()
+    record = api.import_career(load_resume(resolved))
+    document = record.get("document")
+    if not isinstance(document, dict):
+        raise RuntimeError("The import response carried no document")
+    return publish(document)
+
+
+def ensure_resume(api: WorkerApi) -> ResumeBuild:
+    """The tracked PDF as it is, publishing from the record only when it does not exist yet.
 
     Nothing tailors the resume any more, so the checked-in PDF is the one to
-    attach; `os hunt resume build|watch` is where it gets regenerated.
+    attach; `os hunt resume build|edit` is where it gets regenerated.
     """
     source = canonical_resume_path()
     pdf = default_pdf_path()
     if pdf.exists():
         return ResumeBuild(source=source, pdf=pdf, tex=pdf.with_suffix(".tex"))
-    return build_resume(source, pdf)
+    return publish_record(api)
+
+
+def rejection(error: httpx.HTTPStatusError) -> str:
+    """What the API said was wrong with a document, as one line."""
+    try:
+        detail = error.response.json().get("detail")
+    except ValueError:
+        return error.response.text.strip() or str(error)
+    if isinstance(detail, list):
+        return "; ".join(
+            f"{'.'.join(str(part) for part in item.get('loc', [])[1:])}: {item.get('msg')}"
+            for item in detail
+            if isinstance(item, dict)
+        )
+    return str(detail)
+
+
+def working_copy_path() -> Path:
+    """Outside the repository, so the working copy is never mistaken for the export."""
+    return state_dir() / "resume" / "resume.json"
 
 
 class _PreviewServer:
@@ -245,52 +326,65 @@ def open_live_preview(url: str) -> None:
     open_url(cdp_url, url)
 
 
-def watch_resume(
-    source: Path | None = None,
-    output: Path | None = None,
+def edit_resume(
+    api: WorkerApi,
     *,
     interval: float = 0.5,
     open_preview: bool = False,
 ) -> None:
+    """Edit the career record as JSON: every save is validated by the API, then published."""
     if interval <= 0:
         raise RuntimeError("Watch interval must be greater than zero")
-    resolved_source = (source or canonical_resume_path()).expanduser().resolve()
-    resolved_output = (output or default_pdf_path()).expanduser().resolve()
-    preview = _PreviewServer(resolved_output) if open_preview else None
-    last_content: bytes | None = None
+    working = working_copy_path()
+    working.parent.mkdir(parents=True, exist_ok=True)
+    working.write_text(document_text(career_document(api)), encoding="utf-8")
+    output = default_pdf_path().expanduser().resolve()
+    preview = _PreviewServer(output) if open_preview else None
 
     editor = shutil.which("code") or shutil.which("code.exe")
     if editor is None:
         raise RuntimeError("VS Code command 'code' was not found; install its shell command")
     subprocess.Popen(
-        [editor, "--reuse-window", str(resolved_source)],
+        [editor, "--reuse-window", str(working)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
+    print(f"Editing {working}; every save updates the career record and its exports.")
 
+    last_content = working.read_bytes()
     try:
         if preview is not None:
             preview.__enter__()
+            if output.exists():
+                open_live_preview(preview.url)
+                preview.opened = True
+                print(f"Live preview: {preview.url}")
         while True:
-            try:
-                content = resolved_source.read_bytes()
-            except FileNotFoundError:
-                content = b""
-            if content != last_content:
-                last_content = content
-                try:
-                    result = build_resume(resolved_source, resolved_output)
-                    print(f"Resume updated: {result.pdf}")
-                    if preview is not None and not preview.opened:
-                        open_live_preview(preview.url)
-                        preview.opened = True
-                        print(f"Live preview: {preview.url}")
-                except RuntimeError as error:
-                    print(f"Resume not updated: {error}")
             time.sleep(interval)
+            try:
+                content = working.read_bytes()
+            except FileNotFoundError:
+                continue
+            if content == last_content:
+                continue
+            last_content = content
+            try:
+                record = api.put_career(load_resume(working))
+                result = publish(record["document"])
+            except httpx.HTTPStatusError as error:
+                print(f"Resume not updated: {rejection(error)}")
+                continue
+            except RuntimeError as error:
+                print(f"Resume not updated: {error}")
+                continue
+            print(f"Resume updated: {result.pdf}")
+            if preview is not None and not preview.opened:
+                open_live_preview(preview.url)
+                preview.opened = True
+                print(f"Live preview: {preview.url}")
     except KeyboardInterrupt:
-        print("Resume watch stopped.")
+        print("Resume edit stopped.")
     finally:
         if preview is not None:
             preview.__exit__()

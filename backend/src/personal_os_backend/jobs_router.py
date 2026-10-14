@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
@@ -36,11 +35,9 @@ from personal_os_backend.jobs_models import (
     AutofillRunStop,
     AutofillStepCreate,
     JobApplication,
-    JobDocument,
     JobListing,
     JobListingPage,
     ListingSyncResponse,
-    MasterResumeContent,
     RoleFamily,
 )
 from personal_os_backend.jobs_sources import SpeedyApplySource
@@ -151,75 +148,6 @@ async def archive_application(
     if not await store.archive_application(principal.user_id, application_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-@router.get("/documents", response_model=list[JobDocument])
-async def list_documents(principal: CurrentPrincipal, store: Store) -> list[JobDocument]:
-    return await store.list_documents(principal.user_id)
-
-
-@router.post(
-    "/documents/master-resume",
-    response_model=JobDocument,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_master_resume_draft(
-    content: MasterResumeContent, principal: CurrentPrincipal, store: Store
-) -> JobDocument:
-    document = await store.create_master_resume_draft(principal.user_id, content)
-    if document is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Main resume not found")
-    return document
-
-
-@router.put("/documents/{document_id}/master-resume", response_model=JobDocument)
-async def update_master_resume_draft(
-    document_id: UUID,
-    content: MasterResumeContent,
-    principal: CurrentPrincipal,
-    store: Store,
-) -> JobDocument:
-    document = await store.update_master_resume_draft(principal.user_id, document_id, content)
-    if document is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Draft main resume not found")
-    return document
-
-
-@router.post("/documents/{document_id}/approve", response_model=JobDocument)
-async def approve_document(
-    document_id: UUID, principal: CurrentPrincipal, store: Store
-) -> JobDocument:
-    document = await store.approve_document(principal.user_id, document_id)
-    if document is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Draft document not found")
-    return document
-
-
-@router.get("/documents/{document_id}/file")
-async def download_document(
-    document_id: UUID,
-    request: Request,
-    principal: CurrentPrincipal,
-    store: Store,
-) -> Response:
-    stored = await store.get_document_storage_path(principal.user_id, document_id)
-    if stored is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document PDF not found")
-    path, title = stored
-    try:
-        content = await JobsDocumentStorage(request.app.state.settings).download_pdf(path)
-    except RuntimeError:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "Document storage unavailable"
-        ) from None
-    except httpx.HTTPError:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Document download failed") from None
-    filename = re.sub(r"[^A-Za-z0-9._-]+", "_", title).strip("_") or "resume"
-    return Response(
-        content,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}.pdf"'},
-    )
 
 
 @router.get("/answer-review", response_model=list[AnswerReviewItem])

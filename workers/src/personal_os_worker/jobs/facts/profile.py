@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from personal_os_worker.jobs.facts.derived import derive
+from personal_os_worker.jobs.facts.derived import career_facts, derive
 
 # Legacy profile column -> fact key, for values copied unchanged.
 DIRECT = {
@@ -68,8 +68,11 @@ def _notice_text(weeks: Any) -> str | None:
     return f"{word} {unit} from offer acceptance."
 
 
-def legacy_profile(facts: list[dict[str, Any]], today: date) -> dict[str, Any]:
-    values = fact_values(facts)
+def legacy_profile(
+    facts: list[dict[str, Any]], today: date, *, career: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    # A stored fact shadows the career-derived value with the same key (R51).
+    values = {**career_facts(career, today), **fact_values(facts)}
     derived = derive(values, today)
     profile: dict[str, Any] = {column: values.get(key) for column, key in DIRECT.items()}
     profile.update({column: list(values.get(key) or []) for column, key in LISTS.items()})

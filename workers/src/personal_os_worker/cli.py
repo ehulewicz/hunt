@@ -15,11 +15,12 @@ import httpx
 
 from personal_os_worker import __version__
 from personal_os_worker.core import commands as services
+from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.auth import LoginError
 from personal_os_worker.core.config import load_cli_config
 from personal_os_worker.core.service import ApiUnavailable, ChromeUnavailable
 from personal_os_worker.core.tables import ReferenceError, console
-from personal_os_worker.documents.resume import build_resume, watch_resume
+from personal_os_worker.documents import resume as resumes
 from personal_os_worker.jobs import commands as hunt
 from personal_os_worker.jobs.adapters import ATS_NAMES
 from personal_os_worker.jobs.commands import APPLICATION_STATUSES, DEFAULT_TECHNICAL_FAMILIES
@@ -75,7 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Jobs: listings, applications, answers, and the resume",
         description=(
             "os hunt [N] lists open listings (N rows, default 10). "
-            "os hunt answers lists the answer library; os hunt resume watches the resume."
+            "os hunt answers lists the answer library; os hunt resume edits the resume."
         ),
         usage=(
             "os hunt [N] [--faang | --quant] [--location L] [--family F] [--all-roles] [--ats A]\n"
@@ -196,20 +197,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     facts_set.set_defaults(sensitive=None)
 
-    resume = jobs_commands.add_parser("resume", help="Build or watch the canonical one-page resume")
-    resume_commands = resume.add_subparsers(dest="resume_command", required=True)
-    resume_build = resume_commands.add_parser("build", help="Compile resume JSON to PDF")
-    resume_build.add_argument("--input", help="Resume JSON path; defaults to canonical main")
-    resume_build.add_argument("--output", help="Stable PDF output path")
-    resume_watch = resume_commands.add_parser(
-        "watch", help="Recompile whenever the canonical JSON changes"
+    resume = jobs_commands.add_parser(
+        "resume", help="Edit or build the one-page resume from the career record"
     )
-    resume_watch.add_argument("--input", help="Resume JSON path; defaults to canonical main")
-    resume_watch.add_argument("--output", help="Stable PDF output path")
-    resume_watch.add_argument(
+    resume_commands = resume.add_subparsers(dest="resume_command", required=True)
+    resume_build = resume_commands.add_parser(
+        "build", help="Republish main.json and the PDF from the career record"
+    )
+    resume_build.add_argument(
+        "--input", help="Compile this resume JSON file instead; the record is not touched"
+    )
+    resume_build.add_argument("--output", help="Stable PDF output path (with --input)")
+    resume_edit = resume_commands.add_parser(
+        "edit", help="Edit the career record as JSON; each save is validated and published"
+    )
+    resume_edit.add_argument(
         "--open", action="store_true", help="Open an auto-refreshing PDF preview"
     )
-    resume_watch.add_argument("--interval", type=float, default=0.5)
+    resume_edit.add_argument("--interval", type=float, default=0.5)
+    resume_import = resume_commands.add_parser(
+        "import", help="Load a resume JSON into the empty career record, once"
+    )
+    resume_import.add_argument("--input", help="Resume JSON path; defaults to main.json")
 
     autofill = jobs_commands.add_parser(
         "apply",
@@ -270,6 +279,31 @@ def run_whoami() -> int:
         )
     account = response.json()
     console.print(f"{account.get('display_name') or account.get('email')} <{account.get('email')}>")
+    return 0
+
+
+def run_resume(args: argparse.Namespace) -> int:
+    if args.resume_command == "build" and args.input:
+        output = Path(args.output).expanduser() if args.output else None
+        result = resumes.build_resume(Path(args.input).expanduser(), output)
+        console.print(f"Resume built: {result.pdf}")
+        return 0
+    if args.resume_command == "build" and args.output:
+        raise RuntimeError("--output applies to --input builds; the record publishes in place")
+    config, token = services.connected()
+    api = WorkerApi(config, token)
+    try:
+        if args.resume_command == "build":
+            result = resumes.publish_record(api)
+            console.print(f"Resume published: {result.source} and {result.pdf}")
+        elif args.resume_command == "import":
+            source = Path(args.input).expanduser() if args.input else None
+            result = resumes.import_resume(api, source)
+            console.print(f"Career record imported; published {result.source} and {result.pdf}")
+        else:
+            resumes.edit_resume(api, interval=args.interval, open_preview=args.open)
+    finally:
+        api.close()
     return 0
 
 
@@ -352,20 +386,7 @@ def _dispatch(args: argparse.Namespace) -> int:
                     sensitive=args.sensitive,
                 )
         if args.hunt_command == "resume":
-            source = Path(args.input).expanduser() if args.input else None
-            output = Path(args.output).expanduser() if args.output else None
-            if args.resume_command == "build":
-                result = build_resume(source, output)
-                console.print(f"Resume built: {result.pdf}")
-                return 0
-            if args.resume_command == "watch":
-                watch_resume(
-                    source,
-                    output,
-                    interval=args.interval,
-                    open_preview=args.open,
-                )
-                return 0
+            return run_resume(args)
         if args.hunt_command == "apply":
             if args.ref == "failures":
                 return hunt.run_autofill_failure_command(
@@ -399,7 +420,7 @@ def expand_shorthand(arguments: list[str]) -> list[str]:
 
     `hunt` is `hunt list`, `hunt 20` is `hunt list 20`, `hunt answers` is
     `hunt answers list`, `hunt facts` is `hunt facts list`, and `hunt resume`
-    is `hunt resume watch --open`.
+    is `hunt resume edit --open`.
     """
     if not arguments or arguments[0] != "hunt":
         return arguments
@@ -411,7 +432,7 @@ def expand_shorthand(arguments: list[str]) -> list[str]:
     if rest == ["facts"]:
         return ["hunt", "facts", "list"]
     if rest == ["resume"]:
-        return ["hunt", "resume", "watch", "--open"]
+        return ["hunt", "resume", "edit", "--open"]
     if rest[0] not in (*HUNT_COMMANDS, "list") and not rest[0].startswith("-"):
         raise SystemExit(
             f"os hunt: unknown command {rest[0]!r}. Use a number of rows, or one of: "

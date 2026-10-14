@@ -426,7 +426,7 @@ def run_mark_applied(reference: str) -> int:
 def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> str:
     """Run one interactive apply session: "submitted", "skipped", or "stopped"."""
     from personal_os_worker.documents.doctor import latex_toolchain_check
-    from personal_os_worker.documents.resume import ensure_resume, load_resume, transcript_pdf_path
+    from personal_os_worker.documents.resume import ensure_resume, transcript_pdf_path
     from personal_os_worker.jobs.adapters import adapter_version, detect_ats, failure_signature
     from personal_os_worker.jobs.autofill_session import AutofillSession, SessionContext
     from personal_os_worker.jobs.browser import VisibleBrowser, inspect_fields, sanitized_evidence
@@ -436,13 +436,14 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> str:
     latex = latex_toolchain_check()
     if not latex.ok:
         raise RuntimeError(f"{latex.name}: {latex.detail}")
-    resume = ensure_resume()
-    resume_json = load_resume(resume.source)
     config, token = connected()
     ensure_chrome(config.cdp_url)
     api = WorkerApi(config, token)
     run_id: str | None = None
     try:
+        career = api.career()
+        resume_json = dict(career["document"])
+        resume = ensure_resume(api)
         version = adapter_version()
         run = api.create_autofill_run(
             posting_id=posting_id, ats="generic", adapter_version=version
@@ -477,7 +478,7 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> str:
             )
         if run.get("ats") != adapter.name:
             raise RuntimeError("The backend and browser disagreed on the ATS adapter")
-        profile = legacy_profile(list(run.get("facts") or []), date.today())
+        profile = legacy_profile(list(run.get("facts") or []), date.today(), career=career)
         answers = list(run.get("approved_answers") or [])
         scoped = list(run.get("scoped_answers") or [])
         duplicates = list(run.get("duplicate_company_applications") or [])

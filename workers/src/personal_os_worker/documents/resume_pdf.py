@@ -176,8 +176,59 @@ def latex_environment() -> dict[str, str]:
     return environment
 
 
+# AGENTS.md: a resume bullet never runs past two rendered lines.
+MAXIMUM_BULLET_LINES = 2
+BULLET_MARK = "\u2022"
+
+
 def compile_resume(resume: dict[str, Any], output_directory: Path) -> Path:
-    return compile_pdf(build_latex(resume), output_directory, "resume", pages=MAXIMUM_PAGES)
+    pdf = compile_pdf(build_latex(resume), output_directory, "resume", pages=MAXIMUM_PAGES)
+    layout = subprocess.run(
+        ["pdftotext", "-layout", str(pdf), "-"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if layout.returncode != 0:
+        raise RuntimeError("Could not read the generated resume to check bullet lengths")
+    long = overlong_bullets(layout.stdout)
+    if long:
+        raise RuntimeError(
+            f"A bullet runs past {MAXIMUM_BULLET_LINES} lines; split or cut: "
+            + "; ".join(f"{text!r} ({lines} lines)" for text, lines in long)
+        )
+    return pdf
+
+
+def overlong_bullets(layout: str) -> list[tuple[str, int]]:
+    """Bullets longer than the limit, read from `pdftotext -layout` output.
+
+    A bullet's first line starts with the bullet mark; its continuation lines
+    are indented past the mark. A blank line, a less-indented line, or another
+    mark ends it.
+    """
+    found: list[tuple[str, int]] = []
+    current: tuple[str, int, int] | None = None  # (opening words, mark column, lines)
+
+    def close() -> None:
+        if current is not None and current[2] > MAXIMUM_BULLET_LINES:
+            found.append((current[0], current[2]))
+
+    for line in layout.splitlines():
+        stripped = line.strip()
+        column = len(line) - len(line.lstrip())
+        if stripped.startswith(BULLET_MARK):
+            close()
+            words = " ".join(stripped.removeprefix(BULLET_MARK).split()[:6])
+            current = (words, column, 1)
+        elif current is not None and stripped and column > current[1]:
+            current = (current[0], current[1], current[2] + 1)
+        else:
+            close()
+            current = None
+    close()
+    return found
 
 
 def compile_pdf(latex: str, output_directory: Path, stem: str, *, pages: int | None) -> Path:

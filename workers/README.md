@@ -18,7 +18,7 @@ os hunt 20         # list 20
 os hunt today
 os hunt answers list
 os hunt facts review
-os hunt resume watch --open
+os hunt resume
 os hunt queue add 1
 os hunt queue empty
 os hunt apps
@@ -28,8 +28,17 @@ os hunt apply --ats greenhouse
 os hunt apply failures list
 ```
 
-Edit `artifacts/career/main.json`; `os hunt resume watch --open` keeps the
-Git-tracked `artifacts/career/Alex_Example.pdf` beside it up to date.
+The resume is the career record in the database. `os hunt resume` (= `resume
+edit --open`) opens a working copy as JSON in VS Code and sends each save to the
+API; an accepted save republishes the Git-tracked exports
+`artifacts/career/main.json` and `Alex_Example.pdf`. `resume build` republishes
+them from the record, `resume build --input FILE` compiles a file without
+touching the record, and `resume import` loads `main.json` into an empty record
+once. Facts the resume determines — school, degree, graduation, GPA, whole years
+of experience, the current employer, every organization, every skill — are
+derived from the record by `jobs/facts/derived.py`; a stored fact with the same
+key still wins until the facts session removes it, and `os hunt facts` marks
+each one that disagrees with the record.
 
 The CLI launches local FastAPI and the dedicated native Windows Chrome profile
 as needed. It never accesses Postgres directly and never submits an application.

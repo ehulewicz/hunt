@@ -1,22 +1,17 @@
 import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Annotated
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from personal_os_backend.auth import CurrentPrincipal, JwtValidator
 from personal_os_backend.config import Settings
-from personal_os_backend.database import (
-    BootstrapStore,
-    create_pool,
-    database_is_ready,
-    get_bootstrap_store,
-)
+from personal_os_backend.database import create_pool, database_is_ready
+from personal_os_backend.jobs_career import router as career_router
 from personal_os_backend.jobs_facts import router as facts_router
 from personal_os_backend.jobs_router import router as jobs_router
 from personal_os_backend.models import AccountResponse, HealthResponse
@@ -85,16 +80,15 @@ def create_app(settings: Settings | None = None, *, lifespan: Lifespan | None = 
     async def me(principal: CurrentPrincipal) -> AccountResponse:
         return AccountResponse.from_principal(principal)
 
+    # The browser calls this once after sign-in. It used to seed a profile and a
+    # resume copy; both are archived, so verifying the identity is all it does.
     @application.post("/v1/bootstrap", response_model=AccountResponse)
-    async def bootstrap(
-        principal: CurrentPrincipal,
-        store: Annotated[BootstrapStore, Depends(get_bootstrap_store)],
-    ) -> AccountResponse:
-        await store.bootstrap(principal.user_id, principal.email)
+    async def bootstrap(principal: CurrentPrincipal) -> AccountResponse:
         return AccountResponse.from_principal(principal)
 
     application.include_router(jobs_router)
     application.include_router(facts_router)
+    application.include_router(career_router)
 
     return application
 

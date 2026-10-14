@@ -211,3 +211,87 @@ def test_facts_shorthand_and_parser() -> None:
     assert (args.key, args.value, args.value_type, args.sensitive) == (
         "work_auth.security_clearance", "no", "boolean", False
     )
+
+
+CAREER = {
+    "education": {
+        "school": "Example Institute of Technology",
+        "degree_type": "BS",
+        "field_of_study": "Computer Science",
+        "graduation_date": "2027-12-01",
+        "gpa": "3.78",
+    },
+    "entries": [
+        {"section": "experience", "title": "Middleware Engineer", "org": "Northwind",
+         "employment_type": "coop", "start_date": "2025-05-01", "end_date": None},
+        {"section": "experience", "title": "Technical Co-founder", "org": "Northhealth AI",
+         "employment_type": "founder", "start_date": "2025-10-01", "end_date": "2026-05-01"},
+        {"section": "experience", "title": "Software Engineer", "org": "Example Public Schools",
+         "employment_type": "contract", "start_date": "2023-05-01", "end_date": "2023-12-01"},
+        {"section": "research", "title": "Example Lab @ Example University",
+         "org": "Example Nuclear Group", "employment_type": None,
+         "start_date": "2024-04-01", "end_date": "2024-09-01"},
+        {"section": "project", "title": "AlphaResearch", "org": None, "employment_type": None,
+         "start_date": None, "end_date": "2026-06-01"},
+    ],
+    "skills": [
+        {"category": "Languages", "items": ["Python", "Java"]},
+        {"category": "Tools", "items": ["Git", "Python"]},
+    ],
+}
+
+
+def test_career_facts_follow_the_resume() -> None:
+    from personal_os_worker.jobs.facts.derived import career_facts
+
+    facts = career_facts(CAREER, date(2026, 10, 14))
+    assert facts["education.degree_type"] == "BS"
+    assert facts["education.graduation_date"] == "2027-12-01"
+    assert facts["education.gpa"] == 3.78
+    assert facts["employment.current_employer"] == "Northwind"
+    assert facts["employment.organizations"] == [
+        "Northwind", "Northhealth AI", "Example Public Schools",
+        "Example Nuclear Group", "Example Lab @ Example University",
+    ]
+    assert facts["skills.all"] == ["Python", "Java", "Git"]
+
+
+@pytest.mark.parametrize(
+    ("today", "years"),
+    [
+        # May-Dec 2023 (245 days) plus May 2025 to today; Northhealth overlaps.
+        (date(2026, 10, 14), 2),
+        (date(2026, 3, 1), 1),
+        (date(2028, 1, 1), 3),
+    ],
+)
+def test_tenure_is_the_union_of_experience_spans_in_whole_years(today: date, years: int) -> None:
+    from personal_os_worker.jobs.facts.derived import years_of_experience
+
+    assert years_of_experience(CAREER["entries"], today) == years  # type: ignore[arg-type]
+
+
+def test_research_and_projects_never_count_toward_tenure() -> None:
+    from personal_os_worker.jobs.facts.derived import years_of_experience
+
+    entries = [entry for entry in CAREER["entries"] if entry["section"] != "experience"]
+    assert years_of_experience(entries, date(2030, 1, 1)) is None  # type: ignore[arg-type]
+
+
+def test_a_stored_fact_shadows_the_career_value_and_is_named() -> None:
+    from personal_os_worker.jobs.facts.derived import career_facts, shadowed
+
+    from_career = career_facts(CAREER, date(2026, 10, 14))
+    stored = {"education.degree_type": "Bachelor's", "experience.years_professional": 4,
+              "education.school_name": "Example Institute of Technology"}
+    assert shadowed(stored, from_career) == {
+        "education.degree_type": "BS", "experience.years_professional": 2,
+    }
+    profile = legacy_profile(
+        [{"key": key, "value": value} for key, value in stored.items()],
+        date(2026, 10, 14),
+        career=CAREER,
+    )
+    assert profile["degree_type"] == "Bachelor's"
+    assert profile["years_professional_experience"] == 4
+    assert profile["field_of_study"] == "Computer Science"  # no stored fact: the career decides

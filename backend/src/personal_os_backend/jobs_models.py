@@ -5,7 +5,6 @@ from uuid import UUID
 
 from pydantic import (
     BaseModel,
-    ConfigDict,
     Field,
     field_validator,
     model_validator,
@@ -119,76 +118,6 @@ class ApplicationUpdate(BaseModel):
     next_action: str | None = Field(default=None, max_length=1000)
     next_action_at: datetime | None = None
     notes: str | None = Field(default=None, max_length=10000)
-
-
-class JobDocument(BaseModel):
-    id: UUID
-    application_id: UUID | None
-    document_type: str
-    title: str
-    family_id: UUID
-    version: int
-    source_document_id: UUID | None
-    content_text: str | None
-    storage_path: str | None
-    mime_type: str | None
-    status: str
-    is_current: bool
-    created_at: datetime
-    updated_at: datetime
-
-
-class ResumeContact(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
-    phone: str = Field(default="", max_length=100)
-    email: str = Field(default="", max_length=200)
-    linkedin: str = Field(default="", max_length=300)
-    github: str = Field(default="", max_length=300)
-    citizenship: str = Field(default="", max_length=200)
-
-
-class ResumeEducation(BaseModel):
-    school: str = Field(min_length=1, max_length=300)
-    location: str = Field(default="", max_length=200)
-    degree: str = Field(default="", max_length=300)
-    threads: str = Field(default="", max_length=200)
-    courses: str = Field(default="", max_length=500)
-    graduation: str = Field(default="", max_length=100)
-    gpa: str = Field(default="", max_length=20)
-    gpaScale: str = Field(default="", max_length=20)
-
-
-class ResumeEntry(BaseModel):
-    title: str = Field(min_length=1, max_length=300)
-    org: str = Field(default="", max_length=300)
-    location: str = Field(default="", max_length=200)
-    date: str = Field(default="", max_length=100)
-    bullets: list[str] = Field(default_factory=list, max_length=20)
-
-    @field_validator("bullets")
-    @classmethod
-    def limit_bullet_length(cls, value: list[str]) -> list[str]:
-        if any(len(bullet) > 1000 for bullet in value):
-            raise ValueError("Resume bullets cannot exceed 1000 characters")
-        return value
-
-
-class ResumeSkill(BaseModel):
-    category: str = Field(min_length=1, max_length=200)
-    items: str = Field(min_length=1, max_length=1000)
-
-
-class MasterResumeContent(BaseModel):
-    """Mirrors what the worker's LaTeX template reads when compiling the PDF."""
-
-    model_config = ConfigDict(extra="allow")
-
-    contact: ResumeContact
-    education: ResumeEducation
-    experience: list[ResumeEntry] = Field(default_factory=list, max_length=20)
-    research: list[ResumeEntry] = Field(default_factory=list, max_length=20)
-    projects: list[ResumeEntry] = Field(default_factory=list, max_length=20)
-    skills: list[ResumeSkill] = Field(default_factory=list, max_length=20)
 
 
 def validate_pattern(reuse_policy: str | None, question: str | None) -> None:

@@ -113,31 +113,106 @@ def test_build_resume_atomically_publishes_pdf_and_tex(
     assert not list(output.parent.glob("*.tmp"))
 
 
-def test_ensure_resume_compiles_only_when_the_tracked_pdf_is_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    source = tmp_path / "main.json"
-    source.write_text(valid_resume())
-    monkeypatch.setenv("PERSONAL_OS_RESUME_JSON", str(source))
-    compiles: list[Path] = []
+class FakeCareerApi:
+    """The career record endpoints, holding one document."""
 
-    def fake_compile(_payload: object, directory: Path) -> Path:
-        compiles.append(directory)
+    def __init__(self, document: dict[str, object] | None = None) -> None:
+        self.document = document
+        self.imported: list[dict[str, object]] = []
+        self.written: list[dict[str, object]] = []
+
+    def career(self) -> dict[str, object]:
+        if self.document is None:
+            raise RuntimeError("No career record yet; run 'os hunt resume import'")
+        return {"document": self.document}
+
+    def import_career(self, document: dict[str, object]) -> dict[str, object]:
+        self.imported.append(document)
+        self.document = {key: value for key, value in document.items() if key != "meta"}
+        return {"document": self.document}
+
+    def put_career(self, document: dict[str, object]) -> dict[str, object]:
+        self.written.append(document)
+        self.document = document
+        return {"document": document}
+
+
+def fake_compile(compiles: list[Path] | None = None):  # type: ignore[no-untyped-def]
+    def compile_(_payload: object, directory: Path) -> Path:
+        if compiles is not None:
+            compiles.append(directory)
         (directory / "resume.tex").write_text("latex")
         pdf = directory / "resume.pdf"
         pdf.write_bytes(b"%PDF-built")
         return pdf
 
-    monkeypatch.setattr(resume, "compile_resume", fake_compile)
+    return compile_
 
-    first = resume.ensure_resume()
+
+def test_ensure_resume_publishes_from_the_record_only_when_the_pdf_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    export = tmp_path / "main.json"
+    monkeypatch.setenv("PERSONAL_OS_RESUME_JSON", str(export))
+    compiles: list[Path] = []
+    monkeypatch.setattr(resume, "compile_resume", fake_compile(compiles))
+    api = FakeCareerApi(json.loads(valid_resume()))
+
+    first = resume.ensure_resume(api)  # type: ignore[arg-type]
     assert first.pdf == tmp_path / resume.RESUME_PDF_NAME
     assert first.pdf.read_bytes() == b"%PDF-built" and len(compiles) == 1
+    assert json.loads(export.read_text()) == api.document
 
     first.pdf.write_bytes(b"%PDF-edited-by-hand")
-    again = resume.ensure_resume()
-    assert again.pdf == first.pdf
+    again = resume.ensure_resume(api)  # type: ignore[arg-type]
     assert again.pdf.read_bytes() == b"%PDF-edited-by-hand" and len(compiles) == 1
+
+
+def test_import_loads_main_json_once_and_republishes_without_meta(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    export = tmp_path / "main.json"
+    payload = json.loads(valid_resume())
+    payload["meta"] = {"slug": "main"}
+    export.write_text(json.dumps(payload))
+    monkeypatch.setenv("PERSONAL_OS_RESUME_JSON", str(export))
+    monkeypatch.setattr(resume, "compile_resume", fake_compile())
+    api = FakeCareerApi()
+
+    result = resume.import_resume(api)  # type: ignore[arg-type]
+
+    assert api.imported[0]["meta"] == {"slug": "main"}
+    written = json.loads(export.read_text())
+    assert "meta" not in written and written["contact"] == {"name": "Candidate"}
+    assert export.read_text().endswith("}\n") and result.source == export.resolve()
+
+
+def test_export_keeps_authored_characters_and_two_space_indent(tmp_path: Path) -> None:
+    document = {"experience": [{"date": "May 2025 \u2013 Present"}]}
+    path = resume.write_export(document, tmp_path / "m.json")
+    assert path.read_text(encoding="utf-8") == (
+        '{\n  "experience": [\n    {\n      "date": "May 2025 \u2013 Present"\n    }\n  ]\n}\n'
+    )
+
+
+def test_a_rejected_save_reports_what_the_api_said() -> None:
+    request = httpx.Request("PUT", "http://api/v1/jobs/career")
+    validation = httpx.Response(
+        422,
+        request=request,
+        json={"detail": [{"loc": ["body", "experience", 0, "bullets"], "msg": "no semicolons"}]},
+    )
+    conflict = httpx.Response(422, request=request, json={"detail": "contact.phone comes from"})
+    assert resume.rejection(
+        httpx.HTTPStatusError("x", request=request, response=validation)
+    ) == "experience.0.bullets: no semicolons"
+    assert resume.rejection(
+        httpx.HTTPStatusError("x", request=request, response=conflict)
+    ) == "contact.phone comes from"
 
 
 def test_preview_server_serves_pdf_and_auto_refresh_shell(tmp_path: Path) -> None:
@@ -157,9 +232,9 @@ def test_preview_server_serves_pdf_and_auto_refresh_shell(tmp_path: Path) -> Non
     assert version.text != "missing"
 
 
-def test_watch_rejects_non_positive_interval() -> None:
+def test_edit_rejects_non_positive_interval() -> None:
     with pytest.raises(RuntimeError, match="greater than zero"):
-        resume.watch_resume(interval=0)
+        resume.edit_resume(FakeCareerApi(), interval=0)  # type: ignore[arg-type]
 
 
 def test_bullet_markup_stays_literal_and_escaped() -> None:
@@ -315,3 +390,23 @@ def test_skills_render_as_one_item_of_joined_lines() -> None:
     assert latex.count(r"\item{") == 1
     assert r"\textbf{Languages}{: Python} \\" in latex
     assert r"\textbf{Libraries}{: NumPy}" in latex
+
+
+def test_a_bullet_past_two_rendered_lines_is_named() -> None:
+    from personal_os_worker.documents.resume_pdf import overlong_bullets
+
+    layout = "\n".join(
+        [
+            "Experience",
+            " Engineer                                   May 2025 \u2013 Present",
+            "    \u2022 Built a chunked full-stack bulk action system updating 1,000-task",
+            "      batches and their subtasks with per-family rollback",
+            "    \u2022 Owned a 41-ticket modernization of PHP pages into an AJAX-driven API",
+            "      on PostgreSQL, a rebuilt JS asset library, and a migration plan that",
+            "      covered every customer",
+            "    \u2022 Led both customer SOWs end to end",
+            "",
+            "Technical Skills",
+        ]
+    )
+    assert overlong_bullets(layout) == [("Owned a 41-ticket modernization of PHP", 3)]

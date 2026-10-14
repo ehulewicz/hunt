@@ -13,12 +13,19 @@ from datetime import date
 from typing import Any
 
 from rich import box
+from rich.markup import escape
 from rich.table import Table
 
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
 from personal_os_worker.core.tables import console
-from personal_os_worker.jobs.facts.derived import DERIVED_FACTS, derive
+from personal_os_worker.jobs.facts.derived import (
+    CAREER_FACTS,
+    DERIVED_FACTS,
+    career_facts,
+    derive,
+    shadowed,
+)
 from personal_os_worker.jobs.facts.profile import fact_values
 
 VALUE_TYPES = ("text", "boolean", "number", "date", "choice", "list", "object")
@@ -115,9 +122,21 @@ def library_conflicts(key: str, answers: list[dict[str, Any]]) -> list[tuple[str
     return [(question, answer) for answer, question in seen.items()]
 
 
-def render_facts(facts: list[dict[str, Any]], *, show_sensitive: bool, today: date) -> None:
+def render_facts(
+    facts: list[dict[str, Any]],
+    *,
+    show_sensitive: bool,
+    today: date,
+    career: dict[str, Any] | None = None,
+) -> None:
+    stored = fact_values(facts)
+    from_career = career_facts(career, today)
+    overridden = shadowed(stored, from_career)
     table = Table(
-        title=f"Facts ({len(facts)} stored, {len(DERIVED_FACTS)} derived)",
+        title=(
+            f"Facts ({len(facts)} stored, {len(DERIVED_FACTS)} derived, "
+            f"{len(from_career)} from the career record)"
+        ),
         header_style="bold",
         box=box.SIMPLE_HEAD,
         padding=(0, 1),
@@ -128,14 +147,24 @@ def render_facts(facts: list[dict[str, Any]], *, show_sensitive: bool, today: da
     table.add_column("type", no_wrap=True, style="dim")
     table.add_column("state", no_wrap=True)
     for fact in facts:
+        key = str(fact["key"])
         hidden = fact.get("sensitive") and not show_sensitive
+        state = "verified" if fact.get("verified_at") else "[yellow]unverified[/yellow]"
+        if key in overridden:
+            state += f" · [magenta]career says {escape(display(overridden[key]))}[/magenta]"
         table.add_row(
-            str(fact["key"]),
+            key,
             MASK if hidden else display(fact.get("value")),
             str(fact.get("value_type")),
-            "verified" if fact.get("verified_at") else "[yellow]unverified[/yellow]",
+            state,
         )
-    derived = derive(fact_values(facts), today)
+    for item in CAREER_FACTS:
+        if item.key in stored or item.key not in from_career:
+            continue
+        table.add_row(
+            f"[cyan]{item.key}[/cyan]", escape(display(from_career[item.key])), "career", ""
+        )
+    derived = derive({**from_career, **stored}, today)
     for item in DERIVED_FACTS:
         value = derived.get(item.key)
         table.add_row(
@@ -145,6 +174,12 @@ def render_facts(facts: list[dict[str, Any]], *, show_sensitive: bool, today: da
             "",
         )
     console.print(table)
+    if overridden:
+        console.print(
+            f"{len(overridden)} stored fact(s) override what the career record says; "
+            "delete one with the facts review to let the record decide.",
+            style="dim",
+        )
 
 
 def run_facts_list(*, show_sensitive: bool = False) -> int:
@@ -152,9 +187,13 @@ def run_facts_list(*, show_sensitive: bool = False) -> int:
     api = WorkerApi(config, token)
     try:
         facts = api.facts()
+        try:
+            career: dict[str, Any] | None = api.career()
+        except RuntimeError:
+            career = None
     finally:
         api.close()
-    render_facts(facts, show_sensitive=show_sensitive, today=date.today())
+    render_facts(facts, show_sensitive=show_sensitive, today=date.today(), career=career)
     return 0
 
 

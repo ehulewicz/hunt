@@ -30,8 +30,9 @@ os hunt facts review # accept, edit, or delete each unverified fact
 os hunt facts set education.gpa 3.78
 os hunt facts set work_auth.security_clearance no --type boolean --label "Holds a security clearance"
 
-os hunt resume build
-os hunt resume       # = os hunt resume watch --open
+os hunt resume build      # republish main.json and the PDF from the career record
+os hunt resume       # = os hunt resume edit --open
+os hunt resume import     # once: load main.json into an empty career record
 
 os hunt queue
 os hunt queue add 3 7
@@ -83,7 +84,7 @@ wording. `contextual` and unmatched long-form questions invoke local Claude,
 with the 20 percent guard applied whenever a base exists. Preparation without another flag
 compiles the canonical resume unchanged.
 
-The editable source and generated PDF are both portable Git artifacts:
+The career record's exports and the transcript are portable Git artifacts:
 
 ```text
 artifacts/career/main.json

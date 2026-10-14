@@ -29,11 +29,9 @@ from personal_os_backend.jobs_models import (
     AutofillRunStop,
     AutofillStepCreate,
     JobApplication,
-    JobDocument,
     JobListing,
     JobListingPage,
     ListingSyncResponse,
-    MasterResumeContent,
 )
 from personal_os_backend.jobs_registry import record_fill_events
 from personal_os_backend.jobs_sources import SOURCE_NAME, SourceListing
@@ -111,22 +109,6 @@ class JobsStore(Protocol):
     ) -> JobApplication | None: ...
 
     async def archive_application(self, user_id: UUID, application_id: UUID) -> bool: ...
-
-    async def list_documents(self, user_id: UUID) -> list[JobDocument]: ...
-
-    async def create_master_resume_draft(
-        self, user_id: UUID, content: MasterResumeContent
-    ) -> JobDocument | None: ...
-
-    async def update_master_resume_draft(
-        self, user_id: UUID, document_id: UUID, content: MasterResumeContent
-    ) -> JobDocument | None: ...
-
-    async def approve_document(self, user_id: UUID, document_id: UUID) -> JobDocument | None: ...
-
-    async def get_document_storage_path(
-        self, user_id: UUID, document_id: UUID
-    ) -> tuple[str, str] | None: ...
 
     async def list_answers(self, user_id: UUID) -> list[AnswerLibraryItem]: ...
 
@@ -573,154 +555,6 @@ class PostgresJobsStore:
             if int(cursor.rowcount) != 1:
                 return False
         return True
-
-    async def list_documents(self, user_id: UUID) -> list[JobDocument]:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                """
-                select id, application_id, document_type, title, family_id, version,
-                       source_document_id, content_text, storage_path, mime_type,
-                       status, is_current, created_at, updated_at
-                from app.jobs_documents
-                where user_id = %s
-                order by document_type, created_at desc
-                """,
-                (user_id,),
-            )
-            rows = await cursor.fetchall()
-        return [JobDocument.model_validate(row) for row in rows]
-
-    async def create_master_resume_draft(
-        self, user_id: UUID, content: MasterResumeContent
-    ) -> JobDocument | None:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            family_cursor = await connection.execute(
-                """
-                select family_id, max(version) as version
-                from app.jobs_documents
-                where user_id = %s and document_type = 'master_resume'
-                group by family_id order by max(version) desc limit 1
-                """,
-                (user_id,),
-            )
-            family = await family_cursor.fetchone()
-            if family is None:
-                return None
-            cursor = await connection.execute(
-                """
-                insert into app.jobs_documents (
-                  user_id, document_type, title, family_id, version,
-                  content_text, mime_type, status, is_current
-                ) values (
-                  %s, 'master_resume', 'Main resume', %s, %s,
-                  %s, 'application/json', 'draft', false
-                )
-                returning id, application_id, document_type, title, family_id, version,
-                          source_document_id, content_text, storage_path, mime_type,
-                          status, is_current, created_at, updated_at
-                """,
-                (
-                    user_id,
-                    family["family_id"],
-                    int(family["version"]) + 1,
-                    content.model_dump_json(),
-                ),
-            )
-            row = await cursor.fetchone()
-        return JobDocument.model_validate(row) if row is not None else None
-
-    async def update_master_resume_draft(
-        self, user_id: UUID, document_id: UUID, content: MasterResumeContent
-    ) -> JobDocument | None:
-        """Drafts stay mutable; only approved documents are frozen by the trigger."""
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                """
-                update app.jobs_documents
-                set content_text = %s, storage_path = null, updated_at = now()
-                where id = %s and user_id = %s
-                  and document_type = 'master_resume' and status = 'draft'
-                returning id, application_id, document_type, title, family_id, version,
-                          source_document_id, content_text, storage_path, mime_type,
-                          status, is_current, created_at, updated_at
-                """,
-                (content.model_dump_json(), document_id, user_id),
-            )
-            row = await cursor.fetchone()
-        return JobDocument.model_validate(row) if row is not None else None
-
-    async def approve_document(self, user_id: UUID, document_id: UUID) -> JobDocument | None:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            selected_cursor = await connection.execute(
-                """
-                select family_id, document_type, storage_path, application_id
-                from app.jobs_documents
-                where id = %s and user_id = %s and status = 'draft'
-                for update
-                """,
-                (document_id, user_id),
-            )
-            selected = await selected_cursor.fetchone()
-            if selected is None:
-                return None
-            if (
-                selected["document_type"] in {"tailored_resume", "cover_letter"}
-                and not selected["storage_path"]
-            ):
-                return None
-            await connection.execute(
-                """
-                update app.jobs_documents
-                set is_current = false
-                where user_id = %s and family_id = %s and is_current and id <> %s
-                """,
-                (user_id, selected["family_id"], document_id),
-            )
-            await connection.execute(
-                """
-                update app.jobs_documents set status = 'approved', is_current = true
-                where id = %s and user_id = %s
-                """,
-                (document_id, user_id),
-            )
-        documents = await self.list_documents(user_id)
-        return next((item for item in documents if item.id == document_id), None)
-
-    async def get_document_storage_path(
-        self, user_id: UUID, document_id: UUID
-    ) -> tuple[str, str] | None:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                """
-                select storage_path, title from app.jobs_documents
-                where id = %s and user_id = %s and storage_path is not null
-                """,
-                (document_id, user_id),
-            )
-            row = await cursor.fetchone()
-        if row is None:
-            return None
-        return str(row["storage_path"]), str(row["title"])
 
     async def list_answers(self, user_id: UUID) -> list[AnswerLibraryItem]:
         async with (

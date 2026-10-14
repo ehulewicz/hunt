@@ -28,11 +28,24 @@ Each PostgreSQL transaction assumes the non-login `personal_os_api` role before
 touching the `app` schema. Private PDF objects are read and written server-side
 with a Supabase secret key from GCP Secret Manager.
 
-`POST /v1/bootstrap` idempotently seeds the approved canonical `main` resume from
-`artifacts/career/main.json`. The Docker image copies that same tracked file from
-the repository-root build context, so local resume generation and hosted bootstrap
-never maintain duplicate JSON. It still fills defaults into the retired
-`jobs_profile` table, which nothing reads; both go when that table is dropped.
+`POST /v1/bootstrap` confirms the verified identity for the browser after
+sign-in and writes nothing; the profile and resume copy it used to seed are
+archived.
+
+### Career record
+
+`/v1/jobs/career` holds the resume as rows (`jobs_career.py`): one primary
+education row, entries for experience, research, and projects with real
+month-precision dates and an employment type, ordered bullets, and skill
+categories. `GET` returns the rows and the resume document rendered from them in
+the shape `artifacts/career/main.json` has always had; `PUT` replaces the whole
+record from such a document in one transaction; `POST /import` does the same only
+while the record is empty. Rendering keeps the authored text: "Middleware Engineer
+(Co-op)" is a title plus employment type `coop`, "May 2025 – Present" is a start
+date and no end. The document's contact block is not stored here — it is rendered
+from the `identity`, `contact`, and `work_auth.us_citizen` facts, and a write
+whose header disagrees is refused with the fact to set instead. Writes refuse a
+semicolon or keyword emphasis in a bullet and an em dash in a heading.
 
 Application facts live in `jobs_facts`, one row per fact keyed by a dotted name
 (`education.graduation_date`), with a JSON value typed by `value_type`.
@@ -42,9 +55,9 @@ Unknown or optional EEO values are not inferred.
 
 ### Jobs endpoints
 
-`/v1/jobs/*` owns facts, listing filtering, the application queue and
-lifecycle, document review, answer-library management, synchronous autofill runs,
-and failure history. Discovery is always limited to internships/co-ops, ordered
+`/v1/jobs/*` owns facts, the career record, listing filtering, the application
+queue and lifecycle, answer-library management, synchronous autofill runs, and
+failure history. Discovery is always limited to internships/co-ops, ordered
 newest-first by `jobs_postings.created_at` (discovery into this system, not
 source-posting age), with match-any location selection and the FAANG+/Quant/general
 source section retained. The direct company/ATS URL is used for application work
@@ -116,13 +129,13 @@ uses it. All three must pass:
 cd backend && uv run ruff check . && uv run mypy src/ && uv run pytest -q
 ```
 
-Currently 73 tests. `mypy` is scoped to `src/` because the test suite is not
+Currently 112 tests. `mypy` is scoped to `src/` because the test suite is not
 annotated; `pyproject.toml` already pins `packages = ["personal_os_backend"]`, so bare
 `uv run mypy` — the form CI uses — checks the same files.
 
 Serve the API locally with `uv run personal-os-backend`. It reads
-`src/personal_os_backend/.env`, resolved from the package rather than the working
-directory, so it starts the same way from anywhere.
+`backend/.env`, resolved from the package rather than the working directory, so it
+starts the same way from anywhere.
 
 ## Structure
 
@@ -135,6 +148,7 @@ src/personal_os_backend/
   models.py         non-Jobs response models
   jobs_router.py    every /v1/jobs/* route except facts
   jobs_facts.py     /v1/jobs/facts: models, store, routes, per-type value validation
+  jobs_career.py    /v1/jobs/career: the resume as rows, rendered to and parsed from its document
   jobs_registry.py  fill-event models and recording, with control and strategy upserts
   jobs_models.py    Jobs request/response schemas and validation
   jobs_store.py     all Jobs SQL (the largest module by far)
