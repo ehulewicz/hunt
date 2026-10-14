@@ -252,10 +252,7 @@ class Resolver:
         if hit is None:
             return None
         hints = [hint.answer for hint in hit.hints]
-        private = hit.fact_key in self.knowledge.sensitive
-        shown = (
-            "(withheld)" if private and hints else ", ".join(repr(hint[:40]) for hint in hints[:2])
-        )
+        shown = ", ".join(repr(hint[:40]) for hint in hints[:2])
         if hit.fact_key is None:
             self._miss(question, Miss(question, "pattern", note=f"archive answered {shown}"))
             return None
@@ -284,8 +281,7 @@ class Resolver:
                 question,
                 Miss(
                     question, "pattern", key, hit.resolver_id, rendering.formatter,
-                    f"the archive answered {shown}, but {key} gives "
-                    f"{'(withheld)' if private else repr(rendering.value)}",
+                    f"the archive answered {shown}, but {key} gives {rendering.value!r}",
                 ),
             )
             return None
