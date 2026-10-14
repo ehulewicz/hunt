@@ -1,15 +1,18 @@
 # Jobs system: modules, registry, and the application path
 
-Date: 2026-10-08. Status: schema approved 2026-10-08 except the additions marked
-in §12; ready to build in the slices of §16.
+Date: 2026-10-08, revised 2026-10-14. Status: slices A (Facts) and D (Registry)
+are built; the 2026-10-14 revision (§0) restarts the learned knowledge from
+scratch and reshapes slice C; B, C, E, and F are being built under it.
 
 This document describes the Jobs system as a set of modules with explicit
 boundaries, and specifies them in enough detail to build. It replaces the
 implicit structure that grew inside `workers/` with named parts, measurable
 rules, and a path that gets more deterministic over time.
 
-Nothing here is built yet. The schema in §12 was approved on 2026-10-08; the
-entries marked **added after approval** still need confirmation, per AGENTS.md.
+The schema in §12 was approved on 2026-10-08. The entries marked **added after
+approval**, R32–R39, and the §0 revision were decided by Claude on 2026-10-14
+under your delegation ("go ahead of your own volition, report the decisions");
+they are listed in §17 as *delegated* so you can dispute any by number.
 
 **Reading the recommendations.** Where the design was unclear, a decision has
 been taken and marked as a numbered recommendation:
@@ -19,6 +22,111 @@ been taken and marked as a numbered recommendation:
 Each is a default, not a question. Disagree with one by number; anything not
 disputed is treated as agreed. §17 indexes them all with their status; the text
 of a recommendation you changed already reflects your decision.
+
+---
+
+## 0. Revision 2026-10-14: start from scratch
+
+You decided to restart what the system has *learned* so the training loop can
+be watched working from an empty state: every fact re-entered and verified in a
+session, the old answers, patterns, and policies archived, and the archive kept
+as a reference that the new system consults when it meets something the old one
+knew, adding it back in translated form. Everything below §1 still holds except
+where this section changes it; the changed passages point back here.
+
+**What is knowledge and what is engine.** Knowledge is anything that says what
+is true about you or how you answer: facts, prose, questions, patterns. It
+restarts empty and is learned. The engine is how a form is read and operated:
+control kinds, strategies, formatters, readback, captcha and submit guards, file
+uploads, consent handling. It stays active, because it holds nothing about you
+to unlearn.
+
+> **R40 — No pattern is active on day one.** The 26 builtin rules in
+> `patterns.py`, the priority policies in `resolve_priority_answer`, the
+> exact-label map `PROFILE_LABELS`, and the two library regex rows all move to
+> the archive. Supersedes R27 and the sort-with-you migration of §14.
+
+> **R41 — The archive answers *which fact*, never *what value*.** An archive
+> hit names the fact a question asks about; the value always comes from that
+> fact, through a formatter. An archived answer that maps to no fact ("Search →
+> python async", "When are you available to start? → Yes") is shown to you as a
+> hint and never typed. This is what keeps "May 2028" and "$35" from coming back.
+
+> **R42 — The archive lives where the old data already is, frozen.**
+> `jobs_answer_library` becomes `jobs_archive_answers`, `jobs_profile` becomes
+> `jobs_archive_profile`, and `jobs_documents` (the stale resume copy and two
+> tailored resumes) becomes `jobs_archive_documents`; the API role keeps only
+> `select` on them. The retired rules move to `workers/…/jobs/archive/`, each
+> carrying its translation: the fact key it reads and the formatter that renders
+> it. Long-form archive text is readable with `os hunt archive prose`, which can
+> write it to a Markdown file of your choosing; no export is committed.
+
+> **R43 — An archive or model fill proposes, it does not decide.** When the
+> archive (or the model pass, §7.4) supplies the fact for a question, the field
+> is filled from that fact and tagged `archive` (or `model`) in the terminal, and
+> a `candidate` binding is recorded. Nothing becomes `active` until you accept it
+> in `os hunt inbox`; the next application then fills that question
+> deterministically, tagged `pattern`. That is the loop, end to end, and each
+> turn of it is visible.
+
+> **R44 — Questions are recorded when they are met.** Every fill event upserts
+> its question into `jobs_questions` (first and last seen), not only questions
+> someone dispositioned. The Inbox is then a view over rows (R38) from the first
+> application. Amends §7.4's "rows record dispositions".
+
+> **R45 — Engine rules stay active and are not patterns.** Consent and
+> attestation controls take their agreeing option; signatures are left to you;
+> resume, transcript, and cover letter uploads are detected by the control; the
+> captcha and submit guards hold; non-answer options ("Prefer not to say") are
+> never chosen; "How did you hear about us?" ranks the employer's own site, then
+> a job board, then Other. These are your standing behavior rules, decided
+> earlier, not facts.
+
+> **R46 — Strategies stay active; controls are learned by observation.** The
+> thirteen seeded strategies are mechanics that work today. `jobs_controls` is
+> empty and fills as widgets are met, so the control side of the loop is visible
+> in the fill events from the first run. Starting strategies as `candidate`
+> would mean validating thirteen things that already operate, for no
+> information.
+
+> **R47 — The Inbox is a command now, not later.** `os hunt inbox` walks
+> candidate patterns, unbound questions, unapproved prose, and (with F) repaired
+> rules. Starting from scratch makes it central from the first application, so
+> it moves from "Later" into slice C.
+
+> **R48 — Accepting a candidate activates it.** A candidate binding carries its
+> fill evidence (the value it filled and whether you kept it), which is what
+> `validated` means; accept moves it to `active` in one step. `validated` remains
+> the state a repaired rule reaches through `hunt validate` (§10.5).
+
+> **R49 — An archived rule's expression is adopted on request.** A binding
+> translated from an archived rule can be widened, from the Inbox, into that
+> rule's old regular expression as an `expression` pattern (origin `archive`), so
+> every phrasing resolves. The Inbox offers it once two accepted bindings come
+> from the same rule (the second-sighting rule, R10).
+
+> **R50 — Old failures are archived, not deleted.** The 254 open failure issues
+> came from the old dispatch; they move to status `archived` so the repair queue
+> (F) starts empty and the history stays queryable. Runs left `running` since
+> September are marked `abandoned`. The five applications still `applying` are
+> left for you.
+
+> **R51 — Stored facts shadow career-derived ones until you remove them.** Slice
+> B derives education, tenure, employer, and skills facts from the career record,
+> but the seeded stored rows for the same keys are not deleted: a stored fact
+> wins, and `os hunt facts list` marks it as shadowing the derived value. The
+> facts session settles each one. Deleting them silently would change values
+> (`education.degree_type` "Bachelor's" vs the career record's "BS", tenure 4 vs
+> the derived 2) behind your back.
+
+> **R52 — In-place mode waits for an account-gated adapter.** Workday is not
+> supported by `hunt apply` today, so §10.4 has nothing to run on. Repair (F)
+> ships for the single-page ATSs (Greenhouse, Ashby, Lever), where "advance to
+> the failing step" is the first page; in-place mode lands with the first
+> account-gated adapter.
+
+The facts session (seed review, the catalog keys the old answers show you need,
+and settling R51's shadows) happens with you after this lands.
 
 ---
 
@@ -95,9 +203,9 @@ to fully deterministic — without ever stalling the application in front of you
 
 ### Exists and is replaced
 
-- `jobs_profile` — superseded by `jobs_facts` (§7).
-- Short-form rows in `jobs_answer_library` — become facts, pattern bindings, or
-  one-off answers (§7, §14).
+- `jobs_profile` — superseded by `jobs_facts` (§7), then archived (R42).
+- `jobs_answer_library` — archived whole (R42); a question it answered is
+  re-learned in translated form the next time it is met (§14).
 - `resolve_priority_answer` — `patterns.py:378`. It mixes three jobs: choosing
   a fact, deriving a value (salary × 2080), and formatting it for the widget.
   Those split into derived facts and formatters.
@@ -118,13 +226,14 @@ to fully deterministic — without ever stalling the application in front of you
 
 | Module | Does | Owns | Status |
 |---|---|---|---|
-| **Facts** | Base facts about you, derived facts computed from them | what is true about you | replaces `jobs_profile` |
+| **Facts** | Base facts about you, derived facts computed from them | what is true about you | built (A) |
 | **Career record** | Your resume as structured rows: education, experience, research, projects, bullets, skills | what you have done | replaces `main.json` as the source |
-| **Prose** | Saved long-form writing and how a new question matches it | your voice | replaces the long-form half of the library |
-| **Registry** | Deterministic fill rules: questions, patterns, formatters, controls, strategies | *how* to fill | partial |
+| **Prose** | Saved long-form writing and how a new question matches it | your voice | new, starts empty (R40) |
+| **Registry** | Deterministic fill rules: questions, patterns, formatters, controls, strategies | *how* to fill | instrumentation built (D) |
+| **Archive** | The old answers, rules, profile, and documents, frozen, consulted on a miss | what the old system knew | new (R42) |
 | **Apply** | Runs one application: open, read, fill, verify, submit | browser session, run record | exists |
 | **Repair** | Fixes failed fills in a separate browser while you keep applying | candidate rules | new; extends the failure pipeline |
-| **Inbox** | One human queue: new questions, repaired rules awaiting validation, unwritten long-form, audit flags | everything waiting on you | partial |
+| **Inbox** | One human queue: new questions, repaired rules awaiting validation, unwritten long-form, audit flags | everything waiting on you | `os hunt inbox`, slice C (R47) |
 | **Audit** | Judges filled pairs for correctness before submit | the correctness verdict | new |
 | **Condenser** | Offline loop turning history into new or merged rules | rules from evidence | new |
 
@@ -517,7 +626,8 @@ once per distinct normalized key, with a disposition:
 
 A question does not need a row before a pattern can answer it: regex patterns
 match any phrasing at fill time, and the match is recorded on the fill event.
-Rows record dispositions you or the Condenser made, so that they stick.
+Every question met gets a row anyway (R44), `unbound` until someone dispositions
+it, so the Inbox is a view over rows and dispositions stick.
 
 **New wording vs genuinely new.** An unmatched question is one of two things:
 
@@ -701,8 +811,11 @@ Each fill event records the stage it reached:
 > the refactor that removes the per-phrasing copies for good.
 
 **Resolution order** stays the shape it is today, with facts in place of the
-profile and the library: question binding → expression patterns (exactly one
-match wins; zero or several pass through) → model pass → you.
+profile and the library: active question binding → active expression patterns
+(exactly one match wins; zero or several pass through) → archive (§14) → model
+pass → you. Only `active` patterns are read; a `candidate` waits in the Inbox
+(R43), so the same question keeps reaching the archive or the model until you
+accept what they proposed.
 
 ---
 
@@ -968,9 +1081,9 @@ asks:
 > shows the same question with the same control, and falls back to the original
 > application only when it has not been submitted.
 
-> **R27 — Existing builtin rules start `active`.** The 27 rules in `patterns.py`
-> and the current strategies are grandfathered; requiring validation for
-> everything already working would stall applying for no gain.
+> **R27 — Existing builtin rules start `active`.** *Superseded by R40 and R46:*
+> the rules in `patterns.py` are archived and re-learned; only the strategies
+> stay active.
 
 ---
 
@@ -1103,11 +1216,14 @@ re-seeded.
 | Field | Type | Notes |
 |---|---|---|
 | `id` | uuid | |
-| `resolver_id` | text | existing stable id |
+| `resolver_id` | text | stable id, unique per user: `binding:<question key>` or `expression:<name>` |
 | `kind` | text | `expression` (matches any phrasing) / `binding` (one question → one fact) |
 | `expression` | text null | case-insensitive regex for `expression` patterns stored as data |
-| `fact_key` | text null | the fact a data pattern reads; null for code-defined builtins |
-| `origin` | text | `builtin` / `inbox` / `model` / `condensed` |
+| `question_id` | uuid null | **added 2026-10-14** — the question a `binding` answers; a candidate needs it before the question is bound |
+| `fact_key` | text | the fact the pattern reads; every pattern is data now (R40), so never null |
+| `formatter` | text null | **added 2026-10-14** — pins a formatter; null lets the fill choose (§8) |
+| `origin` | text | `builtin` / `inbox` / `model` / `condensed` / `archive` (**added 2026-10-14**) |
+| `archive_ref` | text null | **added 2026-10-14** — the archived rule or answer it was translated from |
 | `status` | text | §10.5 |
 | `superseded_by` | uuid null | set when condensed |
 
@@ -1154,24 +1270,30 @@ slice C's migration adds the two foreign keys and backfills them from those
 columns. `jobs_controls` is unique on `(user_id, kind, attributes)`, where
 `attributes` is the structural vector only.
 
-### Changed: `jobs_answer_library` → `jobs_prose`
+### New: `jobs_prose`; `jobs_answer_library` → `jobs_archive_answers`
 
-Renamed, and reduced to long-form writing: `id`, `question_id` (the question it
-was written for, R11), `text`, `approved`. The 188 `exact` rows migrate to
-facts, bindings, or one-offs; the 2 `pattern` rows become facts plus expression
-patterns; `answer_type`, `reuse_policy`, `key`, and `normalized_key` are
-dropped.
+*Changed 2026-10-14 (R42).* `jobs_prose` is a new, empty table of long-form
+writing: `id`, `question_id` (the question it was written for, R11), `text`,
+`approved`, and `origin` (`manual` / `model` / `archive`). A long-form answer
+you submit is saved to it unapproved; the Inbox approves it. The 198 library
+rows are not migrated: the table is renamed `jobs_archive_answers` and frozen,
+and §14 says how its rows are reached.
 
-> **R28 — Rename the table.** Its meaning is changing and its rows are being
-> migrated anyway; keeping the name `answer_library` keeps the ambiguity that
-> started this. The rename is one migration and a handful of queries in
-> `jobs_store.py`.
+> **R28 — Rename the table.** Its meaning is changing; keeping the name
+> `answer_library` keeps the ambiguity that started this. *Changed by R42: the
+> rename goes to the archive, and prose starts as its own table.*
+
+### Archived: `jobs_archive_profile`, `jobs_archive_documents`
+
+*Added 2026-10-14 (R42).* `jobs_profile` and `jobs_documents` are renamed and
+frozen (`select` only). The backend's bootstrap stops writing either, and the
+documents endpoints, which no client calls, are removed.
 
 ### Changed: `jobs_application_questions`
 
-Gains `question_id`. It becomes the per-application *answer* record: what was
-submitted for each question on each application — which is also where one-off
-answers live. Its run-event columns (`run_id`, `event_index`, `event_kind`,
+Gains `question_id`, and `answer_source` gains `archive` and `prose`. It becomes
+the per-application *answer* record: what was submitted for each question on
+each application — which is also where one-off answers live. Its run-event columns (`run_id`, `event_index`, `event_kind`,
 `step_number`, `control_kind`, `field_fingerprint`, `resolver_id`,
 `proposed_value`) are superseded by `jobs_fill_events`.
 
@@ -1193,7 +1315,9 @@ verification timestamps — most of a repair record. It gains:
 | `validated_at` | timestamptz null | replaces `live_verified_at` |
 
 `jobs_autofill_failure_occurrences` stays as the evidence attached to each
-failure (DOM signals, artifact paths, intended vs observed value).
+failure (DOM signals, artifact paths, intended vs observed value). Its `status`
+gains `archived` (**added 2026-10-14**, R50) for the issues the old dispatch
+left open.
 
 ### Withdrawn
 
@@ -1226,25 +1350,38 @@ records its review trigger and the decision it informs, or it is not collected.*
 
 ---
 
-## 14. Migration of existing answers
+## 14. The archive, and translation on a miss
 
-The 198 library rows are sorted once, with you, during fact validation (§7.1):
+*Rewritten 2026-10-14 (R40–R43).* Nothing is migrated up front. A question that
+no active pattern answers goes to the archive before the model pass, and the
+archive looks it up two ways:
 
-| Today | Becomes |
-|---|---|
-| `exact` row restating a profile value (name, email, LinkedIn ×7, phone ×2) | dropped; the fact covers it |
-| `exact` row restating a fact the profile lacks (sponsorship ×~25, citizenship) | one fact; the phrasings become test cases for its pattern |
-| `exact` row contradicting a fact ("May 2028") | dropped after you confirm the fact |
-| `exact` row specific to one company ("Have you worked for Veeam?") | one-off on that application, or derived (`employment.worked_for`) |
-| `exact` row that is really prose | prose |
-| `contextual` row | prose |
-| `pattern` row (on-site availability, prior internship) | fact plus expression pattern |
-| junk ("Search" → "python async") | dropped |
+1. **Archived rules.** Every retired rule — the 26 builtins, the priority
+   policies, the exact-label map, the two library regex rows — keeps its regular
+   expression and gains a translation: the fact key it reads and, where the
+   wording decides it, a formatter. Exactly one translated fact among the
+   matching rules wins; rules that disagree pass the question through, the same
+   discipline the old dispatch had.
+2. **Archived answers.** When the question's normalized key matches an archived
+   answer, that row's question is run through the archived rules for its fact.
+   A row no rule translates is a hint, never a value (R41).
 
-> **R30 — Every migrated phrasing becomes a regression test.** The ~25
-> sponsorship phrasings, the graduation phrasings, and the rest are the best
-> test corpus available: each must resolve to the same fact through some
-> pattern after migration, or the migration lost coverage.
+| The archive finds | Fact present | What happens |
+|---|---|---|
+| a fact, through a rule | yes | filled from the fact and formatted, tagged `archive`; a `candidate` binding (origin `archive`, `archive_ref` = the rule) goes to the Inbox |
+| a fact, through a rule | no | left for you; the Inbox proposes creating the fact from the catalog (§7.2), with the old answer as the suggested value, then binding |
+| an old answer, no fact | — | named as a hint in the terminal's **Left for you**; what you type is kept as this application's answer, and the Inbox offers one-off, new fact, or long-form |
+| nothing | — | model pass, then you |
+
+Long-form questions never take an archived answer verbatim either: archived
+prose is handed to the drafting call as reference, beside approved prose (§7.5),
+and without the model it is listed for you to read.
+
+> **R30 — Every archived phrasing becomes a regression test.** *Changed by R40.*
+> The archived questions that translate to a fact — the ~25 sponsorship
+> phrasings, the graduation phrasings, and the rest — are the test corpus for
+> the archive's translation: each must name the same fact key it did before. The
+> corpus holds questions and fact keys only, never the old values.
 
 ---
 
@@ -1312,6 +1449,7 @@ waits for A, C, and D; F waits for D and E.
 
 | | |
 |---|---|
+| **Status** | built 2026-10-08 |
 | **Delivers** | `jobs_facts`, seeded from `jobs_profile`; derived facts including co-op rotations; `os hunt facts list \| review \| set` |
 | **Owns** | migration `…_jobs_facts.sql`; `backend/…/jobs_facts.py`; `workers/…/jobs/facts/` |
 | **Cut-over** | the worker reads facts through an adapter that presents the old profile dict, so resolution logic is untouched until E |
@@ -1322,7 +1460,7 @@ waits for A, C, and D; F waits for D and E.
 
 | | |
 |---|---|
-| **Delivers** | the four career tables; a one-time `os hunt resume import` from `main.json`; build and `resume edit` from the database; career-derived facts; the AGENTS.md resume rule amendment (R32) |
+| **Delivers** | the four career tables; a one-time `os hunt resume import` from `main.json`; build and `resume edit` from the database; career-derived facts (shadowed by stored ones, R51); the AGENTS.md resume rule amendment (R32); `jobs_documents` archived and the bootstrap seeding removed (R42) |
 | **Owns** | migration `…_jobs_career.sql`; `backend/…/jobs_career.py`; `workers/…/documents/` |
 | **Depends on** | A, for the `contact.*` facts in the header |
 | **Done when** | the PDF built from the database matches the current PDF; export after import round-trips to the current `main.json` except the dropped `meta` |
@@ -1331,15 +1469,16 @@ waits for A, C, and D; F waits for D and E.
 
 | | |
 |---|---|
-| **Delivers** | `jobs_questions`, `jobs_patterns`, `jobs_prose` (renamed), `question_id` on answer history; the §14 library migration, done with you; the regression corpus (R30) |
-| **Owns** | migration `…_jobs_answers.sql`; `backend/…/jobs_answers.py`; `workers/…/jobs/autofill.py` resolution, `patterns.py`, `answers.py` |
+| **Delivers** | *Reshaped 2026-10-14.* The archive (R42): the library and profile renamed and frozen, old failures archived (R50), the retired rules in `jobs/archive/` with their translations; `jobs_questions` recorded on encounter (R44), `jobs_patterns`, a new empty `jobs_prose`, `question_id` on answer history and fill events; the fact catalog (§7.2) as code; `os hunt inbox` (R47), `os hunt patterns`, `os hunt prose`, `os hunt archive`; the regression corpus (R30) |
+| **Owns** | migration `…_jobs_answers.sql`; `backend/…/jobs_answers.py`; `workers/…/jobs/archive/`, `jobs/inbox.py`, `jobs/facts/catalog.py` |
 | **Depends on** | A |
-| **Done when** | every migrated phrasing resolves to its fact through a pattern; no library row is left with `reuse_policy` `exact` or `pattern` |
+| **Done when** | every archived phrasing in the corpus translates to its fact key; the API role can only read the archive tables; an accepted candidate is read as `active` by the next run |
 
 ### D — Registry instrumentation
 
 | | |
 |---|---|
+| **Status** | built 2026-10-08 |
 | **Delivers** | `jobs_controls`, `jobs_strategies`, `jobs_fill_events`; classification into the 7 kinds; generic ARIA detection; checkbox group cardinality; the dispatch refactored to kind → ordered strategies; `uncheck_control`, `select_multiple`; the generic captcha guard; fill events written with `stopped_at` |
 | **Owns** | migration `…_jobs_registry.sql`; `backend/…/jobs_registry.py`; `workers/…/jobs/browser.py` and a new `jobs/registry/` |
 | **Depends on** | nothing |
@@ -1349,7 +1488,7 @@ waits for A, C, and D; F waits for D and E.
 
 | | |
 |---|---|
-| **Delivers** | formatters; the `resolve_priority_answer` split (R14); office selection (§9); the every-field page gate (§10.2); the cover letter always attached; model-pass verdicts `fits_fact` / `no_fact` / `unsure`; sensitive facts withheld from model calls; $40/hour |
+| **Delivers** | resolution from active patterns, then the archive, then the model, always through a fact and a formatter (§8, §14); formatters; the `resolve_priority_answer` split (R14), its old branches archived; office selection (§9); the every-field page gate (§10.2); the cover letter always attached; model-pass verdicts `fits_fact` / `no_fact` / `unsure`; sensitive facts withheld from model calls; $40/hour |
 | **Owns** | `workers/…/jobs/formatters.py`, `jobs/office.py`; `autofill.py`, `autofill_session.py`, `short_answers.py` |
 | **Depends on** | A, C, D |
 | **Done when** | formatter tests cover every `value_type` × control kind pair in use; office selection is tested for every tier and multi-location shape with a fixed seed; a fixture page with an empty optional field does not advance |
@@ -1358,14 +1497,14 @@ waits for A, C, and D; F waits for D and E.
 
 | | |
 |---|---|
-| **Delivers** | `--repair`; the repair worker and its isolated context; in-place mode for account-gated ATSs; rule status; `os hunt repair`; `os hunt validate`; the minimal Inbox read API (R38); metering for `_failure_claude` (R39) |
+| **Delivers** | `--repair`; the repair worker and its isolated context; in-place mode for account-gated ATSs (deferred, R52); rule status; `os hunt repair`; `os hunt validate`; the minimal Inbox read API (R38); metering for `_failure_claude` (R39) |
 | **Owns** | migration `…_jobs_repair.sql`; `workers/…/jobs/repair/`; `commands.py` failure path |
 | **Depends on** | D, E |
 | **Done when** | a seeded strategy failure is repaired and validated end to end on a fixture; the repair context's submit is refused by both guards; an in-place run blocks on a missing fact and resumes when it is set |
 
 ### Later
 
-Inbox unification, Audit, Condenser, prose vectors, unattended batch.
+Audit, Condenser, prose vectors, unattended batch, in-place mode (R52).
 
 ### Not doing
 
@@ -1376,7 +1515,8 @@ off the `claude -p` CLI; tailored resume variants (R34).
 
 ## 17. Recommendations index
 
-*new* = added in this revision, not yet reviewed.
+*delegated* = decided by Claude on 2026-10-14 under your instruction to proceed
+on its own judgement and report the decisions; dispute any by number.
 
 | # | Decision | Status |
 |---|---|---|
@@ -1406,27 +1546,39 @@ off the `claude -p` CLI; tailored resume variants (R34).
 | R24 | Account-gated ATSs use in-place mode, never a second browser | decided by you |
 | R25 | One background repair worker, only under `--repair` | decided by you |
 | R26 | Validation prefers a fresh posting | agreed |
-| R27 | Existing builtin rules start `active` | agreed |
-| R28 | Rename `jobs_answer_library` to `jobs_prose` | agreed |
+| R27 | Existing builtin rules start `active` | superseded by R40, R46 |
+| R28 | Rename `jobs_answer_library` (now to `jobs_archive_answers`) | changed by R42 |
 | R29 | Event columns dropped one release after fill events land | agreed |
-| R30 | Every migrated phrasing becomes a regression test | agreed |
+| R30 | Every archived phrasing becomes a translation test | changed by R40 |
 | R31 | Every model call site listed in AGENTS.md | done |
-| R32 | `main.json` and the PDF stay as committed generated exports | new |
-| R33 | Experience entries carry `employment_type`; research does not count toward tenure | new |
-| R34 | Tailored resume variants out of scope | new |
-| R35 | With `--no-claude`, the cover letter waits for you | new |
-| R36 | In-place mode may probe its own current page | new |
-| R37 | A blocked in-place run waits on the Inbox, readable over the API | new |
-| R38 | Minimal Inbox read API in slice F, no table | new |
-| R39 | Meter `_failure_claude` | new |
+| R32 | `main.json` and the PDF stay as committed generated exports | delegated |
+| R33 | Experience entries carry `employment_type`; research does not count toward tenure | delegated |
+| R34 | Tailored resume variants out of scope | delegated |
+| R35 | With `--no-claude`, the cover letter waits for you | delegated |
+| R36 | In-place mode may probe its own current page | delegated |
+| R37 | A blocked in-place run waits on the Inbox, readable over the API | delegated |
+| R38 | Minimal Inbox read API, no table (moved to slice C by R47) | delegated |
+| R39 | Meter `_failure_claude` | delegated |
+| R40 | No pattern is active on day one; old rules archived | delegated (your direction) |
+| R41 | The archive answers which fact, never what value | delegated |
+| R42 | Archive in place, frozen; rules move to `jobs/archive/` | delegated |
+| R43 | Archive and model fills propose candidates; you activate | delegated |
+| R44 | Questions recorded when they are met | delegated |
+| R45 | Engine rules stay active and are not patterns | delegated |
+| R46 | Strategies stay active; controls learned by observation | delegated |
+| R47 | `os hunt inbox` ships in slice C | delegated |
+| R48 | Accepting a candidate activates it | delegated |
+| R49 | An archived rule's expression is adopted on request | delegated |
+| R50 | Old failures archived; stale runs abandoned | delegated |
+| R51 | Stored facts shadow career-derived ones until removed | delegated |
+| R52 | In-place mode waits for an account-gated adapter | delegated |
 
 ## 18. Open questions
 
 Only the things a recommendation cannot settle:
 
-1. Approval of the §12 entries marked *added after approval*: `verified_at` on
-   `jobs_facts`, and the four career-record tables.
-2. The fact values themselves — settled in your review pass (§7.1).
-3. The long-form similarity threshold — evidence collected per §13 before it is
+1. The fact values themselves — settled in the facts session with you (§0),
+   including which stored facts give way to career-derived ones (R51).
+2. The long-form similarity threshold — evidence collected per §13 before it is
    fixed.
-4. Audit sampling rates and the bound that keeps it off the critical path.
+3. Audit sampling rates and the bound that keeps it off the critical path.
