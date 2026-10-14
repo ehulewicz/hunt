@@ -921,6 +921,10 @@ hunt apply
 
 ### 10.2 Every field is filled
 
+*As built 2026-10-14:* you own Next and Submit, so the worker cannot hold a page;
+the gate is that every empty field, required or optional, is outlined on the page
+and listed with why it is empty, and what you type is captured as `manual`.
+
 The run never advances past a page with a field empty, required or optional.
 The full order for any field is: pattern → model pass → you. When it reaches
 you, the run waits on the page, highlights the field in the visible browser, and

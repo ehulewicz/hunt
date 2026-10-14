@@ -1,143 +1,25 @@
+from typing import Any
+
 from personal_os_worker.jobs.autofill import (
+    AnswerResolution,
     affirmative_option,
     build_autofill_plan,
-    choose_option,
     is_long_form_field,
 )
 from personal_os_worker.jobs.browser import audit_filled_form
-from personal_os_worker.jobs.patterns import resolve_priority_answer
+from personal_os_worker.jobs.options import choose_option
 
 
-def test_autofill_uses_profile_resume_and_exact_approved_long_form_answers() -> None:
-    fields = [
-        {
-            "index": 0,
-            "tag": "input",
-            "type": "email",
-            "name": "email",
-            "label": "Email",
-            "required": True,
-        },
-        {
-            "index": 1,
-            "tag": "input",
-            "type": "text",
-            "name": "city",
-            "label": "City",
-            "required": True,
-        },
-        {
-            "index": 2,
-            "tag": "input",
-            "type": "file",
-            "name": "resume",
-            "label": "Resume",
-            "required": True,
-        },
-        {
-            "index": 3,
-            "tag": "textarea",
-            "type": None,
-            "name": "why",
-            "label": "Why this team?",
-            "required": True,
-        },
-    ]
+class Stub:
+    """Answers a field by its question label, as an active pattern would."""
 
-    plan = build_autofill_plan(
-        fields,
-        profile={"email": "ethan@example.com", "city": "Atlanta"},
-        approved_answers=[
-            {"normalized_question": "  Why this team? ", "answer_text": "Because the work matters."}
-        ],
-    )
+    def __init__(self, answers: dict[str, str] | None = None, default: str | None = None) -> None:
+        self.answers = answers or {}
+        self.default = default
 
-    assert [(item.index, item.kind, item.value) for item in plan.fills] == [
-        (0, "text", "ethan@example.com"),
-        (1, "text", "Atlanta"),
-        (2, "resume", None),
-        (3, "text", "Because the work matters."),
-    ]
-
-
-def test_your_aliases_only_expand_known_profile_labels() -> None:
-    fields = [
-        {"index": index, "tag": "input", "type": "text", "label": label, "required": True}
-        for index, label in enumerate(
-            ["Your Name", "Your Email Address", "Your Phone Number", "Your reference name"]
-        )
-    ]
-    plan = build_autofill_plan(
-        fields,
-        profile={"legal_name": "Ethan Example", "email": "e@example.com", "phone": "555"},
-        approved_answers=[],
-    )
-    assert [(fill.index, fill.value) for fill in plan.fills] == [
-        (0, "Ethan Example"),
-        (1, "e@example.com"),
-        (2, "555"),
-    ]
-    assert plan.unanswered_required_questions == ("Your reference name",)
-
-
-def test_priority_salary_policy_overrides_an_old_exact_deflection() -> None:
-    field = {
-        "index": 0,
-        "tag": "input",
-        "type": "number",
-        "label": "What are your salary requirements?",
-        "required": True,
-    }
-    plan = build_autofill_plan(
-        [field],
-        profile={"minimum_salary": "35", "minimum_salary_period": "hour"},
-        approved_answers=[
-            {"normalized_question": field["label"], "answer_text": "Open to discussion"}
-        ],
-        priority=lambda metadata: resolve_priority_answer(
-            metadata, profile={"minimum_salary": "35", "minimum_salary_period": "hour"}
-        ),
-    )
-    assert [(fill.index, fill.value) for fill in plan.fills] == [(0, "35")]
-
-
-def test_visa_expiration_rejects_an_old_yes_answer() -> None:
-    label = "When does your visa or work authorization expire?"
-    field = {"index": 0, "tag": "input", "type": "text", "label": label, "required": False}
-    plan = build_autofill_plan(
-        [field],
-        profile={"work_authorization_status": "Yes"},
-        approved_answers=[{"normalized_question": label, "answer_text": "Yes"}],
-        fallback=lambda _: "Yes",
-    )
-    assert plan.fills == ()
-
-
-def test_autofill_matches_the_api_answer_shape_and_harmless_punctuation() -> None:
-    fields = [
-        {
-            "index": 0,
-            "tag": "textarea",
-            "type": None,
-            "name": "goals",
-            "label": "What are your career goals",
-            "required": True,
-        }
-    ]
-    plan = build_autofill_plan(
-        fields,
-        profile={},
-        approved_answers=[
-            {
-                "question": "What are your career goals?",
-                "answer_text": "Build useful systems.",
-                "approved": True,
-            }
-        ],
-    )
-
-    assert [(item.index, item.value) for item in plan.fills] == [(0, "Build useful systems.")]
-    assert plan.unanswered_required_questions == ()
+    def resolve(self, field: dict[str, Any]) -> AnswerResolution | None:
+        value = self.answers.get(str(field.get("label") or ""), self.default)
+        return AnswerResolution(value, "pattern", "binding:test") if value is not None else None
 
 
 def test_autofill_affirms_consent_and_leaves_non_exact_answers_empty() -> None:
@@ -176,16 +58,7 @@ def test_autofill_affirms_consent_and_leaves_non_exact_answers_empty() -> None:
         },
     ]
 
-    plan = build_autofill_plan(
-        fields,
-        profile={"eeo_gender_identity": "Man"},
-        approved_answers=[
-            {
-                "normalized_question": "Why do you want this company?",
-                "answer_text": "Related category, but not an exact question.",
-            }
-        ],
-    )
+    plan = build_autofill_plan(fields, resolver=Stub({"Why do you want this company?": "No"}))
 
     # A lone consent checkbox is checked; nothing else here can be answered.
     assert [(fill.index, fill.value) for fill in plan.fills] == [(1, "I certify this is true")]
@@ -240,114 +113,13 @@ def test_consent_controls_take_the_affirmative_option_and_signatures_stay_manual
             "required": True,
         },
     ]
-    plan = build_autofill_plan(fields, profile={}, approved_answers=[])
+    plan = build_autofill_plan(fields)
     assert [(fill.index, fill.value, fill.chooser) for fill in plan.fills] == [
         (0, "Yes, I have read and agree to the privacy policy", None),
         (1, None, "consent"),
         (2, "Yes - I consent", None),
     ]
     assert plan.unanswered_required_questions == ("Electronic signature",)
-
-
-def test_autofill_maps_boolean_application_facts_without_using_answer_rows() -> None:
-    fields = [
-        {
-            "index": 0,
-            "tag": "select",
-            "type": None,
-            "name": "sponsor",
-            "label": "Will you now or in the future require sponsorship?",
-            "required": True,
-        },
-        {
-            "index": 1,
-            "tag": "select",
-            "type": None,
-            "name": "relocate",
-            "label": "Are you willing to relocate?",
-            "required": True,
-        },
-    ]
-
-    plan = build_autofill_plan(
-        fields,
-        profile={"sponsorship_required": False, "willing_to_relocate": True},
-        approved_answers=[],
-    )
-
-    assert [(item.index, item.value) for item in plan.fills] == [(0, "No"), (1, "Yes")]
-    assert plan.unanswered_required_questions == ()
-
-
-def test_autofill_uses_profile_earliest_start_text_then_exact_date() -> None:
-    field = {
-        "index": 0,
-        "tag": "input",
-        "type": "text",
-        "name": "start_date",
-        "label": "What is your earliest available start date?",
-        "required": True,
-    }
-
-    with_note = build_autofill_plan(
-        [field],
-        profile={
-            "earliest_start_date": "2027-05-15",
-            "earliest_start_text": "Two weeks after offer acceptance",
-        },
-        approved_answers=[],
-    )
-    with_date_only = build_autofill_plan(
-        [field],
-        profile={"earliest_start_date": "2027-05-15", "earliest_start_text": None},
-        approved_answers=[],
-    )
-
-    assert [(item.index, item.value) for item in with_note.fills] == [
-        (0, "Two weeks after offer acceptance")
-    ]
-    assert [(item.index, item.value) for item in with_date_only.fills] == [(0, "2027-05-15")]
-
-
-def test_autofill_derives_name_parts_and_us_authorization_from_profile_facts() -> None:
-    fields = [
-        {
-            "index": 0,
-            "tag": "input",
-            "type": "text",
-            "name": "first_name",
-            "label": "First name",
-            "required": True,
-        },
-        {
-            "index": 1,
-            "tag": "input",
-            "type": "text",
-            "name": "last_name",
-            "label": "Last name",
-            "required": True,
-        },
-        {
-            "index": 2,
-            "tag": "select",
-            "type": None,
-            "name": "authorized",
-            "label": "Are you authorized to work in the United States?",
-            "required": True,
-        },
-    ]
-
-    plan = build_autofill_plan(
-        fields,
-        profile={"legal_name": "Alex Example", "work_authorization_status": "US Citizen"},
-        approved_answers=[],
-    )
-
-    assert [(item.index, item.value) for item in plan.fills] == [
-        (0, "Ethan"),
-        (1, "Example"),
-        (2, "Yes"),
-    ]
 
 
 def test_autofill_does_not_guess_between_multiple_resume_uploads() -> None:
@@ -370,58 +142,10 @@ def test_autofill_does_not_guess_between_multiple_resume_uploads() -> None:
         },
     ]
 
-    plan = build_autofill_plan(fields, profile={}, approved_answers=[])
+    plan = build_autofill_plan(fields)
 
     assert plan.fills == ()
     assert plan.unanswered_required_questions == ("Resume", "Resume attachment")
-
-
-def test_autofill_never_turns_negative_or_unknown_authorization_into_yes() -> None:
-    field = {
-        "index": 0,
-        "tag": "select",
-        "type": None,
-        "name": "authorized",
-        "label": "Are you authorized to work in the United States?",
-        "required": True,
-    }
-
-    negative = build_autofill_plan(
-        [field], profile={"work_authorization_status": "Not authorized"}, approved_answers=[]
-    )
-    unknown = build_autofill_plan(
-        [field], profile={"work_authorization_status": "Ask me"}, approved_answers=[]
-    )
-
-    assert [(item.index, item.value) for item in negative.fills] == [(0, "No")]
-    assert unknown.fills == ()
-    assert negative.unanswered_required_questions == ()
-    assert unknown.unanswered_required_questions == (field["label"],)
-
-
-def test_autofill_never_uses_answers_for_missing_profile_facts() -> None:
-    field = {
-        "index": 0,
-        "tag": "select",
-        "type": None,
-        "name": "authorized",
-        "label": "Are you authorized to work in the United States?",
-        "required": True,
-    }
-
-    plan = build_autofill_plan(
-        [field],
-        profile={"work_authorization_status": "Ask me"},
-        approved_answers=[
-            {
-                "normalized_question": field["label"],
-                "answer_text": "Yes",
-            }
-        ],
-    )
-
-    assert plan.fills == ()
-    assert plan.unanswered_required_questions == (field["label"],)
 
 
 def test_autofill_blocks_consent_and_signature_but_reuses_demographic_answers() -> None:
@@ -463,11 +187,7 @@ def test_autofill_blocks_consent_and_signature_but_reuses_demographic_answers() 
             "required": True,
         },
     ]
-    answers = [
-        {"normalized_question": field["label"], "answer_text": "approved value"} for field in fields
-    ]
-
-    plan = build_autofill_plan(fields, profile={}, approved_answers=answers)
+    plan = build_autofill_plan(fields, resolver=Stub(default="approved value"))
 
     assert [(item.index, item.value) for item in plan.fills] == [
         (0, "approved value"),
@@ -500,9 +220,7 @@ def test_autofill_checks_the_radio_whose_option_matches_the_saved_group_answer()
             "required": True,
         },
     ]
-    answers = [{"normalized_question": "How did you hear about us?", "answer_text": "LinkedIn"}]
-
-    plan = build_autofill_plan(fields, profile={}, approved_answers=answers)
+    plan = build_autofill_plan(fields, resolver=Stub({"How did you hear about us?": "LinkedIn"}))
 
     assert [(item.index, item.value) for item in plan.fills] == [(0, "LinkedIn")]
     assert plan.unanswered_required_questions == ()
@@ -523,11 +241,7 @@ def test_how_heard_uses_the_first_available_standing_source_preference() -> None
             }
             for index, option in enumerate(options)
         ]
-        plan = build_autofill_plan(
-            fields,
-            profile={},
-            approved_answers=[{"normalized_question": question, "answer_text": "LinkedIn"}],
-        )
+        plan = build_autofill_plan(fields, resolver=Stub({question: "LinkedIn"}))
         return plan.fills[0].value if plan.fills else None
 
     assert chosen(["LinkedIn", "Other", "Other Job Boards", "Company Website"]) == (
@@ -553,15 +267,11 @@ def test_how_heard_typeahead_without_visible_options_is_chosen_from_the_live_men
             "required": True,
         }
     ]
-    plan = build_autofill_plan(fields, profile={}, approved_answers=[])
+    plan = build_autofill_plan(fields)
     assert [(fill.index, fill.value, fill.chooser) for fill in plan.fills] == [(0, None, "source")]
-    # An exact library answer still wins over the standing preference.
+    # A pattern you accepted for the question wins over the standing preference.
     plan = build_autofill_plan(
-        fields,
-        profile={},
-        approved_answers=[
-            {"normalized_question": "How did you hear about DV Trading?", "answer_text": "Referral"}
-        ],
+        fields, resolver=Stub({"How did you hear about DV Trading?": "Referral"})
     )
     assert [(f.index, f.value, f.chooser) for f in plan.fills] == [(0, "Referral", None)]
 
@@ -577,7 +287,7 @@ def test_autofill_does_not_upload_resume_inside_sensitive_group() -> None:
         "required": True,
     }
 
-    plan = build_autofill_plan([field], profile={}, approved_answers=[])
+    plan = build_autofill_plan([field])
 
     assert plan.fills == ()
     assert plan.unanswered_required_questions == ("Resume",)
@@ -620,48 +330,9 @@ def test_extension_audit_reports_presence_without_copying_values() -> None:
     assert audit == {
         "filled_fields": ["Email", "Veteran status"],
         "required_unfilled": ["Portfolio"],
+        "optional_unfilled": [],
         "sensitive_filled": [],
     }
-
-
-def test_autofill_leaves_duplicate_exact_answers_empty_as_ambiguous() -> None:
-    field = {
-        "index": 0,
-        "tag": "textarea",
-        "type": None,
-        "name": "motivation",
-        "label": "Why this role?",
-        "group": "Application questions",
-        "required": True,
-    }
-
-    plan = build_autofill_plan(
-        [field],
-        profile={},
-        approved_answers=[
-            {"normalized_question": "Why this role?", "answer_text": "First answer"},
-            {"normalized_question": " why this role? ", "answer_text": "Second answer"},
-        ],
-    )
-
-    assert plan.fills == ()
-    assert plan.unanswered_required_questions == ("Why this role?",)
-
-
-def test_ashby_style_labels_map_to_profile() -> None:
-    """Bestow's Ashby form labels these exactly 'Name' and 'Address Line 1'."""
-    from personal_os_worker.jobs.autofill import PROFILE_LABELS
-
-    assert PROFILE_LABELS["name"] == "legal_name"
-    assert PROFILE_LABELS["address line 1"] == "address_line_1"
-
-
-def test_exact_matching_still_refuses_to_guess() -> None:
-    """Matching is exact, so a qualified label must not borrow the bare mapping."""
-    from personal_os_worker.jobs.autofill import PROFILE_LABELS
-
-    for label in ("company name", "reference name", "name of school"):
-        assert label not in PROFILE_LABELS
 
 
 def test_audit_reports_a_choice_group_once_by_its_question() -> None:
@@ -755,9 +426,7 @@ def test_fallback_answers_fill_text_and_choice_groups_by_prefix() -> None:
         "Have you ever worked here?": "No",
         "Authorized?": "Yes - I have US work authorization as a Citizen",
     }
-    plan = build_autofill_plan(
-        fields, profile={}, approved_answers=[], fallback=lambda question: answers.get(question)
-    )
+    plan = build_autofill_plan(fields, resolver=Stub(answers))
     assert [(fill.index, fill.value) for fill in plan.fills] == [
         (0, "Open"),
         (3, "No"),
@@ -793,7 +462,7 @@ def test_fallback_yes_is_ambiguous_against_several_yes_options() -> None:
             "required": True,
         },
     ]
-    plan = build_autofill_plan(fields, profile={}, approved_answers=[], fallback=lambda _: "Yes")
+    plan = build_autofill_plan(fields, resolver=Stub(default="Yes"))
     assert plan.fills == ()
     assert plan.unanswered_required_questions == ("Authorized?",)
 
@@ -832,10 +501,7 @@ def test_filled_controls_and_answered_groups_are_never_planned_again() -> None:
         },
     ]
     plan = build_autofill_plan(
-        fields,
-        profile={"legal_name": "Alex Example", "email": "ethan@example.com"},
-        approved_answers=[],
-        fallback=lambda _: "Yes",
+        fields, resolver=Stub({"Email": "ethan@example.com"}, default="Yes")
     )
     assert [(fill.index, fill.kind, fill.value) for fill in plan.fills] == [
         (1, "text", "ethan@example.com")
@@ -880,17 +546,7 @@ def test_non_answer_choice_is_left_for_the_user_even_when_saved() -> None:
             "options": ["Yes", "No", "I do not wish to answer"],
         }
     ]
-    plan = build_autofill_plan(
-        fields,
-        profile={},
-        approved_answers=[
-            {
-                "question": "Disability status",
-                "answer_text": "I do not wish to answer",
-                "reuse_policy": "exact",
-            }
-        ],
-    )
+    plan = build_autofill_plan(fields, resolver=Stub(default="I do not wish to answer"))
     assert plan.fills == ()
     assert plan.unanswered_required_questions == ("Disability status",)
 
@@ -902,10 +558,7 @@ def test_a_comma_joined_answer_checks_every_matching_box_in_a_checkbox_group() -
         for i, label in enumerate(["Python", "Go", "Typescript", "React", "Google Cloud"])
     ]
     plan = build_autofill_plan(
-        fields,
-        profile={},
-        approved_answers=[],
-        fallback=lambda _: "Python, Java, TypeScript, React.js, Docker",
+        fields, resolver=Stub(default="Python, Java, TypeScript, React.js, Docker")
     )
     assert [fill.index for fill in plan.fills] == [0, 2, 3]  # Go is not a prefix match for Google
     assert plan.unanswered_required_questions == ()
@@ -937,3 +590,29 @@ def test_a_textarea_is_still_long_form_and_a_consent_box_never_is() -> None:
     assert is_long_form_field(
         {"tag": "input", "type": "checkbox", "label": "Tell us why you agree to our terms"}
     ) is False
+
+
+def test_options_chosen_by_the_formatters_check_each_named_box() -> None:
+    group = "Which offices would you consider?"
+    fields = [
+        {"index": i, "tag": "input", "type": "checkbox", "label": label, "group": group}
+        for i, label in enumerate(["New York, NY", "Austin, TX", "Chicago, IL"])
+    ]
+    plan = build_autofill_plan(fields, resolver=Stub(default="New York, NY\nChicago, IL"))
+    assert [fill.index for fill in plan.fills] == [0, 2]
+
+
+def test_the_audit_lists_optional_fields_left_empty_after_required_ones() -> None:
+    audit = audit_filled_form(
+        [
+            {"index": 0, "type": "text", "label": "Pronouns", "filled": False},
+            {"index": 1, "type": "text", "label": "Email", "required": True, "filled": False},
+            {"index": 2, "type": "file", "label": "Other documents", "filled": False},
+            {"index": 3, "type": "checkbox", "label": "I agree", "group": "Terms", "filled": False},
+            {"index": 4, "type": "radio", "label": "Yes", "group": "Relocate?", "filled": False},
+            {"index": 5, "type": "radio", "label": "No", "group": "Relocate?", "filled": False},
+        ]
+    )
+    assert audit["required_unfilled"] == ["Email"]
+    # Files are uploaded by the engine or left to you; consent is the engine's.
+    assert audit["optional_unfilled"] == ["Pronouns", "Relocate?"]

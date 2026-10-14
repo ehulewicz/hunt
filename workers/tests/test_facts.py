@@ -8,7 +8,6 @@ import pytest
 from personal_os_worker.cli import build_parser, expand_shorthand
 from personal_os_worker.jobs.facts.commands import library_conflicts, parse_value, review_facts
 from personal_os_worker.jobs.facts.derived import completed_rotations, derive, graduation_term
-from personal_os_worker.jobs.facts.profile import legacy_profile
 
 ANCHOR = {"count": 4, "as_of": "2026-08-01"}
 GRADUATION = date(2027, 12, 15)
@@ -73,46 +72,38 @@ def fact(key: str, value: Any) -> dict[str, Any]:
     return {"key": key, "value": value, "value_type": "text"}
 
 
-def test_legacy_profile_presents_facts_in_the_old_column_shape() -> None:
+def test_knowledge_presents_stored_derived_and_posting_facts() -> None:
+    from personal_os_worker.jobs.resolve import Knowledge
+
     facts = [
         fact("identity.legal_name", "Ada Lovelace"),
-        fact("contact.email", "ada@example.com"),
+        fact("address.city", "Atlanta"),
+        fact("address.region", "Georgia"),
         fact("address.country", "United States"),
-        fact("work_auth.us_citizen", True),
-        fact("work_auth.authorized_us", True),
-        fact("work_auth.requires_sponsorship", False),
-        fact("education.graduation_date", "2027-12-15"),
-        fact("education.gpa", 3.9),
-        fact("availability.notice_period_weeks", 2),
-        fact("coop.anchor", ANCHOR),
-        fact("compensation.minimum", {"amount": 40, "currency": "USD", "period": "hour"}),
-        fact("eeo.race_ethnicities", ["Example"]),
+        fact("work_auth.us_citizen", True) | {"value_type": "boolean"},
+        fact("education.graduation_date", "2027-12-15") | {"value_type": "date"},
+        fact("coop.anchor", ANCHOR) | {"value_type": "object"},
+        fact("compensation.minimum", {"amount": 40, "currency": "USD", "period": "hour"})
+        | {"value_type": "object"},
+        fact("contact.phone", "5550001111") | {"sensitive": True},
     ]
-    profile = legacy_profile(facts, date(2027, 5, 1))
-    assert profile["legal_name"] == "Ada Lovelace"
-    assert profile["email"] == "ada@example.com"
-    assert profile["work_authorization_status"] == "Yes"
-    assert profile["visa_status"] == "Citizen"
-    assert profile["sponsorship_required"] is False
-    assert profile["graduation_date"] == "2027-12-15"
-    assert profile["graduation_term"] == "Fall"
-    assert profile["completed_coop_terms"] == 6
-    assert profile["gpa"] == 3.9
-    assert profile["earliest_start_text"] == "Two weeks from offer acceptance."
-    assert profile["minimum_salary"] == 40
-    assert profile["minimum_salary_period"] == "hour"
-    assert profile["eeo_race_ethnicities"] == ["Example"]
-    assert profile["target_roles"] == []
-    assert profile["phone"] is None
-
-
-def test_legacy_profile_authorization_without_citizenship() -> None:
-    assert legacy_profile([fact("work_auth.authorized_us", False)], date(2026, 10, 8))[
-        "work_authorization_status"
-    ] == "No"
-    profile = legacy_profile([], date(2026, 10, 8))
-    assert profile["work_authorization_status"] is None
-    assert profile["visa_status"] is None
+    knowledge = Knowledge.build(
+        facts=facts, career=CAREER, company="Northwind", today=date(2027, 5, 1)
+    )
+    assert knowledge.facts["identity.first_name"] == "Ada"
+    assert knowledge.facts["identity.last_name"] == "Lovelace"
+    assert knowledge.facts["address.location"] == "Atlanta, Georgia, United States"
+    assert knowledge.facts["work_auth.citizenship_country"] == "United States"
+    assert knowledge.facts["education.graduation_term"] == "Fall"
+    assert knowledge.facts["coop.completed_rotations"] == 6
+    assert knowledge.facts["compensation.minimum_annual"] == 83200
+    assert knowledge.facts["employment.worked_for"] is True
+    assert knowledge.types["education.graduation_date"] == "date"
+    assert knowledge.types["employment.worked_for"] == "boolean"
+    # The model sees every key and label, never a sensitive value.
+    shown = {item["key"]: item["value"] for item in knowledge.for_model()}
+    assert shown["contact.phone"] == "(withheld)"
+    assert "contact.phone" not in knowledge.disclosable()
 
 
 @pytest.mark.parametrize(
@@ -280,6 +271,7 @@ def test_research_and_projects_never_count_toward_tenure() -> None:
 
 def test_a_stored_fact_shadows_the_career_value_and_is_named() -> None:
     from personal_os_worker.jobs.facts.derived import career_facts, shadowed
+    from personal_os_worker.jobs.resolve import Knowledge
 
     from_career = career_facts(CAREER, date(2026, 10, 14))
     stored = {"education.degree_type": "Bachelor's", "experience.years_professional": 4,
@@ -287,11 +279,11 @@ def test_a_stored_fact_shadows_the_career_value_and_is_named() -> None:
     assert shadowed(stored, from_career) == {
         "education.degree_type": "BS", "experience.years_professional": 2,
     }
-    profile = legacy_profile(
-        [{"key": key, "value": value} for key, value in stored.items()],
-        date(2026, 10, 14),
+    knowledge = Knowledge.build(
+        facts=[{"key": key, "value": value} for key, value in stored.items()],
         career=CAREER,
+        today=date(2026, 10, 14),
     )
-    assert profile["degree_type"] == "Bachelor's"
-    assert profile["years_professional_experience"] == 4
-    assert profile["field_of_study"] == "Computer Science"  # no stored fact: the career decides
+    assert knowledge.facts["education.degree_type"] == "Bachelor's"
+    assert knowledge.facts["experience.years_professional"] == 4
+    assert knowledge.facts["education.field_of_study"] == "Computer Science"  # the career decides

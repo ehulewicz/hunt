@@ -26,7 +26,7 @@ from personal_os_worker.jobs.facts.derived import (
     derive,
     shadowed,
 )
-from personal_os_worker.jobs.facts.profile import fact_values
+from personal_os_worker.jobs.facts.values import fact_values
 
 VALUE_TYPES = ("text", "boolean", "number", "date", "choice", "list", "object")
 MASK = "••••"

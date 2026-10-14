@@ -1,9 +1,10 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
 from playwright.sync_api import Error, sync_playwright
 
-from personal_os_worker.jobs.autofill import build_autofill_plan
+from personal_os_worker.jobs.autofill import AnswerResolution, build_autofill_plan
 from personal_os_worker.jobs.browser import (
     apply_autofill,
     audit_filled_form,
@@ -21,9 +22,26 @@ from personal_os_worker.jobs.page_state import (
     capture_ashby_navigation,
     classify_application_page,
 )
-from personal_os_worker.jobs.patterns import resolve_pattern_answer, resolve_priority_answer
+from personal_os_worker.jobs.resolve import Knowledge, Resolver
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def knowing(facts: dict[str, Any], *, company: str = "Acme") -> Resolver:
+    """Day one after the restart: no active pattern; the archive translates, facts decide."""
+    rows = [{"key": key, "value": value} for key, value in facts.items()]
+    return Resolver(Knowledge.build(facts=rows, career=None, company=company))
+
+
+class Stub:
+    """Answers by question label, as an accepted binding would."""
+
+    def __init__(self, answers: dict[str, str]) -> None:
+        self.answers = answers
+
+    def resolve(self, field: dict[str, Any]) -> AnswerResolution | None:
+        value = self.answers.get(str(field.get("label") or ""))
+        return AnswerResolution(value, "pattern", "binding:test") if value else None
 
 
 @pytest.fixture(scope="module")
@@ -49,18 +67,13 @@ def test_greenhouse_resume_first_survives_rerender_and_submit_is_absent(
     assert not any(field.get("type") in {"submit", "password", "hidden"} for field in fields)
     plan = build_autofill_plan(
         fields,
-        profile={
-            "legal_name": "Alex Example",
-            "email": "ethan@example.com",
-            "country": "United States",
-        },
-        approved_answers=[
+        resolver=knowing(
             {
-                "normalized_key": "why this team",
-                "answer_text": "The work matters.",
-                "reuse_policy": "exact",
+                "identity.legal_name": "Alex Example",
+                "contact.email": "ethan@example.com",
+                "address.country": "United States",
             }
-        ],
+        ),
     )
     resume = tmp_path / "main.pdf"
     resume.write_bytes(b"%PDF-1.4\n%%EOF")
@@ -83,28 +96,21 @@ def test_ashby_combobox_and_same_origin_iframe_are_inspected(browser_page) -> No
 def test_ashby_megazone_fixture_fills_standing_facts(browser_page) -> None:  # type: ignore[no-untyped-def]
     browser_page.set_content((FIXTURES / "ashby_megazone.html").read_text())
     fields = inspect_fields(browser_page)
-    profile = {
-        "minimum_salary": "35",
-        "minimum_salary_period": "hour",
-        "graduation_date": "2027-12-15",
-        "graduation_term": "Fall",
-        "completed_coop_terms": "4.5",
-        "willing_to_relocate": True,
-    }
-    plan = build_autofill_plan(
-        fields,
-        profile=profile,
-        approved_answers=[],
-        priority=lambda field: resolve_priority_answer(field, profile=profile),
-        fallback=lambda question: resolve_pattern_answer(
-            question, rules=[], profile=profile, resume={}, company="Megazone"
-        ),
+    resolver = knowing(
+        {
+            "compensation.minimum": {"amount": 40, "currency": "USD", "period": "hour"},
+            "education.graduation_date": "2027-12-15",
+            "coop.anchor": {"count": 4, "as_of": "2026-08-01"},
+            "availability.onsite": True,
+        },
+        company="Megazone",
     )
+    plan = build_autofill_plan(fields, resolver=resolver)
     result = apply_autofill(
         browser_page, fields, plan, resume_path=None, assert_active=lambda: None
     )
     assert result["failures"] == []
-    assert browser_page.input_value("#salary") == "35"
+    assert browser_page.input_value("#salary") == "40"
     assert browser_page.input_value("#graduation") == "Fall 2027"
     assert browser_page.locator("input[name=coops]:checked").get_attribute("value") == "3+"
     assert browser_page.locator('[data-option="yes"]').get_attribute("data-state") == "selected"
@@ -133,21 +139,18 @@ def test_ashby_navigation_pair_and_plain_submit_form_are_not_submission(browser_
 def test_ashby_exegy_fixture_fills_contact_authorization_notice_and_salary(browser_page) -> None:  # type: ignore[no-untyped-def]
     browser_page.set_content((FIXTURES / "ashby_exegy.html").read_text())
     fields = inspect_fields(browser_page)
-    profile = {
-        "legal_name": "Ethan Example",
-        "email": "e@example.com",
-        "phone": "555",
-        "visa_status": "Citizen",
-        "earliest_start_text": "Two weeks from offer acceptance.",
-        "minimum_salary": "35",
-        "minimum_salary_period": "hour",
-    }
-    plan = build_autofill_plan(
-        fields,
-        profile=profile,
-        approved_answers=[],
-        priority=lambda field: resolve_priority_answer(field, profile=profile),
+    resolver = knowing(
+        {
+            "identity.legal_name": "Ethan Example",
+            "contact.email": "e@example.com",
+            "contact.phone": "555",
+            "work_auth.us_citizen": True,
+            "availability.notice_period_weeks": 2,
+            "compensation.minimum": {"amount": 40, "currency": "USD", "period": "hour"},
+        },
+        company="Exegy",
     )
+    plan = build_autofill_plan(fields, resolver=resolver)
     result = apply_autofill(
         browser_page, fields, plan, resume_path=None, assert_active=lambda: None
     )
@@ -160,7 +163,7 @@ def test_ashby_exegy_fixture_fills_contact_authorization_notice_and_salary(brows
         == "nationality"
     )
     assert browser_page.locator('input[name="notice"]:checked').get_attribute("value") == "2-4"
-    assert browser_page.input_value("#salary") == "$72,800 USD"
+    assert browser_page.input_value("#salary") == "$83,200 USD"
     assert browser_page.input_value("#expiry") == ""
 
 
@@ -171,8 +174,9 @@ def test_lever_captcha_keeps_radio_and_sensitive_checkbox_manual(browser_page) -
         field["ats"] = "lever"
     plan = build_autofill_plan(
         fields,
-        profile={"email": "ethan@example.com", "sponsorship_required": False},
-        approved_answers=[],
+        resolver=knowing(
+            {"contact.email": "ethan@example.com", "work_auth.requires_sponsorship": False}
+        ),
     )
     result = apply_autofill(
         browser_page, fields, plan, resume_path=None, assert_active=lambda: None
@@ -405,7 +409,7 @@ def test_custom_consent_radio_detects_a_manual_selection(
     fields = inspect_fields(browser_page)
     assert {field["group"] for field in fields} == {question}
     assert [field["filled"] for field in fields] == [True, False]
-    plan = build_autofill_plan(fields, profile={}, approved_answers=[])
+    plan = build_autofill_plan(fields)
     assert plan.fills == ()
     assert plan.unanswered_required_questions == ()
     audit = audit_filled_form(fields)
@@ -479,7 +483,7 @@ def test_live_greenhouse_shapes_strip_asterisks_skip_mirrors_and_find_resume_by_
     assert by_label["Will you require Visa Sponsorship?"]["required"] is True
     assert len(fields) == 4  # the aria-hidden mirror input is not a field
     plan = build_autofill_plan(
-        fields, profile={"legal_name": "Alex Example"}, approved_answers=[]
+        fields, resolver=knowing({"identity.legal_name": "Alex Example"})
     )
     kinds = {fields[fill.index]["selector"]: fill.kind for fill in plan.fills}
     assert kinds == {"#first": "text", "#resume": "resume"}
@@ -593,11 +597,12 @@ def test_ashby_education_controls_use_nested_labels_and_search_for_school(
 
     plan = build_autofill_plan(
         fields,
-        profile={
-            "school_name": "Example Institute of Technology",
-            "graduation_date": "2027-12-15",
-        },
-        approved_answers=[],
+        resolver=knowing(
+            {
+                "education.school_name": "Example Institute of Technology",
+                "education.graduation_date": "2027-12-15",
+            }
+        ),
     )
     assert [(fill.index, fill.value) for fill in plan.fills] == [
         (0, "Example Institute of Technology"),
@@ -669,14 +674,8 @@ def test_ashby_yesno_control_is_fillable_by_the_sanctioned_country_rule(
         for f in fields
     ] == [("yesno", question, ["Yes", "No"], False, None, True)]
 
-    profile = {"visa_status": "Citizen"}
     plan = build_autofill_plan(
-        fields,
-        profile={},
-        approved_answers=[],
-        fallback=lambda asked: resolve_pattern_answer(
-            asked, rules=[], profile=profile, resume={}, company="Acme"
-        ),
+        fields, resolver=knowing({"work_auth.sanctioned_country_citizen": False})
     )
     result = apply_autofill(
         browser_page, fields, plan, resume_path=None, assert_active=lambda: None
@@ -827,7 +826,7 @@ def test_react_select_is_picked_by_prefix_and_read_back_from_its_rendered_choice
         ("Country", "combobox", False, False)
     ]
 
-    plan = build_autofill_plan(fields, profile={"country": "United Stat"}, approved_answers=[])
+    plan = build_autofill_plan(fields, resolver=knowing({"address.country": "United States"}))
     assert [fill.value for fill in plan.fills] == ["United States"]
     result = apply_autofill(
         browser_page, fields, plan, resume_path=None, assert_active=lambda: None
@@ -851,7 +850,7 @@ def test_how_heard_and_consent_typeaheads_are_chosen_from_the_live_menu(
 ) -> None:
     browser_page.set_content(REACT_SELECT_POLICY)
     fields = inspect_fields(browser_page)
-    plan = build_autofill_plan(fields, profile={}, approved_answers=[])
+    plan = build_autofill_plan(fields)
     assert [(fill.value, fill.chooser) for fill in plan.fills] == [
         (None, "source"),
         (None, "consent"),
@@ -876,13 +875,11 @@ def test_places_city_typeahead_is_filled_by_the_location_rule(
 ) -> None:
     browser_page.set_content(PLACES_CITY)
     fields = inspect_fields(browser_page)
-    profile = {"city": "Atlanta", "region": "Georgia", "country": "United Stat"}
     plan = build_autofill_plan(
         fields,
-        profile={},
-        approved_answers=[],
-        fallback=lambda asked: resolve_pattern_answer(
-            asked, rules=[], profile=profile, resume={}, company="Acme"
+        resolver=knowing(
+            {"address.city": "Atlanta", "address.region": "Georgia",
+             "address.country": "United States"}
         ),
     )
     assert [fill.value for fill in plan.fills] == ["Atlanta, Georgia, United States"]
@@ -930,14 +927,7 @@ def test_free_entry_typeahead_commits_the_typed_value_with_enter(
 ) -> None:
     browser_page.set_content(FREE_ENTRY_GPA)
     fields = inspect_fields(browser_page)
-    plan = build_autofill_plan(
-        fields,
-        profile={},
-        approved_answers=[],
-        fallback=lambda asked: resolve_pattern_answer(
-            asked, rules=[], profile={"gpa": "3.78"}, resume={}, company="Acme"
-        ),
-    )
+    plan = build_autofill_plan(fields, resolver=knowing({"education.gpa": 3.78}))
     assert [fill.value for fill in plan.fills] == ["3.78"]
     result = apply_autofill(
         browser_page, fields, plan, resume_path=None, assert_active=lambda: None
@@ -949,9 +939,7 @@ def test_free_entry_typeahead_commits_the_typed_value_with_enter(
     assert refreshed[0]["filled"] is True
     assert snapshot_values(browser_page, refreshed)[refreshed[0]["label"]]["answer_text"] == "3.78"
     # Already answered: no tier plans it again.
-    replan = build_autofill_plan(
-        refreshed, profile={}, approved_answers=[], fallback=lambda _: "4.0"
-    )
+    replan = build_autofill_plan(refreshed, resolver=knowing({"education.gpa": 4.0}))
     assert replan.fills == ()
 
 
@@ -1008,14 +996,7 @@ def test_gpa_number_picks_the_listed_range_without_typing_it_away(
     ]
     assert browser_page.locator("[role=option]").count() == 0  # menu closed again
 
-    plan = build_autofill_plan(
-        fields,
-        profile={},
-        approved_answers=[],
-        fallback=lambda asked: resolve_pattern_answer(
-            asked, rules=[], profile={"gpa": "3.78"}, resume={}, company="Acme"
-        ),
-    )
+    plan = build_autofill_plan(fields, resolver=knowing({"education.gpa": 3.78}))
     result = apply_autofill(
         browser_page, fields, plan, resume_path=None, assert_active=lambda: None
     )
@@ -1044,7 +1025,7 @@ def test_a_transcript_upload_takes_the_tracked_transcript(
     transcript = tmp_path / "Transcript.pdf"
     transcript.write_bytes(b"%PDF-1.4 transcript")
     fields = inspect_fields(browser_page)
-    plan = build_autofill_plan(fields, profile={}, approved_answers=[])
+    plan = build_autofill_plan(fields)
     assert sorted(fill.kind for fill in plan.fills) == ["resume", "transcript"]
 
     result = apply_autofill(
@@ -1170,12 +1151,12 @@ def test_lever_custom_radio_group_fills_through_the_fallback_tier(
     fields = inspect_fields(browser_page)
     plan = build_autofill_plan(
         fields,
-        profile={},
-        approved_answers=[],
-        fallback=lambda question: {
-            "Please state your full legal name:": "Alex Example",
-            "How did you hear about us?": "Referral",
-        }.get(question),
+        resolver=Stub(
+            {
+                "Please state your full legal name:": "Alex Example",
+                "How did you hear about us?": "Referral",
+            }
+        ),
     )
     result = apply_autofill(
         browser_page, fields, plan, resume_path=None, assert_active=lambda: None
@@ -1242,7 +1223,7 @@ def test_greenhouse_style_resume_rerender_still_verifies_as_uploaded(
     fields = inspect_fields(browser_page)
     for field in fields:
         field["ats"] = "greenhouse"
-    plan = build_autofill_plan(fields, profile={}, approved_answers=[])
+    plan = build_autofill_plan(fields)
 
     result = apply_autofill(
         browser_page, fields, plan, resume_path=resume, assert_active=lambda: None

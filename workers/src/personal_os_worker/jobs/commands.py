@@ -13,7 +13,7 @@ from personal_os_worker.core.doctor import run_doctor
 from personal_os_worker.core.service import ensure_chrome, open_external_url
 from personal_os_worker.core.tables import console, pick
 from personal_os_worker.documents.doctor import CHECKS as DOCUMENT_CHECKS
-from personal_os_worker.jobs.facts.profile import legacy_profile
+from personal_os_worker.jobs.resolve import Knowledge
 from personal_os_worker.jobs.tables import render_applications, render_listings
 
 APPLICATION_STATUSES = (
@@ -364,10 +364,17 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> str:
             )
         if run.get("ats") != adapter.name:
             raise RuntimeError("The backend and browser disagreed on the ATS adapter")
-        profile = legacy_profile(list(run.get("facts") or []), date.today(), career=career)
-        # The answer library is archived (design §0); nothing old is reused as is.
-        answers: list[dict[str, Any]] = []
-        scoped: list[dict[str, Any]] = []
+        knowledge = Knowledge.build(
+            facts=list(run.get("facts") or []),
+            career=career,
+            patterns=list(run.get("patterns") or []),
+            prose=list(run.get("prose") or []),
+            archive=list(run.get("archive_answers") or []),
+            company=str(run["company_name"]),
+            # Random choices (office selection) are seeded per application (design §4).
+            seed=str(run.get("application_id") or run_id),
+            today=date.today(),
+        )
         duplicates = list(run.get("duplicate_company_applications") or [])
         if duplicates:
             console.print(
@@ -468,9 +475,7 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> str:
                     browser=browser,
                     page=page,
                     console_errors=console_errors,
-                    profile=profile,
-                    answers=answers,
-                    scoped=scoped,
+                    knowledge=knowledge,
                     resume_json=resume_json,
                     resume_pdf=resume_pdf,
                     company=expected_company,

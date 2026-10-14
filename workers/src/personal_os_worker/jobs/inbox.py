@@ -31,7 +31,7 @@ from personal_os_worker.jobs.archive.rules import RULES, ArchivedRule
 from personal_os_worker.jobs.facts.catalog import entry
 from personal_os_worker.jobs.facts.commands import MASK, VALUE_TYPES, display, parse_value
 from personal_os_worker.jobs.facts.derived import career_facts, derive
-from personal_os_worker.jobs.facts.profile import fact_values
+from personal_os_worker.jobs.facts.values import fact_values
 
 Ask = Callable[[str], str]
 FACT_KEY = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")

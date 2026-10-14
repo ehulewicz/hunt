@@ -115,25 +115,30 @@ Run `os hunt list`, then pass a displayed row or ID prefix:
 os hunt apply 12
 ```
 
-The command verifies the company/role, saves the tracked run/application context,
-attaches the tracked `artifacts/career/Alex_Example.pdf` unchanged, follows one unambiguous Apply
+The command verifies the company/role, saves the run/application context,
+attaches `artifacts/career/Alex_Example.pdf` (published from the career record), follows one unambiguous Apply
 control when the ATS starts on a job-description page, fills the current step,
 then watches while you review required fields and use Next or Submit in the
 browser. It reports a visible Submit control and rescans after navigation, but
 does not gate navigation on a required-field audit. No automated action contains
 Next, Submit, signature, or captcha operations; consent and attestation
 controls take their agreeing option. Each step ends with a **Left for you**
-list of the required controls still empty. A cover-letter control opens the
+list of every control still empty — required first, then optional — each with
+why (no fact yet, an archived answer that disagrees, a fact the model said is
+missing), and the same controls are outlined on the page. A cover-letter control opens the
 letter (from `artifacts/career/cover_letter.md`, slots drafted by Claude) in VS
 Code; close the tab to fill or upload it. In the
 terminal, Ctrl+S records what has been picked up so
 far for review, Ctrl+A records answers and marks the application applied when you have submitted
 it yourself, Ctrl+D skips the listing (it leaves the board as `skipped`, a
 resync cannot bring it back, and `os hunt skipped restore <n>` can), and
-Ctrl+C stops and records the application state. Whatever facts leave unfilled goes
-through the built-in pattern rules, then one bounded local Claude pass
-per page step over the remaining short and choice questions; `--no-claude`
-skips that last pass.
+Ctrl+C stops and records the application state. A field fills from a fact: the
+pattern you accepted for its question (tagged `pattern`), else the archive's
+translation (tagged `archive`, which proposes a candidate for the Inbox), else
+one bounded local Claude pass per page step that names which fact answers each
+remaining short or choice question (tagged `claude`, also a candidate);
+`--no-claude` skips that last pass. A textarea is seeded with approved prose
+for the same question, else a Claude draft that leans on your earlier writing.
 
 Ashby's Overview tab is a recognized standby state. Return to Application and
 the same step continues without refilling or another Claude pass. A submitted
@@ -141,11 +146,12 @@ success panel ends automatically. On detected submission, Ctrl+A, Ctrl+D, or
 Ctrl+C, persistence finishes before the command closes only the application tab
 it opened. `--dry-run` and unexpected worker errors leave that tab open.
 
-Standing salary policy precedes everything else: requirements follow the
-`compensation.minimum` fact, USD $40/hour (or 40 numeric), explicit annual
-requirements are $83,200 USD (or 83200 numeric), and a stated compensation range
-is accepted. Graduation uses `Fall 2027` when a term is requested and `December
-2027` otherwise. Completed co-op rotations are derived, never stored: the
+Values are rendered from facts at fill time: pay requirements follow the
+`compensation.minimum` fact, USD $40/hour (or 40 numeric), and explicit annual
+requirements are $83,200 USD (or 83200 numeric). Graduation uses `Fall 2027`
+when a term is requested, `December 2027` otherwise, and whichever rendering a
+dropdown offers. An office choice bound to `preferences.location_strategy`
+follows the §9 tiers. Completed co-op rotations are derived, never stored: the
 `coop.anchor` fact says four were complete on 2026-08-01, and one more completes
 each May 1, August 1, and November 1 until graduation. Visa/work-permit
 expiration stays manual without a date.

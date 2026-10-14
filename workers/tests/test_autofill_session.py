@@ -12,8 +12,28 @@ from personal_os_worker.jobs.autofill_session import AutofillSession, SessionCon
 from personal_os_worker.jobs.browser import BrowserClosedError, VisibleBrowser, inspect_fields
 from personal_os_worker.jobs.page_state import ApplicationPageState, classify_application_page
 from personal_os_worker.jobs.registry.kinds import question_of
+from personal_os_worker.jobs.resolve import Knowledge
+from personal_os_worker.jobs.short_answers import Verdict
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def known(
+    facts: dict[str, Any],
+    *,
+    patterns: list[dict[str, Any]] | None = None,
+    prose: list[dict[str, Any]] | None = None,
+    archive: list[dict[str, Any]] | None = None,
+) -> Knowledge:
+    return Knowledge.build(
+        facts=[{"key": key, "value": value} for key, value in facts.items()],
+        career=None,
+        patterns=patterns or [],
+        prose=prose or [],
+        archive=archive or [],
+        company="Acme",
+        seed="application-1",
+    )
 
 
 @pytest.fixture(scope="module")
@@ -87,7 +107,6 @@ def test_repeated_question_on_two_controls_keeps_both_observations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = state_machine_session()
-    session.ctx.answers = []
     session.state.step = 2
     entries = [
         {"question": "Location", "answer_text": "Atlanta", "control_kind": "text",
@@ -111,7 +130,6 @@ def test_cleared_control_is_removed_from_final_answers_and_logged(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = state_machine_session()
-    session.ctx.answers = []
     snapshots = iter([
         [{"question": "Location", "answer_text": "Atlanta", "control_kind": "text",
           "field_fingerprint": "location#1"}],
@@ -134,7 +152,6 @@ def test_failed_control_read_preserves_last_known_answer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = state_machine_session()
-    session.ctx.answers = []
     snapshots = iter([
         [{"question": "Location", "answer_text": "Atlanta", "control_kind": "text",
           "field_fingerprint": "location#1"}],
@@ -155,7 +172,6 @@ def test_edit_retains_resolver_responsible_for_initial_answer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = state_machine_session()
-    session.ctx.answers = []
     session.state.tier_answers["Location"] = "Atlanta"
     session.state.tier_source["Location"] = "pattern"
     session.state.tier_resolver["Location"] = "builtin:location"
@@ -338,9 +354,7 @@ def test_visible_submit_bypasses_the_application_form_heuristic(
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
-        profile={},
-        answers=[],
-        scoped=[],
+        knowledge=known({}),
         resume_json={},
         resume_pdf=tmp_path / "resume.pdf",
         company="Acme",
@@ -395,9 +409,7 @@ def test_session_stops_when_page_closes_during_form_inspection(
         browser=cast(Any, browser),
         page=cast(Any, page),
         console_errors=[],
-        profile={},
-        answers=[],
-        scoped=[],
+        knowledge=known({}),
         resume_json={},
         resume_pdf=tmp_path / "missing.pdf",
         company="Acme",
@@ -437,9 +449,7 @@ def test_session_reraises_unrelated_playwright_error_that_mentions_target_closed
         browser=cast(Any, browser),
         page=cast(Any, page),
         console_errors=[],
-        profile={},
-        answers=[],
-        scoped=[],
+        knowledge=known({}),
         resume_json={},
         resume_pdf=tmp_path / "missing.pdf",
         company="Acme",
@@ -478,9 +488,7 @@ def test_session_stops_cleanly_when_browser_or_application_tab_closes(
         browser=browser,
         page=cast(Any, page),
         console_errors=[],
-        profile={},
-        answers=[],
-        scoped=[],
+        knowledge=known({}),
         resume_json={},
         resume_pdf=tmp_path / "missing.pdf",
         company="Acme",
@@ -508,9 +516,9 @@ def test_ctrl_d_skips_the_listing_and_still_saves_what_was_picked_up(
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
-        profile={"legal_name": "Alex Example", "email": "ethan@example.com"},
-        answers=[],
-        scoped=[],
+        knowledge=known(
+            {"identity.legal_name": "Alex Example", "contact.email": "ethan@example.com"}
+        ),
         resume_json={},
         resume_pdf=tmp_path / "main.pdf",
         company="Acme",
@@ -577,9 +585,7 @@ def test_cover_letter_is_drafted_once_edited_in_the_editor_then_filled_and_uploa
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
-        profile={"legal_name": "Alex Example"},
-        answers=[],
-        scoped=[],
+        knowledge=known({"identity.legal_name": "Alex Example"}),
         resume_json={"contact": {"name": "Alex Example"}},
         resume_pdf=tmp_path / "main.pdf",
         company="Acme",
@@ -609,7 +615,7 @@ def test_cover_letter_is_drafted_once_edited_in_the_editor_then_filled_and_uploa
     assert browser_page.evaluate("document.querySelector('#clf').files.length") == 1
     saved = {item["question"]: item for item in outcome["answers"]}
     assert saved["Cover Letter"]["source"] == "model"
-    assert saved["Cover Letter"]["reuse_policy"] == "contextual"
+    assert saved["Cover Letter"]["form"] == "short"  # the letter is not saved as prose
     printed = capsys.readouterr().out
     assert "Cover letter open in VS Code" in printed
     assert printed.count("drafting the cover letter slots") == 1
@@ -652,9 +658,7 @@ def test_cover_letter_pdf_build_failure_reports_the_latex_error_not_a_readback_m
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
-        profile={},
-        answers=[],
-        scoped=[],
+        knowledge=known({}),
         resume_json={"contact": {"name": "Alex Example"}},
         resume_pdf=tmp_path / "main.pdf",
         company="Acme",
@@ -696,8 +700,12 @@ def test_session_seeds_long_form_records_every_answer_and_ends_on_submit(
     api = FakeApi()
     drafted: list[str] = []
 
+    references: list[Any] = []
+
     def drafter(**kwargs: Any) -> str:
         drafted.append(str(kwargs["question"]))
+        references.extend(kwargs["references"])
+        assert "contact.phone" not in kwargs["facts"]  # sensitive facts never reach the model
         return "Claude's tailored draft."
 
     resume = tmp_path / "main.pdf"
@@ -709,16 +717,24 @@ def test_session_seeds_long_form_records_every_answer_and_ends_on_submit(
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
-        profile={"legal_name": "Alex Example", "email": "ethan@example.com"},
-        answers=[
+        knowledge=known(
             {
-                "question": "Why this team specifically?",
-                "normalized_key": "why this team specifically",
-                "answer_text": "Similar, not exact.",
-                "reuse_policy": "exact",
-            }
-        ],
-        scoped=[],
+                "identity.legal_name": "Alex Example",
+                "contact.email": "ethan@example.com",
+                "contact.phone": "5550001111",
+            },
+            archive=[
+                {
+                    "question": "Why this team specifically?",
+                    "normalized_key": "why this team specifically",
+                    "answer_text": (
+                        "Similar, not exact, and long enough to count as writing: the team "
+                        "builds the tools I want to build."
+                    ),
+                    "reuse_policy": "exact",
+                }
+            ],
+        ),
         resume_json={"contact": {"name": "Ethan"}},
         resume_pdf=resume,
         company="Acme",
@@ -757,12 +773,16 @@ def test_session_seeds_long_form_records_every_answer_and_ends_on_submit(
     assert saved["Why this team?"]["resolver_id"] == "model:long_form_v1"
     assert any(result.resolver_id == "model:long_form_v1"
                for result in session.state.resolutions.values())
-    assert saved["Why this team?"]["reuse_policy"] == "contextual"
+    assert saved["Why this team?"]["form"] == "long"
+    # The archived essay to a similar question was reference for the draft, not the draft.
+    assert [item["question"] for item in references] == ["Why this team specifically?"]
     assert saved["Country"]["answer_text"] == "Canada"
     assert saved["Country"]["source"] == "manual"
-    assert saved["Country"]["reuse_policy"] == "exact"
+    assert saved["Country"]["form"] == "short"
     assert saved["Country"]["control_kind"] == "select"
-    assert saved["First name"]["source"] == "jobs_profile"
+    # Day one: no pattern yet, so the archive translated "First name" to the fact.
+    assert saved["First name"]["source"] == "archive"
+    assert saved["First name"]["resolver_id"] == "archive:label:first_name"
     assert saved["Email"]["answer_text"] == "ethan@example.com"
     assert "dry_run" not in outcome
     assert outcome["submitted"] is True
@@ -800,6 +820,8 @@ def test_session_resolves_pattern_and_claude_tiers_for_unfilled_fields(
           </fieldset>
           <label for="school">What school are you attending?</label>
           <input id="school" required>
+          <label for="campus">Which campus will you report to?</label>
+          <input id="campus" required>
           <button type="submit">Submit</button>
         </form>
         """
@@ -807,9 +829,11 @@ def test_session_resolves_pattern_and_claude_tiers_for_unfilled_fields(
     api = FakeApi()
     asked: list[str] = []
 
-    def short_drafter(questions: Any, **_: Any) -> dict[str, str]:
+    def short_drafter(questions: Any, **kwargs: Any) -> dict[str, Verdict]:
         asked.extend(str(question.question) for question in questions)
-        return {"What school are you attending?": "Example Institute of Technology"}
+        assert {fact["key"] for fact in kwargs["facts"]} >= {"education.campus"}
+        question = "Which campus will you report to?"
+        return {question: Verdict(question, "fits_fact", fact_key="education.campus")}
 
     resume_pdf = tmp_path / "main.pdf"
     resume_pdf.write_bytes(b"%PDF-1.4\n%%EOF")
@@ -820,15 +844,20 @@ def test_session_resolves_pattern_and_claude_tiers_for_unfilled_fields(
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
-        profile={"legal_name": "Alex Example"},
-        answers=[
+        knowledge=known(
             {
-                "reuse_policy": "pattern",
-                "normalized_question": "consider me for other",
-                "answer_text": "Yes",
-            }
-        ],
-        scoped=[],
+                "identity.legal_name": "Alex Example",
+                "preferences.other_roles": True,
+                "employment.organizations": ["Northwind"],
+                "education.school_name": "Example Institute of Technology",
+                "education.campus": "Atlanta",
+            },
+            patterns=[
+                {"id": "11111111-1111-4111-8111-111111111111", "kind": "expression",
+                 "expression": "consider me for other", "fact_key": "preferences.other_roles",
+                 "resolver_id": "expression:other-roles", "status": "active"},
+            ],
+        ),
         resume_json={},
         resume_pdf=resume_pdf,
         company="Acme",
@@ -852,20 +881,32 @@ def test_session_resolves_pattern_and_claude_tiers_for_unfilled_fields(
 
     outcome = session.run()
 
-    assert asked == ["What school are you attending?"]
+    # Only the question neither a pattern nor the archive answered went to the model.
+    assert asked == ["Which campus will you report to?"]
     saved = {item["question"]: item for item in outcome["answers"]}
     assert saved["Consider me for other roles?"]["answer_text"] == "Yes"
     assert saved["Consider me for other roles?"]["source"] == "pattern"
+    assert saved["Consider me for other roles?"]["resolver_id"] == "expression:other-roles"
     assert saved["Have you ever worked for Acme?"]["answer_text"] == "No - never"
-    assert saved["Have you ever worked for Acme?"]["source"] == "pattern"
+    assert saved["Have you ever worked for Acme?"]["source"] == "archive"
     assert saved["What school are you attending?"]["answer_text"] == (
         "Example Institute of Technology"
     )
-    assert saved["What school are you attending?"]["source"] == "model"
+    assert saved["What school are you attending?"]["source"] == "archive"
+    assert saved["Which campus will you report to?"]["answer_text"] == "Atlanta"
+    assert saved["Which campus will you report to?"]["source"] == "model"
     printed = capsys.readouterr().out
     assert "pattern    Consider me for other roles?" in printed and "-> Yes" in printed
-    assert "pattern    Have you ever worked for Acme?" in printed and "-> No - never" in printed
-    assert "claude     What school are you attending?" in printed
+    assert "archive    Have you ever worked for Acme?" in printed and "-> No - never" in printed
+    assert "claude     Which campus will you report to?" in printed
+    # Every fill event names the fact it came from; the pattern's id rides along.
+    events = [event for step in api.steps for event in step.get("fill_events", [])]
+    by_question = {event["question"]: event for event in events if event["operated_ok"]}
+    assert by_question["Have you ever worked for Acme?"]["fact_key"] == "employment.worked_for"
+    assert by_question["Consider me for other roles?"]["pattern_id"] == (
+        "11111111-1111-4111-8111-111111111111"
+    )
+    assert by_question["Which campus will you report to?"]["source"] == "model"
     assert api.library == {}
 
 
@@ -882,9 +923,7 @@ def test_dry_run_plans_without_opening_tabs_or_writing(
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
-        profile={"legal_name": "Alex Example"},
-        answers=[],
-        scoped=[],
+        knowledge=known({"identity.legal_name": "Alex Example"}),
         resume_json={},
         resume_pdf=tmp_path / "missing.pdf",
         company="Acme",
@@ -923,9 +962,9 @@ def test_ctrl_c_ends_cleanly_with_the_answers_picked_up_so_far(
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
-        profile={"legal_name": "Alex Example", "email": "ethan@example.com"},
-        answers=[],
-        scoped=[],
+        knowledge=known(
+            {"identity.legal_name": "Alex Example", "contact.email": "ethan@example.com"}
+        ),
         resume_json={},
         resume_pdf=tmp_path / "main.pdf",
         company="Acme",
@@ -970,9 +1009,7 @@ def test_claude_is_asked_about_a_question_once_per_run(
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
-        profile={},
-        answers=[],
-        scoped=[],
+        knowledge=known({}),
         resume_json={},
         resume_pdf=tmp_path / "missing.pdf",
         company="Acme",
@@ -1017,9 +1054,7 @@ def test_ctrl_a_saves_marks_submitted_and_ends(
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
-        profile={"legal_name": "Alex Example"},
-        answers=[],
-        scoped=[],
+        knowledge=known({"identity.legal_name": "Alex Example"}),
         resume_json={},
         resume_pdf=resume_pdf,
         company="Acme",
@@ -1045,10 +1080,11 @@ def test_submitting_during_the_claude_pass_ends_the_session_promptly(
     resume_pdf = tmp_path / "main.pdf"
     resume_pdf.write_bytes(b"%PDF-1.4\n%%EOF")
 
-    def short_drafter(questions: Any, **_: Any) -> dict[str, str]:
+    def short_drafter(questions: Any, **_: Any) -> dict[str, Verdict]:
         # The user finishes the form and presses Submit while Claude is thinking.
         browser_page.set_content("<h1>Thank you for applying to Acme!</h1>")
-        return {"What school are you attending?": "Example University"}
+        question = "What school are you attending?"
+        return {question: Verdict(question, "fits_fact", fact_key="education.school_name")}
 
     context = SessionContext(
         api=FakeApi(),  # type: ignore[arg-type]
@@ -1057,9 +1093,7 @@ def test_submitting_during_the_claude_pass_ends_the_session_promptly(
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
-        profile={"legal_name": "Alex Example"},
-        answers=[],
-        scoped=[],
+        knowledge=known({"identity.legal_name": "Alex Example"}),
         resume_json={},
         resume_pdf=resume_pdf,
         company="Acme",
@@ -1082,7 +1116,6 @@ def test_duplicate_labels_keep_control_resolver_after_edit(
     from personal_os_worker.jobs.autofill import AnswerResolution
 
     session = state_machine_session()
-    session.ctx.answers = []
     session.state.resolutions = {
         "0:home#0": AnswerResolution("Atlanta", "jobs_profile", "profile:city"),
         "0:office#1": AnswerResolution("Rochester", "pattern", "builtin:office"),
@@ -1103,34 +1136,37 @@ def test_duplicate_labels_keep_control_resolver_after_edit(
 def test_no_claude_leaves_unmatched_long_form_manual() -> None:
     session = state_machine_session()
     session.ctx.use_claude = False
-    session.ctx.answers = []
     session.ctx.company = "Acme"
     session.ctx.title = "Engineer"
     session.ctx.description = "Role details"
     session.ctx.resume_json = {}
-    session.ctx.profile = {}
-    session.ctx.scoped = []
+    session.ctx.knowledge = known({})
 
     def forbidden_draft(**_: Any) -> str:
         raise AssertionError("no-claude must not invoke the long-form drafter")
 
     session.ctx.drafter = forbidden_draft
-    seed, source, note, _ = session.seed_for("Why this particular team?")
+    seed, source, _resolver, note = session.seed_for("Why this particular team?")
     assert seed == ""
     assert source == "empty"
     assert "disabled" in note
 
 
-def test_no_claude_still_reuses_an_exact_approved_answer() -> None:
+def test_no_claude_still_reuses_approved_prose_for_the_same_question() -> None:
     session = state_machine_session()
     session.ctx.use_claude = False
-    session.ctx.answers = [{
-        "question": "Why this team?", "normalized_key": "why this team",
-        "answer_text": "Approved wording",
-        "approved": True, "reuse_policy": "exact",
-    }]
-    seed, source, _, _ = session.seed_for("Why this team?")
-    assert (seed, source) == ("Approved wording", "answer_library")
+    session.ctx.knowledge = known(
+        {},
+        prose=[{"id": "p1", "question_label": "Why this team?", "text": "Approved wording"}],
+        # An archived answer is never seeded as is, even to the same question.
+        archive=[{"question": "Why this team?", "normalized_key": "why this team",
+                  "answer_text": "Old wording", "reuse_policy": "exact"}],
+    )
+    assert session.seed_for("Why this team?") == (
+        "Approved wording", "prose", "prose:p1", "approved prose (edit freely)"
+    )
+    seed, source, _resolver, _note = session.seed_for("Why that team?")
+    assert (seed, source) == ("", "empty")
 
 
 def test_consent_group_with_two_boxes_announces_each_box_once(
@@ -1138,7 +1174,6 @@ def test_consent_group_with_two_boxes_announces_each_box_once(
 ) -> None:
     """Greenhouse gives both privacy checkboxes one legend; the echo must not ping-pong."""
     session = state_machine_session()
-    session.ctx.answers = []
     entries = [
         {"question": "Applicant Privacy Statement",
          "answer_text": "By clicking this box you consent to our Applicant Privacy Statement.",
@@ -1172,9 +1207,9 @@ def test_greenhouse_short_answer_essay_input_is_seeded_like_a_textarea(
 ) -> None:
     browser_page.set_content(GREENHOUSE_SHORT_ANSWER)
     session = AutofillSession(cast(Any, SimpleNamespace(
-        page=browser_page, browser=FakeBrowser(browser_page), answers=[], use_claude=True,
+        page=browser_page, browser=FakeBrowser(browser_page), use_claude=True,
         company="Gemini", title="Software Engineer", description="Crypto exchange",
-        resume_json={}, profile={}, scoped=[],
+        resume_json={}, knowledge=known({}),
         drafter=lambda **_: "Short draft that fits.",
     )))
 
@@ -1191,9 +1226,9 @@ def test_a_draft_over_the_controls_cap_is_left_for_the_user(
 ) -> None:
     browser_page.set_content(GREENHOUSE_SHORT_ANSWER)
     session = AutofillSession(cast(Any, SimpleNamespace(
-        page=browser_page, browser=FakeBrowser(browser_page), answers=[], use_claude=True,
+        page=browser_page, browser=FakeBrowser(browser_page), use_claude=True,
         company="Gemini", title="Software Engineer", description="Crypto exchange",
-        resume_json={}, profile={}, scoped=[],
+        resume_json={}, knowledge=known({}),
         drafter=lambda **_: "x" * 300,
     )))
 

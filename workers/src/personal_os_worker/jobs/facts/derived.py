@@ -12,6 +12,7 @@ the facts session settles them, a stored fact with the same key wins (R51);
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -50,6 +51,24 @@ DERIVED_FACTS = (
         "experience.prior_internship",
         "Has completed an internship or co-op",
         ("coop.anchor", "education.graduation_date"),
+    ),
+    DerivedFact("identity.first_name", "First name", ("identity.legal_name",)),
+    DerivedFact("identity.last_name", "Last name", ("identity.legal_name",)),
+    DerivedFact(
+        "address.location",
+        "Current location as city, region, country",
+        ("address.city", "address.region", "address.country"),
+    ),
+    DerivedFact(
+        "work_auth.citizenship_country", "Country of citizenship", ("work_auth.us_citizen",)
+    ),
+)
+# Derived from the posting being filled, so only known during an application.
+POSTING_FACTS = (
+    DerivedFact(
+        "employment.worked_for",
+        "Has worked or researched at the company in this posting",
+        ("employment.organizations",),
     ),
 )
 
@@ -127,14 +146,47 @@ def derive(facts: dict[str, Any], today: date) -> dict[str, Any]:
     """Every derived fact whose inputs are present, keyed by its dotted name."""
     graduation = _date(facts.get("education.graduation_date"))
     rotations = completed_rotations(facts.get("coop.anchor"), graduation, today)
+    names = str(facts.get("identity.legal_name") or "").split()
+    place = [
+        str(facts.get(key) or "").strip()
+        for key in ("address.city", "address.region", "address.country")
+    ]
     values: dict[str, Any] = {
         "coop.completed_rotations": rotations,
         "education.graduation_term": graduation_term(graduation) if graduation else None,
         "education.currently_enrolled": today < graduation if graduation else None,
         "compensation.minimum_annual": annual_minimum(facts.get("compensation.minimum")),
         "experience.prior_internship": rotations > 0 if rotations is not None else None,
+        "identity.first_name": names[0] if names else None,
+        "identity.last_name": names[-1] if len(names) > 1 else None,
+        "address.location": ", ".join(part for part in place if part) or None,
+        "work_auth.citizenship_country": "United States"
+        if facts.get("work_auth.us_citizen") is True
+        else None,
     }
     return {key: value for key, value in values.items() if value is not None}
+
+
+def worked_for(organizations: Any, company: str) -> bool | None:
+    """Whether the posting's company is one you worked or researched at.
+
+    Matches either way round as whole words ("Example University" in "Example Lab @
+    Example University"), ignoring case; None when there is nothing to compare.
+    """
+    needle = " ".join(company.casefold().split())
+    if len(needle) < 3 or not isinstance(organizations, list) or not organizations:
+        return None
+    names = [" ".join(str(name).casefold().split()) for name in organizations]
+
+    def contains(outer: str, inner: str) -> bool:
+        return len(inner) >= 3 and re.search(rf"(?<!\w){re.escape(inner)}(?!\w)", outer) is not None
+
+    return any(contains(name, needle) or contains(needle, name) for name in names if name)
+
+
+def posting_facts(facts: dict[str, Any], company: str) -> dict[str, Any]:
+    known = worked_for(facts.get("employment.organizations"), company)
+    return {} if known is None else {"employment.worked_for": known}
 
 
 def _next_month(value: date) -> date:

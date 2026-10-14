@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -110,16 +111,26 @@ def test_planned_events_describe_a_dry_run_without_attempting() -> None:
         {"index": 0, "tag": "input", "type": "text", "label": "Email"},
         {"index": 1, "tag": "input", "type": "text", "label": "Middle name"},
     ]
-    resolution = AnswerResolution("a@b.co", "jobs_profile", "profile:email")
+    resolution = AnswerResolution(
+        "a@b.co", "archive", "archive:label:email", fact_key="contact.email",
+        formatter="text_as_is",
+    )
     plan = AutofillPlan((FormFill(index=0, kind="text", value="a@b.co", resolution=resolution),),
                         ())
-    events = planned_events(fields, plan)
+    misses = {"middle name": SimpleNamespace(
+        stage="format", fact_key="identity.middle_name", resolver_id="binding:x",
+        formatter="text_as_is",
+    )}
+    events = planned_events(fields, plan, misses=misses)
     assert events[0] | {"attributes": None} == {
         "question": "Email", "kind": "text_entry", "attributes": None, "strategy": None,
-        "resolver_id": "profile:email", "source": "jobs_profile",
+        "resolver_id": "archive:label:email", "fact_key": "contact.email",
+        "formatter": "text_as_is", "pattern_id": None, "source": "archive",
         "value_hash": value_hash("a@b.co"), "stopped_at": None, "operated_ok": None,
+        "form": "short",
     }
-    assert events[1]["stopped_at"] == "pattern"
+    # A miss the resolver explained keeps its stage and the fact it named.
+    assert (events[1]["stopped_at"], events[1]["fact_key"]) == ("format", "identity.middle_name")
     assert value_hash(" a@b.co ") == value_hash("a@b.co")
 
 

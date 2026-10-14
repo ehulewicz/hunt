@@ -63,14 +63,48 @@ label, type, sensitivity, and whether it is stored, career-derived, or derived.
 
 ## How a field is filled
 
-`jobs/registry/` names what the fill path does. `kinds.py` classifies every
+**Which value.** Every value comes from a fact. `jobs/resolve.py` builds the
+run's `Knowledge` — stored facts over career-derived ones, then the derived and
+posting facts (`employment.worked_for` for this company) — and answers a field
+in a fixed order: the question's active binding, then active expression
+patterns (exactly one fact among those that match), then the archive. The engine
+answers its own fields first: consent and attestation take the agreeing option,
+the resume and transcript upload, "how did you hear" ranks the employer's site,
+a job board, then Other, and no value that declines to answer is ever chosen.
+The archive fills only when the fact exists, renders for this control, and
+agrees with any archived answer to the same question; otherwise the field is
+left, and the run remembers why (`Miss`). Whatever is still empty goes to one
+bounded model pass (`short_answers.py`) that only names a fact — `fits_fact`,
+`no_fact` with the missing fact's name, or `unsure` — and `VerdictResolver`
+renders that fact like any other. Sensitive facts reach the model by key and
+label only.
+
+**How it is written.** `jobs/formatters.py` renders a fact for the control in
+front of it and names the formatter it used: a date as "December 2027", "Fall
+2027", "December", "2027", ISO, US, or month input, by the wording and the input
+type; the $40/hour minimum as `$40/hour`, `40`, `$83,200 USD`, or `83200`; yes
+and no as whichever option says them ("No, I am not a protected veteran");
+numbers into the range that contains them; lists as text, or one box per item.
+Against options, the first rendering that one option matches wins; none is a
+`format` failure. `jobs/office.py` is the §9 office policy, read from
+`preferences.location_strategy` when a question is bound to it, with draws
+seeded by the application.
+
+**What is left.** After every tier, each empty field — required first, then
+optional — is outlined on the page and listed with why it is empty (no fact yet,
+an archived answer that disagrees, a fact the model said is missing). You own
+Next and Submit; what you type is captured as `manual` and, once the
+application goes in, waits in the Inbox.
+
+**How it is operated.** `jobs/registry/` names what the fill path does. `kinds.py` classifies every
 detected control into one of seven kinds — `text_entry`, `native_select`,
 `choice_group`, `multi_choice_group`, `toggle`, `dynamic_choice`, `file` — from
 generic HTML and ARIA alone; a group of `aria-pressed` buttons is found by that
 state, not by any site's class names. `strategies.py` lists each kind's candidate
 strategies in order, and `browser.OPERATIONS` performs them: candidates are tried
 until one operates, then the value is read back. `events.py` turns every attempt
-into a fill event (control, strategy, resolver, value hash, and where it stopped)
+into a fill event (control, strategy, resolver, fact, formatter, the active
+pattern, value hash, whether the question wants prose, and where it stopped)
 that the step sends to FastAPI; a dry run sends one not-attempted event per
 question. A choice is refused, and left to you, only while an interactive captcha
 is on the page; an invisible-mode reCAPTCHA badge does not count.

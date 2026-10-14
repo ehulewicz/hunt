@@ -8,7 +8,7 @@ from difflib import SequenceMatcher
 from typing import Any
 
 from personal_os_worker.jobs import claude_usage
-from personal_os_worker.jobs.autofill import normalize_answer_question
+from personal_os_worker.jobs.options import normalize_answer_question
 
 ZERO_WIDTH = re.compile("[\u200b-\u200f\u2060\ufeff]")
 CLICHES = ("delve", "tapestry", "game changer", "at the intersection of")
@@ -76,10 +76,16 @@ def draft_contextual_answer(
     base: str | None,
     posting: dict[str, Any],
     resume: dict[str, Any],
-    profile: dict[str, Any],
-    scoped_variants: list[dict[str, Any]],
+    facts: dict[str, Any],
+    references: list[dict[str, Any]],
     limit: int | None = None,
 ) -> str | None:
+    """Draft one long-form answer; `facts` holds no sensitive value (R4).
+
+    `references` is your earlier writing on similar questions — approved prose
+    and archived answers — to lean on; it is never copied verbatim unless it is
+    the `base`.
+    """
     schema = {
         "type": "object",
         "additionalProperties": False,
@@ -101,10 +107,10 @@ QUESTION: {question}
 BASE: {base or "(new answer)"}
 POSTING: {json.dumps(posting, default=str)[:30000]}
 CANONICAL RESUME: {json.dumps(resume, default=str)[:30000]}
-KNOWN PROFILE: {json.dumps(profile, default=str)[:15000]}
-RELEVANT APPROVED VARIANTS: {json.dumps(scoped_variants, default=str)[:15000]}
+KNOWN FACTS: {json.dumps(facts, default=str)[:15000]}
+YOUR EARLIER WRITING ON SIMILAR QUESTIONS: {json.dumps(references, default=str)[:15000]}
     """.strip()
-    fact_text = json.dumps({"resume": resume, "profile": profile, "base": base}, default=str)
+    fact_text = json.dumps({"resume": resume, "facts": facts, "base": base}, default=str)
     for _ in range(2):
         process = subprocess.run(
             [

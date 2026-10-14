@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
-from personal_os_worker.jobs.adapters import is_non_answer_option, option_match
+from personal_os_worker.jobs.adapters import is_non_answer_option
+from personal_os_worker.jobs.options import (
+    choose_option,
+    normalize_answer_question,
+    normalize_question,
+    same_name,
+)
 
 FILE_KINDS = frozenset({"resume", "transcript"})
+# Several chosen options in one value, as the formatters join them.
+MULTI = "\n"
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,10 +22,17 @@ class AnswerResolution:
     value: str
     source: str
     resolver_id: str
+    # The fact the value came from, the formatter that rendered it, and the
+    # active pattern that chose the fact, when there was one.
+    fact_key: str | None = None
+    formatter: str | None = None
+    pattern_id: str | None = None
 
 
-PriorityPolicy = Callable[[dict[str, Any]], str | AnswerResolution | None]
-AnswerFallback = Callable[[str], str | AnswerResolution | None]
+class Resolves(Protocol):
+    """Anything that answers a field: active patterns and the archive, or the model's verdicts."""
+
+    def resolve(self, field: dict[str, Any]) -> AnswerResolution | None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,58 +53,6 @@ class AutofillPlan:
     fills: tuple[FormFill, ...]
     unanswered_required_questions: tuple[str, ...]
 
-
-PROFILE_LABELS = {
-    "first name": "legal_first_name",
-    "given name": "legal_first_name",
-    "last name": "legal_last_name",
-    "family name": "legal_last_name",
-    "surname": "legal_last_name",
-    "name": "legal_name",
-    "full name": "legal_name",
-    "legal name": "legal_name",
-    "full legal name": "legal_name",
-    "preferred name": "preferred_name",
-    "email": "email",
-    "email address": "email",
-    "phone": "phone",
-    "phone number": "phone",
-    "address": "address_line_1",
-    "street address": "address_line_1",
-    "address line 1": "address_line_1",
-    "address line 2": "address_line_2",
-    "city": "city",
-    "state": "region",
-    "state/province": "region",
-    "zip code": "postal_code",
-    "postal code": "postal_code",
-    "country": "country",
-    "linkedin": "linkedin_url",
-    "linkedin url": "linkedin_url",
-    "github": "github_url",
-    "github url": "github_url",
-    "portfolio": "portfolio_url",
-    "portfolio url": "portfolio_url",
-    "school": "school_name",
-    "school name": "school_name",
-    "degree": "degree_type",
-    "field of study": "field_of_study",
-    "gpa": "gpa",
-    "graduation month": "graduation_month",
-    "graduation year": "graduation_year",
-    "graduation date month": "graduation_month",
-    "graduation date year": "graduation_year",
-    "years of professional experience": "years_professional_experience",
-    "how many years of experience do you have?": "years_professional_experience",
-    "earliest start date": "earliest_start",
-    "earliest available start date": "earliest_start",
-    "what is your earliest available start date?": "earliest_start",
-    "are you willing to relocate?": "willing_to_relocate",
-    "are you willing to travel?": "willing_to_travel",
-    "will you now or in the future require sponsorship?": "sponsorship_required",
-    "do you require visa sponsorship?": "sponsorship_required",
-    "are you authorized to work in the united states?": "work_authorization_status",
-}
 
 # Consent, terms, and attestation controls are always answered affirmatively
 # (decided 2026-09-14); only a signature is left to the user. Demographic
@@ -121,42 +83,6 @@ HOW_HEARD = re.compile(
     r"\bhow did you (?:first )?(?:find|learn about)\b",
     re.IGNORECASE,
 )
-AUTHORIZATION_EXPIRY = re.compile(
-    r"\b(expir(?:e|es|ation)|valid (?:until|through)|end date)\b.*"
-    r"\b(visa|permit|work authori[sz]ation)\b|"
-    r"\b(visa|permit|work authori[sz]ation)\b.*"
-    r"\b(expir(?:e|es|ation)|valid (?:until|through)|end date)\b",
-    re.IGNORECASE | re.DOTALL,
-)
-FACTUAL_DATE = re.compile(
-    r"\b\d{4}-\d{2}(?:-\d{2})?\b|"
-    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
-    r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|"
-    r"dec(?:ember)?)\b.*\b\d{4}\b",
-    re.IGNORECASE,
-)
-
-
-def normalize_question(value: str) -> str:
-    return re.sub(r"\s+", " ", value).strip().casefold()
-
-
-def normalize_answer_question(value: str) -> str:
-    """Normalize harmless punctuation differences for exact answer reuse."""
-    return re.sub(r"[^a-z0-9+#]+", " ", value.casefold()).strip()
-
-
-def profile_label_key(label: str) -> str | None:
-    """Return a canonical profile key, accepting only safe leading-Your aliases."""
-    normalized = normalize_question(label)
-    key = PROFILE_LABELS.get(normalized)
-    if key is not None:
-        return key
-    if normalized.startswith("your "):
-        return PROFILE_LABELS.get(normalized.removeprefix("your "))
-    return None
-
-
 def _is_company_site(value: str) -> bool:
     """"Company Website", "DV Website", "Careers page": the employer's own site."""
     words = set(value.split())
@@ -263,8 +189,6 @@ def is_long_form_field(field: dict[str, Any]) -> bool:
     field_type = str(field.get("type") or "").casefold()
     if tag != "input" or field_type not in PROSE_INPUT_TYPES or field.get("options"):
         return False
-    if profile_label_key(str(field.get("label") or "")) is not None:
-        return False
     return NARRATIVE_QUESTION.search(_field_context(field)) is not None
 
 
@@ -285,93 +209,18 @@ def affirmative_option(options: list[str]) -> str | None:
     return candidates[0] if len(candidates) == 1 and not agreeing else None
 
 
-class AnswerResolver:
-    """Resolve current facts and approved knowledge through one provenance contract.
-
-    Only the exact-answer index is cached. Dynamic policies run against current
-    field metadata and profile facts on every resolution.
-    """
-
-    def __init__(
-        self, *, profile: dict[str, Any], approved_answers: list[dict[str, Any]],
-        priority: PriorityPolicy | None = None, fallback: AnswerFallback | None = None,
-    ) -> None:
-        self.profile = profile
-        self.priority = priority
-        self.fallback = fallback
-        candidates: dict[str, list[AnswerResolution]] = {}
-        for item in approved_answers:
-            if str(item.get("reuse_policy") or "exact") != "exact":
-                continue
-            question = normalize_answer_question(str(
-                item.get("normalized_key") or item.get("normalized_question")
-                or item.get("question") or ""
-            ))
-            value = str(item.get("answer_text") or "").strip()
-            if question and value:
-                candidates.setdefault(question, []).append(AnswerResolution(
-                    value, "answer_library", f"library:{item.get('id') or question}"
-                ))
-        self.exact = {key: values[0] for key, values in candidates.items() if len(values) == 1}
-
-    @staticmethod
-    def _result(
-        value: str | AnswerResolution | None, source: str, resolver_id: str,
-    ) -> AnswerResolution | None:
-        if isinstance(value, AnswerResolution):
-            return value
-        return AnswerResolution(value, source, resolver_id) if value is not None else None
-
-    def resolve(self, field: dict[str, Any]) -> AnswerResolution | None:
-        question = str(field.get("label") or "").strip()
-        options = [str(option) for option in field.get("options") or []]
-        value = preferred_source_option(question, options)
-        result = self._result(value, "pattern", "builtin:application_source")
-        profile_key = profile_label_key(question)
-        if field.get("section") == "education":
-            profile_key = {
-                "end date month": "graduation_month", "end date year": "graduation_year"
-            }.get(
-                normalize_question(question), profile_key
-            )
-        profile_value = resolve_profile_value(self.profile, profile_key)
-        if result is None and profile_value is not None:
-            value = ("Yes" if profile_value else "No") if isinstance(profile_value, bool) else str(
-                profile_value
-            ).strip()
-            if value:
-                result = AnswerResolution(value, "jobs_profile", f"profile:{profile_key}")
-        if result is None and self.priority is not None and question:
-            result = self._result(self.priority(field), "pattern", "builtin:priority_policy_v1")
-        expiration = AUTHORIZATION_EXPIRY.search(question) is not None
-        if result is None and profile_key is None:
-            exact = self.exact.get(normalize_answer_question(question))
-            if exact is not None and (not expiration or FACTUAL_DATE.search(exact.value)):
-                result = exact
-            elif not expiration and self.fallback is not None and question:
-                result = self._result(self.fallback(question), "pattern", "builtin:fallback")
-        if result is not None and is_non_answer_option(result.value):
-            return None
-        return result
-
-
 def build_autofill_plan(
     fields: list[dict[str, Any]],
     *,
-    profile: dict[str, Any],
-    approved_answers: list[dict[str, Any]],
-    priority: PriorityPolicy | None = None,
-    fallback: AnswerFallback | None = None,
+    resolver: Resolves | None = None,
 ) -> AutofillPlan:
-    """Plan fills using the common resolver and the live control's choice mapping.
+    """Plan fills: the engine's own rules, then whatever the resolver answers from facts.
 
-    The fallback is how the pattern and Claude tiers plug in without the planner
-    knowing about them. Choice groups pick the single option that equals, starts
-    with, is a prefix of, or contains every word of the answer.
+    The engine handles consent, the resume and transcript uploads, and "how did
+    you hear about us"; every other value comes from the resolver. Choice
+    groups pick the single option that equals, starts with, is a prefix of, or
+    contains every word of the answer.
     """
-    resolver = AnswerResolver(
-        profile=profile, approved_answers=approved_answers, priority=priority, fallback=fallback
-    )
     fills: list[FormFill] = []
     unanswered: list[str] = []
     answered_groups: set[str] = set()
@@ -448,9 +297,18 @@ def build_autofill_plan(
                 if field_type in {"radio", "checkbox"}
                 else [str(option) for option in field.get("options") or []]
             )
-            resolution = resolver.resolve(
-                dict(field) | {"label": question_label, "options": options}
-            )
+            source_choice = preferred_source_option(question_label, options)
+            if source_choice is not None:
+                resolution = AnswerResolution(
+                    source_choice, "pattern", "engine:application_source"
+                )
+            elif resolver is not None:
+                resolution = resolver.resolve(
+                    dict(field) | {"label": question_label, "options": options}
+                )
+            # A value that declines to answer is never chosen, whoever proposed it.
+            if resolution is not None and is_non_answer_option(resolution.value):
+                resolution = None
             value = resolution.value if resolution is not None else None
             if value is None and not options and HOW_HEARD.search(question_label):
                 chooser = "source" if field.get("role") == "combobox" else None
@@ -458,10 +316,16 @@ def build_autofill_plan(
             if field_type in {"radio", "checkbox"} and value is not None:
                 own = str(field.get("label") or field.get("value") or "")
                 options = group_options.get(normalized) or [own]
-                if field_type == "checkbox" and len(options) > 1 and "," in value:
-                    # A comma-joined answer to a checkbox group is a multi-select:
-                    # check every option named in it, by name, never by prefix.
-                    value = own if any(same_name(own, part) for part in value.split(",")) else None
+                if field_type == "checkbox" and len(options) > 1 and (
+                    MULTI in value or "," in value
+                ):
+                    # Several answers to a checkbox group: check every option named,
+                    # by name, never by prefix. A newline separates chosen options
+                    # (which may hold commas); a comma separates typed names.
+                    parts = value.split(MULTI) if MULTI in value else value.split(",")
+                    value = own if any(
+                        part.strip() == own.strip() or same_name(own, part) for part in parts
+                    ) else None
                 else:
                     chosen = choose_option(options, value)
                     if chosen is None or chosen != own:
@@ -484,167 +348,3 @@ def build_autofill_plan(
         label for group_key, label in pending_choices if group_key not in answered_groups
     )
     return AutofillPlan(tuple(fills), tuple(dict.fromkeys(unanswered)))
-
-
-def same_name(option: str, answer: str) -> bool:
-    """Whether two technology names are the same ("Typescript"/"TypeScript", "React"/"React.js")."""
-
-    def key(value: str) -> str:
-        text = normalize_answer_question(value).replace(" ", "")
-        return text.removesuffix("js") if len(text) > 3 else text
-
-    return key(option) == key(answer)
-
-
-def choose_option(options: list[str], answer: str) -> str | None:
-    """The single option an answer denotes, or None when none or several fit."""
-    matched = option_match(options, answer)
-    if matched is not None:
-        return matched
-    target = normalize_question(answer)
-    prefixed = [
-        option
-        for option in options
-        if normalize_question(option).startswith(target)
-        or target.startswith(normalize_question(option))
-    ]
-    if len(prefixed) == 1:
-        return prefixed[0]
-    seasonal = normalize_answer_question(answer).replace("autumn", "fall")
-    seasonal_hits = [
-        option
-        for option in options
-        if normalize_answer_question(option).replace("autumn", "fall") == seasonal
-    ]
-    if len(seasonal_hits) == 1:
-        return seasonal_hits[0]
-    return choose_numeric_range(options, answer) or choose_synonym(options, answer)
-
-
-# Forms word the same identity differently; the profile holds one word.
-SYNONYM_GROUPS: tuple[frozenset[str], ...] = (
-    frozenset({"male", "man", "cis male", "cis man", "cisgender male", "cisgender man"}),
-    frozenset(
-        {"female", "woman", "cis female", "cis woman", "cisgender female", "cisgender woman"}
-    ),
-    frozenset({"non binary", "nonbinary", "genderqueer", "gender non conforming"}),
-)
-QUALIFIER_WORDS = frozenset(
-    {"cis", "cisgender", "he", "him", "his", "she", "her", "hers", "they", "them"}
-)
-
-
-def choose_synonym(options: list[str], answer: str) -> str | None:
-    """The single option that means the same as the answer ("Male" -> "Cisgender man")."""
-    target = normalize_answer_question(answer)
-    group = next((group for group in SYNONYM_GROUPS if target in group), None)
-    if group is None:
-        return None
-    hits: list[str] = []
-    for option in options:
-        words = normalize_answer_question(option).split()
-        for length in range(len(words), 0, -1):
-            head, tail = " ".join(words[:length]), words[length:]
-            if head in group and all(word in QUALIFIER_WORDS for word in tail):
-                hits.append(option)
-                break
-    return hits[0] if len(hits) == 1 else None
-
-
-NUMBER = r"(\d+(?:\.\d+)?)"
-RANGE_PATTERNS: tuple[tuple[re.Pattern[str], Callable[[float, float, float], bool]], ...] = (
-    (re.compile(rf"^{NUMBER}\s*(?:-|\u2013|to)\s*{NUMBER}\b"), lambda v, lo, hi: lo <= v <= hi),
-    (
-        re.compile(rf"^{NUMBER}\s*(?:\+|or (?:above|higher|more|greater)|and (?:above|up))"),
-        lambda v, lo, _: v >= lo,
-    ),
-    (
-        re.compile(rf"^(?:above|over|more than|greater than)\s*{NUMBER}"),
-        lambda v, lo, _: v > lo,
-    ),
-    (
-        re.compile(rf"^(?:below|under|less than)\s*{NUMBER}"),
-        lambda v, hi, _: v < hi,
-    ),
-    (
-        re.compile(rf"^{NUMBER}\s*(?:or (?:below|less|lower)|and (?:below|under))"),
-        lambda v, hi, _: v <= hi,
-    ),
-)
-
-
-def choose_numeric_range(options: list[str], answer: str) -> str | None:
-    """The single range option a number falls in ("3.78" -> "3.6-3.8"), else None."""
-    try:
-        value = float(re.sub(r"[^\d.]", "", answer.strip()) or "x")
-    except ValueError:
-        return None
-    hits: list[str] = []
-    for option in options:
-        text = normalize_question(option)
-        for pattern, holds in RANGE_PATTERNS:
-            found = pattern.match(text)
-            if found is None:
-                continue
-            bounds = [float(group) for group in found.groups() if group is not None]
-            low = bounds[0]
-            high = bounds[1] if len(bounds) > 1 else bounds[0]
-            if holds(value, low, high):
-                hits.append(option)
-            break
-    return hits[0] if len(hits) == 1 else None
-
-
-def resolve_profile_value(profile: dict[str, Any], profile_key: str | None) -> Any:
-    if profile_key == "legal_first_name":
-        parts = str(profile.get("legal_name") or "").split()
-        return parts[0] if parts else None
-    if profile_key == "legal_last_name":
-        parts = str(profile.get("legal_name") or "").split()
-        return parts[-1] if len(parts) > 1 else None
-    if profile_key == "work_authorization_status":
-        value = normalize_question(str(profile.get(profile_key) or ""))
-        if value in {
-            "yes",
-            "authorized",
-            "authorized to work in the united states",
-            "citizen",
-            "us citizen",
-            "u.s. citizen",
-            "permanent resident",
-            "green card holder",
-        }:
-            return "Yes"
-        if value in {"no", "not authorized", "unauthorized"}:
-            return "No"
-        return None
-    if profile_key == "earliest_start":
-        return profile.get("earliest_start_text") or profile.get("earliest_start_date")
-    if profile_key == "country":
-        country = str(profile.get("country") or "").strip()
-        return "United States" if country.casefold().startswith("united stat") else country
-    if profile_key in {"graduation_month", "graduation_year"}:
-        graduation = str(profile.get("graduation_date") or "").strip()
-        matched = re.match(r"^(\d{4})-(\d{2})(?:-\d{2})?$", graduation)
-        if matched is None:
-            return None
-        if profile_key == "graduation_year":
-            return matched.group(1)
-        month = int(matched.group(2))
-        months = (
-            "",
-            "January",
-            "February",
-            "March",
-            "April",
-            "May",
-            "June",
-            "July",
-            "August",
-            "September",
-            "October",
-            "November",
-            "December",
-        )
-        return months[month] if 1 <= month <= 12 else None
-    return profile.get(profile_key) if profile_key else None

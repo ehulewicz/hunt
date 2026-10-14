@@ -1,0 +1,152 @@
+"""Formatters: one fact rendered for each control kind it meets (design §8)."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+
+from personal_os_worker.jobs.formatters import polarity, render, yes_no_option
+
+GRADUATION = "2027-12-15"
+MINIMUM = {"amount": 40, "currency": "USD", "period": "hour"}
+TEXT = {"tag": "input", "type": "text"}
+
+
+def rendered(
+    key: str, value: Any, value_type: str, question: str, field: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> tuple[str, str] | None:
+    result = render(key, value, value_type, field=field or TEXT, question=question, **kwargs)
+    return (result.value, result.formatter) if result else None
+
+
+@pytest.mark.parametrize(
+    ("question", "field", "expected"),
+    [
+        ("What is your expected graduation date?", TEXT, ("December 2027", "date_as_month_year")),
+        ("Expected graduation (Term & Year)", TEXT, ("Fall 2027", "date_as_term")),
+        ("Graduation semester", TEXT, ("Fall 2027", "date_as_term")),
+        ("Graduation month", TEXT, ("December", "date_as_month_name")),
+        ("Graduation year", TEXT, ("2027", "date_as_year")),
+        ("Graduation date", {"tag": "input", "type": "date"}, ("2027-12-15", "date_as_iso")),
+        ("Graduation", {"tag": "input", "type": "month"}, ("2027-12", "date_as_month_input")),
+        ("Graduation date", {"tag": "input", "type": "text", "placeholder": "MM/DD/YYYY"},
+         ("12/15/2027", "date_as_us")),
+    ],
+)
+def test_a_date_follows_the_question_and_the_input(
+    question: str, field: dict[str, Any], expected: tuple[str, str]
+) -> None:
+    assert rendered("education.graduation_date", GRADUATION, "date", question, field) == expected
+
+
+def test_a_date_picks_whichever_rendering_an_option_offers() -> None:
+    terms = {"tag": "select", "options": ["Spring 2027", "Fall 2027", "Spring 2028"]}
+    assert rendered("education.graduation_date", GRADUATION, "date", "Graduation", terms) == (
+        "Fall 2027", "date_as_term_option"
+    )
+    months = {"tag": "select", "options": ["May 2027", "December 2027"]}
+    assert rendered("education.graduation_date", GRADUATION, "date", "Graduation", months) == (
+        "December 2027", "date_as_month_year_option"
+    )
+    assert rendered(
+        "education.graduation_date", GRADUATION, "date", "Graduation",
+        {"tag": "select", "options": ["2025", "2026"]},
+    ) is None
+
+
+@pytest.mark.parametrize(
+    ("question", "field", "expected"),
+    [
+        ("What are your salary requirements?", TEXT, ("$40/hour", "money_as_hourly")),
+        ("Desired hourly pay", {"tag": "input", "type": "number"}, ("40", "money_as_hourly")),
+        ("Annual base salary expectations", TEXT, ("$83,200 USD", "money_as_annual")),
+        ("Expected salary per year", {"tag": "input", "type": "number"},
+         ("83200", "money_as_annual")),
+    ],
+)
+def test_minimum_pay_is_hourly_unless_the_question_asks_annual(
+    question: str, field: dict[str, Any], expected: tuple[str, str]
+) -> None:
+    assert rendered("compensation.minimum", MINIMUM, "object", question, field) == expected
+
+
+def test_minimum_pay_picks_the_range_it_falls_in() -> None:
+    hourly = {"tag": "select", "options": ["$20-$30", "$30-$45", "$45+"]}
+    assert rendered("compensation.minimum", MINIMUM, "object", "Hourly pay?", hourly) == (
+        "$30-$45", "money_as_hourly_option"
+    )
+
+
+@pytest.mark.parametrize(
+    ("options", "value", "expected"),
+    [
+        (["Yes", "No"], True, "Yes"),
+        (["Yes", "No"], False, "No"),
+        (["I am not a protected veteran", "I identify as a protected veteran",
+          "I don't wish to answer"], False, "I am not a protected veteran"),
+        (["Yes, I have a disability", "No, I do not have a disability",
+          "I do not want to answer"], "No", "No, I do not have a disability"),
+        (["Yes - I am authorized", "Yes - with a visa", "No"], True, None),
+    ],
+)
+def test_yes_and_no_find_their_option_in_any_wording(
+    options: list[str], value: Any, expected: str | None
+) -> None:
+    field = {"tag": "select", "options": options}
+    value_type = "boolean" if isinstance(value, bool) else "text"
+    result = rendered("eeo.veteran_status", value, value_type, "Status?", field)
+    assert (result[0] if result else None) == expected
+
+
+def test_polarity_reads_yes_and_no_and_nothing_else() -> None:
+    assert (polarity(True), polarity("Yes"), polarity("no"), polarity("Male")) == (
+        True, True, False, None
+    )
+    assert yes_no_option(["Prefer not to say", "No"], False) == "No"
+
+
+def test_numbers_render_plainly_and_find_their_range() -> None:
+    assert rendered("education.gpa", 3.78, "number", "GPA") == ("3.78", "number_as_text")
+    assert rendered("experience.years_professional", 2, "number", "Years") == (
+        "2", "number_as_text"
+    )
+    ranges = {"tag": "select", "options": ["3.9 or above", "3.6-3.8", "Below 3.6"]}
+    assert rendered("education.gpa", 3.78, "number", "GPA", ranges) == (
+        "3.6-3.8", "number_as_range_option"
+    )
+
+
+def test_text_matches_synonyms_and_lists_join_or_check_each_box() -> None:
+    gender = {"tag": "select", "options": ["Cisgender man", "Cisgender woman"]}
+    assert rendered("eeo.gender_identity", "Male", "text", "Gender", gender) == (
+        "Cisgender man", "text_as_is_option"
+    )
+    assert rendered("skills.all", ["Python", "Java"], "list", "Languages?") == (
+        "Python, Java", "list_as_joined"
+    )
+    boxes = {"tag": "input", "type": "checkbox", "group_size": 3,
+             "options": ["Python", "Go", "TypeScript"]}
+    assert rendered("skills.all", ["Python", "Typescript", "Rust"], "list", "Stacks?", boxes) == (
+        "Python\nTypeScript", "list_as_options"
+    )
+    race = {"tag": "select", "options": ["White (Not Hispanic or Latino)", "Asian"]}
+    assert rendered("eeo.race_ethnicities", ["White"], "list", "Race", race) == (
+        "White (Not Hispanic or Latino)", "list_as_single_option"
+    )
+
+
+def test_a_rendering_longer_than_the_control_allows_is_no_rendering() -> None:
+    assert rendered("contact.email", "a" * 30, "text", "Email", {"tag": "input",
+                    "max_length": 10}) is None
+
+
+def test_the_citizenship_option_is_chosen_only_when_asked_for() -> None:
+    field = {"tag": "select", "options": [
+        "I am authorized due to my nationality", "I have a work permit", "I need sponsorship",
+    ]}
+    assert rendered(
+        "work_auth.us_citizen", True, "boolean", "Authorization to work", field,
+        prefer="citizenship_option",
+    ) == ("I am authorized due to my nationality", "citizenship_option")

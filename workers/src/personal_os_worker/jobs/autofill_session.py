@@ -1,16 +1,19 @@
 """The interactive part of `os hunt apply`, without any terminal prompts.
 
-The terminal only reports. Every textarea is seeded on the page with its best
-answer and the ones that came from a Claude draft are listed for review.
-Everything else the deterministic planner could not fill is typed on the page
-by the user; the worker polls the page, saves every answer it can see, and
-watches for a visible Submit control. The user owns Next and Submit; the run
-ends when the page reports submission or when the user interrupts, and both
-paths save the collected answers.
+The terminal only reports. A field fills from a fact: through the pattern you
+accepted for its question, else through the archive's translation, else through
+the model naming the fact (design §8, §14). Every textarea is seeded with
+approved prose or a Claude draft, and drafts are listed for review. Everything
+still empty — required or optional — is outlined on the page and listed with why
+it is empty; the user types it, the worker polls the page, saves every answer it
+can see, and watches for a visible Submit control. The user owns Next and
+Submit; the run ends when the page reports submission or when the user
+interrupts, and both paths save the collected answers.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import subprocess
 import time
@@ -25,7 +28,8 @@ from rich.markup import escape
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.tables import console
 from personal_os_worker.jobs.adapters import failure_signature
-from personal_os_worker.jobs.answers import answer_match, draft_contextual_answer
+from personal_os_worker.jobs.answers import draft_contextual_answer
+from personal_os_worker.jobs.archive.lookup import answer_key
 from personal_os_worker.jobs.autofill import (
     AnswerResolution,
     is_cover_letter_field,
@@ -42,6 +46,7 @@ from personal_os_worker.jobs.browser import (
     combobox_options,
     fresh_control,
     has_submit_control,
+    highlight_unfilled,
     inspect_fields,
     is_browser_closed_error,
     plan_autofill,
@@ -69,9 +74,9 @@ from personal_os_worker.jobs.page_state import (
     capture_ashby_navigation,
     classify_application_page,
 )
-from personal_os_worker.jobs.patterns import resolve_pattern_match, resolve_priority_answer
 from personal_os_worker.jobs.registry.events import planned_events, unresolved_events
-from personal_os_worker.jobs.short_answers import ShortQuestion, draft_short_answers
+from personal_os_worker.jobs.resolve import Knowledge, Miss, Resolver, VerdictResolver
+from personal_os_worker.jobs.short_answers import ShortQuestion, Verdict, draft_short_answers
 
 
 class SubmittedByUser(Exception):
@@ -83,7 +88,9 @@ class SkippedByUser(Exception):
 
 
 Drafter = Callable[..., str | None]
-ShortDrafter = Callable[..., dict[str, str]]
+ShortDrafter = Callable[..., dict[str, Verdict]]
+# Archived answers that are writing rather than a fact.
+PROSE_LENGTH = 80
 LetterDrafter = Callable[..., LetterSlots | None]
 LetterRenderer = Callable[..., Path]
 
@@ -96,9 +103,7 @@ class SessionContext:
     browser: VisibleBrowser
     page: Page
     console_errors: list[str]
-    profile: dict[str, Any]
-    answers: list[dict[str, Any]]
-    scoped: list[dict[str, Any]]
+    knowledge: Knowledge
     resume_json: dict[str, Any]
     resume_pdf: Path
     company: str
@@ -133,7 +138,10 @@ class SessionState:
     tier_answers: dict[str, str] = field(default_factory=dict)  # question -> pattern/model answer
     tier_source: dict[str, str] = field(default_factory=dict)  # question -> "pattern" | "model"
     tier_resolver: dict[str, str] = field(default_factory=dict)
+    seed_resolver: dict[str, str] = field(default_factory=dict)  # question -> prose/model id
     asked_claude: set[str] = field(default_factory=set)  # questions already put to Claude
+    misses: dict[str, Miss] = field(default_factory=dict)  # answer key -> why unanswered
+    needed: dict[str, str] = field(default_factory=dict)  # question -> fact the model named
     step: int = 0
     form_seen: bool = False
     navigation: AshbyNavigation | None = None
@@ -167,18 +175,19 @@ QUESTION_WIDTH = 42
 VALUE_WIDTH = 60
 
 TAG_STYLES = {
-    "profile": "dim",
-    "library": "dim",
-    "pattern": "magenta",
+    "pattern": "green",
+    "archive": "yellow",
     "claude": "magenta",
     "source": "dim",
     "consent": "dim",
     "long-form": "cyan",
+    "prose": "cyan",
     "letter": "cyan",
     "picked up": "cyan",
     "saved": "green",
     "kept": "dim",
     "left": "yellow",
+    "optional": "dim",
     "review": "yellow",
     "failed": "red",
 }
@@ -422,46 +431,10 @@ class AutofillSession:
 
     # ----- deterministic fill ---------------------------------------------
 
-    def exact_answer(self, question: str) -> dict[str, Any] | None:
-        matched = answer_match(question, self.ctx.answers)
-        if matched is None or str(matched.get("reuse_policy") or "exact") != "exact":
-            return None
-        return matched
-
-    def pattern_fallback(self, question: str) -> AnswerResolution | None:
-        match = resolve_pattern_match(
-            question,
-            rules=self.ctx.answers,
-            profile=self.ctx.profile,
-            resume=self.ctx.resume_json,
-            company=self.ctx.company,
-        )
-        if match is not None:
-            self.state.tier_answers[question] = match.value
-            self.state.tier_source[question] = "pattern"
-            self.state.tier_resolver[question] = match.resolver_id
-        return AnswerResolution(match.value, "pattern", match.resolver_id) if match else None
-
-    def priority_policy(self, field: dict[str, Any]) -> AnswerResolution | None:
-        answer = resolve_priority_answer(field, profile=self.ctx.profile)
-        question = str(field.get("label") or field.get("group") or "").strip()
-        if answer is not None and question:
-            self.state.tier_answers[question] = answer
-            self.state.tier_source[question] = "pattern"
-            self.state.tier_resolver[question] = "builtin:priority_policy_v1"
-        return (
-            AnswerResolution(answer, "pattern", "builtin:priority_policy_v1")
-            if answer is not None else None
-        )
-
     def fill_deterministic(self, fields: list[dict[str, Any]]) -> dict[str, Any]:
-        fields[:], plan = plan_autofill(
-            self.page,
-            profile=self.ctx.profile,
-            approved_answers=self.ctx.answers,
-            priority=self.priority_policy,
-            fallback=self.pattern_fallback,
-        )
+        resolver = Resolver(self.ctx.knowledge)
+        fields[:], plan = plan_autofill(self.page, resolver=resolver)
+        self.state.misses.update(resolver.misses)
         for item in fields:
             item["ats"] = self.ctx.adapter_name
         if not self.ctx.dry_run:
@@ -485,7 +458,7 @@ class AutofillSession:
                 {
                     "step_number": self.state.step,
                     "url": self.page.url,
-                    "fill_events": planned_events(fields, plan),
+                    "fill_events": planned_events(fields, plan, misses=self.state.misses),
                 },
             )
             return {"filled_fields": [], "skipped_fields": [], "failures": [], "plan": plan}
@@ -511,9 +484,15 @@ class AutofillSession:
                     )
                 if fill.chooser is not None:
                     echo(fill.chooser, question, applied)
-                elif question in self.state.tier_answers:
+                elif fill.resolution is not None:
                     self.state.tier_answers[question] = applied
-                    echo("pattern", question, applied)
+                    self.state.tier_source[question] = fill.resolution.source
+                    self.state.tier_resolver[question] = fill.resolution.resolver_id
+                    if fill.resolution.resolver_id.startswith("engine:"):
+                        echo("source", question, applied)
+                    else:
+                        echo(fill.resolution.source, question, applied,
+                             note=fill.resolution.fact_key)
         for question in result["unanswered_required_questions"]:
             item = next(
                 (
@@ -582,6 +561,7 @@ class AutofillSession:
                     fields,
                     plan,
                     skip=lambda item: is_long_form_field(item) or is_cover_letter_field(item),
+                    misses=self.state.misses,
                 ),
             },
         )
@@ -621,46 +601,41 @@ class AutofillSession:
         if not questions:
             return
         self.state.asked_claude.update(question.question for question in questions)
-        console.print(f"  [dim]asking Claude about {len(questions)} question(s)[/dim]")
-        drafted = self.ctx.short_drafter(
+        console.print(f"  [dim]asking Claude which fact answers {len(questions)} question(s)[/dim]")
+        verdicts = self.ctx.short_drafter(
             questions,
-            posting={
-                "company": self.ctx.company,
-                "role": self.ctx.title,
-                "description": self.ctx.description,
-            },
-            resume=self.ctx.resume_json,
-            profile=self.ctx.profile,
-            library=self.ctx.answers,
+            posting={"company": self.ctx.company, "role": self.ctx.title},
+            facts=self.ctx.knowledge.for_model(),
         )
-        if not drafted:
-            console.print("  [dim]Claude had no confident answers[/dim]")
+        for verdict in verdicts.values():
+            if verdict.kind == "no_fact" and verdict.missing_fact:
+                self.state.needed[verdict.question] = verdict.missing_fact
+        fits = {question: item for question, item in verdicts.items() if item.kind == "fits_fact"}
+        if not fits:
+            console.print("  [dim]Claude found no fact that answers them[/dim]")
             return
         if self.form_is_gone():
             return
-        claude_fields, plan = plan_autofill(
-            self.page, profile={}, approved_answers=[],
-            fallback=lambda question: (
-                AnswerResolution(drafted[question], "model", "model:short_answer_v1")
-                if question in drafted else None
-            )
-        )
+        resolver = VerdictResolver(fits, self.ctx.knowledge)
+        claude_fields, plan = plan_autofill(self.page, resolver=resolver)
+        self.state.misses.update(resolver.misses)
         claude_result = apply_autofill(
             self.page, claude_fields, plan, resume_path=None, assert_active=lambda: None
         )
         for fill in plan.fills:
             question = _question_for(claude_fields[fill.index])
             applied = claude_result["applied"].get(fill.index)
-            if applied is not None and question in drafted:
+            if applied is not None and question in fits and fill.resolution is not None:
                 self.state.tier_answers[question] = applied
                 self.state.tier_source[question] = "model"
-                self.state.tier_resolver[question] = "model:short_answer_v1"
+                self.state.tier_resolver[question] = fill.resolution.resolver_id
                 control = claude_fields[fill.index]
                 key = f"{self.state.step}:{control.get('fingerprint') or ''}#{fill.index}"
                 self.state.resolutions[key] = AnswerResolution(
-                    applied, "model", "model:short_answer_v1"
+                    applied, "model", fill.resolution.resolver_id,
+                    fact_key=fill.resolution.fact_key, formatter=fill.resolution.formatter,
                 )
-                echo("claude", question, applied)
+                echo("claude", question, applied, note=fill.resolution.fact_key)
         result["failures"].extend(claude_result["failures"])
         if claude_result["events"]:
             self.ctx.api.persist_autofill_step(
@@ -674,47 +649,56 @@ class AutofillSession:
 
     # ----- long-form drafts ------------------------------------------------
 
-    def seed_for(
-        self, question: str, *, limit: int | None = None
-    ) -> tuple[str, str, str, list[dict[str, Any]]]:
-        """Return (seed text, seed source, human note, similar answers)."""
-        matched = answer_match(question, self.ctx.answers)
-        similar = similar_answers(question, self.ctx.answers)
-        if matched is not None and str(matched.get("reuse_policy") or "exact") == "exact":
+    def references(self, question: str) -> list[dict[str, Any]]:
+        """Your earlier writing on similar questions: approved prose, then the archive's."""
+        writing = [
+            {"question": item.get("question_label"), "answer_text": item.get("text")}
+            for item in self.ctx.knowledge.prose
+        ] + [
+            {"question": item.get("question"), "answer_text": item.get("answer_text")}
+            for item in self.ctx.knowledge.archive
+            if str(item.get("reuse_policy")) == "contextual"
+            or len(str(item.get("answer_text") or "")) >= PROSE_LENGTH
+        ]
+        return similar_answers(question, writing)
+
+    def seed_for(self, question: str, *, limit: int | None = None) -> tuple[str, str, str, str]:
+        """Return (seed text, seed source, resolver id, human note)."""
+        key = answer_key(question)
+        approved = next(
+            (
+                item
+                for item in self.ctx.knowledge.prose
+                if answer_key(str(item.get("question_label") or "")) == key
+                and str(item.get("text") or "").strip()
+            ),
+            None,
+        )
+        if approved is not None:
             return (
-                str(matched.get("answer_text") or "").strip(),
-                "answer_library",
-                "exact library answer (edit freely)",
-                similar,
+                str(approved["text"]).strip(),
+                "prose",
+                f"prose:{approved.get('id')}",
+                "approved prose (edit freely)",
             )
-        base = str(matched.get("answer_text") or "").strip() if matched else None
         if not self.ctx.use_claude:
-            return (
-                "", "empty", "drafting disabled; review similar answers or write manually", similar
-            )
+            return "", "empty", "", "drafting disabled; write it, it is saved when submitted"
         draft = self.ctx.drafter(
             question=question,
-            base=base or None,
+            base=None,
             posting={
                 "company": self.ctx.company,
                 "role": self.ctx.title,
                 "description": self.ctx.description,
             },
             resume=self.ctx.resume_json,
-            profile=self.ctx.profile,
-            scoped_variants=[*self.ctx.scoped, *similar],
+            facts=self.ctx.knowledge.disclosable(),
+            references=self.references(question),
             limit=limit,
         )
         if draft:
-            note = (
-                "claude draft, based on the contextual library answer (edit freely)"
-                if base
-                else "claude draft tailored to this posting (edit freely)"
-            )
-            return draft, "model", note, similar
-        if base:
-            return base, "answer_library", "contextual library answer; claude draft failed", similar
-        return "", "empty", "no library match and no claude draft; write from scratch", similar
+            return draft, "model", "model:long_form_v1", "claude draft tailored to this posting"
+        return "", "empty", "", "no approved prose and no claude draft; write from scratch"
 
     def fill_long_form(self, fields: list[dict[str, Any]]) -> None:
         """Seed every prose control with its best answer and say which deserve a look.
@@ -735,7 +719,7 @@ class AutofillSession:
                 echo("kept", question, note="already has text")
                 continue
             limit = item.get("max_length")
-            seed, source, note, _similar = self.seed_for(question, limit=limit)
+            seed, source, resolver_id, note = self.seed_for(question, limit=limit)
             if seed and limit is not None and len(seed) > int(limit):
                 # Writing past the cap registers and reads back, but the form
                 # rejects it on submit. Say so rather than send it.
@@ -746,8 +730,7 @@ class AutofillSession:
                 )
                 continue
             self.state.seeds[question] = (seed, source)
-            if source == "model":
-                self.state.tier_resolver[question] = "model:long_form_v1"
+            self.state.seed_resolver[question] = resolver_id
             if not seed:
                 echo("left", question, note=note.split(";", 1)[0])
                 continue
@@ -762,15 +745,10 @@ class AutofillSession:
                     "readback_mismatch", f"Long-form answer for {question!r} did not register"
                 )
                 continue
-            matched = answer_match(question, self.ctx.answers)
-            resolver_id = (
-                f"library:{(matched or {}).get('id') or question}" if source == "answer_library"
-                else "model:long_form_v1"
-            )
             key = f"{self.state.step}:{item.get('fingerprint') or ''}#{item['index']}"
             self.state.resolutions[key] = AnswerResolution(seed, source, resolver_id)
             self.state.announced[key] = seed
-            label = "claude draft" if source == "model" else "library"
+            label = "claude draft" if source == "model" else "prose"
             echo("long-form", question, seed, note=label)
             if source == "model":
                 self.state.review.append((question, label))
@@ -876,20 +854,40 @@ class AutofillSession:
                     "readback_mismatch", f"Cover letter for {question!r} did not register"
                 )
 
+    def why_empty(self, question: str) -> str | None:
+        if question in self.state.needed:
+            return f"needs a fact: {self.state.needed[question]}"
+        miss = self.state.misses.get(answer_key(question))
+        return miss.note or None if miss is not None else None
+
     def report_left(self) -> None:
-        """Name every required control still empty once all tiers have run."""
+        """Every field still empty, required first, outlined on the page (design §10.2).
+
+        Optional fields count: nothing is left blank unless you leave it. What
+        the worker knows about why each is empty — no fact yet, an old answer
+        that disagrees, a missing fact the model named — is said beside it.
+        """
         try:
-            audit = audit_filled_form(inspect_fields(self.page))
+            fields = inspect_fields(self.page)
+            audit = audit_filled_form(fields)
         except Error:
             return
-        left = audit["required_unfilled"]
+        left = [(question, True) for question in audit["required_unfilled"]]
+        left += [(question, False) for question in audit["optional_unfilled"]]
         if not left:
-            console.print("  [dim]every required control is filled[/dim]")
+            console.print("  [dim]every field is filled[/dim]")
             return
+        with contextlib.suppress(Error):
+            highlight_unfilled(self.page)
+        required = sum(1 for _, is_required in left if is_required)
         console.print()
-        console.print(f"  [bold]Left for you[/bold] ({len(left)} required):")
-        for question in left:
-            echo("left", question)
+        console.print(
+            f"  [bold]Left for you[/bold] ({required} required, {len(left) - required} optional,"
+            " outlined on the page):"
+        )
+        for question, is_required in left:
+            reason = self.why_empty(question)
+            echo("left" if is_required else "optional", question, note=reason)
 
     def report_review(self) -> None:
         """List the long-form answers that came from a draft, once per step."""
@@ -908,21 +906,12 @@ class AutofillSession:
             question = str(item["question"])
             value = str(item["answer_text"])
             seed, seed_source = self.state.seeds.get(question, ("", "empty"))
-            matched = answer_match(question, self.ctx.answers)
             if question in self.state.tier_answers and value == self.state.tier_answers[question]:
                 source = self.state.tier_source[question]
-            elif seed_source in {"answer_library", "model"} and value == seed.strip():
+            elif seed_source in {"prose", "model"} and value == seed.strip():
                 source = seed_source
-            elif matched is not None and value == str(matched.get("answer_text") or "").strip():
-                source = "answer_library"
-            elif self.state.planned.get(question) == value:
-                source = "jobs_profile"
             else:
                 source = "manual"
-            if matched is not None:
-                policy = str(matched.get("reuse_policy") or "exact")
-            else:
-                policy = "contextual" if item["control_kind"] == "textarea" else "exact"
             fingerprint = str(item.get("field_fingerprint") or f"control-{index}")
             control_key = f"{self.state.step}:{fingerprint}"
             previous = self.state.collected.get(control_key)
@@ -931,7 +920,6 @@ class AutofillSession:
                     self.state.collected.pop(control_key)
                     event = {**previous, "event_index": len(self.state.observations),
                              "page_url": self.page.url, "answer_text": "", "source": "manual"}
-                    event.pop("reuse_policy", None)
                     self.state.observations.append(event)
                 continue
             proposed_value = (
@@ -940,14 +928,10 @@ class AutofillSession:
                 or seed
                 or None
             )
-            if source == "answer_library" and matched is not None:
-                resolver_id: str | None = f"library:{matched.get('id') or question}"
-            elif source in {"pattern", "model"}:
-                resolver_id = self.state.tier_resolver.get(question) or (
-                    "model:long_form_v1" if source == "model" else "builtin:unknown"
-                )
-            elif source == "jobs_profile":
-                resolver_id = "builtin:profile_field_v1"
+            if source in {"pattern", "archive", "model"} and question in self.state.tier_resolver:
+                resolver_id: str | None = self.state.tier_resolver[question]
+            elif source in {"prose", "model"}:
+                resolver_id = self.state.seed_resolver.get(question) or "model:long_form_v1"
             else:
                 resolver_id = previous.get("resolver_id") if previous else None
                 if previous:
@@ -961,7 +945,7 @@ class AutofillSession:
                 "question": question,
                 "answer_text": value,
                 "source": source,
-                "reuse_policy": policy,
+                "form": item.get("form") or "short",
                 "step_number": self.state.step,
                 "page_url": self.page.url,
                 "control_kind": str(item["control_kind"]),
@@ -978,6 +962,7 @@ class AutofillSession:
                         "question": question,
                         "answer_text": value,
                         "source": source,
+                        "form": item.get("form") or "short",
                         "control_kind": str(item["control_kind"]),
                         "field_fingerprint": fingerprint,
                         "resolver_id": resolver_id,

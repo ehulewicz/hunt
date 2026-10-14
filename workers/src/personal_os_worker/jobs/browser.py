@@ -12,18 +12,17 @@ from playwright.sync_api import Browser, Error, Page, Playwright, sync_playwrigh
 from personal_os_worker.jobs.adapters import failure_signature, option_match
 from personal_os_worker.jobs.autofill import (
     FILE_KINDS,
-    AnswerFallback,
+    MULTI,
     AutofillPlan,
     FormFill,
-    PriorityPolicy,
+    Resolves,
     affirmative_option,
     build_autofill_plan,
-    choose_option,
     is_sensitive_field,
-    normalize_question,
     preferred_source_option,
 )
-from personal_os_worker.jobs.registry.events import fill_event
+from personal_os_worker.jobs.options import choose_option, normalize_question
+from personal_os_worker.jobs.registry.events import fill_event, form_of
 from personal_os_worker.jobs.registry.kinds import classify
 from personal_os_worker.jobs.registry.strategies import candidates
 
@@ -135,25 +134,6 @@ class VisibleBrowser:
         page.wait_for_timeout(1500)
         return page
 
-    def autofill_application(
-        self,
-        url: str,
-        *,
-        profile: dict[str, Any],
-        approved_answers: list[dict[str, Any]],
-        resume_path: Path,
-        assert_active: Callable[[], None],
-    ) -> dict[str, Any]:
-        page = self.open_page(url)
-        fields, plan = plan_autofill(page, profile=profile, approved_answers=approved_answers)
-        return apply_autofill(
-            page,
-            fields,
-            plan,
-            resume_path=resume_path,
-            assert_active=assert_active,
-        )
-
 
 def _distinct_destinations(candidates: list[Any]) -> list[Any]:
     """Collapse several links to the same href into the first of them."""
@@ -248,24 +228,12 @@ def reveal_application_form(page: Page, *, timeout_ms: int = 15_000) -> bool:
 
 
 def plan_autofill(
-    page: Page,
-    *,
-    profile: dict[str, Any],
-    approved_answers: list[dict[str, Any]],
-    priority: PriorityPolicy | None = None,
-    fallback: AnswerFallback | None = None,
+    page: Page, *, resolver: Resolves | None = None
 ) -> tuple[list[dict[str, str | bool | None]], AutofillPlan]:
     """Work out what would be filled, without touching the page."""
     reveal_application_form(page)
     fields = inspect_fields(page)
-    plan = build_autofill_plan(
-        fields,
-        profile=profile,
-        approved_answers=approved_answers,
-        priority=priority,
-        fallback=fallback,
-    )
-    return fields, plan
+    return fields, build_autofill_plan(fields, resolver=resolver)
 
 
 class NoMatchingOption(RuntimeError):
@@ -343,13 +311,16 @@ def _select_by_value(attempt: Attempt) -> str | None:
 
 def _select_multiple(attempt: Attempt) -> str | None:
     options = [str(value) for value in attempt.field.get("options", [])]
-    parts = [part.strip() for part in str(attempt.fill.value).split(",") if part.strip()]
+    value = str(attempt.fill.value)
+    parts = [
+        part.strip() for part in value.split(MULTI if MULTI in value else ",") if part.strip()
+    ]
     matched = [option_match(options, part) for part in parts]
     chosen = [option for option in matched if option is not None]
     if not parts or len(chosen) != len(parts):
         raise NoMatchingOption("no unambiguous select options")
     attempt.control.select_option(label=chosen, timeout=CONTROL_TIMEOUT_MS)
-    return ", ".join(chosen)
+    return MULTI.join(chosen)
 
 
 def _combobox_choose_from_menu(attempt: Attempt) -> str | None:
@@ -750,7 +721,10 @@ def verify_control(
                 "element => [...element.selectedOptions].map(o => o.textContent.trim())",
                 timeout=CONTROL_TIMEOUT_MS,
             )
-            wanted = {part.strip() for part in str(value or "").split(",") if part.strip()}
+            text = str(value or "")
+            wanted = {
+                part.strip() for part in text.split(MULTI if MULTI in text else ",") if part.strip()
+            }
             return bool(wanted) and wanted <= set(selected)
         if field.get("type") in {"radio", "checkbox"}:
             return bool(control.is_checked(timeout=CONTROL_TIMEOUT_MS))
@@ -1221,6 +1195,7 @@ def snapshot_entries(page: Page, fields: list[dict[str, Any]]) -> list[dict[str,
             "question": question,
             "answer_text": value,
             "control_kind": field_type or tag,
+            "form": form_of(field),
             "field_fingerprint": (
                 f"{field.get('fingerprint') or ''}#{field.get('index', index)}"
             ),
@@ -1252,11 +1227,13 @@ def audit_filled_form(
     """Summarize a filled form without copying values into logs."""
     filled: list[str] = []
     required_unfilled: list[str] = []
+    optional_unfilled: list[str] = []
     sensitive_filled: list[str] = []
     # A choice group is one question: it is filled once any option is checked,
     # and it is reported by the group question rather than each option's label.
     answered_groups: set[str] = set()
     pending_groups: list[str] = []
+    optional_groups: list[str] = []
     for field in fields:
         field_type = str(field.get("type") or "").casefold()
         if field_type in {"submit", "button", "reset", "hidden"}:
@@ -1279,11 +1256,43 @@ def audit_filled_form(
                 pending_groups.append(label)
             else:
                 required_unfilled.append(label)
+        elif str(field.get("type") or "").casefold() != "file" and not is_sensitive_field(field):
+            if is_choice:
+                optional_groups.append(label)
+            else:
+                optional_unfilled.append(label)
     required_unfilled.extend(
         dict.fromkeys(group for group in pending_groups if group not in answered_groups)
     )
+    optional_unfilled.extend(
+        dict.fromkeys(group for group in optional_groups if group not in answered_groups)
+    )
     return {
         "filled_fields": filled,
-        "required_unfilled": required_unfilled,
+        "required_unfilled": list(dict.fromkeys(required_unfilled)),
+        "optional_unfilled": [
+            label for label in dict.fromkeys(optional_unfilled) if label not in required_unfilled
+        ],
         "sensitive_filled": sensitive_filled,
     }
+
+
+HIGHLIGHT_SCRIPT = """
+() => {
+  for (const element of document.querySelectorAll('input, textarea, select, [role=combobox]')) {
+    const type = (element.getAttribute('type') || '').toLowerCase();
+    if (['hidden', 'submit', 'button', 'reset', 'file'].includes(type)) continue;
+    if (element.getAttribute('aria-hidden') === 'true' || element.offsetParent === null) continue;
+    const empty = ['checkbox', 'radio'].includes(type)
+      ? !document.querySelector(`input[name="${CSS.escape(element.name || '')}"]:checked`)
+      : !String(element.value || '').trim();
+    element.style.outline = empty ? '2px solid #f59e0b' : '';
+    element.style.outlineOffset = empty ? '2px' : '';
+  }
+}
+"""
+
+
+def highlight_unfilled(page: Page) -> None:
+    """Outline every visible empty control, so what is left is easy to find."""
+    page.evaluate(HIGHLIGHT_SCRIPT)
