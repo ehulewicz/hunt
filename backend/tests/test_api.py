@@ -10,8 +10,6 @@ from fastapi import FastAPI
 from personal_os_backend.auth import InvalidAccessToken
 from personal_os_backend.config import Settings
 from personal_os_backend.jobs_models import (
-    AnswerLibraryCreate,
-    AnswerLibraryItem,
     ApplicationUpdate,
     JobApplication,
     JobListing,
@@ -26,7 +24,6 @@ from personal_os_backend.models import Principal
 USER_ID = UUID("c3c8d239-162d-4e5e-a2a1-4ac0d1b3695f")
 APPLICATION_ID = UUID("11111111-1111-4111-8111-111111111111")
 POSTING_ID = UUID("22222222-2222-4222-8222-222222222222")
-ANSWER_ID = UUID("33333333-3333-4333-8333-333333333333")
 
 
 @asynccontextmanager
@@ -54,8 +51,6 @@ class FakeJobsStore:
         self.archived_application_id: UUID | None = None
         self.created_application: tuple[UUID, str] | None = None
         self.application_update: tuple[UUID, ApplicationUpdate] | None = None
-        self.answer_create: AnswerLibraryCreate | None = None
-        self.answer_update: tuple[UUID, object] | None = None
         self.synced_count = 0
 
     async def list_listings(self, user_id: UUID, **filters: object) -> JobListingPage:
@@ -134,34 +129,6 @@ class FakeJobsStore:
     ) -> JobApplication | None:
         self.application_update = (application_id, update)
         return (await self.list_applications(user_id))[0]
-
-    async def create_answer(self, user_id: UUID, item: AnswerLibraryCreate) -> AnswerLibraryItem:
-        self.answer_create = item
-        return AnswerLibraryItem(
-            id=ANSWER_ID,
-            question="Why this team?",
-            normalized_key="why this team",
-            answer_text="I want to build reliable developer tools.",
-            reuse_policy="exact",
-            approved=True,
-            updated_at=datetime(2026, 8, 13, tzinfo=UTC),
-        )
-
-    async def update_answer(
-        self, user_id: UUID, answer_id: UUID, item: object
-    ) -> AnswerLibraryItem | None:
-        self.answer_update = (answer_id, item)
-        if answer_id != ANSWER_ID:
-            return None
-        return AnswerLibraryItem(
-            id=ANSWER_ID,
-            question="Why this team?",
-            normalized_key="why this team",
-            answer_text="I want to build dependable developer tools.",
-            reuse_policy="exact",
-            approved=False,
-            updated_at=datetime(2026, 8, 13, tzinfo=UTC),
-        )
 
 
 @pytest.fixture
@@ -408,97 +375,6 @@ async def test_application_status_is_the_new_lifecycle_only(
         assert response.status_code == 422, retired
 
 
-async def test_long_form_answers_are_created_without_a_client_key(
-    app: FastAPI, client: httpx.AsyncClient
-) -> None:
-    store = FakeJobsStore()
-
-    async def override_store() -> FakeJobsStore:
-        return store
-
-    app.dependency_overrides[get_jobs_store] = override_store
-    response = await client.post(
-        "/v1/jobs/answers",
-        json={
-            "question": "Why this team?",
-            "answer_text": "I want to build reliable developer tools.",
-            "approved": True,
-        },
-        headers={"Authorization": "Bearer approved"},
-    )
-
-    assert response.status_code == 201
-    assert response.json()["id"] == str(ANSWER_ID)
-    assert "key" not in response.json()
-    assert store.answer_create is not None
-    assert store.answer_create.question == "Why this team?"
-    assert store.answer_create.reuse_policy == "exact"
-
-
-async def test_long_form_answers_are_updated_by_id(app: FastAPI, client: httpx.AsyncClient) -> None:
-    store = FakeJobsStore()
-
-    async def override_store() -> FakeJobsStore:
-        return store
-
-    app.dependency_overrides[get_jobs_store] = override_store
-    response = await client.patch(
-        f"/v1/jobs/answers/{ANSWER_ID}",
-        json={"answer_text": "I want to build dependable developer tools.", "approved": False},
-        headers={"Authorization": "Bearer approved"},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["approved"] is False
-    assert store.answer_update is not None and store.answer_update[0] == ANSWER_ID
-
-
-async def test_long_form_answer_creation_requires_explicit_approval(
-    app: FastAPI, client: httpx.AsyncClient
-) -> None:
-    store = FakeJobsStore()
-
-    async def override_store() -> FakeJobsStore:
-        return store
-
-    app.dependency_overrides[get_jobs_store] = override_store
-    response = await client.post(
-        "/v1/jobs/answers",
-        json={"question": "Why this team?", "answer_text": "A thoughtful response."},
-        headers={"Authorization": "Bearer approved"},
-    )
-
-    assert response.status_code == 422
-    assert store.answer_create is None
-
-
-@pytest.mark.parametrize(
-    "update",
-    [
-        {"question": None},
-        {"answer_text": None},
-        {"approved": None},
-    ],
-)
-async def test_long_form_answer_updates_reject_explicit_nulls(
-    app: FastAPI, client: httpx.AsyncClient, update: dict[str, object]
-) -> None:
-    store = FakeJobsStore()
-
-    async def override_store() -> FakeJobsStore:
-        return store
-
-    app.dependency_overrides[get_jobs_store] = override_store
-    response = await client.patch(
-        f"/v1/jobs/answers/{ANSWER_ID}",
-        json=update,
-        headers={"Authorization": "Bearer approved"},
-    )
-
-    assert response.status_code == 422
-    assert store.answer_update is None
-
-
 async def test_unhandled_errors_stay_visible_to_the_browser() -> None:
     """A 500 without CORS headers reaches the browser as "Failed to fetch".
 
@@ -532,37 +408,6 @@ async def test_unhandled_errors_stay_visible_to_the_browser() -> None:
         == "https://personal-os-ten-kappa.vercel.app"
     )
     assert response.json() == {"detail": "Internal server error"}
-
-
-async def test_answer_review_uses_verified_owner_and_bounds(
-    app: FastAPI, client: httpx.AsyncClient,
-) -> None:
-    calls: list[tuple[UUID, int, int]] = []
-
-    class ReviewStore:
-        async def list_answer_review(
-            self, user_id: UUID, *, limit: int, offset: int,
-        ) -> list[object]:
-            calls.append((user_id, limit, offset))
-            return []
-
-    async def override_review() -> ReviewStore:
-        return ReviewStore()
-
-    app.dependency_overrides[get_jobs_store] = override_review
-    headers = {"Authorization": "Bearer approved"}
-    response = await client.get("/v1/jobs/answer-review?limit=20&offset=5", headers=headers)
-    assert response.status_code == 200
-    assert response.json() == []
-    assert calls == [(USER_ID, 20, 5)]
-    assert (await client.get("/v1/jobs/answer-review")).status_code == 401
-    assert (await client.get(
-        "/v1/jobs/answer-review", headers={"Authorization": "Bearer wrong-account"}
-    )).status_code == 403
-    for query in ("limit=201", "limit=0", "offset=-1"):
-        response = await client.get(f"/v1/jobs/answer-review?{query}", headers=headers)
-        assert response.status_code == 422
-    assert len(calls) == 1
 
 
 async def test_atomic_finish_validates_outcome_and_reports_conflicts(

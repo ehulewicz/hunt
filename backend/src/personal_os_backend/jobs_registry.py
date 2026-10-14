@@ -18,6 +18,8 @@ from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from personal_os_backend.jobs_answers import normalize_answer_key, propose_binding, upsert_question
+
 ControlKind = Literal[
     "text_entry",
     "native_select",
@@ -35,8 +37,8 @@ UNSEEDED_PRECEDENCE = 100
 
 
 def normalize_question_key(value: str) -> str:
-    """The same normalization the answer library uses for its keys."""
-    return " ".join(re.sub(r"[^a-z0-9+#]+", " ", value.casefold()).split())
+    """The same normalization `jobs_questions` uses for its keys."""
+    return normalize_answer_key(value)
 
 
 class FillEventCreate(BaseModel):
@@ -53,6 +55,9 @@ class FillEventCreate(BaseModel):
     value_hash: str | None = Field(default=None, max_length=128)
     stopped_at: StoppedAt | None = None
     operated_ok: bool | None = None
+    # The active pattern that produced the value, and whether the question wants prose.
+    pattern_id: UUID | None = None
+    form: Literal["short", "long"] | None = None
 
     @field_validator("strategy")
     @classmethod
@@ -78,14 +83,25 @@ async def record_fill_events(
     ats: str,
     events: Sequence[FillEventCreate],
 ) -> int:
-    """Write one row per attempt; return how many were written."""
+    """Write one row per attempt; return how many were written.
+
+    Each event records its question (R44). An archive or model fill that read
+    back proposes a candidate binding from its question to the fact it used
+    (R43); nothing here activates one.
+    """
     controls: dict[tuple[str, str], UUID] = {}
     strategies: dict[tuple[str, str], UUID] = {}
+    questions: dict[str, UUID | None] = {}
     written = 0
     for event in events:
         question_key = normalize_question_key(event.question)
         if not question_key:
             continue
+        if question_key not in questions or event.form == "long":
+            questions[question_key] = await upsert_question(
+                connection, user_id=user_id, label=event.question, form=event.form
+            )
+        question_id = questions[question_key]
         attributes = Jsonb(event.attributes)
         control_key = (event.kind, repr(sorted(event.attributes.items())))
         if control_key not in controls:
@@ -140,8 +156,12 @@ async def record_fill_events(
             """
             insert into app.jobs_fill_events (
               user_id, run_id, step, question_key, resolver_id, fact_key, formatter,
-              source, control_id, strategy_id, ats, value_hash, stopped_at, operated_ok
-            ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+              source, control_id, strategy_id, ats, value_hash, stopped_at, operated_ok,
+              question_id, pattern_id
+            ) values (
+              %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+              (select id from app.jobs_patterns where id = %s and user_id = %s)
+            )
             """,
             (
                 user_id,
@@ -158,7 +178,25 @@ async def record_fill_events(
                 event.value_hash,
                 event.stopped_at,
                 event.operated_ok,
+                question_id,
+                event.pattern_id,
+                user_id,
             ),
         )
+        if (
+            question_id is not None
+            and event.fact_key
+            and event.operated_ok is True
+            and event.source in {"archive", "model"}
+        ):
+            await propose_binding(
+                connection,
+                user_id=user_id,
+                question_id=question_id,
+                fact_key=event.fact_key,
+                formatter=event.formatter,
+                origin="archive" if event.source == "archive" else "model",
+                archive_ref=event.resolver_id if event.source == "archive" else None,
+            )
         written += 1
     return written

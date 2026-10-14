@@ -164,7 +164,7 @@ class FakeApi:
     def facts(self) -> list[dict[str, Any]]:
         return list(self.rows.values())
 
-    def answers(self) -> list[dict[str, Any]]:
+    def archive_answers(self) -> list[dict[str, Any]]:
         return []
 
     def verify_fact(self, key: str) -> dict[str, Any]:

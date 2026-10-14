@@ -1,6 +1,6 @@
 """`os hunt facts`: list, review, and set what is true about you.
 
-Review walks every unverified fact, shows what the answer library says to
+Review walks every unverified fact, shows what the archived answers said to
 similar questions beside it, and records your decision on the row itself.
 """
 
@@ -31,7 +31,7 @@ from personal_os_worker.jobs.facts.profile import fact_values
 VALUE_TYPES = ("text", "boolean", "number", "date", "choice", "list", "object")
 MASK = "••••"
 
-# Library questions that restate a fact, so review can show what they say.
+# Archived questions that restated a fact, so review can show what they said.
 LIBRARY_HINTS = {
     "identity.legal_name": r"\b(first|last|full|legal|given|family) name\b|\bsurname\b",
     "identity.preferred_name": r"\bpreferred (first )?name\b",
@@ -108,7 +108,7 @@ def display(value: Any) -> str:
 
 
 def library_conflicts(key: str, answers: list[dict[str, Any]]) -> list[tuple[str, str]]:
-    """Distinct library answers to questions that look like they restate this fact."""
+    """Distinct archived answers to questions that look like they restate this fact."""
     hint = LIBRARY_HINTS.get(key)
     if hint is None:
         return []
@@ -202,7 +202,7 @@ def review_facts(
 ) -> tuple[int, int]:
     """Walk unverified facts; return (decided, remaining)."""
     facts = [fact for fact in api.facts() if not fact.get("verified_at")]
-    answers = api.answers()
+    answers = api.archive_answers()
     decided = 0
     for position, fact in enumerate(facts, start=1):
         key = str(fact["key"])
@@ -213,7 +213,7 @@ def review_facts(
         console.print(f"  value    {display(fact.get('value'))}", markup=False)
         conflicts = library_conflicts(key, answers)
         if conflicts:
-            console.print("  library answers to similar questions:", style="dim")
+            console.print("  archived answers to similar questions:", style="dim")
             for question, answer in conflicts[:8]:
                 console.print(f"    {answer!r:<40}  ← {question[:70]}", markup=False)
         while True:

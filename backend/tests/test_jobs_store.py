@@ -124,5 +124,8 @@ def test_lists_that_are_addressed_by_row_have_deterministic_order() -> None:
         Path(__file__).resolve().parents[1] / "src/personal_os_backend/jobs_store.py"
     ).read_text()
     assert "application.updated_at desc, application.id" in source
-    assert "order by updated_at desc, id" in source
     assert "order by last_seen_at desc, id" in source
+    answers = (
+        Path(__file__).resolve().parents[1] / "src/personal_os_backend/jobs_answers.py"
+    ).read_text()
+    assert "order by updated_at desc, id" in answers  # the archive, listed by row

@@ -82,11 +82,10 @@ def test_everyday_commands_have_short_spellings() -> None:
     assert expand_shorthand(["hunt", "--faang"]) == ["hunt", "list", "--faang"]
     assert expand_shorthand(["hunt", "--ats", "lever"]) == ["hunt", "list", "--ats", "lever"]
     assert expand_shorthand(["hunt", "20", "--ats=ashby"]) == ["hunt", "list", "20", "--ats=ashby"]
-    assert expand_shorthand(["hunt", "answers"]) == ["hunt", "answers", "list"]
     assert expand_shorthand(["hunt", "resume"]) == ["hunt", "resume", "edit", "--open"]
     # anything already spelled out is left alone
     assert expand_shorthand(["hunt", "apply", "7"]) == ["hunt", "apply", "7"]
-    assert expand_shorthand(["hunt", "answers", "add"]) == ["hunt", "answers", "add"]
+    assert expand_shorthand(["hunt", "inbox"]) == ["hunt", "inbox"]
     assert expand_shorthand(["hunt", "resume", "build"]) == ["hunt", "resume", "build"]
     assert expand_shorthand(["status"]) == ["status"]
     assert expand_shorthand(["hunt", "-h"]) == ["hunt", "-h"]  # help is the hunt help
@@ -101,7 +100,10 @@ def test_hunt_help_lists_only_the_public_commands(capsys: pytest.CaptureFixture[
     assert exit_info.value.code == 0
     output = capsys.readouterr().out
     assert "os hunt [N]" in output
-    assert "{today,sync,open,apps,skipped,answers,facts,resume,apply}" in output
+    assert (
+        "{today,sync,open,apps,skipped,inbox,patterns,facts,prose,archive,resume,apply}" in output
+    )
+    assert "\n    answers " not in output  # the library command is gone
     assert "queue" not in output
     assert "{list," not in output and "\n    list " not in output
 
@@ -374,53 +376,6 @@ def test_autofill_failure_commands_preserve_the_documented_syntax() -> None:
     assert (verified.failure_ref, verified.verify_listing_ref) == ("2", "9")
 
 
-def test_answer_library_is_manageable_without_the_web_app() -> None:
-    listed = build_parser().parse_args(["hunt", "answers", "list"])
-    added = build_parser().parse_args(
-        [
-            "hunt",
-            "answers",
-            "add",
-            "--question",
-            "Why us?",
-            "--file",
-            "answer.md",
-            "--reuse",
-            "contextual",
-        ]
-    )
-    edited = build_parser().parse_args(
-        ["hunt", "answers", "edit", "2", "--text", "Updated", "--approve"]
-    )
-    assert listed.answer_command == "list"
-    assert added.file == "answer.md" and added.draft is False
-    assert added.reuse == "contextual"
-    assert edited.ref == "2" and edited.approved is True
-
-
-def test_answer_reuse_choices_include_pattern() -> None:
-    added = build_parser().parse_args(
-        [
-            "hunt",
-            "answers",
-            "add",
-            "--question",
-            r"consider me for other (job )?opportunities",
-            "--text",
-            "Yes",
-            "--reuse",
-            "pattern",
-        ]
-    )
-    edited = build_parser().parse_args(["hunt", "answers", "edit", "3", "--reuse", "pattern"])
-    assert added.reuse == "pattern"
-    assert edited.reuse == "pattern"
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(
-            ["hunt", "answers", "add", "--question", "Q", "--text", "A", "--reuse", "bogus"]
-        )
-
-
 def test_stop_defaults_to_everything_and_is_not_forced() -> None:
     args = build_parser().parse_args(["stop"])
     assert args.target == "all" and args.force is False
@@ -508,29 +463,19 @@ def test_persistence_failure_keeps_the_session_page_for_recovery() -> None:
     assert calls == ["complete"]
 
 
-def test_answer_review_is_read_only_and_supplies_context(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
-) -> None:
-    calls: list[object] = []
 
-    class ReviewApi:
-        def __init__(self, *_: object) -> None:
-            pass
 
-        def answer_review(self, *, limit: int, offset: int) -> list[dict[str, object]]:
-            calls.append((limit, offset))
-            return [{"reason": "changed_proposal", "question": "Location?",
-                     "proposed_value": "Atlanta", "answer_text": "Remote",
-                     "resolver_id": "builtin:location"}]
-
-        def close(self) -> None:
-            calls.append("closed")
-
-    monkeypatch.setattr(hunt, "connected", lambda: (object(), "token"))
-    monkeypatch.setattr(hunt, "WorkerApi", ReviewApi)
-    assert main(["hunt", "answers", "review", "--limit", "20", "--offset", "5"]) == 0
-    output = capsys.readouterr().out
-    assert "one-off or a rule defect" in output
-    assert "builtin:location" in output
-    assert "Atlanta" in output and "Remote" in output
-    assert calls == [(20, 5), "closed"]
+def test_the_learning_commands_parse() -> None:
+    assert build_parser().parse_args(["hunt", "inbox"]).hunt_command == "inbox"
+    patterns = build_parser().parse_args(["hunt", "patterns", "--all"])
+    assert patterns.hunt_command == "patterns" and patterns.every is True
+    prose = build_parser().parse_args(
+        ["hunt", "prose", "add", "--question", "Why us?", "--file", "a.md"]
+    )
+    assert (prose.action, prose.question, prose.file) == ("add", "Why us?", "a.md")
+    assert build_parser().parse_args(["hunt", "prose", "approve", "2"]).ref == "2"
+    archive = build_parser().parse_args(["hunt", "archive", "prose", "--markdown", "/tmp/a.md"])
+    assert (archive.section, archive.markdown) == ("prose", "/tmp/a.md")
+    assert build_parser().parse_args(["hunt", "archive"]).section == "answers"
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "answers", "list"])

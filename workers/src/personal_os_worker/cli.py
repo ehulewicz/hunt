@@ -22,13 +22,15 @@ from personal_os_worker.core.service import ApiUnavailable, ChromeUnavailable
 from personal_os_worker.core.tables import ReferenceError, console
 from personal_os_worker.documents import resume as resumes
 from personal_os_worker.jobs import commands as hunt
+from personal_os_worker.jobs import inbox, knowledge
 from personal_os_worker.jobs.adapters import ATS_NAMES
 from personal_os_worker.jobs.commands import APPLICATION_STATUSES, DEFAULT_TECHNICAL_FAMILIES
 from personal_os_worker.jobs.facts import commands as facts
 from personal_os_worker.jobs.facts.commands import VALUE_TYPES
 
 HUNT_COMMANDS = (
-    "today", "sync", "open", "apps", "skipped", "answers", "facts", "resume", "apply"
+    "today", "sync", "open", "apps", "skipped", "inbox", "patterns", "facts", "prose",
+    "archive", "resume", "apply",
 )
 LISTING_FLAGS = ("--faang", "--quant", "--location", "--family", "--all-roles", "--ats")
 
@@ -73,10 +75,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     jobs = commands.add_parser(
         "hunt",
-        help="Jobs: listings, applications, answers, and the resume",
+        help="Jobs: listings, applications, what is learned, and the resume",
         description=(
             "os hunt [N] lists open listings (N rows, default 10). "
-            "os hunt answers lists the answer library; os hunt resume edits the resume."
+            "os hunt inbox reviews what was learned; os hunt resume edits the resume."
         ),
         usage=(
             "os hunt [N] [--faang | --quant] [--location L] [--family F] [--all-roles] [--ats A]\n"
@@ -151,30 +153,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="New status for that application",
     )
 
-    answers = jobs_commands.add_parser("answers", help="Manage reusable long-form answers")
-    answer_commands = answers.add_subparsers(dest="answer_command", required=True)
-    answer_commands.add_parser("list", help="List canonical reusable answers")
-    answer_review = answer_commands.add_parser("review", help="Inspect flagged application answers")
-    answer_review.add_argument("--limit", type=int, default=50)
-    answer_review.add_argument("--offset", type=int, default=0)
-    answer_add = answer_commands.add_parser("add", help="Add a canonical answer")
-    answer_add.add_argument("--question", required=True)
-    answer_add_input = answer_add.add_mutually_exclusive_group(required=True)
-    answer_add_input.add_argument("--text", help="Answer wording")
-    answer_add_input.add_argument("--file", help="Read answer wording from a UTF-8 file")
-    answer_add.add_argument("--draft", action="store_true", help="Save unapproved")
-    answer_add.add_argument("--reuse", choices=["exact", "contextual", "pattern"], default="exact")
-    answer_edit = answer_commands.add_parser("edit", help="Edit a listed answer")
-    answer_edit.add_argument("ref", help="Row number from answers list or id prefix")
-    answer_edit.add_argument("--question")
-    answer_edit_input = answer_edit.add_mutually_exclusive_group()
-    answer_edit_input.add_argument("--text", help="Replacement wording")
-    answer_edit_input.add_argument("--file", help="Read replacement wording from a UTF-8 file")
-    answer_approval = answer_edit.add_mutually_exclusive_group()
-    answer_approval.add_argument("--approve", action="store_const", const=True, dest="approved")
-    answer_approval.add_argument("--draft", action="store_const", const=False, dest="approved")
-    answer_edit.set_defaults(approved=None)
-    answer_edit.add_argument("--reuse", choices=["exact", "contextual", "pattern"])
+    jobs_commands.add_parser(
+        "inbox", help="Accept or reject what was learned; bind questions to facts"
+    )
+    patterns = jobs_commands.add_parser(
+        "patterns", help="Which questions fill deterministically, and which wait"
+    )
+    patterns.add_argument(
+        "--all", action="store_true", dest="every", help="Include rejected and retired patterns"
+    )
+    prose = jobs_commands.add_parser("prose", help="Saved long-form writing")
+    prose.add_argument("action", nargs="?", choices=["list", "add", "approve", "delete"])
+    prose.add_argument("ref", nargs="?", help="Row number from 'os hunt prose' or id prefix")
+    prose.add_argument("--question", help="The question the writing answers (add)")
+    prose.add_argument("--file", help="Read the writing from a UTF-8 file (add)")
+    archive = jobs_commands.add_parser(
+        "archive", help="The old system, frozen: answers, retired rules, long-form writing"
+    )
+    archive.add_argument("section", nargs="?", default="answers",
+                         choices=["answers", "rules", "prose"])
+    archive.add_argument("--markdown", help="Write archived long-form answers to this file")
 
     facts_parser = jobs_commands.add_parser(
         "facts", help="List, review, or set what is true about you"
@@ -350,28 +348,16 @@ def _dispatch(args: argparse.Namespace) -> int:
             if args.action == "restore" and not args.ref:
                 raise RuntimeError("'skipped restore' needs a row from the skipped table")
             return hunt.run_skipped(args.ref if args.action == "restore" else None)
-        if args.hunt_command == "answers":
-            if args.answer_command == "list":
-                return hunt.run_answers()
-            if args.answer_command == "review":
-                return hunt.run_answer_review(limit=args.limit, offset=args.offset)
-            if args.answer_command == "add":
-                return hunt.run_answer_add(
-                    question=args.question,
-                    text=args.text,
-                    file=args.file,
-                    approved=not args.draft,
-                    reuse=args.reuse,
-                )
-            if args.answer_command == "edit":
-                return hunt.run_answer_edit(
-                    args.ref,
-                    question=args.question,
-                    text=args.text,
-                    file=args.file,
-                    approved=args.approved,
-                    reuse=args.reuse,
-                )
+        if args.hunt_command == "inbox":
+            return inbox.run_inbox()
+        if args.hunt_command == "patterns":
+            return knowledge.run_patterns(every=args.every)
+        if args.hunt_command == "prose":
+            return knowledge.run_prose(
+                args.action, args.ref, question=args.question, file=args.file
+            )
+        if args.hunt_command == "archive":
+            return knowledge.run_archive(args.section, markdown=args.markdown)
         if args.hunt_command == "facts":
             if args.fact_command == "list":
                 return facts.run_facts_list(show_sensitive=args.show)
@@ -418,17 +404,14 @@ def _dispatch(args: argparse.Namespace) -> int:
 def expand_shorthand(arguments: list[str]) -> list[str]:
     """The short spellings of the everyday commands.
 
-    `hunt` is `hunt list`, `hunt 20` is `hunt list 20`, `hunt answers` is
-    `hunt answers list`, `hunt facts` is `hunt facts list`, and `hunt resume`
-    is `hunt resume edit --open`.
+    `hunt` is `hunt list`, `hunt 20` is `hunt list 20`, `hunt facts` is
+    `hunt facts list`, and `hunt resume` is `hunt resume edit --open`.
     """
     if not arguments or arguments[0] != "hunt":
         return arguments
     rest = arguments[1:]
     if not rest or rest[0].isdigit() or rest[0].split("=", 1)[0] in LISTING_FLAGS:
         return ["hunt", "list", *rest]
-    if rest == ["answers"]:
-        return ["hunt", "answers", "list"]
     if rest == ["facts"]:
         return ["hunt", "facts", "list"]
     if rest == ["resume"]:

@@ -176,52 +176,100 @@ class WorkerApi:
             raise RuntimeError("Career response was invalid")
         return payload
 
-    def answer_review(self, *, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
-        response = self._client.get(
-            "/v1/jobs/answer-review", params={"limit": limit, "offset": offset}
-        )
+    def _json(self, response: httpx.Response, kind: str) -> Any:
+        if response.status_code == 404:
+            detail = response.json().get("detail") if response.content else None
+            raise ReferenceError(str(detail or f"{kind} not found"))
         response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, list):
-            raise RuntimeError("Answer review response was invalid")
+        return response.json()
+
+    def inbox(self) -> dict[str, Any]:
+        payload = self._json(self._client.get("/v1/jobs/inbox"), "Inbox")
+        if not isinstance(payload, dict):
+            raise RuntimeError("Inbox response was invalid")
         return payload
 
-    def answers(self) -> list[dict[str, Any]]:
-        response = self._client.get("/v1/jobs/answers")
-        response.raise_for_status()
-        payload = response.json()
+    def questions(self, *, disposition: str | None = None) -> list[dict[str, Any]]:
+        params = {"disposition": disposition} if disposition else None
+        payload = self._json(self._client.get("/v1/jobs/questions", params=params), "Questions")
         return payload if isinstance(payload, list) else []
 
-    def create_answer(
-        self,
-        *,
-        question: str,
-        answer_text: str,
-        approved: bool,
-        reuse_policy: str = "exact",
-    ) -> dict[str, Any]:
-        response = self._client.post(
-            "/v1/jobs/answers",
-            json={
-                "question": question,
-                "answer_text": answer_text,
-                "approved": approved,
-                "reuse_policy": reuse_policy,
-            },
+    def update_question(self, question_id: str, *, disposition: str) -> dict[str, Any]:
+        payload = self._json(
+            self._client.patch(
+                f"/v1/jobs/questions/{question_id}", json={"disposition": disposition}
+            ),
+            "Question",
         )
-        response.raise_for_status()
-        payload = response.json()
         if not isinstance(payload, dict):
-            raise RuntimeError("Created answer response was invalid")
+            raise RuntimeError("Question response was invalid")
         return payload
 
-    def update_answer(self, answer_id: str, changes: dict[str, Any]) -> dict[str, Any]:
-        response = self._client.patch(f"/v1/jobs/answers/{answer_id}", json=changes)
-        response.raise_for_status()
-        payload = response.json()
+    def patterns(self, *statuses: str) -> list[dict[str, Any]]:
+        params: list[tuple[str, str | int | float | bool | None]] = [
+            ("status", status) for status in statuses
+        ]
+        payload = self._json(self._client.get("/v1/jobs/patterns", params=params), "Patterns")
+        return payload if isinstance(payload, list) else []
+
+    def create_pattern(self, **fields: Any) -> dict[str, Any]:
+        payload = self._json(
+            self._client.post(
+                "/v1/jobs/patterns",
+                json={key: value for key, value in fields.items() if value is not None},
+            ),
+            "Question",
+        )
         if not isinstance(payload, dict):
-            raise RuntimeError("Updated answer response was invalid")
+            raise RuntimeError("Pattern response was invalid")
         return payload
+
+    def update_pattern(self, pattern_id: str, *, status: str) -> dict[str, Any]:
+        payload = self._json(
+            self._client.patch(f"/v1/jobs/patterns/{pattern_id}", json={"status": status}),
+            "Pattern",
+        )
+        if not isinstance(payload, dict):
+            raise RuntimeError("Pattern response was invalid")
+        return payload
+
+    def prose(self) -> list[dict[str, Any]]:
+        payload = self._json(self._client.get("/v1/jobs/prose"), "Prose")
+        return payload if isinstance(payload, list) else []
+
+    def create_prose(self, *, question: str, text: str, approved: bool = True) -> dict[str, Any]:
+        payload = self._json(
+            self._client.post(
+                "/v1/jobs/prose", json={"question": question, "text": text, "approved": approved}
+            ),
+            "Prose",
+        )
+        if not isinstance(payload, dict):
+            raise RuntimeError("Prose response was invalid")
+        return payload
+
+    def update_prose(
+        self, prose_id: str, *, text: str | None = None, approved: bool | None = None
+    ) -> dict[str, Any]:
+        body = {
+            key: value
+            for key, value in {"text": text, "approved": approved}.items()
+            if value is not None
+        }
+        payload = self._json(self._client.patch(f"/v1/jobs/prose/{prose_id}", json=body), "Prose")
+        if not isinstance(payload, dict):
+            raise RuntimeError("Prose response was invalid")
+        return payload
+
+    def delete_prose(self, prose_id: str) -> None:
+        response = self._client.delete(f"/v1/jobs/prose/{prose_id}")
+        if response.status_code == 404:
+            raise ReferenceError("Prose not found")
+        response.raise_for_status()
+
+    def archive_answers(self) -> list[dict[str, Any]]:
+        payload = self._json(self._client.get("/v1/jobs/archive/answers"), "Archive")
+        return payload if isinstance(payload, list) else []
 
     def applications(self) -> list[dict[str, Any]]:
         response = self._client.get("/v1/jobs/applications")

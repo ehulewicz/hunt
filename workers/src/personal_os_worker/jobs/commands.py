@@ -14,11 +14,7 @@ from personal_os_worker.core.service import ensure_chrome, open_external_url
 from personal_os_worker.core.tables import console, pick
 from personal_os_worker.documents.doctor import CHECKS as DOCUMENT_CHECKS
 from personal_os_worker.jobs.facts.profile import legacy_profile
-from personal_os_worker.jobs.tables import (
-    render_answers,
-    render_applications,
-    render_listings,
-)
+from personal_os_worker.jobs.tables import render_applications, render_listings
 
 APPLICATION_STATUSES = (
     "applying", "applied", "oa", "oa_completed", "interview", "offer", "rejected", "skipped"
@@ -238,116 +234,6 @@ def run_skipped(restore: str | None = None) -> int:
     return 0
 
 
-def run_answer_review(*, limit: int = 50, offset: int = 0) -> int:
-    import json
-
-    if not 1 <= limit <= 200 or offset < 0:
-        raise RuntimeError("Review requires limit 1-200 and a nonnegative offset")
-    config, token = connected()
-    api = WorkerApi(config, token)
-    try:
-        items = api.answer_review(limit=limit, offset=offset)
-        actions = {
-            "changed_proposal": (
-                "Compare context; decide whether this was a one-off or a rule defect."
-            ),
-            "model_draft": "Check factual support and relevance before considering explicit reuse.",
-            "manual_answer": "Check whether an approved exact answer or dynamic rule is missing.",
-        }
-        console.print_json(json.dumps([
-            {**item, "suggested_action": actions.get(str(item.get("reason"))),
-             "completion_note": "Completion values are last observed, not submit-time captures."}
-            for item in items
-        ], default=str))
-        console.print("Automation failures: os hunt apply failures list", markup=False)
-        return 0
-    finally:
-        api.close()
-
-
-def run_answers() -> int:
-    config, token = connected()
-    api = WorkerApi(config, token)
-    try:
-        items = api.answers()
-    finally:
-        api.close()
-    render_answers(items)
-    return 0
-
-
-def _answer_text(*, text: str | None, file: str | None) -> str:
-    if file:
-        from pathlib import Path
-
-        try:
-            value = Path(file).expanduser().read_text(encoding="utf-8")
-        except FileNotFoundError:
-            raise RuntimeError(f"Answer file not found: {file}") from None
-    else:
-        value = text or ""
-    value = value.strip()
-    if not value:
-        raise RuntimeError("Answer text cannot be empty")
-    return value
-
-
-def run_answer_add(
-    *, question: str, text: str | None, file: str | None, approved: bool, reuse: str
-) -> int:
-    answer_text = _answer_text(text=text, file=file)
-    config, token = connected()
-    api = WorkerApi(config, token)
-    try:
-        item = api.create_answer(
-            question=question.strip(),
-            answer_text=answer_text,
-            approved=approved,
-            reuse_policy=reuse,
-        )
-    finally:
-        api.close()
-    console.print(
-        f"Saved answer {str(item.get('id', ''))[:8]} as "
-        f"{'approved' if item.get('approved') else 'draft'}."
-    )
-    return 0
-
-
-def run_answer_edit(
-    reference: str,
-    *,
-    question: str | None,
-    text: str | None,
-    file: str | None,
-    approved: bool | None,
-    reuse: str | None,
-) -> int:
-    changes: dict[str, object] = {}
-    if question is not None:
-        changes["question"] = question.strip()
-    if text is not None or file is not None:
-        changes["answer_text"] = _answer_text(text=text, file=file)
-    if approved is not None:
-        changes["approved"] = approved
-    if reuse is not None:
-        changes["reuse_policy"] = reuse
-    if not changes:
-        raise RuntimeError("Choose a question, answer text/file, or approval change")
-    config, token = connected()
-    api = WorkerApi(config, token)
-    try:
-        answer = pick(api.answers(), reference, kind="answers")
-        item = api.update_answer(str(answer["id"]), changes)
-    finally:
-        api.close()
-    console.print(
-        f"Updated answer {str(item.get('id', ''))[:8]}; "
-        f"state is {'approved' if item.get('approved') else 'draft'}."
-    )
-    return 0
-
-
 def run_doctor_command() -> int:
     config, token = connected()
     checks = run_doctor(config, token, extra=DOCUMENT_CHECKS)
@@ -479,8 +365,9 @@ def apply_posting(posting_id: str, *, dry_run: bool, no_claude: bool) -> str:
         if run.get("ats") != adapter.name:
             raise RuntimeError("The backend and browser disagreed on the ATS adapter")
         profile = legacy_profile(list(run.get("facts") or []), date.today(), career=career)
-        answers = list(run.get("approved_answers") or [])
-        scoped = list(run.get("scoped_answers") or [])
+        # The answer library is archived (design §0); nothing old is reused as is.
+        answers: list[dict[str, Any]] = []
+        scoped: list[dict[str, Any]] = []
         duplicates = list(run.get("duplicate_company_applications") or [])
         if duplicates:
             console.print(

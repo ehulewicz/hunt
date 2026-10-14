@@ -19,11 +19,15 @@ os hunt list --all-roles
 os hunt open 12
 os hunt open 12 --source
 os hunt apps
-os hunt answers      # = os hunt answers list
-os hunt answers add --question "Are you authorized?" --text "Yes" --reuse exact
-os hunt answers add --question "Why this company?" --file ./answer.md --reuse contextual
-os hunt answers add --question "consider me for other (job )?opportunities" --text "Yes" --reuse pattern
-os hunt answers edit 1 --file ./revised-answer.md --reuse contextual --approve
+os hunt inbox        # accept or reject what was learned; bind questions to facts
+os hunt patterns     # what fills deterministically (active) and what waits (candidate)
+os hunt patterns --all
+os hunt prose        # saved long-form writing
+os hunt prose add --question "Why this company?" --file ./answer.md
+os hunt prose approve 2
+os hunt archive      # the old answer library, frozen, with each question's fact
+os hunt archive rules
+os hunt archive prose --markdown ~/archived-answers.md
 os hunt facts        # = os hunt facts list; stored and derived facts, sensitive values masked
 os hunt facts list --show
 os hunt facts review # accept, edit, or delete each unverified fact
@@ -67,7 +71,7 @@ number in `os hunt`, `os hunt 9`, `os hunt today`, and every filtered view
 (filters leave gaps rather than renumbering). Listings you have applied to are
 not shown; a queued one carries a `q`. Nothing is cached on
 the machine: `open`, `queue add`, and `apply` ask the API to resolve a number
-or an id prefix at the moment you run them, and `apps`, `answers edit`, and
+or an id prefix at the moment you run them, and `apps`, `prose`, and
 `apply failures …` count rows in the list they just fetched.
 `os hunt open <row>` opens the direct company/ATS URL without creating an
 application; `--source` opens the discovery URL.
@@ -75,14 +79,25 @@ application; `--source` opens the discovery URL.
 order, one interactive session at a time, and stops after any that is not
 submitted. `apps` lists everything past the queue with its lifecycle status
 (`applied`, `oa`, `oa_completed`, `interview`, `offer`, `rejected`); `apps
-<row> <status>` moves one along. Answer edits update the hosted canonical library
-immediately; Git is not a second answer store. `exact` answers are reused
-unchanged. `pattern` rows hold a case-insensitive regular expression as the
-question and answer any autofill question it matches, standing in for the
-user's policy on things like "willing to relocate" without one row per exact
-wording. `contextual` and unmatched long-form questions invoke local Claude,
-with the 20 percent guard applied whenever a base exists. Preparation without another flag
-compiles the canonical resume unchanged.
+<row> <status>` moves one along.
+
+## What the system learns
+
+Since 2026-10-14 the system learns answers from scratch (design §0). The old
+answer library, profile, and rules are the **archive**: frozen, readable with
+`os hunt archive`, and consulted only when a question has no active pattern —
+and then only to name the fact the question asks about, never to type an old
+answer. A fill the archive (or the model) supplies from a fact records a
+`candidate` binding from that question to that fact.
+
+`os hunt inbox` is the human step. It walks candidates (accept, reject, or widen
+an archived rule's binding to the rule's old expression), questions you
+answered that nothing is bound to (bind to a fact, creating it from the catalog
+if needed; keep as a one-off; or mark long-form), and long-form writing from
+submitted applications (approve for reuse, or delete). An accepted pattern is
+`active`, and the next application fills that question deterministically;
+`os hunt patterns` shows the state of the loop. Prose is reused only once
+approved; `prose add` saves writing directly, approved.
 
 The career record's exports and the transcript are portable Git artifacts:
 
@@ -115,8 +130,8 @@ terminal, Ctrl+S records what has been picked up so
 far for review, Ctrl+A records answers and marks the application applied when you have submitted
 it yourself, Ctrl+D skips the listing (it leaves the board as `skipped`, a
 resync cannot bring it back, and `os hunt skipped restore <n>` can), and
-Ctrl+C stops and records the application state. Whatever facts and exact answers leave unfilled goes
-through library and built-in pattern rules, then one bounded local Claude pass
+Ctrl+C stops and records the application state. Whatever facts leave unfilled goes
+through the built-in pattern rules, then one bounded local Claude pass
 per page step over the remaining short and choice questions; `--no-claude`
 skips that last pass.
 
@@ -126,7 +141,7 @@ success panel ends automatically. On detected submission, Ctrl+A, Ctrl+D, or
 Ctrl+C, persistence finishes before the command closes only the application tab
 it opened. `--dry-run` and unexpected worker errors leave that tab open.
 
-Standing salary policy precedes saved exact answers: requirements follow the
+Standing salary policy precedes everything else: requirements follow the
 `compensation.minimum` fact, USD $40/hour (or 40 numeric), explicit annual
 requirements are $83,200 USD (or 83200 numeric), and a stated compensation range
 is accepted. Graduation uses `Fall 2027` when a term is requested and `December
@@ -136,7 +151,7 @@ each May 1, August 1, and November 1 until graduation. Visa/work-permit
 expiration stays manual without a date.
 
 Facts are the single source the apply run fills from. `os hunt facts review`
-shows each unverified fact beside what the answer library says to similar
+shows each unverified fact beside what the archived answers said to similar
 questions, so a contradiction such as a second graduation date is settled once,
 on the fact.
 

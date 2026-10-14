@@ -16,11 +16,10 @@ os hunt sync
 os hunt            # list
 os hunt 20         # list 20
 os hunt today
-os hunt answers list
+os hunt inbox
+os hunt patterns
 os hunt facts review
 os hunt resume
-os hunt queue add 1
-os hunt queue empty
 os hunt apps
 os hunt apply 1 --dry-run
 os hunt apply 1
@@ -44,6 +43,23 @@ The CLI launches local FastAPI and the dedicated native Windows Chrome profile
 as needed. It never accesses Postgres directly and never submits an application.
 See `../docs/jobs-cli.md` for the deterministic mapping, contextual Claude, and
 failure-learning workflows.
+
+## What it learns, and the archive
+
+Questions, patterns, and prose start empty and are learned (design §0); the old
+answer library and rules are the archive. `jobs/archive/rules.py` keeps every
+retired rule — exact labels, priority policies, the two library regex rows, the
+builtins, worked-before — verbatim, each with its translation: the fact key it
+read and, where its wording implied one, a formatter. `jobs/archive/lookup.py`
+tries them in the old resolution order (the first tier with a match decides;
+inside a tier exactly one fact must match) and returns that fact plus any
+archived answers to the same question as hints, which are shown and never
+typed. `tests/fixtures/archive_translations.json` freezes what every archived
+question translates to (R30). `jobs/facts/catalog.py` is every fact key with its
+label, type, sensitivity, and whether it is stored, career-derived, or derived.
+
+`jobs/inbox.py` is `os hunt inbox`; `jobs/knowledge.py` is `os hunt patterns`,
+`prose`, and `archive`.
 
 ## How a field is filled
 

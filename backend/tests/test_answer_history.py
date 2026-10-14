@@ -14,9 +14,13 @@ from personal_os_backend.jobs_store import PostgresJobsStore
 
 
 class RecordingConnection:
+    """Answers a question upsert with an id and every other read with `row`."""
+
     def __init__(self, row: dict[str, Any] | None) -> None:
         self.row = row
+        self.question_id = uuid4()
         self.queries: list[tuple[str, tuple[Any, ...] | None]] = []
+        self._pending: dict[str, Any] | None = row
 
     @asynccontextmanager
     async def transaction(self):  # type: ignore[no-untyped-def]
@@ -24,10 +28,13 @@ class RecordingConnection:
 
     async def execute(self, query: str, params: tuple[Any, ...] | None = None):  # type: ignore[no-untyped-def]
         self.queries.append((query, params))
+        self._pending = (
+            {"id": self.question_id} if "into app.jobs_questions" in query else self.row
+        )
         return self
 
     async def fetchone(self) -> dict[str, Any] | None:
-        return self.row
+        return self._pending
 
 
 class RecordingPool:
@@ -134,9 +141,13 @@ async def test_step_observations_never_touch_the_answer_library() -> None:
     assert await store.persist_autofill_step(uuid4(), uuid4(), item) == []
 
     statements = "\n".join(query for query, _ in connection.queries)
-    assert "jobs_answer_library" not in statements
+    assert "jobs_archive_answers" not in statements and "jobs_prose" not in statements
     assert "'approved'" not in statements
     assert len(question_inserts(connection)) == 3
+    assert all(
+        params is not None and connection.question_id in params
+        for _, params in question_inserts(connection)
+    )
 
 
 @pytest.mark.asyncio
@@ -197,7 +208,7 @@ async def test_completed_model_answer_is_history_without_library_approval() -> N
     assert await store.complete_autofill_run(uuid4(), uuid4(), item)
 
     statements = "\n".join(query for query, _ in connection.queries)
-    assert "insert into app.jobs_answer_library" not in statements
+    assert "insert into app.jobs_prose" not in statements  # not submitted, not long-form
     assert "insert into app.jobs_application_questions" in statements
     assert "'approved'" not in statements
 
@@ -255,40 +266,6 @@ async def test_completed_unsubmitted_answers_stay_drafted() -> None:
     assert params is not None
     assert "drafted" in params
     assert "submitted" not in params
-
-
-async def test_review_query_keeps_owner_and_control_context() -> None:
-    from datetime import UTC, datetime
-
-    user_id = uuid4()
-    row = {
-        "id": uuid4(), "application_id": uuid4(), "run_id": uuid4(),
-        "event_index": 2, "step_number": 1, "page_url": "https://example.test/apply",
-        "question": "Location", "answer_text": "Remote", "answer_source": "manual",
-        "control_kind": "text", "field_fingerprint": "location#2",
-        "resolver_id": "profile:city", "proposed_value": "Atlanta",
-        "reason": "changed_proposal", "completion_value": "Remote",
-        "completion_status": "submitted", "created_at": datetime.now(UTC),
-    }
-
-    class ReviewConnection(RecordingConnection):
-        async def fetchall(self) -> list[dict[str, Any]]:
-            return [row]
-
-    connection = ReviewConnection(None)
-    store = PostgresJobsStore(RecordingPool(connection), timeout=1)  # type: ignore[arg-type]
-    items = await store.list_answer_review(user_id, limit=20, offset=5)
-    query, params = connection.queries[-1]
-    assert params == (user_id, 20, 5)
-    assert "event.user_id = %s" in query
-    assert "final.user_id = event.user_id" in query
-    assert "final.field_fingerprint = event.field_fingerprint" in query
-    assert "final.step_number = event.step_number" in query
-    assert "event.event_kind = 'observed'" in query
-    assert items[0].resolver_id == "profile:city"
-    assert items[0].completion_value == "Remote"
-    assert all("insert " not in sql.lower() and "update " not in sql.lower()
-               for sql, _ in connection.queries)
 
 
 @pytest.mark.parametrize(
@@ -366,3 +343,31 @@ def test_completion_rejects_invalid_answer_metadata(metadata: dict[str, Any]) ->
             final_url='https://example.test',
             answers=[{'question': 'City', 'answer_text': 'Atlanta', **metadata}],
         )
+
+
+@pytest.mark.asyncio
+async def test_a_submitted_long_form_answer_waits_in_the_inbox_as_prose() -> None:
+    application_id = uuid4()
+    connection = RecordingConnection({"application_id": application_id})
+    store = PostgresJobsStore(RecordingPool(connection), 5)  # type: ignore[arg-type]
+    item = AutofillRunComplete(
+        final_url="https://example.test/thanks",
+        submitted=True,
+        answers=[
+            {"question": "Why us?", "answer_text": "Because of X", "source": "manual",
+             "form": "long"},
+            {"question": "Why this team?", "answer_text": "Reused", "source": "prose",
+             "form": "long"},
+            {"question": "Are you 18?", "answer_text": "Yes", "source": "manual",
+             "form": "short"},
+        ],
+    )
+
+    assert await store.complete_autofill_run(uuid4(), uuid4(), item)
+
+    prose = [
+        params for query, params in connection.queries if "insert into app.jobs_prose" in query
+    ]
+    assert len(prose) == 1
+    assert prose[0] is not None
+    assert "Because of X" in prose[0] and application_id in prose[0] and "manual" in prose[0]

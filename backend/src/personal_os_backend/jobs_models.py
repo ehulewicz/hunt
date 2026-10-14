@@ -1,4 +1,3 @@
-import re
 from datetime import date, datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -28,7 +27,6 @@ RoleFamily = Literal[
     "data_science",
     "other",
 ]
-AnswerReusePolicy = Literal["exact", "contextual", "pattern"]
 AutofillAts = Literal["greenhouse", "ashby", "lever", "generic"]
 FailureStatus = Literal[
     "open", "diagnosed", "patch_ready", "replay_passed", "live_verified", "fixed"
@@ -120,107 +118,6 @@ class ApplicationUpdate(BaseModel):
     notes: str | None = Field(default=None, max_length=10000)
 
 
-def validate_pattern(reuse_policy: str | None, question: str | None) -> None:
-    """A pattern row's question is a regular expression; refuse ones that cannot compile."""
-    if reuse_policy != "pattern" or question is None:
-        return
-    try:
-        re.compile(question, re.IGNORECASE)
-    except re.error as error:
-        raise ValueError(f"question must be a valid regular expression: {error}") from None
-
-
-class AnswerReviewItem(BaseModel):
-    id: UUID
-    application_id: UUID
-    run_id: UUID
-    event_index: int
-    step_number: int
-    page_url: str
-    question: str
-    answer_text: str
-    answer_source: str
-    control_kind: str | None
-    field_fingerprint: str | None
-    resolver_id: str | None
-    proposed_value: str | None
-    reason: Literal["changed_proposal", "model_draft", "manual_answer"]
-    completion_value: str | None
-    completion_status: str | None
-    created_at: datetime
-
-
-class AnswerLibraryItem(BaseModel):
-    id: UUID
-    question: str
-    normalized_key: str
-    answer_text: str
-    reuse_policy: AnswerReusePolicy
-    approved: bool
-    updated_at: datetime
-
-
-class AnswerLibraryCreate(BaseModel):
-    question: str = Field(min_length=1, max_length=1000)
-    answer_text: str = Field(min_length=1, max_length=10000)
-    reuse_policy: AnswerReusePolicy = "exact"
-    approved: bool
-
-    @field_validator("question", "answer_text")
-    @classmethod
-    def strip_required_text(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("must not be blank")
-        return value
-
-    @model_validator(mode="after")
-    def pattern_must_compile(self) -> "AnswerLibraryCreate":
-        validate_pattern(self.reuse_policy, self.question)
-        return self
-
-
-class AnswerLibraryUpdate(BaseModel):
-    question: str | None = Field(default=None, min_length=1, max_length=1000)
-    answer_text: str | None = Field(default=None, min_length=1, max_length=10000)
-    reuse_policy: AnswerReusePolicy | None = None
-    approved: bool | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def reject_explicit_nulls(cls, value: Any) -> Any:
-        if isinstance(value, dict):
-            nullable_fields = {
-                key
-                for key in ("question", "answer_text", "reuse_policy", "approved")
-                if key in value and value[key] is None
-            }
-            if nullable_fields:
-                raise ValueError(f"must not be null: {', '.join(sorted(nullable_fields))}")
-        return value
-
-    @model_validator(mode="after")
-    def pattern_must_compile(self) -> "AnswerLibraryUpdate":
-        validate_pattern(self.reuse_policy, self.question)
-        return self
-
-    @field_validator("question", "answer_text")
-    @classmethod
-    def strip_optional_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        value = value.strip()
-        if not value:
-            raise ValueError("must not be blank")
-        return value
-
-    @model_validator(mode="after")
-    def require_change(self) -> "AnswerLibraryUpdate":
-        if not self.model_fields_set:
-            raise ValueError("at least one field is required")
-        return self
-
-
 class AutofillRunCreate(BaseModel):
     posting_id: UUID
     ats: AutofillAts
@@ -237,8 +134,12 @@ class AutofillRunContext(BaseModel):
     title: str
     description_text: str | None
     facts: list[dict[str, Any]]
-    approved_answers: list[dict[str, Any]]
-    scoped_answers: list[dict[str, Any]]
+    # Only active patterns; candidates wait in the Inbox (design R43).
+    patterns: list[dict[str, Any]]
+    # Approved prose, for long-form questions.
+    prose: list[dict[str, Any]]
+    # The frozen old answer library, consulted on a miss (design §14).
+    archive_answers: list[dict[str, Any]]
     duplicate_company_applications: list[dict[str, Any]]
 
 
@@ -253,6 +154,8 @@ class AutofillAnswer(BaseModel):
     field_fingerprint: str | None = Field(default=None, max_length=500)
     resolver_id: str | None = Field(default=None, max_length=200)
     proposed_value: str | None = Field(default=None, max_length=10000)
+    # Whether the question wants prose; a submitted long-form answer is saved as prose.
+    form: Literal["short", "long"] | None = None
 
     @field_validator("question")
     @classmethod

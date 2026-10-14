@@ -96,29 +96,3 @@ def render_applications(items: list[dict[str, Any]], *, title: str = "Applicatio
             applied or "-",
         )
     console.print(table)
-
-
-def render_answers(items: list[dict[str, Any]]) -> None:
-    table = Table(
-        title=f"Reusable answers ({len(items)})",
-        header_style="bold",
-        box=box.SIMPLE_HEAD,
-        padding=(0, 1),
-        expand=True,
-    )
-    table.add_column("#", justify="right", style="dim")
-    table.add_column("id", style="dim", no_wrap=True)
-    table.add_column("question", no_wrap=True, overflow="ellipsis", ratio=1)
-    table.add_column("answer", overflow="ellipsis", ratio=2)
-    table.add_column("state", no_wrap=True)
-    table.add_column("reuse", no_wrap=True)
-    for index, item in enumerate(items, start=1):
-        table.add_row(
-            str(index),
-            short_id(str(item.get("id", ""))),
-            str(item.get("question") or "-"),
-            str(item.get("answer_text") or "-"),
-            "approved" if item.get("approved") is True else "draft",
-            str(item.get("reuse_policy") or "exact"),
-        )
-    console.print(table)

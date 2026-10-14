@@ -68,8 +68,8 @@ CAREER_FACTS = (
     DerivedFact("employment.current_employer", "Current employer", ("career.experience",)),
     DerivedFact(
         "employment.organizations",
-        "Every organization on the resume, labs included",
-        ("career.experience", "career.research", "career.projects"),
+        "Every organization you worked or researched at, labs included",
+        ("career.experience", "career.research"),
     ),
     DerivedFact("skills.all", "Every skill on the resume, in order", ("career.skills",)),
 )
@@ -208,6 +208,9 @@ def career_facts(record: dict[str, Any] | None, today: date) -> dict[str, Any]:
     values["employment.current_employer"] = current.get("org") if current else None
     organizations: list[str] = []
     for entry in entries:
+        # Where you worked or researched: a project's "org" is an award, not an employer.
+        if entry.get("section") == "project":
+            continue
         # A lab's name is its research heading; its org spells out the acronym.
         names = [entry.get("org")]
         if entry.get("section") == "research":

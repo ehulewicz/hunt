@@ -18,10 +18,6 @@ from fastapi import (
 
 from personal_os_backend.auth import CurrentPrincipal
 from personal_os_backend.jobs_models import (
-    AnswerLibraryCreate,
-    AnswerLibraryItem,
-    AnswerLibraryUpdate,
-    AnswerReviewItem,
     ApplicationCreate,
     ApplicationUpdate,
     AutofillArtifactResponse,
@@ -148,42 +144,6 @@ async def archive_application(
     if not await store.archive_application(principal.user_id, application_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-@router.get("/answer-review", response_model=list[AnswerReviewItem])
-async def list_answer_review(
-    principal: CurrentPrincipal, store: Store,
-    limit: Annotated[int, Query(ge=1, le=200)] = 50,
-    offset: Annotated[int, Query(ge=0)] = 0,
-) -> list[AnswerReviewItem]:
-    return await store.list_answer_review(principal.user_id, limit=limit, offset=offset)
-
-
-@router.get("/answers", response_model=list[AnswerLibraryItem])
-async def list_answers(principal: CurrentPrincipal, store: Store) -> list[AnswerLibraryItem]:
-    return await store.list_answers(principal.user_id)
-
-
-@router.post("/answers", response_model=AnswerLibraryItem, status_code=status.HTTP_201_CREATED)
-async def create_answer(
-    item: AnswerLibraryCreate,
-    principal: CurrentPrincipal,
-    store: Store,
-) -> AnswerLibraryItem:
-    return await store.create_answer(principal.user_id, item)
-
-
-@router.patch("/answers/{answer_id}", response_model=AnswerLibraryItem)
-async def update_answer(
-    answer_id: UUID,
-    item: AnswerLibraryUpdate,
-    principal: CurrentPrincipal,
-    store: Store,
-) -> AnswerLibraryItem:
-    answer = await store.update_answer(principal.user_id, answer_id, item)
-    if answer is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Answer not found")
-    return answer
 
 
 @router.post(

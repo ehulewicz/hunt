@@ -11,13 +11,15 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
 from personal_os_backend.config import Settings
-from personal_os_backend.jobs_answers import answer_storage_key, normalize_answer_key
+from personal_os_backend.jobs_answers import (
+    active_patterns,
+    approved_prose,
+    archived_answers,
+    normalize_answer_key,
+    upsert_question,
+)
 from personal_os_backend.jobs_models import (
     DEFAULT_TECHNICAL_FAMILIES,
-    AnswerLibraryCreate,
-    AnswerLibraryItem,
-    AnswerLibraryUpdate,
-    AnswerReviewItem,
     ApplicationUpdate,
     AutofillFailureDetail,
     AutofillFailureIssue,
@@ -36,7 +38,9 @@ from personal_os_backend.jobs_models import (
 from personal_os_backend.jobs_registry import record_fill_events
 from personal_os_backend.jobs_sources import SOURCE_NAME, SourceListing
 
-ANSWER_SOURCES = frozenset({"jobs_profile", "answer_library", "model", "pattern", "manual"})
+ANSWER_SOURCES = frozenset(
+    {"jobs_profile", "answer_library", "model", "pattern", "manual", "archive", "prose"}
+)
 
 # Every non-data-science open listing without an active application,
 # numbered once: default technical families first, newest first, ties by id.
@@ -110,16 +114,6 @@ class JobsStore(Protocol):
 
     async def archive_application(self, user_id: UUID, application_id: UUID) -> bool: ...
 
-    async def list_answers(self, user_id: UUID) -> list[AnswerLibraryItem]: ...
-
-    async def create_answer(
-        self, user_id: UUID, item: AnswerLibraryCreate
-    ) -> AnswerLibraryItem: ...
-
-    async def update_answer(
-        self, user_id: UUID, answer_id: UUID, item: AnswerLibraryUpdate
-    ) -> AnswerLibraryItem | None: ...
-
     async def create_autofill_run(
         self, user_id: UUID, item: AutofillRunCreate
     ) -> AutofillRunContext | None: ...
@@ -137,10 +131,6 @@ class JobsStore(Protocol):
     async def stop_autofill_run(
         self, user_id: UUID, run_id: UUID, item: AutofillRunStop
     ) -> bool: ...
-
-    async def list_answer_review(
-        self, user_id: UUID, *, limit: int, offset: int,
-    ) -> list[AnswerReviewItem]: ...
 
     async def list_autofill_failures(self, user_id: UUID) -> list[AutofillFailureIssue]: ...
 
@@ -556,92 +546,6 @@ class PostgresJobsStore:
                 return False
         return True
 
-    async def list_answers(self, user_id: UUID) -> list[AnswerLibraryItem]:
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                """
-                select id, normalized_question as question, normalized_key,
-                       answer_text, reuse_policy, approved, updated_at
-                from app.jobs_answer_library
-                where user_id = %s and answer_type = 'long_form'
-                order by updated_at desc, id
-                """,
-                (user_id,),
-            )
-            rows = await cursor.fetchall()
-        return [AnswerLibraryItem.model_validate(row) for row in rows]
-
-    async def create_answer(self, user_id: UUID, item: AnswerLibraryCreate) -> AnswerLibraryItem:
-        normalized_key = normalize_answer_key(item.question)
-        key = answer_storage_key(normalized_key)
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                """
-                insert into app.jobs_answer_library (
-                  user_id, key, normalized_question, normalized_key, answer_text,
-                  answer_type, reuse_policy, approved
-                ) values (%s, %s, %s, %s, %s, 'long_form', %s, %s)
-                on conflict (user_id, normalized_key) where answer_type = 'long_form'
-                do update set normalized_question = excluded.normalized_question,
-                              answer_text = excluded.answer_text,
-                              reuse_policy = excluded.reuse_policy,
-                              approved = excluded.approved
-                returning id, normalized_question as question, normalized_key,
-                          answer_text, reuse_policy, approved, updated_at
-                """,
-                (
-                    user_id,
-                    key,
-                    item.question,
-                    normalized_key,
-                    item.answer_text,
-                    item.reuse_policy,
-                    item.approved,
-                ),
-            )
-            row = await cursor.fetchone()
-        if row is None:
-            raise RuntimeError("Answer insert did not return a row")
-        return AnswerLibraryItem.model_validate(row)
-
-    async def update_answer(
-        self, user_id: UUID, answer_id: UUID, item: AnswerLibraryUpdate
-    ) -> AnswerLibraryItem | None:
-        values = item.model_dump(exclude_unset=True)
-        if "question" in values:
-            question = values.pop("question")
-            values["normalized_question"] = question
-            values["normalized_key"] = normalize_answer_key(question)
-        assignments = sql.SQL(", ").join(
-            sql.SQL("{} = %s").format(sql.Identifier(key)) for key in values
-        )
-        async with (
-            self._pool.connection(timeout=self._timeout) as connection,
-            connection.transaction(),
-        ):
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                sql.SQL(
-                    """
-                    update app.jobs_answer_library set {}
-                    where id = %s and user_id = %s and answer_type = 'long_form'
-                    returning id, normalized_question as question, normalized_key,
-                              answer_text, reuse_policy, approved, updated_at
-                    """
-                ).format(assignments),
-                (*values.values(), answer_id, user_id),
-            )
-            row = await cursor.fetchone()
-        return AnswerLibraryItem.model_validate(row) if row else None
-
     async def create_autofill_run(
         self, user_id: UUID, item: AutofillRunCreate
     ) -> AutofillRunContext | None:
@@ -707,38 +611,6 @@ class PostgresJobsStore:
                 "where user_id = %s order by key",
                 (user_id,),
             )
-            answers_cursor = await connection.execute(
-                """
-                select id, normalized_question, normalized_key, answer_text,
-                       reuse_policy, approved, updated_at
-                from app.jobs_answer_library
-                where user_id = %s and approved and answer_type = 'long_form'
-                order by updated_at desc
-                """,
-                (user_id,),
-            )
-            scoped_cursor = await connection.execute(
-                """
-                select question.question_text, question.normalized_key,
-                       question.answer_text, question.answer_source,
-                       company.name as company_name, posting.title,
-                       question.updated_at
-                from app.jobs_application_questions question
-                join app.jobs_answer_library library
-                  on library.id = question.answer_library_id
-                 and library.user_id = question.user_id
-                 and library.approved
-                 and library.answer_text = question.answer_text
-                join app.jobs_applications application on application.id = question.application_id
-                join app.jobs_postings posting on posting.id = application.posting_id
-                join app.jobs_companies company on company.id = posting.company_id
-                where question.user_id = %s and question.status in ('approved', 'submitted')
-                  and question.answer_text is not null
-                  and (posting.company_id = %s or posting.title = %s)
-                order by question.updated_at desc limit 100
-                """,
-                (user_id, row["company_id"], row["title"]),
-            )
             duplicate_cursor = await connection.execute(
                 """
                 select application.id, application.status, posting.title,
@@ -752,14 +624,16 @@ class PostgresJobsStore:
                 (user_id, row["company_id"], row["application_id"]),
             )
             facts = await facts_cursor.fetchall()
-            answers = await answers_cursor.fetchall()
-            scoped = await scoped_cursor.fetchall()
             duplicates = await duplicate_cursor.fetchall()
+            patterns = await active_patterns(connection, user_id)
+            prose = await approved_prose(connection, user_id)
+            archive = await archived_answers(connection, user_id)
         return AutofillRunContext(
             **{key: value for key, value in row.items() if key != "company_id"},
             facts=[dict(fact) for fact in facts],
-            approved_answers=[dict(answer) for answer in answers],
-            scoped_answers=[dict(answer) for answer in scoped],
+            patterns=[pattern.model_dump(mode="json") for pattern in patterns],
+            prose=[item.model_dump(mode="json") for item in prose],
+            archive_answers=[item.model_dump(mode="json") for item in archive],
             duplicate_company_applications=[dict(item) for item in duplicates],
         )
 
@@ -810,7 +684,7 @@ class PostgresJobsStore:
                       last_seen_at = now(),
                       status = case
                         when app.jobs_autofill_failure_issues.status in
-                          ('replay_passed', 'live_verified', 'fixed') then 'open'
+                          ('replay_passed', 'live_verified', 'fixed', 'archived') then 'open'
                         else app.jobs_autofill_failure_issues.status
                       end
                     returning id, signature, ats, category, field_label, control_kind,
@@ -855,6 +729,9 @@ class PostgresJobsStore:
                 issues.append(AutofillFailureIssue.model_validate(issue))
             for observation in item.observations:
                 source = observation.source if observation.source in ANSWER_SOURCES else "manual"
+                question_id = await upsert_question(
+                    connection, user_id=user_id, label=observation.question, form=observation.form
+                )
                 # A retried step re-sends the same events; the (run_id, event_index)
                 # key makes the replay a no-op instead of duplicate history.
                 await connection.execute(
@@ -863,10 +740,10 @@ class PostgresJobsStore:
                       user_id, application_id, question_text, normalized_key,
                       answer_text, answer_source, answer_library_id, status,
                       run_id, step_number, page_url, control_kind, field_fingerprint,
-                      resolver_id, proposed_value, event_index, event_kind
+                      resolver_id, proposed_value, event_index, event_kind, question_id
                     ) values (
                       %s, %s, %s, %s, %s, %s, null, 'drafted',
-                      %s, %s, %s, %s, %s, %s, %s, %s, 'observed'
+                      %s, %s, %s, %s, %s, %s, %s, %s, 'observed', %s
                     )
                     on conflict (run_id, event_index) do nothing
                     """,
@@ -885,6 +762,7 @@ class PostgresJobsStore:
                         observation.resolver_id,
                         observation.proposed_value,
                         observation.event_index,
+                        question_id,
                     ),
                 )
             await record_fill_events(
@@ -943,16 +821,19 @@ class PostgresJobsStore:
                     continue
                 normalized_key = normalize_answer_key(question)
                 source = answer.source
+                question_id = await upsert_question(
+                    connection, user_id=user_id, label=question, form=answer.form
+                )
                 await connection.execute(
                     """
                     insert into app.jobs_application_questions (
                       user_id, application_id, question_text, normalized_key,
                       answer_text, answer_source, answer_library_id, status,
                       run_id, step_number, page_url, control_kind, field_fingerprint,
-                      resolver_id, proposed_value, event_kind
+                      resolver_id, proposed_value, event_kind, question_id
                     ) values (
                       %s, %s, %s, %s, %s, %s, null, %s,
-                      %s, %s, %s, %s, %s, %s, %s, 'final'
+                      %s, %s, %s, %s, %s, %s, %s, 'final', %s
                     )
                     """,
                     (
@@ -970,8 +851,31 @@ class PostgresJobsStore:
                         answer.field_fingerprint,
                         answer.resolver_id,
                         answer.proposed_value,
+                        question_id,
                     ),
                 )
+                # A long-form answer that went in is writing worth keeping; it waits
+                # in the Inbox until approved for reuse. Reused prose is not re-saved.
+                if (
+                    item.submitted
+                    and answer.form == "long"
+                    and source != "prose"
+                    and question_id is not None
+                ):
+                    await connection.execute(
+                        """
+                        insert into app.jobs_prose (
+                          user_id, question_id, application_id, text, approved, origin
+                        ) values (%s, %s, %s, %s, false, %s)
+                        """,
+                        (
+                            user_id,
+                            question_id,
+                            run["application_id"],
+                            answer_text,
+                            "model" if source == "model" else "manual",
+                        ),
+                    )
         return True
 
     async def owns_autofill_run(self, user_id: UUID, run_id: UUID) -> bool:
@@ -1012,48 +916,6 @@ class PostgresJobsStore:
                 (item.status, run_id, user_id),
             )
             return await cursor.fetchone() is not None
-
-    async def list_answer_review(
-        self, user_id: UUID, *, limit: int, offset: int,
-    ) -> list[AnswerReviewItem]:
-        async with self._pool.connection(timeout=self._timeout) as connection:
-            await connection.execute("set local role personal_os_api")
-            cursor = await connection.execute(
-                """
-                select event.id, event.application_id, event.run_id, event.event_index,
-                       event.step_number, event.page_url, event.question_text as question,
-                       event.answer_text, event.answer_source, event.control_kind,
-                       event.field_fingerprint, event.resolver_id, event.proposed_value,
-                       event.created_at,
-                       case when event.proposed_value is not null
-                                  and event.answer_text is distinct from event.proposed_value
-                            then 'changed_proposal'
-                            when event.answer_source = 'model' then 'model_draft'
-                            else 'manual_answer' end as reason,
-                       completion.answer_text as completion_value,
-                       completion.status as completion_status
-                from app.jobs_application_questions event
-                left join lateral (
-                    select final.answer_text, final.status
-                    from app.jobs_application_questions final
-                    where final.user_id = event.user_id
-                      and final.application_id = event.application_id
-                      and final.run_id = event.run_id and final.event_kind = 'final'
-                      and final.step_number = event.step_number
-                      and final.field_fingerprint = event.field_fingerprint
-                    order by final.created_at desc, final.id desc limit 1
-                ) completion on true
-                where event.user_id = %s and event.event_kind = 'observed'
-                  and (event.answer_source in ('model', 'manual')
-                       or (event.proposed_value is not null
-                           and event.answer_text is distinct from event.proposed_value))
-                order by event.created_at desc, event.id desc
-                limit %s offset %s
-                """,
-                (user_id, limit, offset),
-            )
-            rows = await cursor.fetchall()
-        return [AnswerReviewItem.model_validate(row) for row in rows]
 
     async def list_autofill_failures(self, user_id: UUID) -> list[AutofillFailureIssue]:
         async with self._pool.connection(timeout=self._timeout) as connection:

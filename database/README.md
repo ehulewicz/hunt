@@ -20,13 +20,29 @@ a request body. There is no RLS, by design, because the product is single-user.
 
 Facts, the career record, source listings, recoverably archived applications with
 a lifecycle status (`queued`, `applied`, `oa`, `oa_completed`, `interview`, `offer`,
-`rejected`, `archived`), approved long-form answers,
+`rejected`, `archived`), learned questions, patterns, and prose, the archive,
 application-question event history, synchronous autofill runs, deduplicated failure
 issues, and failure occurrences.
 
+`jobs_questions`, `jobs_patterns`, and `jobs_prose` are what the system has
+learned since the 2026-10-14 restart. A question is a normalized label, one row
+per user and key, recorded when first met, with a disposition (`unbound`,
+`pattern`, `one_off`, `long_form`). A pattern is a `binding` (one question) or an
+`expression` (a regex), always reading one fact key, with a lifecycle status;
+at most one binding per question is `active`, and one row exists per question
+and fact. Prose is long-form writing tied to the question and application it
+was written for, unapproved until reviewed. Answer history and fill events carry
+`question_id`, and fill events the `pattern_id` that produced their value.
+
+The archive is the old system, renamed and frozen — the API role can only read
+it: `jobs_archive_answers` (the former answer library, 198 rows),
+`jobs_archive_profile` (the former profile), and `jobs_archive_documents`.
+Failure issues the old dispatch left open are `archived`; a signature that
+fails again reopens.
+
 An observed history row is identified by run and event index; final rows retain the
-submitted or drafted value with step and control context. Autofill never approves
-answer-library rows. `jobs_worker_credentials` stores only SHA-256 token hashes plus
+submitted or drafted value with step and control context. Autofill never activates a
+pattern or approves prose. `jobs_worker_credentials` stores only SHA-256 token hashes plus
 scope, expiry, use, and revocation timestamps. Listing source metadata keeps
 discovery and direct application URLs separate, records the FAANG+/Quant/general
 source section, and stores normalized location arrays for match-any filtering.
@@ -62,9 +78,9 @@ to withhold from model calls; `verified_at` records the user's review. Facts tha
 change with time — completed co-op rotations, graduation term, annual minimum
 compensation — are derived by the worker and never stored; `coop.anchor` and
 `compensation.minimum` are their stored inputs. The worker picks a form-specific
-rendering rather than copying facts per application. `jobs_profile` was seeded
-into `jobs_facts` and is no longer read; it is dropped once every fact is
-verified.
+rendering rather than copying facts per application. The former `jobs_profile`
+seeded `jobs_facts`; it is now `jobs_archive_profile`, read-only, and is dropped
+once every fact is verified.
 
 ### Storage buckets
 

@@ -5,7 +5,11 @@ import pytest
 from personal_os_worker.core import service
 
 
-def test_already_running_api_is_not_started_again(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_already_running_api_is_not_started_again(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    # Isolated from the machine's real service record, which may name older source.
+    monkeypatch.setattr(service, "state_dir", lambda: tmp_path)
     monkeypatch.setattr(service, "is_running", lambda *a, **k: True)
 
     def explode(*_: object, **__: object) -> None:

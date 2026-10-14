@@ -78,6 +78,11 @@ class FakeConnection:
 
     async def execute(self, query: str, params: tuple[Any, ...]) -> FakeCursor:
         self.statements.append((query, params))
+        if "into app.jobs_questions" in query:
+            key = f"question:{params[1]}"
+            return FakeCursor({"id": self.ids.setdefault(key, uuid4())})
+        if "into app.jobs_patterns" in query:
+            return FakeCursor(None)
         if "app.jobs_controls" in query:
             key = f"control:{params[1]}:{params[2].obj}"
             return FakeCursor({"id": self.ids.setdefault(key, uuid4())})
@@ -107,13 +112,70 @@ async def test_events_reuse_one_control_and_strategy_lookup_per_run() -> None:
     )
     assert written == 3
     lookups = [
-        query for query, _ in connection.statements if "insert into app.jobs_fill" not in query
+        query for query, _ in connection.statements
+        if "insert into app.jobs_fill" not in query and "jobs_questions" not in query
     ]
     assert sum("app.jobs_controls" in query for query in lookups) == 1
     assert sum("app.jobs_strategies" in query for query in lookups) == 1
-    inserts = [params for query, params in connection.statements if "jobs_fill_events" in query]
+    inserts = [
+        params for query, params in connection.statements if "insert into app.jobs_fill" in query
+    ]
     assert [params[3] for params in inserts] == [
         "will you require sponsorship", "are you a veteran", "shift",
     ]
     assert inserts[2][9] is None and inserts[2][12] == "pattern"
     assert {params[10] for params in inserts} == {"lever"}
+
+
+async def test_every_event_records_its_question_once_per_run() -> None:
+    connection = FakeConnection()
+    events = [
+        FillEventCreate.model_validate(event()),
+        FillEventCreate.model_validate(event(question="Will you require  SPONSORSHIP?")),
+        FillEventCreate.model_validate(event(question="Are you a veteran?")),
+    ]
+    await record_fill_events(
+        connection,  # type: ignore[arg-type]
+        user_id=USER_ID, run_id=uuid4(), step=0, ats="ashby", events=events,
+    )
+    upserts = [params for query, params in connection.statements if "jobs_questions" in query]
+    assert [params[1] for params in upserts] == [
+        "will you require sponsorship", "are you a veteran",
+    ]
+    inserts = [
+        params for query, params in connection.statements if "insert into app.jobs_fill" in query
+    ]
+    assert inserts[0][14] == inserts[1][14] != inserts[2][14]  # question_id
+
+
+@pytest.mark.parametrize(
+    ("overrides", "proposed"),
+    [
+        ({"source": "archive", "fact_key": "work_auth.requires_sponsorship"}, True),
+        ({"source": "model", "fact_key": "work_auth.requires_sponsorship"}, True),
+        ({"source": "pattern", "fact_key": "work_auth.requires_sponsorship"}, False),
+        ({"source": "archive", "fact_key": None}, False),
+        ({"source": "archive", "fact_key": "work_auth.requires_sponsorship",
+          "stopped_at": "strategy", "operated_ok": False}, False),
+        ({"source": "archive", "fact_key": "work_auth.requires_sponsorship",
+          "operated_ok": None}, False),
+    ],
+)
+async def test_only_a_read_back_archive_or_model_fill_proposes_a_candidate(
+    overrides: dict[str, Any], proposed: bool
+) -> None:
+    connection = FakeConnection()
+    await record_fill_events(
+        connection,  # type: ignore[arg-type]
+        user_id=USER_ID, run_id=uuid4(), step=0, ats="ashby",
+        events=[FillEventCreate.model_validate(event(**overrides))],
+    )
+    proposals = [
+        (query, params) for query, params in connection.statements
+        if "into app.jobs_patterns" in query
+    ]
+    assert bool(proposals) is proposed
+    if proposed:
+        query, params = proposals[0]
+        assert "'candidate'" in query and "active" not in query
+        assert "work_auth.requires_sponsorship" in params

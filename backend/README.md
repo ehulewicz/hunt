@@ -56,8 +56,25 @@ Unknown or optional EEO values are not inferred.
 ### Jobs endpoints
 
 `/v1/jobs/*` owns facts, the career record, listing filtering, the application
-queue and lifecycle, answer-library management, synchronous autofill runs, and
-failure history. Discovery is always limited to internships/co-ops, ordered
+queue and lifecycle, questions, patterns, prose, the archive, the Inbox,
+synchronous autofill runs, and failure history.
+
+### Questions, patterns, prose, and the archive
+
+`jobs_answers.py` holds what the system learns (design §0). A question is
+recorded the first time a fill event or an answer names it. A pattern binds a
+question — or, as an expression, any phrasing — to a fact; only `active`
+patterns reach a run, and a fill event whose value came from the archive or
+the model and read back proposes a `candidate` binding in the step's
+transaction, never an active one. `GET /v1/jobs/inbox` lists candidates with the
+answers recorded for their question, unbound short questions you answered, and
+unapproved prose; accepting a binding (`PATCH /patterns/{id}` to `active`)
+retires the question's previous binding and marks the question `pattern`, and
+rejecting or retiring one hands the question back. A submitted long-form answer
+is saved as unapproved prose unless it was approved prose reused. The old
+answer library is `jobs_archive_answers`, served read-only at
+`/v1/jobs/archive/answers` and in each run's context so the worker can consult
+it. Discovery is always limited to internships/co-ops, ordered
 newest-first by `jobs_postings.created_at` (discovery into this system, not
 source-posting age), with match-any location selection and the FAANG+/Quant/general
 source section retained. The direct company/ATS URL is used for application work
@@ -65,11 +82,10 @@ while the GitHub file remains the discovery URL.
 
 The signed-in CLI creates an autofill run from a posting ID. FastAPI upserts the
 application and returns only that user's direct URL, posting context, facts,
-approved answer bases, scoped variants, and duplicate-company warnings. Step
-results, changed-answer observations, and final values come back through
-authenticated endpoints and are stored as application history — only explicit
-answer-library commands approve reuse. `GET /v1/jobs/answer-review` is the
-read-only review feed over those events (limit 1–200).
+active patterns, approved prose, the archive, and duplicate-company warnings.
+Step results, changed-answer observations, and final values come back through
+authenticated endpoints and are stored as application history linked to their
+questions; nothing in a run activates a pattern or approves prose.
 
 `POST /v1/jobs/autofill/runs/{id}/finish` is atomic: run completion, final history,
 and application status share one transaction, and it requires a status of `applied`,
@@ -129,7 +145,7 @@ uses it. All three must pass:
 cd backend && uv run ruff check . && uv run mypy src/ && uv run pytest -q
 ```
 
-Currently 112 tests. `mypy` is scoped to `src/` because the test suite is not
+Currently 114 tests. `mypy` is scoped to `src/` because the test suite is not
 annotated; `pyproject.toml` already pins `packages = ["personal_os_backend"]`, so bare
 `uv run mypy` — the form CI uses — checks the same files.
 
@@ -155,7 +171,7 @@ src/personal_os_backend/
   jobs_sources.py   SpeedyApply README parsing and location normalization
   jobs_sync.py      standalone sync entry point, runs as the Cloud Run Job
   jobs_storage.py   private Storage bucket reads and writes
-  jobs_answers.py   question-key normalization for deterministic matching
+  jobs_answers.py   questions, patterns, prose, the archive, and the Inbox
 tests/              pytest suite, async mode auto
 Dockerfile          builds from the repository root build context, not from here
 ```

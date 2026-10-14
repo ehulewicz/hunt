@@ -1,0 +1,982 @@
+[
+ {
+  "question": "Are you a veteran or active member of the United States Armed Forces?",
+  "fact_key": "eeo.veteran_status",
+  "rule": "builtin:veteran"
+ },
+ {
+  "question": "Are you able to be located in Jacksonville, FL in summer 2026?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Are you able to work full time over the course of 12 weeks onsite in our SF office in Fall 2026",
+  "fact_key": "availability.onsite",
+  "rule": "builtin:onsite_work"
+ },
+ {
+  "question": "Are you able to work in the office listed on the job description?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Are you able to work regularly onsite in our office in Bloomfield Hills, MI or Chicago, IL?",
+  "fact_key": "availability.onsite",
+  "rule": "builtin:onsite_work"
+ },
+ {
+  "question": "Are you at least 18 years of age?",
+  "fact_key": "identity.adult",
+  "rule": "builtin:adult"
+ },
+ {
+  "question": "Are you authorized to be employed in the United States or Canada?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Are you authorized to work in the country for which you applied?",
+  "fact_key": "work_auth.authorized_us",
+  "rule": "builtin:authorized"
+ },
+ {
+  "question": "Are you authorized to work in the United States?",
+  "fact_key": "work_auth.authorized_us",
+  "rule": "label:are_you_authorized_to_work_in_the_united_states"
+ },
+ {
+  "question": "Are you authorized to work in the US?",
+  "fact_key": "work_auth.authorized_us",
+  "rule": "builtin:authorized"
+ },
+ {
+  "question": "Are you available for a full-time role (40 hours per week) for the entire duration of the dates listed in the job description?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Are you available to work full-time onsite in Bedford, MA from June 2026 through August 2026?",
+  "fact_key": "availability.onsite",
+  "rule": "library:available_onsite"
+ },
+ {
+  "question": "Are you available to work onsite in Bedford, MA, 5 days per week?",
+  "fact_key": "availability.onsite",
+  "rule": "library:available_onsite"
+ },
+ {
+  "question": "Are you currently a UNL Jeffrey S. Raikes School of Computer Science & Management student?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Are you currently attending a college or university in the US or Canada?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Are you currently authorized to work for any employer in the United States?",
+  "fact_key": "work_auth.authorized_us",
+  "rule": "builtin:authorized"
+ },
+ {
+  "question": "Are you currently based in the United States?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Are you currently eligible to work in the United States?",
+  "fact_key": "work_auth.authorized_us",
+  "rule": "builtin:authorized"
+ },
+ {
+  "question": "Are you currently pursuing a degree in computer science or another related field?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Are you eligible to work in the country where this vacancy is posted?",
+  "fact_key": "work_auth.authorized_us",
+  "rule": "builtin:authorized"
+ },
+ {
+  "question": "Are you Eligible to work in the US for any employer ?",
+  "fact_key": "work_auth.authorized_us",
+  "rule": "builtin:authorized"
+ },
+ {
+  "question": "Are you Hispanic/Latino?",
+  "fact_key": "eeo.hispanic_latino",
+  "rule": "builtin:hispanic"
+ },
+ {
+  "question": "Are you lawfully authorized to work in the US or can you provide proof of employment eligibility upon hire?",
+  "fact_key": "work_auth.authorized_us",
+  "rule": "builtin:authorized"
+ },
+ {
+  "question": "Are you legally authorized to work in the country where this role is based?",
+  "fact_key": "work_auth.authorized_us",
+  "rule": "builtin:authorized"
+ },
+ {
+  "question": "Are you legally authorized to work in the United States?",
+  "fact_key": "work_auth.authorized_us",
+  "rule": "builtin:authorized"
+ },
+ {
+  "question": "Are you willing to relocate?",
+  "fact_key": "preferences.willing_to_relocate",
+  "rule": "label:are_you_willing_to_relocate"
+ },
+ {
+  "question": "Are you willing to work onsite in the SF office  5 times per week?",
+  "fact_key": "availability.onsite",
+  "rule": "builtin:onsite_work"
+ },
+ {
+  "question": "Ask anything",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "At any time, now or in the future, will you require visa sponsorship to work in the US?",
+  "fact_key": "work_auth.requires_sponsorship",
+  "rule": "builtin:sponsorship"
+ },
+ {
+  "question": "Based on the engineering work you listed above that you're most excited to do at Figma, briefly (2-4 sentences) describe a past project or experience that best reflects your interest in those areas.",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "By checking this box, I agree to allow Veeam Software to store and process my data for the purpose of considering my eligibility regarding my current application for employment.",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Country",
+  "fact_key": "address.country",
+  "rule": "label:country"
+ },
+ {
+  "question": "Country of residence",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Current company",
+  "fact_key": "employment.current_employer",
+  "rule": "builtin:employer"
+ },
+ {
+  "question": "Current location ✱No location found. Try entering a different locationLoading",
+  "fact_key": "address.location",
+  "rule": "builtin:location"
+ },
+ {
+  "question": "Current or most recent employer",
+  "fact_key": "employment.current_employer",
+  "rule": "builtin:employer"
+ },
+ {
+  "question": "Degree",
+  "fact_key": "education.degree_type",
+  "rule": "label:degree"
+ },
+ {
+  "question": "Disability Status",
+  "fact_key": "eeo.disability_status",
+  "rule": "builtin:disability"
+ },
+ {
+  "question": "Disability Status: Please select one of the options below",
+  "fact_key": "eeo.disability_status",
+  "rule": "builtin:disability"
+ },
+ {
+  "question": "Disability statusSelect ...Yes, I have a disability, or have had one in the pastNo, I do not have a disability and have not had one in the pastI do not want to answer",
+  "fact_key": "eeo.disability_status",
+  "rule": "builtin:disability"
+ },
+ {
+  "question": "Discipline",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Do you acknowledge and agree to comply with Abridge's AI policy during the interview process?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Do you agree to be a part of the talent community for future career opportunities at Veeam? \n\nYour information will be retained for up to 2 years.",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Do you currently have legal work authorization in the country where this position is based?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Do you currently live within 50 miles of one of our Superhuman hubs in San Francisco, New York, or Seattle?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Do you currently own, operate, or provide services to any other business or organization (e.g., consultancy, freelance, board membership, or contractual engagement)?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Do you currently, or will you in the future, require sponsorship for employment authorization?",
+  "fact_key": "work_auth.requires_sponsorship",
+  "rule": "builtin:sponsorship"
+ },
+ {
+  "question": "Do you have a disability or chronic condition (physical, visual, auditory, cognitive, mental, emotional, or other) that substantially limits one or more of your major life activities, including mobility, communication (seeing, hearing, speaking), and learning?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Do you have previous internship or Co-Op experience?",
+  "fact_key": "experience.prior_internship",
+  "rule": "library:prior_internship"
+ },
+ {
+  "question": "Do you have relevant internship experience at a proprietary trading firm?",
+  "fact_key": "experience.prior_internship",
+  "rule": "library:prior_internship"
+ },
+ {
+  "question": "Do you identify as transgender?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Do you intend to return to a degree-seeking program at the conclusion of the internship for at least 1 more term?",
+  "fact_key": "education.degree_type",
+  "rule": "builtin:degree"
+ },
+ {
+  "question": "Do you meet the citizenship requirements to obtain a U.S. security clearance?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Do you need visa sponsorship?",
+  "fact_key": "work_auth.requires_sponsorship",
+  "rule": "builtin:sponsorship"
+ },
+ {
+  "question": "Do you now or in the future require Visa sponsorship to continue working in the United States?",
+  "fact_key": "work_auth.requires_sponsorship",
+  "rule": "builtin:sponsorship"
+ },
+ {
+  "question": "Do you now, or will you in the future, require immigration sponsorship for work authorization (e.g., H-1B)?",
+  "fact_key": "work_auth.requires_sponsorship",
+  "rule": "builtin:sponsorship"
+ },
+ {
+  "question": "Do you now, or will you in the future, require visa sponsorship to maintain your work authorization?",
+  "fact_key": "work_auth.requires_sponsorship",
+  "rule": "builtin:sponsorship"
+ },
+ {
+  "question": "Does your work authorization require Tanium to sponsor or renew an employment-based visa now or in the future?",
+  "fact_key": "work_auth.requires_sponsorship",
+  "rule": "builtin:sponsorship"
+ },
+ {
+  "question": "Education History",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Email✱",
+  "fact_key": "contact.email",
+  "rule": "label:email"
+ },
+ {
+  "question": "End date month",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "End date year",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Field of Study",
+  "fact_key": "education.field_of_study",
+  "rule": "label:field_of_study"
+ },
+ {
+  "question": "First Name",
+  "fact_key": "identity.first_name",
+  "rule": "label:first_name"
+ },
+ {
+  "question": "Full name✱",
+  "fact_key": "identity.legal_name",
+  "rule": "label:name"
+ },
+ {
+  "question": "Gender",
+  "fact_key": "eeo.gender_identity",
+  "rule": "builtin:gender"
+ },
+ {
+  "question": "Gender Identity",
+  "fact_key": "eeo.gender_identity",
+  "rule": "builtin:gender"
+ },
+ {
+  "question": "Gender: What gender do you most closely identify with?",
+  "fact_key": "eeo.gender_identity",
+  "rule": "builtin:gender"
+ },
+ {
+  "question": "GenderSelect ...MaleFemaleDecline to self-identify",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Github",
+  "fact_key": "contact.github_url",
+  "rule": "label:github"
+ },
+ {
+  "question": "GitHub URL",
+  "fact_key": "contact.github_url",
+  "rule": "label:github"
+ },
+ {
+  "question": "Have you ever worked for Figma before, as an employee or a contractor/consultant?",
+  "fact_key": "employment.worked_for",
+  "rule": "worked_before:worked_before"
+ },
+ {
+  "question": "Have you ever worked for RV Tech and/or Rivian, in any capacity, including as a contractor/contingent worker, or as an RV Tech VW Group Partner?",
+  "fact_key": "employment.worked_for",
+  "rule": "worked_before:worked_before"
+ },
+ {
+  "question": "Have you previously worked at Exegy?",
+  "fact_key": "employment.worked_for",
+  "rule": "worked_before:worked_before"
+ },
+ {
+  "question": "Have you previously worked for Veeam (including as a contractor or intern)?  Current Veeam employees are required to apply through the Internal Job Board.",
+  "fact_key": "employment.worked_for",
+  "rule": "worked_before:worked_before"
+ },
+ {
+  "question": "How did you hear about Abridge?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "How did you hear about Commure?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "How did you hear about DV Trading?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "How did you hear about Tanium?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "How did you hear about this job?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "How did you hear about us?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "How do you identify your sexual orientation? Please select all that apply.",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "How many full-time, semester-long co-op rotations have you completed prior to this application? (Select one)",
+  "fact_key": "coop.completed_rotations",
+  "rule": "priority:completed_coop_terms"
+ },
+ {
+  "question": "How many prior internship(s) and/or co-op(s) have you completed in software engineering, AI, machine learning or related fields?",
+  "fact_key": "experience.prior_internship",
+  "rule": "library:prior_internship"
+ },
+ {
+  "question": "How would you describe your gender identity? (mark all that apply)",
+  "fact_key": "eeo.gender_identity",
+  "rule": "builtin:gender"
+ },
+ {
+  "question": "How would you describe your racial/ethnic background? (mark all that apply)",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "How would you describe your sexual orientation? (mark all that apply)",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "I am comfortable with this position requiring me to be in the Mountain View, CA office 5 days a week.",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "I authorize the RV Tech Talent Acquisition team to consider me for other job opportunities within RV Tech in addition to the specific job I am applying for.",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "I certify the information provided in this application is true and correct to the best of my knowledge. I understand any false statements or omissions may result in disqualification from employment consideration or, if employed, termination.",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "I have experience with the following technology stacks from a previous internship:",
+  "fact_key": "experience.prior_internship",
+  "rule": "library:prior_internship"
+ },
+ {
+  "question": "I understand my application will be processed in accordance with RV Tech’s Candidate Privacy Policy.",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "If applicable, which US state do you reside in?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "If hired, can you start full time within the next 2 months for a Fall 2026 internship?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "If yes, please describe the nature of the activity, your role, and whether it may overlap with the responsibilities or interests of Veeam.",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "If you are currently enrolled in university or a program, what is your expected graduation date?",
+  "fact_key": "education.graduation_date",
+  "rule": "priority:graduation"
+ },
+ {
+  "question": "If you selected Employee Referral, Student Organization, University fair or networking event, or Other, please specify below (e.g., name of employee, organization, or event).",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "In lieu of a required cover letter, please describe why you are interested in interning at Hudl in 2-5 sentences.",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Internships at Hudl are only open to currently-enrolled college students. What is your expected graduation date?",
+  "fact_key": "education.graduation_date",
+  "rule": "priority:graduation"
+ },
+ {
+  "question": "Interview Recording Consent",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Last Name",
+  "fact_key": "identity.last_name",
+  "rule": "label:last_name"
+ },
+ {
+  "question": "Legal Full Name",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "LinkedIn",
+  "fact_key": "contact.linkedin_url",
+  "rule": "label:linkedin"
+ },
+ {
+  "question": "LinkedIn Profile",
+  "fact_key": "contact.linkedin_url",
+  "rule": "builtin:linkedin"
+ },
+ {
+  "question": "LinkedIn URL✱",
+  "fact_key": "contact.linkedin_url",
+  "rule": "label:linkedin"
+ },
+ {
+  "question": "Location",
+  "fact_key": "address.location",
+  "rule": "builtin:location"
+ },
+ {
+  "question": "Location (City)",
+  "fact_key": "address.location",
+  "rule": "builtin:location"
+ },
+ {
+  "question": "Name",
+  "fact_key": "identity.legal_name",
+  "rule": "label:name"
+ },
+ {
+  "question": "Other Website",
+  "fact_key": "contact.portfolio_url",
+  "rule": "builtin:website"
+ },
+ {
+  "question": "Phone ✱",
+  "fact_key": "contact.phone",
+  "rule": "label:phone"
+ },
+ {
+  "question": "Phone Number",
+  "fact_key": "contact.phone",
+  "rule": "label:phone"
+ },
+ {
+  "question": "Please describe your work authorization status.",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Please enter the ZIP code of your primary residence in the United States.",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Please identify your race",
+  "fact_key": "eeo.race_ethnicities",
+  "rule": "builtin:race"
+ },
+ {
+  "question": "Please indicate your gender",
+  "fact_key": "eeo.gender_identity",
+  "rule": "builtin:gender"
+ },
+ {
+  "question": "Please indicate your race",
+  "fact_key": "eeo.race_ethnicities",
+  "rule": "builtin:race"
+ },
+ {
+  "question": "Please provide the full URL to your Linkedin profile",
+  "fact_key": "contact.linkedin_url",
+  "rule": "builtin:linkedin"
+ },
+ {
+  "question": "Please re-confirm the university you currently attend",
+  "fact_key": "education.school_name",
+  "rule": "builtin:school"
+ },
+ {
+  "question": "Portfolio URL",
+  "fact_key": "contact.portfolio_url",
+  "rule": "label:portfolio"
+ },
+ {
+  "question": "Preferred First Name",
+  "fact_key": "identity.preferred_name",
+  "rule": "builtin:preferred_name"
+ },
+ {
+  "question": "Preferred Name",
+  "fact_key": "identity.preferred_name",
+  "rule": "label:preferred_name"
+ },
+ {
+  "question": "Pronoun",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Pronouns",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Race",
+  "fact_key": "eeo.race_ethnicities",
+  "rule": "builtin:race"
+ },
+ {
+  "question": "Race/Ethnic Background: What ethnicity do you most closely identify with?",
+  "fact_key": "eeo.race_ethnicities",
+  "rule": "builtin:race"
+ },
+ {
+  "question": "Race/Ethnicity",
+  "fact_key": "eeo.race_ethnicities",
+  "rule": "builtin:race"
+ },
+ {
+  "question": "RaceSelect ...Hispanic or LatinoWhite (Not Hispanic or Latino)Black or African American (Not Hispanic or Latino)Native Hawaiian or Other Pacific Islander (Not Hispanic or Latino)Asian (Not Hispanic or Latino)American Indian or Alaska Native (Not Hispanic or Latino)Two or More Races (Not Hispanic or Latino)Decline to self-identifyHispanic or LatinoA person of Cuban, Mexican, Puerto Rican, South or Central American, or other Spanish culture or origin regardless of race.White (Not Hispanic or Latino)A person having origins in any of the original peoples of Europe, the Middle East, or North Africa.Black or African American (Not Hispanic or Latino)A person having origins in any of the black racial groups of Africa.Native Hawaiian or Other Pacific Islander (Not Hispanic or Latino)A person having origins in any of the peoples of Hawaii, Guam, Samoa, or other Pacific Islands.Asian (Not Hispanic or Latino)A person having origins in any of the original peoples of the Far East, Southeast Asia, or the Indian Subcontinent, including, for example, Cambodia, China, India, Japan, Korea, Malaysia, Pakistan, the Philippine Islands, Thailand, and Vietnam.American Indian or Alaska Native (Not Hispanic or Latino)A person having origins in any of the original peoples of North and South America (including Central America), and who maintain tribal affiliation or community attachment.Two or More Races (Not Hispanic or Latino)All persons who identify with more than one of the above five races.",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "School",
+  "fact_key": "education.school_name",
+  "rule": "label:school"
+ },
+ {
+  "question": "Search",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Select a university or college",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Sexual Orientation",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Start date month",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Start date year",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Terms and Conditions",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "This internship pays $27-$29/hour. Are you comfortable with that range?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "This is a hybrid position, which requires in person attendance a minimum of 3 days each week in Durham, NC; Addison, TX; Bellevue, WA; or Emeryville, CA. Are you able to meet this requirement?",
+  "fact_key": "availability.onsite",
+  "rule": "builtin:onsite_work"
+ },
+ {
+  "question": "This position requires being on-site at our Headquarters in Lincoln, NE, starting May 17th to early-August. Are you able to be at our headquarters for the full duration of the program?",
+  "fact_key": "availability.onsite",
+  "rule": "builtin:onsite_work"
+ },
+ {
+  "question": "This role is based out of our San Jose, CA office. Are you willing and able to accommodate this work environment?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "This role is located out of our Boston headquarters (located at 125 Summer St., Boston, MA 02111). Are you willing and able to work out out of our Boston office 5 days per week?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "This role requires working onsite at our facility in Rochester, NY. Are you able to reliably commute or relocate to Rochester, NY, to perform the duties of this position onsite by your start date?",
+  "fact_key": "availability.onsite",
+  "rule": "builtin:onsite_work"
+ },
+ {
+  "question": "To be eligible for this position, your primary residence must be located in the United States. Please indicate the state in which you currently reside.",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Undergrad Discipline(s)",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Veteran Status",
+  "fact_key": "eeo.veteran_status",
+  "rule": "builtin:veteran"
+ },
+ {
+  "question": "Veteran Status: Are you a protected veteran?",
+  "fact_key": "eeo.veteran_status",
+  "rule": "builtin:veteran"
+ },
+ {
+  "question": "Veteran statusSelect ...I am a veteranI am not a veteranDecline to self-identify",
+  "fact_key": "eeo.veteran_status",
+  "rule": "builtin:veteran"
+ },
+ {
+  "question": "Veteran statusSelect ...I identify as one or more of the classifications of protected veteran listed aboveI am not a protected veteranI decline to self-identify for protected veteran status",
+  "fact_key": "eeo.veteran_status",
+  "rule": "builtin:veteran"
+ },
+ {
+  "question": "We encourage you to share a link that showcases something you've built and shipped yourself.",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Were you referred to us? If yes, please provide the name of the contact and how you know them.",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "What  are your salary requirements",
+  "fact_key": "compensation.minimum",
+  "rule": "priority:salary"
+ },
+ {
+  "question": "What are your career goals?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "What are your preferred pronouns?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "What are your salary expectations?",
+  "fact_key": "compensation.minimum",
+  "rule": "priority:salary"
+ },
+ {
+  "question": "What country do you currently reside in?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "What degree are you currently pursuing?",
+  "fact_key": "education.degree_type",
+  "rule": "builtin:degree"
+ },
+ {
+  "question": "What is your anticipated graduation month/year?",
+  "fact_key": "education.graduation_date",
+  "rule": "priority:graduation"
+ },
+ {
+  "question": "What is your current age?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "What is your current cumulative GPA (on a 4.0 scale)?",
+  "fact_key": "education.gpa",
+  "rule": "builtin:gpa"
+ },
+ {
+  "question": "What is your current GPA?",
+  "fact_key": "education.gpa",
+  "rule": "builtin:gpa"
+ },
+ {
+  "question": "What is your current major?",
+  "fact_key": "education.field_of_study",
+  "rule": "builtin:major"
+ },
+ {
+  "question": "What is your desired hourly compensation?",
+  "fact_key": "compensation.minimum",
+  "rule": "priority:salary"
+ },
+ {
+  "question": "What is your earliest available start date?",
+  "fact_key": "availability.earliest_start_date",
+  "rule": "label:earliest_start_date"
+ },
+ {
+  "question": "What is your expected graduation date (Term & Year)?",
+  "fact_key": "education.graduation_date",
+  "rule": "priority:graduation"
+ },
+ {
+  "question": "What is your expected graduation date?",
+  "fact_key": "education.graduation_date",
+  "rule": "priority:graduation"
+ },
+ {
+  "question": "What is your gender identity?",
+  "fact_key": "eeo.gender_identity",
+  "rule": "builtin:gender"
+ },
+ {
+  "question": "What is your GPA?",
+  "fact_key": "education.gpa",
+  "rule": "builtin:gpa"
+ },
+ {
+  "question": "What is your graduation date?",
+  "fact_key": "education.graduation_date",
+  "rule": "priority:graduation"
+ },
+ {
+  "question": "What is your intended semester and year of graduation?",
+  "fact_key": "education.graduation_date",
+  "rule": "priority:graduation"
+ },
+ {
+  "question": "What is your LinkedIn URL?",
+  "fact_key": "contact.linkedin_url",
+  "rule": "builtin:linkedin"
+ },
+ {
+  "question": "What pronouns do you use?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "What school are you currently attending?",
+  "fact_key": "education.school_name",
+  "rule": "builtin:school"
+ },
+ {
+  "question": "What university do you currently attend?",
+  "fact_key": "education.school_name",
+  "rule": "builtin:school"
+ },
+ {
+  "question": "When are you available to start?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "When can you start?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "When is your expected graduation date?",
+  "fact_key": "education.graduation_date",
+  "rule": "priority:graduation"
+ },
+ {
+  "question": "Where in the United States will you be working from?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Which co-op work term options are you available for ? (Select all that apply)",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Which degree are you currently pursuing?",
+  "fact_key": "education.degree_type",
+  "rule": "builtin:degree"
+ },
+ {
+  "question": "Which ethnicity(ies) do you identify with? Please select all that apply.",
+  "fact_key": "eeo.race_ethnicities",
+  "rule": "builtin:race"
+ },
+ {
+  "question": "Which location are you applying for?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Which of the following communities do you belong to? Please select all that apply.",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Which state do you currently reside in?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Why do you want to join Figma?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Will you be a rising Senior in June 2026?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Will you be able to work full-time during the listed dates of the program?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Will you now or in the future require company sponsorship for a visa or work authorization to work in the country where this role is based?",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Will you now or in the future require employer sponsorship for work authorization in this country?",
+  "fact_key": "work_auth.requires_sponsorship",
+  "rule": "builtin:sponsorship"
+ },
+ {
+  "question": "Will you now or in the future require sponsorship for employment visa status (e.g., H-1B, TN, etc.)? Please note: This includes individuals currently on OPT/STEM OPT who will eventually require a change in status to continue working long-term",
+  "fact_key": "work_auth.requires_sponsorship",
+  "rule": "builtin:sponsorship"
+ },
+ {
+  "question": "Will you now or in the future require sponsorship to work in the US?",
+  "fact_key": "work_auth.requires_sponsorship",
+  "rule": "builtin:sponsorship"
+ },
+ {
+  "question": "Will you now or in the future require work sponsorship?",
+  "fact_key": "work_auth.requires_sponsorship",
+  "rule": "builtin:sponsorship"
+ },
+ {
+  "question": "Will you require sponsorship or other assistance or support to be authorized to, or otherwise, work from your country of residence?",
+  "fact_key": "work_auth.requires_sponsorship",
+  "rule": "builtin:sponsorship"
+ },
+ {
+  "question": "Will you require visa sponsorship now or in the future to be employed in the United States?",
+  "fact_key": "work_auth.requires_sponsorship",
+  "rule": "builtin:sponsorship"
+ },
+ {
+  "question": "Will you require Visa sponsorship now or in the future?",
+  "fact_key": "work_auth.requires_sponsorship",
+  "rule": "builtin:sponsorship"
+ },
+ {
+  "question": "Would you, now or in the future, require immigration sponsorship* for work authorization?",
+  "fact_key": "work_auth.requires_sponsorship",
+  "rule": "builtin:sponsorship"
+ },
+ {
+  "question": "Yes - I consent to receiving text messages",
+  "fact_key": null,
+  "rule": null
+ },
+ {
+  "question": "Your LinkedIn Profile",
+  "fact_key": "contact.linkedin_url",
+  "rule": "builtin:linkedin"
+ },
+ {
+  "question": "Your Preferred Name",
+  "fact_key": "identity.preferred_name",
+  "rule": "label:preferred_name"
+ }
+]
