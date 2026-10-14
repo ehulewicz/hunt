@@ -5,6 +5,9 @@ The production frontend is the Vercel project rooted at `frontend/`. Git pushes 
 
 GitHub Actions applies `database/migrations/` to the linked hosted Supabase project
 and builds `backend/Dockerfile` for the `personal-os-api` Cloud Run service. The
+Deploy workflow first runs the Python quality workflow on the commit being
+deployed, and migrates nothing unless both the backend and workers gates pass. The
+Vercel frontend deploy is not gated on the Frontend quality workflow. The
 workflow authenticates to GCP with Workload Identity Federation and resolves all
 credentials from Secret Manager in project `example-gcp-project`.
 
