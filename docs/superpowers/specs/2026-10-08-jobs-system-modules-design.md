@@ -741,13 +741,14 @@ slice. Only where the dict comes from changes.
 a semicolon or keyword emphasis. The two-rendered-lines rule depends on layout,
 so the build checks it and names the offending bullet.
 
-> **R32 — `main.json` and the PDF remain as generated exports, committed.**
-> `artifacts/` exists to keep a portable, versioned copy of your career
-> documents, and git history of the resume is worth keeping. Build writes both;
-> neither is ever read back as a source, so there is still exactly one writable
-> copy — the database. AGENTS.md's resume rule is amended in the same change:
-> the career record is canonical; `main.json` and `Alex_Example.pdf` are its
-> generated exports.
+> **R32 — `main.json` and the PDF remain as generated exports; the JSON is
+> committed.** `artifacts/` exists to keep a portable, versioned copy of your
+> career documents, and git history of the resume is worth keeping. Build writes
+> both; neither is ever read back as a source, so there is still exactly one
+> writable copy — the database. AGENTS.md's resume rule is amended in the same
+> change: the career record is canonical; `main.json` and `Alex_Example.pdf`
+> are its generated exports. *Changed by you 2026-10-14: the PDF is ignored by
+> Git, so only the JSON export is versioned.*
 
 > **R33 — Experience entries carry `employment_type`.** `coop`, `contract`,
 > `founder`, `internship`, `full_time`, `part_time`; null for research and
@@ -1551,7 +1552,7 @@ on its own judgement and report the decisions; dispute any by number.
 | R29 | Event columns dropped one release after fill events land | agreed |
 | R30 | Every archived phrasing becomes a translation test | changed by R40 |
 | R31 | Every model call site listed in AGENTS.md | done |
-| R32 | `main.json` and the PDF stay as committed generated exports | delegated |
+| R32 | `main.json` stays as a committed generated export; the PDF is generated and Git-ignored (your 2026-10-14 change) | delegated |
 | R33 | Experience entries carry `employment_type`; research does not count toward tenure | delegated |
 | R34 | Tailored resume variants out of scope | delegated |
 | R35 | With `--no-claude`, the cover letter waits for you | delegated |

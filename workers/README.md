@@ -30,8 +30,8 @@ os hunt apply failures list
 
 The resume is the career record in the database. `os hunt resume` (= `resume
 edit --open`) opens a working copy as JSON in VS Code and sends each save to the
-API; an accepted save republishes the Git-tracked exports
-`artifacts/career/main.json` and `Alex_Example.pdf`. `resume build` republishes
+API; an accepted save republishes the exports `artifacts/career/main.json`
+(committed) and `Alex_Example.pdf` (generated, ignored by Git). `resume build` republishes
 them from the record, `resume build --input FILE` compiles a file without
 touching the record, and `resume import` loads `main.json` into an empty record
 once. Facts the resume determines — school, degree, graduation, GPA, whole years

@@ -1,11 +1,4 @@
 {
-  "meta": {
-    "slug": "main",
-    "label": "Main",
-    "company": null,
-    "clonedFrom": null,
-    "updatedAt": "2026-09-11T06:49:00-04:00"
-  },
   "contact": {
     "name": "Alex Example",
     "phone": "555-010-0199",

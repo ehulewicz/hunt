@@ -8,8 +8,9 @@ Everything here is tracked, so a clone is a complete working set.
 The resume itself lives in the database as the career record (education,
 experience, research, projects, bullets, skills; see `../backend/README.md`).
 `career/main.json` and `career/Alex_Example.pdf` are its **exports**: every
-accepted edit rewrites both, and they are committed so a clone carries a
-portable, versioned copy. Neither is read back as a source, and there is never a
+accepted edit rewrites both. `main.json` is committed so a clone carries a
+portable, versioned copy; the PDF is ignored by Git and rebuilt from the record
+by `os hunt resume build`. Neither is read back as a source, and there is never a
 second writable resume copy. The deterministic Python LaTeX compiler in
 `workers/` renders the PDF with no model call and refuses anything other than one
 page. Rebuilding an unchanged record is byte-stable, so Git sees a PDF change only
@@ -46,7 +47,7 @@ and organization) are in [`../AGENTS.md`](../AGENTS.md).
 
 ```text
 career/main.json              JSON export of the career record (never edited here)
-career/Alex_Example.pdf     its generated one-page projection, tracked beside it
+career/Alex_Example.pdf     its generated one-page projection, ignored by Git
 career/Alex_Example.tex     build intermediate, untracked
 career/cover_letter.md        cover letter template: prose, {{slots}}, proof modules
 career/Cover_Letter.pdf       rendered cover letter

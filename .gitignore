@@ -29,7 +29,8 @@ workers/.chrome-profile/
 .playwright-mcp/
 .logs/
 
-# Resume build intermediary; JSON and PDF in this directory are tracked.
+# Resume build intermediary and the generated PDF; main.json, the career
+# record's export, is tracked.
 artifacts/career/*.tex
 artifacts/career/Alex_Example.pdf
 

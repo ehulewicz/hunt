@@ -1,8 +1,9 @@
 """Resume commands over the career record.
 
 The career record in the database is the resume. `artifacts/career/main.json`
-and `Alex_Example.pdf` are its exports, regenerated whenever it changes and
-committed for a portable, versioned copy; neither is read back as a source.
+and `Alex_Example.pdf` are its exports, regenerated whenever it changes; the
+JSON is committed for a portable, versioned copy and the PDF is ignored by Git.
+Neither is read back as a source.
 `resume edit` writes a working copy outside the repository, sends each save to
 the API, and republishes the exports when the record accepts it.
 """
@@ -193,9 +194,9 @@ def import_resume(api: WorkerApi, source: Path | None = None) -> ResumeBuild:
 
 
 def ensure_resume(api: WorkerApi) -> ResumeBuild:
-    """The tracked PDF as it is, publishing from the record only when it does not exist yet.
+    """The generated PDF as it is, publishing from the record only when it does not exist.
 
-    Nothing tailors the resume any more, so the checked-in PDF is the one to
+    Nothing tailors the resume any more, so the last published PDF is the one to
     attach; `os hunt resume build|edit` is where it gets regenerated.
     """
     source = canonical_resume_path()
