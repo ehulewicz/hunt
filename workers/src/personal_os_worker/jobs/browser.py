@@ -23,7 +23,7 @@ from personal_os_worker.jobs.autofill import (
 )
 from personal_os_worker.jobs.options import choose_option, normalize_question
 from personal_os_worker.jobs.registry.events import fill_event, form_of
-from personal_os_worker.jobs.registry.kinds import classify
+from personal_os_worker.jobs.registry.kinds import classify, control_key, question_of
 from personal_os_worker.jobs.registry.strategies import candidates
 
 # Playwright auto-waits 30s for a control before an action fails; a control that
@@ -119,10 +119,32 @@ class VisibleBrowser:
                 continue
         return pages[-1]
 
-    def open_page(self, url: str, *, console_errors: list[str] | None = None) -> Page:
+    def isolated_page(self, url: str, *, guard: Callable[[Page], None]) -> Page:
+        """A page in a new browser context: no shared cookies or drafts (R22).
+
+        The guard is installed before the page loads anything; the context closes
+        with `page.context.close()`.
+        """
+        if self._browser is None:
+            raise RuntimeError("Visible browser is not connected")
+        page = self._browser.new_context().new_page()
+        guard(page)
+        page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+        page.wait_for_timeout(1500)
+        return page
+
+    def open_page(
+        self,
+        url: str,
+        *,
+        console_errors: list[str] | None = None,
+        guard: Callable[[Page], None] | None = None,
+    ) -> Page:
         if self._browser is None:
             raise RuntimeError("Visible browser is not connected")
         page = self._browser.contexts[0].new_page()
+        if guard is not None:
+            guard(page)
         if console_errors is not None:
             page.on(
                 "console",
@@ -418,11 +440,13 @@ def apply_autofill(
     resume_path: Path | None,
     assert_active: Callable[[], None],
     transcript_path: Path | None = None,
+    preferences: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Operate every planned fill through its control kind's candidate strategies.
 
     Candidates are tried in order until one operates; every attempt, failed or
-    not, becomes a fill event. A failure is recorded and the run moves on.
+    not, becomes a fill event. A failure is recorded and the run moves on. A
+    strategy a validated repair found for this exact control goes first.
     """
     filled_labels: list[str] = []
     skipped: list[str] = []
@@ -454,7 +478,11 @@ def apply_autofill(
         expected = fill.value
         operated: str | None = None
         first_error: Exception | None = None
-        for name in candidates(classify(field), field, fill, has_document=document is not None):
+        names = candidates(classify(field), field, fill, has_document=document is not None)
+        preferred = (preferences or {}).get(control_key(field))
+        if preferred in names:
+            names = [preferred, *(name for name in names if name != preferred)]
+        for name in names:
             try:
                 result = OPERATIONS[name](Attempt(page, control, field, fill, document))
             except (Error, RuntimeError) as error:
@@ -470,7 +498,10 @@ def apply_autofill(
             if field.get("required") is True:
                 unanswered.append(label)
             failures.append(
-                _failure(field, failure_category(message), message, intended=fill.value)
+                _failure(
+                    field, failure_category(message), message, intended=fill.value,
+                    stopped_at=stopped_stage(first_error), fill=fill,
+                )
             )
             continue
         is_upload = fill.kind in FILE_KINDS
@@ -509,6 +540,8 @@ def apply_autofill(
                     "value did not register",
                     intended=fill.value,
                     observed=observed,
+                    stopped_at="strategy",
+                    fill=fill,
                 )
             )
             if field.get("required") is True:
@@ -789,9 +822,17 @@ def _failure(
     *,
     intended: str | None = None,
     observed: str | None = None,
+    stopped_at: str | None = None,
+    fill: FormFill | None = None,
 ) -> dict[str, Any]:
     fingerprint = str(field.get("fingerprint") or field.get("selector") or field.get("index"))
+    resolution = fill.resolution if fill is not None else None
     return {
+        # Where it stopped decides whether Repair can retry it (design §10.3).
+        "stopped_at": stopped_at,
+        "question": question_of(field),
+        "fact_key": resolution.fact_key if resolution is not None else None,
+        "formatter": resolution.formatter if resolution is not None else None,
         "signature": failure_signature(str(field.get("ats") or "generic"), category, fingerprint),
         "category": category,
         "field_label": field.get("label"),

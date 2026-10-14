@@ -35,6 +35,7 @@ from personal_os_backend.jobs_models import (
     JobListingPage,
     ListingSyncResponse,
     RoleFamily,
+    ValidationTarget,
 )
 from personal_os_backend.jobs_sources import SpeedyApplySource
 from personal_os_backend.jobs_storage import JobsDocumentStorage
@@ -313,6 +314,18 @@ async def update_autofill_failure(
     if issue is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Autofill failure not found")
     return issue
+
+
+@router.get("/autofill/failures/{issue_id}/target", response_model=ValidationTarget)
+async def get_validation_target(
+    issue_id: UUID, principal: CurrentPrincipal, store: Store
+) -> ValidationTarget:
+    target = await store.validation_target(principal.user_id, issue_id)
+    if target is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "No unsubmitted application shows this question"
+        )
+    return target
 
 
 @router.get("/worker/doctor")

@@ -50,6 +50,9 @@ class FakeApi:
     def inbox(self) -> dict[str, Any]:
         return self._inbox
 
+    def autofill_failures(self) -> list[dict[str, Any]]:
+        return [{"id": "f1", "status": "repaired"}, {"id": "f2", "status": "open"}]
+
     def facts(self) -> list[dict[str, Any]]:
         return self.facts_rows
 

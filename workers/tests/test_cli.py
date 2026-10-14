@@ -101,7 +101,8 @@ def test_hunt_help_lists_only_the_public_commands(capsys: pytest.CaptureFixture[
     output = capsys.readouterr().out
     assert "os hunt [N]" in output
     assert (
-        "{today,sync,open,apps,skipped,inbox,patterns,facts,prose,archive,resume,apply}" in output
+        "{today,sync,open,apps,skipped,inbox,patterns,facts,prose,archive,resume,apply,"
+        "repair,validate}" in output
     )
     assert "\n    answers " not in output  # the library command is gone
     assert "queue" not in output
@@ -296,7 +297,7 @@ def test_bare_apply_and_apply_today_use_the_first_row_on_a_supported_or_chosen_a
     monkeypatch.setattr(
         hunt,
         "apply_posting",
-        lambda posting_id, *, dry_run, no_claude: calls.append(
+        lambda posting_id, *, dry_run, no_claude, repair: calls.append(
             ("apply", (posting_id, dry_run, no_claude))
         ),
     )
@@ -479,3 +480,13 @@ def test_the_learning_commands_parse() -> None:
     assert build_parser().parse_args(["hunt", "archive"]).section == "answers"
     with pytest.raises(SystemExit):
         build_parser().parse_args(["hunt", "answers", "list"])
+
+
+def test_repair_and_validate_are_commands_and_apply_takes_repair() -> None:
+    repair = build_parser().parse_args(["hunt", "repair", "--watch"])
+    assert (repair.hunt_command, repair.watch, repair.until) == ("repair", True, None)
+    assert build_parser().parse_args(["hunt", "validate"]).hunt_command == "validate"
+    apply = build_parser().parse_args(["hunt", "apply", "7", "--repair"])
+    assert apply.repair is True
+    with pytest.raises(SystemExit, match="--done takes no other flags"):
+        main(["hunt", "apply", "7", "--done", "--repair"])

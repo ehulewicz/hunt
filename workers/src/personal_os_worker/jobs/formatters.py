@@ -294,3 +294,20 @@ def render(
     if isinstance(limit, int) and limit > 0 and len(rendering.value) > limit:
         return None
     return rendering
+
+
+def renderings(
+    key: str, value: Any, value_type: str, *, field: dict[str, Any], question: str
+) -> list[Rendering]:
+    """Every distinct way this fact can be written, the wording's choice first.
+
+    Repair tries each against a live control whose options only appear when
+    typed into, where planning could not know which one the menu would accept.
+    """
+    if value is None:
+        return []
+    found: list[Rendering] = []
+    for rendering in _text_candidates(key, value, value_type, field, question):
+        if rendering.value not in {item.value for item in found}:
+            found.append(rendering)
+    return found

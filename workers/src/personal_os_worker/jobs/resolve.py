@@ -29,6 +29,7 @@ from personal_os_worker.jobs.facts.catalog import CATALOG
 from personal_os_worker.jobs.facts.derived import career_facts, derive, posting_facts
 from personal_os_worker.jobs.facts.values import fact_values
 from personal_os_worker.jobs.formatters import Rendering, polarity, render
+from personal_os_worker.jobs.registry.kinds import preference_key
 
 Stage = Literal["pattern", "format"]
 
@@ -59,6 +60,8 @@ class Knowledge:
     prose: tuple[dict[str, Any], ...] = ()
     archive: tuple[dict[str, Any], ...] = ()
     seed: str = ""
+    # Control identity -> the strategy a validated repair found for it.
+    preferences: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def build(
@@ -72,6 +75,7 @@ class Knowledge:
         company: str = "",
         seed: str = "",
         today: date | None = None,
+        preferences: Iterable[dict[str, Any]] = (),
     ) -> Knowledge:
         """Stored facts over career-derived ones (R51), then derived and posting facts."""
         day = today or date.today()
@@ -101,6 +105,12 @@ class Knowledge:
             prose=tuple(prose),
             archive=tuple(archive),
             seed=seed,
+            preferences={
+                preference_key(str(item["control_kind"]), dict(item.get("attributes") or {})):
+                str(item["strategy"])
+                for item in preferences
+                if item.get("control_kind") and item.get("strategy")
+            },
         )
 
     def for_model(self) -> list[dict[str, Any]]:

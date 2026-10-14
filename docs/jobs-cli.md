@@ -55,6 +55,9 @@ os hunt apply today --ats greenhouse
 os hunt apply 1 --no-claude
 os hunt apply 1 --done       # applied outside the worker; just record it
 
+os hunt apply 1 --repair      # retry failed fields in an isolated browser while you apply
+os hunt repair                # drain the repair queue now
+os hunt validate              # watch each repaired rule fill, then accept or reject it
 os hunt apply failures list
 os hunt apply failures show 1
 os hunt apply failures diagnose 1
@@ -160,6 +163,30 @@ Facts are the single source the apply run fills from. `os hunt facts review`
 shows each unverified fact beside what the archived answers said to similar
 questions, so a contradiction such as a second graduation date is settled once,
 on the fact.
+
+## Repair
+
+A field that fails stops at `format` (the fact fit nothing the control offered)
+or `strategy` (the widget would not take the value), and the failure says which.
+`os hunt repair` reopens each such application in a new, isolated browser
+context — no shared cookies or drafts, its own window — and retries only the
+failed field: every strategy that applies to the control for a strategy
+failure, every other rendering of the fact for a format failure, each checked by
+readback. What worked is stored on the issue as a candidate and the issue
+becomes `repaired`. `apply --repair` runs the same worker in the background
+while you apply, logging to `~/.local/state/personal-os/repair.log`. Neither
+can submit: a page script cancels every form submission and every click on a
+control labelled as submitting, and a network guard aborts any non-GET request
+that names a submission.
+
+`os hunt validate` walks the repaired issues. It opens a visible page on an
+unsubmitted application that showed the question, another posting first, fills
+only that field with the candidate, outlines it, and asks. Accepting a strategy
+makes it that control's first strategy in every later run; accepting a format
+binds the question to the fact with that formatter. Rejecting sends the issue
+back to the queue. Pattern-stage failures never come here: no retry invents a
+fact, so they go to the Inbox. Account-gated boards (Workday) wait for an
+adapter before in-place repair exists (R52).
 
 Failure diagnosis and fix drafting use subscription-authenticated local Claude.
 `apply-fix` requires the literal confirmation `apply`, changes only worker or

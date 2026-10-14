@@ -29,7 +29,8 @@ RoleFamily = Literal[
 ]
 AutofillAts = Literal["greenhouse", "ashby", "lever", "generic"]
 FailureStatus = Literal[
-    "open", "diagnosed", "patch_ready", "replay_passed", "live_verified", "fixed"
+    "open", "diagnosed", "patch_ready", "replay_passed", "live_verified", "fixed", "archived",
+    "repaired", "validated",
 ]
 
 
@@ -138,6 +139,8 @@ class AutofillRunContext(BaseModel):
     patterns: list[dict[str, Any]]
     # Approved prose, for long-form questions.
     prose: list[dict[str, Any]]
+    # Strategies a validated repair found for a particular control (design §10.3).
+    control_preferences: list[dict[str, Any]] = Field(default_factory=list)
     # The frozen old answer library, consulted on a miss (design §14).
     archive_answers: list[dict[str, Any]]
     duplicate_company_applications: list[dict[str, Any]]
@@ -218,6 +221,10 @@ class AutofillFailureIssue(BaseModel):
     first_seen_at: datetime
     last_seen_at: datetime
     updated_at: datetime
+    stopped_at: Literal["format", "strategy"] | None = None
+    candidate: dict[str, Any] | None = None
+    repaired_at: datetime | None = None
+    validated_at: datetime | None = None
 
 
 class AutofillFailureOccurrence(BaseModel):
@@ -232,6 +239,7 @@ class AutofillFailureOccurrence(BaseModel):
     artifact_paths: dict[str, str]
     adapter_version: str
     created_at: datetime
+    application_url: str | None = None
 
 
 class AutofillFailureDetail(AutofillFailureIssue):
@@ -240,6 +248,8 @@ class AutofillFailureDetail(AutofillFailureIssue):
 
 class AutofillFailureUpdate(BaseModel):
     status: FailureStatus | None = None
+    # The repaired rule: {"kind": "strategy" | "format", ...} (design §10.3).
+    candidate: dict[str, Any] | None = None
     diagnosis: str | None = Field(default=None, max_length=30000)
     proposed_patch: str | None = Field(default=None, max_length=200000)
     fixed_commit: str | None = Field(default=None, max_length=100)
@@ -248,3 +258,12 @@ class AutofillFailureUpdate(BaseModel):
 
 class AutofillArtifactResponse(BaseModel):
     storage_path: str
+
+
+class ValidationTarget(BaseModel):
+    """An unsubmitted application showing the failed question, a fresh one first (R26)."""
+
+    application_url: str
+    company_name: str
+    title: str
+    original: bool

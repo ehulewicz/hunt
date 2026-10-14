@@ -381,6 +381,15 @@ class WorkerApi:
             raise RuntimeError("Updated autofill failure response was invalid")
         return value
 
+    def validation_target(self, issue_id: str) -> dict[str, Any]:
+        """An unsubmitted application that showed a failed question, another one first."""
+        payload = self._json(
+            self._client.get(f"/v1/jobs/autofill/failures/{issue_id}/target"), "Target"
+        )
+        if not isinstance(payload, dict):
+            raise RuntimeError("Validation target response was invalid")
+        return payload
+
     def doctor(self) -> None:
         response = self._client.get("/v1/jobs/worker/doctor")
         response.raise_for_status()

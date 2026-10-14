@@ -24,6 +24,8 @@ os hunt apps
 os hunt apply 1 --dry-run
 os hunt apply 1
 os hunt apply --ats greenhouse
+os hunt repair
+os hunt validate
 os hunt apply failures list
 ```
 
@@ -60,6 +62,20 @@ label, type, sensitivity, and whether it is stored, career-derived, or derived.
 
 `jobs/inbox.py` is `os hunt inbox`; `jobs/knowledge.py` is `os hunt patterns`,
 `prose`, and `archive`.
+
+## Repair
+
+`jobs/repair/` is the repair lane (`docs/jobs-cli.md` describes using it).
+`repairer.py` retries one failed field on a live page — every applicable
+strategy for a `strategy` failure, every other rendering of the fact for a
+`format` failure — and returns the first that reads back. `guards.py` holds the
+two independent submit guards installed before a repair or validation page
+loads: a page script that cancels submissions and submit-labelled clicks, and a
+network route that aborts any non-GET request naming a submission; the repairer
+also refuses to operate a control that reads as submitting. `commands.py` is
+`os hunt repair [--watch]` and `os hunt validate`. A validated strategy reaches
+live fills through the run context as a control preference that
+`browser.apply_autofill` tries first.
 
 ## How a field is filled
 

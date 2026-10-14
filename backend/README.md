@@ -103,7 +103,14 @@ know is registered at precedence 100. Success rates are queries over
 `jobs_fill_events`; nothing keeps a counter.
 
 Failure signatures deduplicate issues while occurrence rows preserve run/step
-evidence. FastAPI alone writes sanitized artifacts to the private autofill bucket
+evidence. The issues are also the repair queue: a failure records where the fill
+stopped (`format` or `strategy`), and its occurrence keeps the question, fact,
+and formatter. `open` → `repaired` requires the candidate rule that worked;
+`repaired` → `validated` once you watched it, or back to `open`; a repaired or
+validated signature that fails again reopens. `GET
+/autofill/failures/{id}/target` names an unsubmitted application that showed the
+question, another posting before the one that failed (R26), and every run's
+context carries the validated strategy candidates as control preferences. FastAPI alone writes sanitized artifacts to the private autofill bucket
 and verifies ownership on upload and download; storage paths are never trusted as
 authorization. Submission and submitted status stay manual.
 
@@ -145,7 +152,7 @@ uses it. All three must pass:
 cd backend && uv run ruff check . && uv run mypy src/ && uv run pytest -q
 ```
 
-Currently 114 tests. `mypy` is scoped to `src/` because the test suite is not
+Currently 116 tests. `mypy` is scoped to `src/` because the test suite is not
 annotated; `pyproject.toml` already pins `packages = ["personal_os_backend"]`, so bare
 `uv run mypy` — the form CI uses — checks the same files.
 

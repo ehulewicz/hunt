@@ -34,6 +34,7 @@ from personal_os_backend.jobs_models import (
     JobListing,
     JobListingPage,
     ListingSyncResponse,
+    ValidationTarget,
 )
 from personal_os_backend.jobs_registry import record_fill_events
 from personal_os_backend.jobs_sources import SOURCE_NAME, SourceListing
@@ -145,6 +146,10 @@ class JobsStore(Protocol):
     async def update_autofill_failure(
         self, user_id: UUID, issue_id: UUID, item: AutofillFailureUpdate
     ) -> AutofillFailureIssue | None: ...
+
+    async def validation_target(
+        self, user_id: UUID, issue_id: UUID
+    ) -> ValidationTarget | None: ...
 
 class PostgresJobsStore:
     def __init__(self, pool: AsyncConnectionPool[Any], timeout: float) -> None:
@@ -625,6 +630,16 @@ class PostgresJobsStore:
             )
             facts = await facts_cursor.fetchall()
             duplicates = await duplicate_cursor.fetchall()
+            preferences_cursor = await connection.execute(
+                """
+                select candidate from app.jobs_autofill_failure_issues
+                where user_id = %s and status = 'validated'
+                  and candidate ->> 'kind' = 'strategy'
+                order by validated_at
+                """,
+                (user_id,),
+            )
+            preferences = [dict(row["candidate"]) for row in await preferences_cursor.fetchall()]
             patterns = await active_patterns(connection, user_id)
             prose = await approved_prose(connection, user_id)
             archive = await archived_answers(connection, user_id)
@@ -634,6 +649,7 @@ class PostgresJobsStore:
             patterns=[pattern.model_dump(mode="json") for pattern in patterns],
             prose=[item.model_dump(mode="json") for item in prose],
             archive_answers=[item.model_dump(mode="json") for item in archive],
+            control_preferences=preferences,
             duplicate_company_applications=[dict(item) for item in duplicates],
         )
 
@@ -674,23 +690,34 @@ class PostgresJobsStore:
                 category = str(failure.get("category") or "unsupported_control").strip()
                 if not signature:
                     continue
+                # Where the fill stopped decides whether Repair can retry it.
+                stopped_at = failure.get("stopped_at")
+                if stopped_at not in {"format", "strategy"}:
+                    stopped_at = None
                 issue_cursor = await connection.execute(
                     """
                     insert into app.jobs_autofill_failure_issues (
-                      user_id, signature, ats, category, field_label, control_kind
-                    ) values (%s, %s, %s, %s, %s, %s)
+                      user_id, signature, ats, category, field_label, control_kind, stopped_at
+                    ) values (%s, %s, %s, %s, %s, %s, %s)
                     on conflict (user_id, signature) do update set
                       occurrence_count = app.jobs_autofill_failure_issues.occurrence_count + 1,
                       last_seen_at = now(),
+                      stopped_at = coalesce(
+                        excluded.stopped_at, app.jobs_autofill_failure_issues.stopped_at
+                      ),
+                      -- A repair that fails again did not hold: back to the queue.
                       status = case
-                        when app.jobs_autofill_failure_issues.status in
-                          ('replay_passed', 'live_verified', 'fixed', 'archived') then 'open'
+                        when app.jobs_autofill_failure_issues.status in (
+                          'replay_passed', 'live_verified', 'fixed', 'archived',
+                          'repaired', 'validated'
+                        ) then 'open'
                         else app.jobs_autofill_failure_issues.status
                       end
                     returning id, signature, ats, category, field_label, control_kind,
                               status, diagnosis, proposed_patch, fixed_commit,
                               verification_notes, occurrence_count, first_seen_at,
-                              last_seen_at, updated_at
+                              last_seen_at, updated_at, stopped_at, candidate,
+                              repaired_at, validated_at
                     """,
                     (
                         user_id,
@@ -699,6 +726,7 @@ class PostgresJobsStore:
                         category,
                         failure.get("field_label"),
                         failure.get("control_kind"),
+                        stopped_at,
                     ),
                 )
                 issue = await issue_cursor.fetchone()
@@ -721,7 +749,14 @@ class PostgresJobsStore:
                         failure.get("intended_value"),
                         failure.get("observed_value"),
                         failure.get("error_message"),
-                        Jsonb(failure.get("dom_signals") or {}),
+                        Jsonb(
+                            (failure.get("dom_signals") or {})
+                            | {
+                                key: failure[key]
+                                for key in ("fact_key", "formatter", "question")
+                                if failure.get(key)
+                            }
+                        ),
                         Jsonb(failure.get("artifact_paths") or {}),
                         run["adapter_version"],
                     ),
@@ -925,7 +960,8 @@ class PostgresJobsStore:
                 select id, signature, ats, category, field_label, control_kind,
                        status, diagnosis, proposed_patch, fixed_commit,
                        verification_notes, occurrence_count, first_seen_at,
-                       last_seen_at, updated_at
+                       last_seen_at, updated_at, stopped_at, candidate,
+                       repaired_at, validated_at
                 from app.jobs_autofill_failure_issues where user_id = %s
                 order by last_seen_at desc, id
                 """,
@@ -944,7 +980,8 @@ class PostgresJobsStore:
                 select id, signature, ats, category, field_label, control_kind,
                        status, diagnosis, proposed_patch, fixed_commit,
                        verification_notes, occurrence_count, first_seen_at,
-                       last_seen_at, updated_at
+                       last_seen_at, updated_at, stopped_at, candidate,
+                       repaired_at, validated_at
                 from app.jobs_autofill_failure_issues where user_id = %s and id = %s
                 """,
                 (user_id, issue_id),
@@ -954,12 +991,16 @@ class PostgresJobsStore:
                 return None
             occurrence_cursor = await connection.execute(
                 """
-                select id, run_id, step_number, field_fingerprint, intended_value,
-                       observed_value, error_message, dom_signals, artifact_paths,
-                       adapter_version, created_at
-                from app.jobs_autofill_failure_occurrences
-                where user_id = %s and issue_id = %s
-                order by created_at desc limit 20
+                select occurrence.id, occurrence.run_id, occurrence.step_number,
+                       occurrence.field_fingerprint, occurrence.intended_value,
+                       occurrence.observed_value, occurrence.error_message,
+                       occurrence.dom_signals, occurrence.artifact_paths,
+                       occurrence.adapter_version, occurrence.created_at,
+                       run.application_url
+                from app.jobs_autofill_failure_occurrences occurrence
+                left join app.jobs_autofill_runs run on run.id = occurrence.run_id
+                where occurrence.user_id = %s and occurrence.issue_id = %s
+                order by occurrence.created_at desc limit 20
                 """,
                 (user_id, issue_id),
             )
@@ -1000,7 +1041,7 @@ class PostgresJobsStore:
             await connection.execute("set local role personal_os_api")
             current_cursor = await connection.execute(
                 """
-                select status from app.jobs_autofill_failure_issues
+                select status, candidate from app.jobs_autofill_failure_issues
                 where user_id = %s and id = %s for update
                 """,
                 (user_id, issue_id),
@@ -1010,12 +1051,16 @@ class PostgresJobsStore:
                 return None
             next_status = values.get("status")
             allowed = {
-                "open": {"open", "diagnosed"},
-                "diagnosed": {"diagnosed", "patch_ready"},
+                "open": {"open", "diagnosed", "repaired"},
+                "diagnosed": {"diagnosed", "patch_ready", "repaired"},
                 "patch_ready": {"patch_ready", "replay_passed"},
                 "replay_passed": {"replay_passed", "live_verified", "fixed"},
                 "live_verified": {"live_verified", "fixed"},
                 "fixed": {"fixed"},
+                "archived": {"archived"},
+                # A repaired rule is validated by watching it work, or rejected back.
+                "repaired": {"repaired", "validated", "open"},
+                "validated": {"validated"},
             }
             if next_status is not None and next_status not in allowed[str(current["status"])]:
                 raise ValueError(
@@ -1023,10 +1068,20 @@ class PostgresJobsStore:
                 )
             if next_status == "fixed" and not values.get("fixed_commit"):
                 raise ValueError("A fixed issue requires the verified Git commit")
+            if next_status == "repaired" and not (values.get("candidate") or current["candidate"]):
+                raise ValueError("A repaired issue carries the rule that repaired it")
             if next_status == "replay_passed":
                 values["replay_verified_at"] = datetime.now(UTC)
             if next_status in {"live_verified", "fixed"}:
                 values["live_verified_at"] = datetime.now(UTC)
+            if next_status == "repaired":
+                values["repaired_at"] = datetime.now(UTC)
+            if next_status == "validated":
+                values["validated_at"] = datetime.now(UTC)
+            if next_status == "open" and current["status"] == "repaired":
+                values["candidate"] = None
+            if "candidate" in values and values["candidate"] is not None:
+                values["candidate"] = Jsonb(values["candidate"])
             assignments = sql.SQL(", ").join(
                 sql.SQL("{} = %s").format(sql.Identifier(key)) for key in values
             )
@@ -1038,13 +1093,77 @@ class PostgresJobsStore:
                     returning id, signature, ats, category, field_label, control_kind,
                               status, diagnosis, proposed_patch, fixed_commit,
                               verification_notes, occurrence_count, first_seen_at,
-                              last_seen_at, updated_at
+                              last_seen_at, updated_at, stopped_at, candidate,
+                              repaired_at, validated_at
                     """
                 ).format(assignments),
                 (*values.values(), user_id, issue_id),
             )
             row = await cursor.fetchone()
         return AutofillFailureIssue.model_validate(row) if row else None
+
+    async def validation_target(
+        self, user_id: UUID, issue_id: UUID
+    ) -> ValidationTarget | None:
+        """An unsubmitted application that showed the failed question (R26).
+
+        Another posting first, so validating never touches the application the
+        failure happened on unless nothing else shows the question; never one
+        that went in, and never a closed posting.
+        """
+        async with self._pool.connection(timeout=self._timeout) as connection:
+            await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                """
+                select issue.field_label, (
+                  select run.application_id
+                  from app.jobs_autofill_failure_occurrences occurrence
+                  join app.jobs_autofill_runs run on run.id = occurrence.run_id
+                  where occurrence.issue_id = issue.id
+                  order by occurrence.created_at desc limit 1
+                ) as application_id
+                from app.jobs_autofill_failure_issues issue
+                where issue.user_id = %s and issue.id = %s
+                """,
+                (user_id, issue_id),
+            )
+            issue = await cursor.fetchone()
+            if issue is None or not issue["field_label"]:
+                return None
+            cursor = await connection.execute(
+                """
+                select posting.application_url, company.name as company_name, posting.title,
+                       application.id is not distinct from %s as original
+                from app.jobs_applications application
+                join app.jobs_postings posting on posting.id = application.posting_id
+                join app.jobs_companies company on company.id = posting.company_id
+                where application.user_id = %s
+                  and application.status in ('applying', 'archived', 'skipped')
+                  and posting.application_url is not null and posting.status <> 'closed'
+                  and (
+                    application.id = %s
+                    or exists (
+                      select 1 from app.jobs_fill_events event
+                      join app.jobs_autofill_runs run on run.id = event.run_id
+                      where run.application_id = application.id and event.user_id = %s
+                        and event.question_key = %s
+                    )
+                  )
+                order by application.id is not distinct from %s, application.updated_at desc
+                limit 1
+                """,
+                (
+                    issue["application_id"],
+                    user_id,
+                    issue["application_id"],
+                    user_id,
+                    normalize_answer_key(str(issue["field_label"])),
+                    issue["application_id"],
+                ),
+            )
+            row = await cursor.fetchone()
+        return ValidationTarget.model_validate(row) if row else None
+
 
 async def get_jobs_store(request: Request) -> JobsStore:
     settings: Settings = request.app.state.settings

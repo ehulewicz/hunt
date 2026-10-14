@@ -8,6 +8,7 @@ only after interaction), and cardinality (one, many, boolean).
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 CONTROL_KINDS = (
@@ -75,6 +76,15 @@ def control_attributes(field: dict[str, Any]) -> dict[str, Any]:
         "aria_haspopup": str(aria.get("haspopup") or "").casefold() or None,
     }
     return {key: value for key, value in attributes.items() if value is not None}
+
+
+def control_key(field: dict[str, Any]) -> str:
+    """One control's identity as a string: its kind and structural attributes."""
+    return f"{classify(field)}|{json.dumps(control_attributes(field), sort_keys=True)}"
+
+
+def preference_key(kind: str, attributes: dict[str, Any]) -> str:
+    return f"{kind}|{json.dumps(attributes, sort_keys=True)}"
 
 
 def question_of(field: dict[str, Any]) -> str:

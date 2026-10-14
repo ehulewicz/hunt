@@ -470,6 +470,7 @@ class AutofillSession:
             resume_path=self.ctx.resume_pdf,
             transcript_path=self.ctx.transcript_pdf,
             assert_active=lambda: None,
+            preferences=self.ctx.knowledge.preferences,
         )
         for fill in plan.fills:
             question = _question_for(fields[fill.index])
@@ -620,7 +621,8 @@ class AutofillSession:
         claude_fields, plan = plan_autofill(self.page, resolver=resolver)
         self.state.misses.update(resolver.misses)
         claude_result = apply_autofill(
-            self.page, claude_fields, plan, resume_path=None, assert_active=lambda: None
+            self.page, claude_fields, plan, resume_path=None, assert_active=lambda: None,
+            preferences=self.ctx.knowledge.preferences,
         )
         for fill in plan.fills:
             question = _question_for(claude_fields[fill.index])

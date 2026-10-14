@@ -27,10 +27,11 @@ from personal_os_worker.jobs.adapters import ATS_NAMES
 from personal_os_worker.jobs.commands import APPLICATION_STATUSES, DEFAULT_TECHNICAL_FAMILIES
 from personal_os_worker.jobs.facts import commands as facts
 from personal_os_worker.jobs.facts.commands import VALUE_TYPES
+from personal_os_worker.jobs.repair import commands as repairs
 
 HUNT_COMMANDS = (
     "today", "sync", "open", "apps", "skipped", "inbox", "patterns", "facts", "prose",
-    "archive", "resume", "apply",
+    "archive", "resume", "apply", "repair", "validate",
 )
 LISTING_FLAGS = ("--faang", "--quant", "--location", "--family", "--all-roles", "--ats")
 
@@ -251,9 +252,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip the bounded Claude pass over remaining short and choice questions",
     )
     autofill.add_argument(
+        "--repair",
+        action="store_true",
+        help="Retry failed fields in an isolated browser while you apply (os hunt repair)",
+    )
+    autofill.add_argument(
         "--done",
         action="store_true",
         help="Do not fill anything; record that you applied to this listing yourself",
+    )
+
+    repair = jobs_commands.add_parser(
+        "repair", help="Retry failed fields in an isolated browser; never submits"
+    )
+    repair.add_argument(
+        "--watch", action="store_true", help="Keep draining the queue (apply --repair uses it)"
+    )
+    repair.add_argument("--until", type=int, help=argparse.SUPPRESS)
+    jobs_commands.add_parser(
+        "validate", help="Watch each repaired rule fill its field, then accept or reject it"
     )
 
     return parser
@@ -373,6 +390,10 @@ def _dispatch(args: argparse.Namespace) -> int:
                 )
         if args.hunt_command == "resume":
             return run_resume(args)
+        if args.hunt_command == "repair":
+            return repairs.run_repair(watch=args.watch, until=args.until)
+        if args.hunt_command == "validate":
+            return repairs.run_validate()
         if args.hunt_command == "apply":
             if args.ref == "failures":
                 return hunt.run_autofill_failure_command(
@@ -383,7 +404,7 @@ def _dispatch(args: argparse.Namespace) -> int:
             if args.failure_action or args.failure_ref or args.verify_listing_ref:
                 raise RuntimeError("Unexpected autofill arguments")
             if args.done:
-                if args.dry_run or args.no_claude or args.ats:
+                if args.dry_run or args.no_claude or args.ats or args.repair:
                     raise RuntimeError("--done takes no other flags")
                 if args.ref is None or args.ref == "today":
                     raise RuntimeError("--done needs a listing row or id")
@@ -394,10 +415,13 @@ def _dispatch(args: argparse.Namespace) -> int:
                     ats=args.ats,
                     dry_run=args.dry_run,
                     no_claude=args.no_claude,
+                    repair=args.repair,
                 )
             if args.ats:
                 raise RuntimeError("--ats picks the top row; do not give a row with it")
-            return hunt.run_autofill(args.ref, dry_run=args.dry_run, no_claude=args.no_claude)
+            return hunt.run_autofill(
+                args.ref, dry_run=args.dry_run, no_claude=args.no_claude, repair=args.repair
+            )
     return 2
 
 

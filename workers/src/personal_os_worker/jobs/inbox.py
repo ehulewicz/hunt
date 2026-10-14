@@ -13,6 +13,9 @@ Three kinds of item, in this order:
 - **Prose** — long-form writing from a submitted application, waiting to be
   approved for reuse.
 
+Repaired rules wait here too, but they are validated by watching them fill a
+live form, so the Inbox only counts them and points at `os hunt validate`.
+
 Nothing here fills a form; this is where the loop's human step happens.
 """
 
@@ -279,9 +282,15 @@ def walk_inbox(api: WorkerApi, *, ask: Ask = input, today: date | None = None) -
             expression.search(str(item["question"]["sample_label"])) for expression in expressions
         )
     ]
+    repaired = sum(1 for issue in api.autofill_failures() if issue.get("status") == "repaired")
     total = len(inbox.get("candidates") or []) + len(questions) + len(inbox.get("prose") or [])
+    if repaired:
+        console.print(
+            f"{repaired} repaired rule(s) wait for 'os hunt validate', which shows each one "
+            "working before it goes live."
+        )
     if total == 0:
-        console.print("The Inbox is empty.")
+        console.print("The Inbox is empty." if not repaired else "Nothing else is waiting.")
         return counts
     console.print(f"{total} item(s) waiting.")
     try:

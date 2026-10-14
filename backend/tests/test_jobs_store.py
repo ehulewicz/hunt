@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import pytest
+
 USER_ID = uuid4()
 APPLICATION_ID = uuid4()
 TASK_ID = uuid4()
@@ -129,3 +131,24 @@ def test_lists_that_are_addressed_by_row_have_deterministic_order() -> None:
         Path(__file__).resolve().parents[1] / "src/personal_os_backend/jobs_answers.py"
     ).read_text()
     assert "order by updated_at desc, id" in answers  # the archive, listed by row
+
+
+def test_a_repair_that_fails_again_goes_back_to_the_queue() -> None:
+    source = (
+        Path(__file__).resolve().parents[1] / "src/personal_os_backend/jobs_store.py"
+    ).read_text()
+    upsert = " ".join(source.split("on conflict (user_id, signature)", 1)[1].split()[:80])
+    assert "'archived', 'repaired', 'validated' ) then 'open'" in upsert
+    assert "stopped_at = coalesce( excluded.stopped_at" in upsert
+
+
+def test_repair_statuses_and_candidates_are_part_of_the_failure_contract() -> None:
+    from personal_os_backend.jobs_models import AutofillFailureUpdate
+
+    update = AutofillFailureUpdate.model_validate(
+        {"status": "repaired", "candidate": {"kind": "strategy", "strategy": "set_value"}}
+    )
+    assert update.candidate == {"kind": "strategy", "strategy": "set_value"}
+    assert AutofillFailureUpdate.model_validate({"status": "validated"}).status == "validated"
+    with pytest.raises(ValueError):
+        AutofillFailureUpdate.model_validate({"status": "repairing"})

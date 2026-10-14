@@ -37,7 +37,11 @@ was written for, unapproved until reviewed. Answer history and fill events carry
 The archive is the old system, renamed and frozen — the API role can only read
 it: `jobs_archive_answers` (the former answer library, 198 rows),
 `jobs_archive_profile` (the former profile), and `jobs_archive_documents`.
-Failure issues the old dispatch left open are `archived`; a signature that
+Failure issues double as the repair queue: `stopped_at` (`format` or `strategy`)
+says whether Repair can retry one, `candidate` holds the rule a repair found, and
+`repaired_at` and `validated_at` date the two steps; a `repaired` or `validated`
+issue must carry its candidate. Failure issues the old dispatch left open are
+`archived`; a signature that
 fails again reopens.
 
 An observed history row is identified by run and event index; final rows retain the

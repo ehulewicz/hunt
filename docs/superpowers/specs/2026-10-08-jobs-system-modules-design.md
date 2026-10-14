@@ -1,8 +1,9 @@
 # Jobs system: modules, registry, and the application path
 
 Date: 2026-10-08, revised 2026-10-14. Status: slices A (Facts) and D (Registry)
-are built; the 2026-10-14 revision (§0) restarts the learned knowledge from
-scratch and reshapes slice C; B, C, E, and F are being built under it.
+were built 2026-10-08; the 2026-10-14 revision (§0) restarts the learned
+knowledge from scratch and reshapes slice C, and B, C, E, and F were built under
+it the same day, all but in-place mode (R52).
 
 This document describes the Jobs system as a set of modules with explicit
 boundaries, and specifies them in enough detail to build. It replaces the
@@ -1465,6 +1466,7 @@ waits for A, C, and D; F waits for D and E.
 
 | | |
 |---|---|
+| **Status** | built 2026-10-14 |
 | **Delivers** | the four career tables; a one-time `os hunt resume import` from `main.json`; build and `resume edit` from the database; career-derived facts (shadowed by stored ones, R51); the AGENTS.md resume rule amendment (R32); `jobs_documents` archived and the bootstrap seeding removed (R42) |
 | **Owns** | migration `…_jobs_career.sql`; `backend/…/jobs_career.py`; `workers/…/documents/` |
 | **Depends on** | A, for the `contact.*` facts in the header |
@@ -1474,6 +1476,7 @@ waits for A, C, and D; F waits for D and E.
 
 | | |
 |---|---|
+| **Status** | built 2026-10-14 |
 | **Delivers** | *Reshaped 2026-10-14.* The archive (R42): the library and profile renamed and frozen, old failures archived (R50), the retired rules in `jobs/archive/` with their translations; `jobs_questions` recorded on encounter (R44), `jobs_patterns`, a new empty `jobs_prose`, `question_id` on answer history and fill events; the fact catalog (§7.2) as code; `os hunt inbox` (R47), `os hunt patterns`, `os hunt prose`, `os hunt archive`; the regression corpus (R30) |
 | **Owns** | migration `…_jobs_answers.sql`; `backend/…/jobs_answers.py`; `workers/…/jobs/archive/`, `jobs/inbox.py`, `jobs/facts/catalog.py` |
 | **Depends on** | A |
@@ -1493,6 +1496,7 @@ waits for A, C, and D; F waits for D and E.
 
 | | |
 |---|---|
+| **Status** | built 2026-10-14 |
 | **Delivers** | resolution from active patterns, then the archive, then the model, always through a fact and a formatter (§8, §14); formatters; the `resolve_priority_answer` split (R14), its old branches archived; office selection (§9); the every-field page gate (§10.2); the cover letter always attached; model-pass verdicts `fits_fact` / `no_fact` / `unsure`; sensitive facts withheld from model calls; $40/hour |
 | **Owns** | `workers/…/jobs/formatters.py`, `jobs/office.py`; `autofill.py`, `autofill_session.py`, `short_answers.py` |
 | **Depends on** | A, C, D |
@@ -1502,6 +1506,7 @@ waits for A, C, and D; F waits for D and E.
 
 | | |
 |---|---|
+| **Status** | built 2026-10-14, except in-place mode (R52) |
 | **Delivers** | `--repair`; the repair worker and its isolated context; in-place mode for account-gated ATSs (deferred, R52); rule status; `os hunt repair`; `os hunt validate`; the minimal Inbox read API (R38); metering for `_failure_claude` (R39) |
 | **Owns** | migration `…_jobs_repair.sql`; `workers/…/jobs/repair/`; `commands.py` failure path |
 | **Depends on** | D, E |
