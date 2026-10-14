@@ -115,10 +115,13 @@ def alive(pid: int | None) -> bool:
 
 def run_repair(*, watch: bool = False, until: int | None = None) -> int:
     config, token = connected()
-    ensure_chrome(config.cdp_url)
     api = WorkerApi(config, token)
     attempted: set[str] = set()
     try:
+        if not watch and not queue(api):
+            console.print("Nothing to repair: no open failure stopped at a format or a strategy.")
+            return 0
+        ensure_chrome(config.cdp_url)
         knowledge = knowledge_for(api)
         with VisibleBrowser(config.cdp_url) as browser:
             while True:
@@ -131,8 +134,6 @@ def run_repair(*, watch: bool = False, until: int | None = None) -> int:
                 time.sleep(WATCH_SECONDS)
     finally:
         api.close()
-    if not attempted and not watch:
-        console.print("Nothing to repair: no open failure stopped at a format or a strategy.")
     return 0
 
 
@@ -241,7 +242,6 @@ def validate_issue(
 
 def run_validate(*, ask: Ask = input) -> int:
     config, token = connected()
-    ensure_chrome(config.cdp_url)
     api = WorkerApi(config, token)
     counts = {"validated": 0, "rejected": 0, "skipped": 0}
     try:
@@ -249,6 +249,7 @@ def run_validate(*, ask: Ask = input) -> int:
         if not repaired:
             console.print("Nothing to validate. 'os hunt repair' turns failures into candidates.")
             return 0
+        ensure_chrome(config.cdp_url)
         knowledge = knowledge_for(api)
         with VisibleBrowser(config.cdp_url) as browser:
             for issue in repaired:
