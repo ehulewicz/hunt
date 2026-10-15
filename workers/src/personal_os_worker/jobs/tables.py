@@ -14,12 +14,12 @@ from rich.table import Table
 from rich.text import Text
 
 from personal_os_worker.core.tables import console, short_id
-from personal_os_worker.jobs.adapters import detect_ats
+from personal_os_worker.jobs.sites import detect_ats
 
 
 def _ats(application_url: str) -> str:
     """The form type behind the direct URL; blank when it is nothing we recognize."""
-    name = detect_ats(application_url).name
+    name = detect_ats(application_url)
     return "" if name == "generic" else name
 
 

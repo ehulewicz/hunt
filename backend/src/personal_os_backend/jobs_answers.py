@@ -2,10 +2,11 @@
 
 Knowledge starts empty and is learned (design §0). A question is recorded the
 first time a fill event meets it. A pattern connects a short-form question to a
-fact; only `active` patterns are read when filling, and an archive or model fill
-only proposes a `candidate` binding, which the Inbox accepts or rejects. Prose is
+fact; only `active` patterns are read when filling, and a model fill only
+proposes a `candidate` binding, which the Inbox accepts or rejects. Prose is
 long-form writing saved from submitted applications, reused once approved. The
-old answer library is the archive: readable, never written.
+old answer library is the archive: readable, never written, and kept only for
+the facts session — no application reads it.
 """
 
 from __future__ import annotations
@@ -72,25 +73,22 @@ async def propose_binding(
     question_id: UUID,
     fact_key: str,
     formatter: str | None,
-    origin: Literal["archive", "model"],
-    archive_ref: str | None,
 ) -> None:
-    """A candidate binding from an archive or model fill; never activates by itself (R43)."""
+    """A candidate binding from a model fill; never activates by itself (R43)."""
     if not FACT_KEY.fullmatch(fact_key):
         return
     await connection.execute(
         """
         with new as (select gen_random_uuid() as id)
         insert into app.jobs_patterns (
-          id, user_id, resolver_id, kind, question_id, fact_key, formatter, origin,
-          archive_ref, status
+          id, user_id, resolver_id, kind, question_id, fact_key, formatter, origin, status
         )
-        select new.id, %s, 'binding:' || new.id::text, 'binding', %s, %s, %s, %s, %s,
+        select new.id, %s, 'binding:' || new.id::text, 'binding', %s, %s, %s, 'model',
                'candidate'
         from new
         on conflict (user_id, question_id, fact_key) where kind = 'binding' do nothing
         """,
-        (user_id, question_id, fact_key, formatter, origin, archive_ref),
+        (user_id, question_id, fact_key, formatter),
     )
 
 

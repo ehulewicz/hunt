@@ -64,8 +64,8 @@ synchronous autofill runs, and failure history.
 `jobs_answers.py` holds what the system learns (design §0). A question is
 recorded the first time a fill event or an answer names it. A pattern binds a
 question — or, as an expression, any phrasing — to a fact; only `active`
-patterns reach a run, and a fill event whose value came from the archive or
-the model and read back proposes a `candidate` binding in the step's
+patterns reach a run, and a fill event whose value came from the model and
+read back proposes a `candidate` binding in the step's
 transaction, never an active one. `GET /v1/jobs/inbox` lists candidates with the
 answers recorded for their question, unbound short questions you answered, and
 unapproved prose; accepting a binding (`PATCH /patterns/{id}` to `active`)
@@ -73,8 +73,8 @@ retires the question's previous binding and marks the question `pattern`, and
 rejecting or retiring one hands the question back. A submitted long-form answer
 is saved as unapproved prose unless it was approved prose reused. The old
 answer library is `jobs_archive_answers`, served read-only at
-`/v1/jobs/archive/answers` and in each run's context so the worker can consult
-it. Discovery is always limited to internships/co-ops, ordered
+`/v1/jobs/archive/answers` for the facts session and never in a run's context:
+no application reads it. Discovery is always limited to internships/co-ops, ordered
 newest-first by `jobs_postings.created_at` (discovery into this system, not
 source-posting age), with match-any location selection and the FAANG+/Quant/general
 source section retained. The direct company/ATS URL is used for application work
@@ -82,7 +82,8 @@ while the GitHub file remains the discovery URL.
 
 The signed-in CLI creates an autofill run from a posting ID. FastAPI upserts the
 application and returns only that user's direct URL, posting context, facts,
-active patterns, approved prose, the archive, and duplicate-company warnings.
+active patterns, approved prose, validated control preferences, and
+duplicate-company warnings.
 Step results, changed-answer observations, and final values come back through
 authenticated endpoints and are stored as application history linked to their
 questions; nothing in a run activates a pattern or approves prose.

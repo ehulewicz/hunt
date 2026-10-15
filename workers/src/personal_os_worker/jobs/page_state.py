@@ -21,7 +21,7 @@ class ApplicationPageState(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class AshbyNavigation:
+class TabNavigation:
     overview_url: str
     application_url: str
 
@@ -40,8 +40,8 @@ def normalize_navigation_url(url: str) -> str:
     return urlunsplit((parts.scheme.casefold(), parts.netloc.casefold(), path, "", ""))
 
 
-def capture_ashby_navigation(page: Page) -> AshbyNavigation | None:
-    """Capture the exact Overview/Application pair for one Ashby posting."""
+def capture_tab_navigation(page: Page) -> TabNavigation | None:
+    """The Overview/Application tab pair a posting shows, on whatever site shows one."""
     found: dict[str, str] = {}
     try:
         tabs = page.get_by_role("tab")
@@ -63,7 +63,7 @@ def capture_ashby_navigation(page: Page) -> AshbyNavigation | None:
         return None
     if application.path.rstrip("/") != f"{overview.path.rstrip('/')}/application":
         return None
-    return AshbyNavigation(found["overview"], found["application"])
+    return TabNavigation(found["overview"], found["application"])
 
 
 def _submitted(page: Page) -> bool:
@@ -90,7 +90,7 @@ def _submitted(page: Page) -> bool:
 def classify_application_page(
     page: Page,
     fields: list[dict[str, str | bool | None]],
-    navigation: AshbyNavigation | None = None,
+    navigation: TabNavigation | None = None,
 ) -> ApplicationPageState:
     """Classify with submission precedence over residual or invisible controls."""
     if _submitted(page):

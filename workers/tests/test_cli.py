@@ -238,7 +238,7 @@ def test_autofill_accepts_today_with_an_ats_filter() -> None:
         build_parser().parse_args(["hunt", "apply", "today", "--ats", "icims"])
 
 
-def test_bare_apply_and_apply_today_use_the_first_row_on_a_supported_or_chosen_ats(
+def test_bare_apply_and_apply_today_use_the_first_row_on_any_or_the_chosen_ats(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[str, object]] = []
@@ -307,8 +307,11 @@ def test_bare_apply_and_apply_today_use_the_first_row_on_a_supported_or_chosen_a
         "listings",
         (["software_engineering", "data_engineering", "ml_engineering"], 500),
     )
-    assert calls[-1] == ("apply", ("ashby-first", True, True))
+    # Every site is filled from its controls: the first row of today wins, whatever its ATS.
+    assert calls[-1] == ("apply", ("generic-first", True, True))
 
+    assert main(["hunt", "apply", "today", "--ats", "workday", "--dry-run"]) == 0
+    assert calls[-1] == ("apply", ("workday-first", True, False))
     assert main(["hunt", "apply", "today", "--ats", "greenhouse", "--dry-run"]) == 0
     assert calls[-1] == ("apply", ("greenhouse-first", True, False))
 

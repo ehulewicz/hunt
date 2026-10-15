@@ -27,7 +27,8 @@ RoleFamily = Literal[
     "data_science",
     "other",
 ]
-AutofillAts = Literal["greenhouse", "ashby", "lever", "generic"]
+# A label for querying runs and fill events, never behavior.
+AutofillAts = Literal["greenhouse", "ashby", "lever", "workday", "generic"]
 FailureStatus = Literal[
     "open", "diagnosed", "patch_ready", "replay_passed", "live_verified", "fixed", "archived",
     "repaired", "validated",
@@ -141,8 +142,6 @@ class AutofillRunContext(BaseModel):
     prose: list[dict[str, Any]]
     # Strategies a validated repair found for a particular control (design §10.3).
     control_preferences: list[dict[str, Any]] = Field(default_factory=list)
-    # The frozen old answer library, consulted on a miss (design §14).
-    archive_answers: list[dict[str, Any]]
     duplicate_company_applications: list[dict[str, Any]]
 
 

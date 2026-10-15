@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -110,10 +109,10 @@ def run_listings(
 
 def by_ats(items: list[dict[str, object]], ats: str) -> list[dict[str, object]]:
     """Listings whose direct application URL is on this form type."""
-    from personal_os_worker.jobs.adapters import detect_ats
+    from personal_os_worker.jobs.sites import detect_ats
 
     return [
-        item for item in items if detect_ats(str(item.get("application_url") or "")).name == ats
+        item for item in items if detect_ats(str(item.get("application_url") or "")) == ats
     ]
 
 
@@ -257,33 +256,10 @@ def run_autofill(
     return 0
 
 
-def start_repair_worker() -> Path:
-    """`os hunt repair --watch` in the background, ending after this process does (R25)."""
-    import subprocess
-    import sys
-
-    from personal_os_worker.core.service import state_dir
-
-    log = state_dir() / "repair.log"
-    log.parent.mkdir(parents=True, exist_ok=True)
-    with log.open("a", encoding="utf-8") as stream:
-        subprocess.Popen(
-            [sys.executable, "-m", "personal_os_worker", "hunt", "repair", "--watch",
-             "--until", str(os.getpid())],
-            stdout=stream,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-    return log
-
-
 def run_autofill_top(
     *, today: bool, ats: str | None, dry_run: bool, no_claude: bool = False, repair: bool = False
 ) -> int:
-    """Apply the first board row (or first of today) on the given ATS, else any supported one."""
-    from personal_os_worker.jobs.adapters import detect_ats
-
+    """Apply the first board row (or first of today), on the given ATS when one is named."""
     families = list(DEFAULT_TECHNICAL_FAMILIES)
     config, token = connected()
     api = WorkerApi(config, token)
@@ -296,14 +272,8 @@ def run_autofill_top(
                 items = by_ats(items, ats)
     finally:
         api.close()
-    if ats is None:
-        items = [
-            item
-            for item in items
-            if detect_ats(str(item.get("application_url") or "")).supported
-        ]
     if not items:
-        where = f"on {ats}" if ats else "on a supported ATS"
+        where = f"on {ats}" if ats else "on the board"
         raise RuntimeError(f"Nothing {'new today' if today else 'listed'} {where}.")
     listing = items[0]
     console.print(
@@ -340,9 +310,9 @@ def apply_posting(
     """Run one interactive apply session: "submitted", "skipped", or "stopped"."""
     from personal_os_worker.documents.doctor import latex_toolchain_check
     from personal_os_worker.documents.resume import ensure_resume, transcript_pdf_path
-    from personal_os_worker.jobs.adapters import adapter_version, detect_ats, failure_signature
     from personal_os_worker.jobs.autofill_session import AutofillSession, SessionContext
     from personal_os_worker.jobs.browser import VisibleBrowser, inspect_fields, sanitized_evidence
+    from personal_os_worker.jobs.sites import adapter_version, failure_signature
 
     # The cover letter is compiled mid-application, so a broken TeX install must
     # fail here rather than after twenty seconds of drafting on a live form.
@@ -363,40 +333,13 @@ def apply_posting(
         )
         run_id = str(run["run_id"])
         direct_url = str(run["application_url"])
-        adapter = detect_ats(direct_url)
-        if not adapter.supported:
-            fingerprint = f"unsupported-ats|{direct_url.split('?', 1)[0]}"
-            api.persist_autofill_step(
-                run_id,
-                {
-                    "step_number": 0,
-                    "url": direct_url,
-                    "failures": [
-                        {
-                            "signature": failure_signature(
-                                adapter.name, "unsupported_ats", fingerprint
-                            ),
-                            "category": "unsupported_ats",
-                            "field_fingerprint": fingerprint,
-                            "error_message": (
-                                "No Greenhouse, Ashby, or Lever adapter matched"
-                            ),
-                        }
-                    ],
-                },
-            )
-            raise RuntimeError(
-                "This v1 supports Greenhouse, Ashby, and Lever only; "
-                "the generic form was not filled"
-            )
-        if run.get("ats") != adapter.name:
-            raise RuntimeError("The backend and browser disagreed on the ATS adapter")
+        # A label for querying the fill events; every site is filled the same way.
+        ats = str(run.get("ats") or "generic")
         knowledge = Knowledge.build(
             facts=list(run.get("facts") or []),
             career=career,
             patterns=list(run.get("patterns") or []),
             prose=list(run.get("prose") or []),
-            archive=list(run.get("archive_answers") or []),
             company=str(run["company_name"]),
             # Random choices (office selection) are seeded per application (design §4).
             seed=str(run.get("application_id") or run_id),
@@ -443,9 +386,7 @@ def apply_posting(
                         "url": page.url,
                         "failures": [
                             {
-                                "signature": failure_signature(
-                                    adapter.name, category, fingerprint
-                                ),
+                                "signature": failure_signature(ats, category, fingerprint),
                                 "category": category,
                                 "field_fingerprint": fingerprint,
                                 "error_message": message,
@@ -456,15 +397,6 @@ def apply_posting(
                 )
 
             body = page.locator("body").inner_text(timeout=20_000)[:100000]
-            live_adapter = detect_ats(page.url)
-            if live_adapter.name != adapter.name:
-                message = (
-                    "The direct application URL redirected to a different or unsupported ATS"
-                )
-                report_page_failure("url_mismatch", message)
-                raise RuntimeError(
-                    f"{message}; nothing was filled"
-                )
             expected_company = str(run["company_name"])
             expected_title = str(run["title"])
             title_tokens = {
@@ -491,18 +423,19 @@ def apply_posting(
                 report_page_failure("closed_posting", "The live posting appears closed")
                 raise RuntimeError("The live posting appears closed; nothing was filled")
             console.print(
-                f"[bold]{expected_company}[/bold] — {expected_title}  [dim]({adapter.name})[/dim]"
+                f"[bold]{expected_company}[/bold] — {expected_title}  [dim]({ats})[/dim]"
             )
             if repair and not dry_run:
-                log = start_repair_worker()
-                console.print(f"  [dim]repair worker started in the background; log {log}[/dim]")
+                console.print(
+                    "  [dim]repair on: a field that fails is retried here, on this page[/dim]"
+                )
             resume_pdf = resume.pdf
             console.print(f"  [dim]resume  {resume_pdf}[/dim]")
             session = AutofillSession(
                 SessionContext(
                     api=api,
                     run_id=run_id,
-                    adapter_name=adapter.name,
+                    ats=ats,
                     browser=browser,
                     page=page,
                     console_errors=console_errors,
@@ -515,6 +448,7 @@ def apply_posting(
                     transcript_pdf=transcript_pdf_path(),
                     dry_run=dry_run,
                     use_claude=not no_claude,
+                    repair=repair,
                 )
             )
             outcome = session.run()
@@ -586,7 +520,6 @@ def run_autofill_failure_command(
     import re
     import subprocess
     import tempfile
-    from pathlib import Path
 
     from personal_os_worker.core.tables import short_id
 

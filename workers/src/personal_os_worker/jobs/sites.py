@@ -1,30 +1,19 @@
+"""Site-independent helpers: option matching, non-answers, failure signatures, the ATS label."""
+
 from __future__ import annotations
 
 import hashlib
 import re
 import subprocess
-from dataclasses import dataclass
 from urllib.parse import urlparse
 
 ADAPTER_VERSION = "personal-os-autofill-v1"
 
 
-@dataclass(frozen=True, slots=True)
-class AtsAdapter:
-    name: str
-    supported: bool = True
-    resume_first: bool = False
-    skip_choices_for_captcha: bool = False
-
-
-ADAPTERS = {
-    "greenhouse": AtsAdapter("greenhouse", resume_first=True),
-    "ashby": AtsAdapter("ashby", resume_first=True),
-    "lever": AtsAdapter("lever", skip_choices_for_captcha=True),
-    "workday": AtsAdapter("workday", supported=False),
-    "generic": AtsAdapter("generic", supported=False),
-}
-ATS_NAMES = tuple(ADAPTERS)
+# Which applicant tracking system a URL is on. This is a dimension for querying
+# fill events and filtering listings, never behavior: every site, named or not,
+# is filled the same way, from its controls.
+ATS_NAMES = ("greenhouse", "ashby", "lever", "workday", "generic")
 
 
 def adapter_version() -> str:
@@ -59,17 +48,18 @@ def is_non_answer_option(value: str) -> bool:
     ) or normalized in {"decline", "no answer"}
 
 
-def detect_ats(url: str) -> AtsAdapter:
+def detect_ats(url: str) -> str:
+    """The ATS a URL is on, or "generic"; a label, never a reason to fill differently."""
     host = (urlparse(url).hostname or "").casefold()
     if "greenhouse.io" in host or "greenhouse.com" in host:
-        return ADAPTERS["greenhouse"]
+        return "greenhouse"
     if "ashbyhq.com" in host:
-        return ADAPTERS["ashby"]
+        return "ashby"
     if "lever.co" in host:
-        return ADAPTERS["lever"]
+        return "lever"
     if "myworkdayjobs.com" in host or "myworkdaysite.com" in host:
-        return ADAPTERS["workday"]
-    return ADAPTERS["generic"]
+        return "workday"
+    return "generic"
 
 
 def option_match(options: list[str], requested: str) -> str | None:

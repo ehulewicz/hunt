@@ -1,7 +1,7 @@
 """One bounded model pass over the short and choice questions a page left empty.
 
-Called at most once per page step, over the questions no active pattern, the
-archive, or the engine answered. The model never writes a value. For each
+Called at most once per page step, over the questions no active pattern or the
+engine answered. The model never writes a value. For each
 question it returns a verdict (design §7.4):
 
 - `fits_fact` — names the one listed fact whose value answers it; the fill

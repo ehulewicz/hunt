@@ -182,3 +182,46 @@ def test_a_validated_strategy_goes_first_in_a_live_fill(tmp_path: Path) -> None:
     )
     assert knowledge.preferences == {control_key(field): "set_value"}
     assert preference_key("text_entry", {"type": "text", "tag": "input"}) == control_key(field)
+
+
+def test_a_fill_repairs_in_place_on_any_site_and_stores_the_candidate(  # type: ignore[no-untyped-def]
+    page, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`apply --repair`: the live page is retried right after the step, whatever the board."""
+    from types import SimpleNamespace
+    from typing import cast
+
+    from personal_os_worker.jobs.autofill_session import AutofillSession
+
+    page.set_content(TERMS_TYPEAHEAD + '<button type="submit">Submit application</button>')
+    updates: list[tuple[str, dict[str, Any]]] = []
+    api = SimpleNamespace(update_autofill_failure=lambda issue_id, body: updates.append(
+        (issue_id, body)
+    ))
+    knowledge = Knowledge.build(
+        facts=[{"key": "education.graduation_date", "value": "2027-12-15", "value_type": "date"}],
+        career=None,
+    )
+    session = AutofillSession(cast(Any, SimpleNamespace(page=page, api=api, knowledge=knowledge)))
+    failures = [
+        {"stopped_at": "format", "question": "Expected graduation", "signature": "s1",
+         "fact_key": "education.graduation_date", "formatter": "date_as_month_year"},
+        # A strategy failure with no value recorded, and one already handled, are left alone.
+        {"stopped_at": "strategy", "question": "Expected graduation", "signature": "s2"},
+        {"stopped_at": None, "question": "Expected graduation", "signature": "s3"},
+    ]
+    issues = [{"id": "i1", "signature": "s1"}, {"id": "i2", "signature": "s2"},
+              {"id": "i3", "signature": "s3"}]
+
+    session.repair_in_place(inspect_fields(page), failures, issues)
+
+    assert page.locator(".select__single-value").inner_text() == "Fall 2027"
+    assert len(updates) == 1
+    issue_id, body = updates[0]
+    assert issue_id == "i1" and body["status"] == "repaired"
+    assert (body["candidate"]["formatter"], body["candidate"]["value"]) == (
+        "date_as_term", "Fall 2027"
+    )
+    printed = " ".join(capsys.readouterr().out.split())
+    assert "repaired" in printed and "date_as_term" in printed
+    assert "nothing else took" in printed  # the strategy failure had nothing to retry

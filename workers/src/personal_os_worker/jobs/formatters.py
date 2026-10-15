@@ -16,10 +16,10 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from personal_os_worker.jobs.adapters import is_non_answer_option
 from personal_os_worker.jobs.facts.derived import HOURS_PER_YEAR, graduation_term
 from personal_os_worker.jobs.office import choose_offices
 from personal_os_worker.jobs.options import choose_numeric_range, choose_option
+from personal_os_worker.jobs.sites import is_non_answer_option
 
 MONTHS = (
     "January", "February", "March", "April", "May", "June",

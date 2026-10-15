@@ -14,7 +14,6 @@ from personal_os_backend.config import Settings
 from personal_os_backend.jobs_answers import (
     active_patterns,
     approved_prose,
-    archived_answers,
     normalize_answer_key,
     upsert_question,
 )
@@ -587,6 +586,7 @@ class PostgresJobsStore:
                               when target.application_url ilike '%%greenhouse%%' then 'greenhouse'
                               when target.application_url ilike '%%ashbyhq%%' then 'ashby'
                               when target.application_url ilike '%%lever.co%%' then 'lever'
+                              when target.application_url ilike '%%myworkday%%' then 'workday'
                               else 'generic' end,
                          %s, target.application_url
                   from application join target on target.id = application.posting_id
@@ -642,13 +642,11 @@ class PostgresJobsStore:
             preferences = [dict(row["candidate"]) for row in await preferences_cursor.fetchall()]
             patterns = await active_patterns(connection, user_id)
             prose = await approved_prose(connection, user_id)
-            archive = await archived_answers(connection, user_id)
         return AutofillRunContext(
             **{key: value for key, value in row.items() if key != "company_id"},
             facts=[dict(fact) for fact in facts],
             patterns=[pattern.model_dump(mode="json") for pattern in patterns],
             prose=[item.model_dump(mode="json") for item in prose],
-            archive_answers=[item.model_dump(mode="json") for item in archive],
             control_preferences=preferences,
             duplicate_company_applications=[dict(item) for item in duplicates],
         )

@@ -4,13 +4,13 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from personal_os_worker.jobs.adapters import is_non_answer_option
 from personal_os_worker.jobs.options import (
     choose_option,
     normalize_answer_question,
     normalize_question,
     same_name,
 )
+from personal_os_worker.jobs.sites import is_non_answer_option
 
 FILE_KINDS = frozenset({"resume", "transcript"})
 # Several chosen options in one value, as the formatters join them.
@@ -30,7 +30,7 @@ class AnswerResolution:
 
 
 class Resolves(Protocol):
-    """Anything that answers a field: active patterns and the archive, or the model's verdicts."""
+    """Anything that answers a field: active patterns, or the model's verdicts."""
 
     def resolve(self, field: dict[str, Any]) -> AnswerResolution | None: ...
 

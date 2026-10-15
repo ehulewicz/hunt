@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
-from personal_os_worker.jobs.adapters import option_match
+from personal_os_worker.jobs.sites import option_match
 
 
 def normalize_question(value: str) -> str:

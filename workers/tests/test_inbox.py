@@ -18,13 +18,12 @@ def candidate(**overrides: Any) -> dict[str, Any]:
         "question_id": "q1",
         "question_label": "Will you require sponsorship?",
         "fact_key": "work_auth.requires_sponsorship",
-        "origin": "archive",
-        "archive_ref": "archive:builtin:sponsorship",
+        "origin": "model",
         "status": "candidate",
     } | overrides
     return {
         "pattern": pattern,
-        "answers": [{"company_name": "DoorDash", "answer_text": "No", "source": "archive",
+        "answers": [{"company_name": "DoorDash", "answer_text": "No", "source": "model",
                      "submitted": True}],
     }
 
@@ -58,10 +57,6 @@ class FakeApi:
 
     def career(self) -> dict[str, Any]:
         raise RuntimeError("No career record yet")
-
-    def archive_answers(self) -> list[dict[str, Any]]:
-        return [{"id": "a1", "normalized_key": "are you at least 18 years of age",
-                 "answer_text": "Yes", "reuse_policy": "exact"}]
 
     def patterns(self, *statuses: str) -> list[dict[str, Any]]:
         return [{"kind": "expression", "expression": pattern} for pattern in self._expressions]
@@ -102,36 +97,26 @@ def test_accepting_a_candidate_activates_it() -> None:
     assert counts["accepted"] == 1
 
 
-def test_widening_adopts_the_archived_rule_expression() -> None:
+def test_rejecting_a_candidate_retires_it_and_other_letters_reprompt() -> None:
     api = FakeApi({"candidates": [candidate()], "questions": [], "prose": []})
-    counts = walk_inbox(api, ask=answers("w"), today=TODAY)  # type: ignore[arg-type]
-    assert api.calls[0] == ("pattern", ("p1", "active"))
-    kind, fields = api.calls[1]
-    assert kind == "create" and fields["kind"] == "expression"
-    assert fields["expression"] == r"\bsponsor(ship)?\b"
-    assert fields["archive_ref"] == "archive:builtin:sponsorship" and fields["status"] == "active"
-    assert counts["widened"] == 1
-
-
-def test_a_model_candidate_cannot_be_widened() -> None:
-    api = FakeApi(
-        {"candidates": [candidate(origin="model", archive_ref=None)], "questions": [], "prose": []}
-    )
-    walk_inbox(api, ask=answers("w", "r"), today=TODAY)  # type: ignore[arg-type]
+    counts = walk_inbox(api, ask=answers("w", "r"), today=TODAY)  # type: ignore[arg-type]
     assert api.calls == [("pattern", ("p1", "rejected"))]
+    assert counts["rejected"] == 1
 
 
 def test_binding_a_question_creates_the_missing_fact_from_the_catalog() -> None:
     api = FakeApi({"candidates": [], "questions": [question("Are you at least 18 years of age?")],
                    "prose": []})
-    # Accept the archive's suggested key, then the suggested value (your last answer).
-    counts = walk_inbox(api, ask=answers("b", "", ""), today=TODAY)  # type: ignore[arg-type]
+    # `?` lists the catalog, then the key, then the suggested value (your last answer).
+    counts = walk_inbox(  # type: ignore[arg-type]
+        api, ask=answers("b", "?", "identity.adult", ""), today=TODAY
+    )
     fact = next(call for call in api.calls if call[0] == "fact")
     assert fact[1][0] == "identity.adult" and fact[1][1] is True
     assert fact[1][2]["value_type"] == "boolean" and fact[1][2]["label"] == "At least 18 years old"
     created = next(call for call in api.calls if call[0] == "create")[1]
     assert created["kind"] == "binding" and created["question_id"] == "q2"
-    assert created["origin"] == "archive" and created["archive_ref"] == "archive:builtin:adult"
+    assert created["origin"] == "inbox" and "archive_ref" not in created
     assert created["status"] == "active"
     assert counts["bound"] == 1
 

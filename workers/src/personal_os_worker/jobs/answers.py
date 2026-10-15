@@ -82,9 +82,8 @@ def draft_contextual_answer(
 ) -> str | None:
     """Draft one long-form answer; `facts` holds no sensitive value (R4).
 
-    `references` is your earlier writing on similar questions — approved prose
-    and archived answers — to lean on; it is never copied verbatim unless it is
-    the `base`.
+    `references` is your approved prose on similar questions, to lean on; it is
+    never copied verbatim unless it is the `base`.
     """
     schema = {
         "type": "object",

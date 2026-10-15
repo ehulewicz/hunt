@@ -19,7 +19,7 @@ from personal_os_worker.jobs.browser import (
 )
 from personal_os_worker.jobs.page_state import (
     ApplicationPageState,
-    capture_ashby_navigation,
+    capture_tab_navigation,
     classify_application_page,
 )
 from personal_os_worker.jobs.resolve import Knowledge, Resolver
@@ -27,10 +27,55 @@ from personal_os_worker.jobs.resolve import Knowledge, Resolver
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
+# The bindings these fixtures' questions would get in the Inbox: question key ->
+# (fact, formatter the binding prefers).
+BINDINGS: dict[str, tuple[str, str | None]] = {
+    "are you a citizen or resident of a sanctioned country": (
+        "work_auth.sanctioned_country_citizen", None
+    ),
+    "country": ("address.country", None),
+    "email": ("contact.email", None),
+    "end date month": ("education.graduation_date", "date_as_month_name"),
+    "end date year": ("education.graduation_date", "date_as_year"),
+    "first name": ("identity.first_name", None),
+    "how many full time semester long co op rotations have you completed prior to this "
+    "application select one": ("coop.completed_rotations", None),
+    "location city": ("address.location", None),
+    "school": ("education.school_name", None),
+    "this role requires working onsite at our facility in rochester ny are you able to reliably "
+    "commute or relocate to rochester ny to perform the duties of this position onsite by your "
+    "start date": ("availability.onsite", None),
+    "what are your annual base salary expectations please include currency": (
+        "compensation.minimum", None
+    ),
+    "what are your salary requirements": ("compensation.minimum", None),
+    "what is your current cumulative gpa on a 4 0 scale": ("education.gpa", None),
+    "what is your expected graduation date term year": ("education.graduation_date", None),
+    "what is your notice period to begin working with exegy": (
+        "availability.notice_period_weeks", None
+    ),
+    "will you now or in the future require sponsorship": ("work_auth.requires_sponsorship", None),
+    "will you require visa sponsorship": ("work_auth.requires_sponsorship", None),
+    "your authorization to work in the country where you live": (
+        "work_auth.us_citizen", "citizenship_option"
+    ),
+    "your email address": ("contact.email", None),
+    "your name": ("identity.legal_name", None),
+    "your phone number": ("contact.phone", None),
+}
+
+
 def knowing(facts: dict[str, Any], *, company: str = "Acme") -> Resolver:
-    """Day one after the restart: no active pattern; the archive translates, facts decide."""
+    """Facts decide the value; accepted bindings only say which fact a question asks for."""
     rows = [{"key": key, "value": value} for key, value in facts.items()]
-    return Resolver(Knowledge.build(facts=rows, career=None, company=company))
+    patterns = [
+        {"id": f"b{index}", "kind": "binding", "question_key": question, "fact_key": key,
+         "formatter": formatter, "resolver_id": f"binding:{key}", "status": "active"}
+        for index, (question, (key, formatter)) in enumerate(BINDINGS.items())
+    ]
+    return Resolver(
+        Knowledge.build(facts=rows, career=None, patterns=patterns, company=company)
+    )
 
 
 class Stub:
@@ -126,7 +171,7 @@ def test_ashby_submitted_fixture_wins_over_recaptcha_textarea(browser_page) -> N
 
 def test_ashby_navigation_pair_and_plain_submit_form_are_not_submission(browser_page) -> None:  # type: ignore[no-untyped-def]
     browser_page.set_content((FIXTURES / "ashby_megazone.html").read_text())
-    navigation = capture_ashby_navigation(browser_page)
+    navigation = capture_tab_navigation(browser_page)
     assert navigation is not None
     assert navigation.overview_url == "https://jobs.ashbyhq.com/megazone/role-1"
     assert navigation.application_url.endswith("/megazone/role-1/application")

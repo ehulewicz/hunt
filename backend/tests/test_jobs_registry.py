@@ -151,17 +151,18 @@ async def test_every_event_records_its_question_once_per_run() -> None:
 @pytest.mark.parametrize(
     ("overrides", "proposed"),
     [
-        ({"source": "archive", "fact_key": "work_auth.requires_sponsorship"}, True),
         ({"source": "model", "fact_key": "work_auth.requires_sponsorship"}, True),
         ({"source": "pattern", "fact_key": "work_auth.requires_sponsorship"}, False),
-        ({"source": "archive", "fact_key": None}, False),
-        ({"source": "archive", "fact_key": "work_auth.requires_sponsorship",
+        # The archive is never a suggestion for an application (design §0).
+        ({"source": "archive", "fact_key": "work_auth.requires_sponsorship"}, False),
+        ({"source": "model", "fact_key": None}, False),
+        ({"source": "model", "fact_key": "work_auth.requires_sponsorship",
           "stopped_at": "strategy", "operated_ok": False}, False),
-        ({"source": "archive", "fact_key": "work_auth.requires_sponsorship",
+        ({"source": "model", "fact_key": "work_auth.requires_sponsorship",
           "operated_ok": None}, False),
     ],
 )
-async def test_only_a_read_back_archive_or_model_fill_proposes_a_candidate(
+async def test_only_a_read_back_model_fill_proposes_a_candidate(
     overrides: dict[str, Any], proposed: bool
 ) -> None:
     connection = FakeConnection()

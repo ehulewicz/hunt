@@ -1,8 +1,8 @@
 """The interactive part of `os hunt apply`, without any terminal prompts.
 
 The terminal only reports. A field fills from a fact: through the pattern you
-accepted for its question, else through the archive's translation, else through
-the model naming the fact (design §8, §14). Every textarea is seeded with
+accepted for its question, else through the model naming the fact (design §8).
+The archive is never consulted while applying. Every textarea is seeded with
 approved prose or a Claude draft, and drafts are listed for review. Everything
 still empty — required or optional — is outlined on the page and listed with why
 it is empty; the user types it, the worker polls the page, saves every answer it
@@ -27,9 +27,7 @@ from rich.markup import escape
 
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.tables import console
-from personal_os_worker.jobs.adapters import failure_signature
 from personal_os_worker.jobs.answers import draft_contextual_answer
-from personal_os_worker.jobs.archive.lookup import answer_key
 from personal_os_worker.jobs.autofill import (
     AnswerResolution,
     is_cover_letter_field,
@@ -68,15 +66,18 @@ from personal_os_worker.jobs.cover_letter import (
 )
 from personal_os_worker.jobs.drafts import similar_answers
 from personal_os_worker.jobs.keys import KeyWatcher, NoKeys
+from personal_os_worker.jobs.options import normalize_answer_question
 from personal_os_worker.jobs.page_state import (
     ApplicationPageState,
-    AshbyNavigation,
-    capture_ashby_navigation,
+    TabNavigation,
+    capture_tab_navigation,
     classify_application_page,
 )
 from personal_os_worker.jobs.registry.events import planned_events, unresolved_events
+from personal_os_worker.jobs.repair.repairer import find_field, repair_format, repair_strategy
 from personal_os_worker.jobs.resolve import Knowledge, Miss, Resolver, VerdictResolver
 from personal_os_worker.jobs.short_answers import ShortQuestion, Verdict, draft_short_answers
+from personal_os_worker.jobs.sites import failure_signature
 
 
 class SubmittedByUser(Exception):
@@ -89,8 +90,7 @@ class SkippedByUser(Exception):
 
 Drafter = Callable[..., str | None]
 ShortDrafter = Callable[..., dict[str, Verdict]]
-# Archived answers that are writing rather than a fact.
-PROSE_LENGTH = 80
+
 LetterDrafter = Callable[..., LetterSlots | None]
 LetterRenderer = Callable[..., Path]
 
@@ -99,7 +99,7 @@ LetterRenderer = Callable[..., Path]
 class SessionContext:
     api: WorkerApi
     run_id: str
-    adapter_name: str
+    ats: str  # a label for the fill events and failures, never behavior
     browser: VisibleBrowser
     page: Page
     console_errors: list[str]
@@ -119,6 +119,8 @@ class SessionContext:
     letter_renderer: LetterRenderer = letter_pdf
     letter_dir: Path | None = None  # where the editable letter and its PDF live
     use_claude: bool = True
+    # Retry a field that fails right here, on the live page (design §10.4, R36).
+    repair: bool = False
     poll_seconds: float = 1.0
     keys: KeyWatcher | NoKeys = field(default_factory=KeyWatcher)
 
@@ -144,7 +146,7 @@ class SessionState:
     needed: dict[str, str] = field(default_factory=dict)  # question -> fact the model named
     step: int = 0
     form_seen: bool = False
-    navigation: AshbyNavigation | None = None
+    navigation: TabNavigation | None = None
 
 
 def page_signature(page: Page, fields: list[dict[str, Any]]) -> tuple[str, tuple[str, ...]]:
@@ -176,7 +178,6 @@ VALUE_WIDTH = 60
 
 TAG_STYLES = {
     "pattern": "green",
-    "archive": "yellow",
     "claude": "magenta",
     "source": "dim",
     "consent": "dim",
@@ -190,6 +191,7 @@ TAG_STYLES = {
     "optional": "dim",
     "review": "yellow",
     "failed": "red",
+    "repaired": "green",
 }
 
 
@@ -302,7 +304,7 @@ class AutofillSession:
                 "failures": [
                     {
                         "signature": failure_signature(
-                            self.ctx.adapter_name, category, fingerprint
+                            self.ctx.ats, category, fingerprint
                         ),
                         "category": category,
                         "field_fingerprint": fingerprint,
@@ -368,15 +370,15 @@ class AutofillSession:
         while True:
             self.page = self.ctx.browser.active_page(self.page)
             fields = inspect_fields(self.page)
-            if self.state.navigation is None and self.ctx.adapter_name == "ashby":
-                self.state.navigation = capture_ashby_navigation(self.page)
+            if self.state.navigation is None:
+                self.state.navigation = capture_tab_navigation(self.page)
             page_state = classify_application_page(self.page, fields, self.state.navigation)
             if page_state == ApplicationPageState.SUBMITTED:
                 return None
             if page_state == ApplicationPageState.FORM:
                 self.state.form_seen = True
                 for item in fields:
-                    item["ats"] = self.ctx.adapter_name
+                    item["ats"] = self.ctx.ats
                 return fields
             if page_state == ApplicationPageState.OVERVIEW and self.state.form_seen:
                 self.warn_once(
@@ -394,7 +396,7 @@ class AutofillSession:
                 ):
                     self.state.form_seen = True
                     for item in refreshed:
-                        item["ats"] = self.ctx.adapter_name
+                        item["ats"] = self.ctx.ats
                     return refreshed
             if page_state == ApplicationPageState.LOADING:
                 unsettled_since = unsettled_since or time.monotonic()
@@ -436,7 +438,7 @@ class AutofillSession:
         fields[:], plan = plan_autofill(self.page, resolver=resolver)
         self.state.misses.update(resolver.misses)
         for item in fields:
-            item["ats"] = self.ctx.adapter_name
+            item["ats"] = self.ctx.ats
         if not self.ctx.dry_run:
             # Prose controls are seeded by fill_long_form, which knows their source.
             plan = type(plan)(
@@ -507,7 +509,7 @@ class AutofillSession:
             result["failures"].append(
                 {
                     "signature": failure_signature(
-                        self.ctx.adapter_name, "required_field_empty", fingerprint
+                        self.ctx.ats, "required_field_empty", fingerprint
                     ),
                     "category": "required_field_empty",
                     "field_label": question,
@@ -549,7 +551,7 @@ class AutofillSession:
             artifact_paths = self.upload_evidence(self.evidence)
             for failure in result["failures"]:
                 failure["artifact_paths"] = artifact_paths
-        self.ctx.api.persist_autofill_step(
+        issues = self.ctx.api.persist_autofill_step(
             self.ctx.run_id,
             {
                 "step_number": self.state.step,
@@ -567,7 +569,55 @@ class AutofillSession:
             },
         )
         result["artifact_paths"] = artifact_paths
+        if self.ctx.repair:
+            self.repair_in_place(fields, result["failures"], issues)
         return result
+
+    def repair_in_place(
+        self,
+        fields: list[dict[str, Any]],
+        failures: list[dict[str, Any]],
+        issues: list[dict[str, Any]],
+    ) -> None:
+        """Retry each field that stopped at a format or a strategy, on this page.
+
+        Any site works the same way, because the retry is about the control, not
+        the board. What reads back fills the field now and is stored on its
+        failure as a repaired candidate; `os hunt validate` decides whether it
+        becomes the rule. Never touches a control that reads as submitting.
+        """
+        by_signature = {str(issue.get("signature")): issue for issue in issues}
+        for failure in failures:
+            stage = failure.get("stopped_at")
+            issue = by_signature.get(str(failure.get("signature")))
+            if stage not in {"format", "strategy"} or issue is None:
+                continue
+            question = str(failure.get("question") or failure.get("field_label") or "")
+            field = find_field(fields, question)
+            if field is None:
+                continue
+            try:
+                if stage == "format" and failure.get("fact_key"):
+                    candidate = repair_format(
+                        self.page, field, self.ctx.knowledge, str(failure["fact_key"]),
+                        failed_formatter=failure.get("formatter"),
+                    )
+                elif stage == "strategy" and failure.get("intended_value"):
+                    candidate = repair_strategy(
+                        self.page, field, str(failure["intended_value"])
+                    )
+                else:
+                    candidate = None
+            except (Error, RuntimeError):
+                candidate = None
+            if candidate is None:
+                echo("failed", question, note=f"{stage}: nothing else took; left for you")
+                continue
+            self.ctx.api.update_autofill_failure(
+                str(issue["id"]), {"status": "repaired", "candidate": candidate}
+            )
+            rule = candidate.get("strategy") if stage == "strategy" else candidate.get("formatter")
+            echo("repaired", question, str(candidate.get("value") or ""), note=f"{stage}: {rule}")
 
     # ----- claude tier -------------------------------------------------------
 
@@ -652,26 +702,21 @@ class AutofillSession:
     # ----- long-form drafts ------------------------------------------------
 
     def references(self, question: str) -> list[dict[str, Any]]:
-        """Your earlier writing on similar questions: approved prose, then the archive's."""
+        """Your approved writing on similar questions; the archive is never a suggestion."""
         writing = [
             {"question": item.get("question_label"), "answer_text": item.get("text")}
             for item in self.ctx.knowledge.prose
-        ] + [
-            {"question": item.get("question"), "answer_text": item.get("answer_text")}
-            for item in self.ctx.knowledge.archive
-            if str(item.get("reuse_policy")) == "contextual"
-            or len(str(item.get("answer_text") or "")) >= PROSE_LENGTH
         ]
         return similar_answers(question, writing)
 
     def seed_for(self, question: str, *, limit: int | None = None) -> tuple[str, str, str, str]:
         """Return (seed text, seed source, resolver id, human note)."""
-        key = answer_key(question)
+        key = normalize_answer_question(question)
         approved = next(
             (
                 item
                 for item in self.ctx.knowledge.prose
-                if answer_key(str(item.get("question_label") or "")) == key
+                if normalize_answer_question(str(item.get("question_label") or "")) == key
                 and str(item.get("text") or "").strip()
             ),
             None,
@@ -859,7 +904,7 @@ class AutofillSession:
     def why_empty(self, question: str) -> str | None:
         if question in self.state.needed:
             return f"needs a fact: {self.state.needed[question]}"
-        miss = self.state.misses.get(answer_key(question))
+        miss = self.state.misses.get(normalize_answer_question(question))
         return miss.note or None if miss is not None else None
 
     def report_left(self) -> None:
@@ -930,7 +975,7 @@ class AutofillSession:
                 or seed
                 or None
             )
-            if source in {"pattern", "archive", "model"} and question in self.state.tier_resolver:
+            if source in {"pattern", "model"} and question in self.state.tier_resolver:
                 resolver_id: str | None = self.state.tier_resolver[question]
             elif source in {"prose", "model"}:
                 resolver_id = self.state.seed_resolver.get(question) or "model:long_form_v1"

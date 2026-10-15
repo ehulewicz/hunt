@@ -48,17 +48,21 @@ failure-learning workflows.
 
 ## What it learns, and the archive
 
-Questions, patterns, and prose start empty and are learned (design §0); the old
-answer library and rules are the archive. `jobs/archive/rules.py` keeps every
-retired rule — exact labels, priority policies, the two library regex rows, the
-builtins, worked-before — verbatim, each with its translation: the fact key it
-read and, where its wording implied one, a formatter. `jobs/archive/lookup.py`
-tries them in the old resolution order (the first tier with a match decides;
-inside a tier exactly one fact must match) and returns that fact plus any
-archived answers to the same question as hints, which are shown and never
-typed. `tests/fixtures/archive_translations.json` freezes what every archived
-question translates to (R30). `jobs/facts/catalog.py` is every fact key with its
-label, type, sensitivity, and whether it is stored, career-derived, or derived.
+Questions, patterns, and prose start empty and are learned (design §0). Every
+site is filled from its controls — there are no per-site adapters, and a
+control learned on one board answers the same control on any other.
+`jobs/sites.py` only labels a URL (`greenhouse`, `ashby`, `lever`, `workday`,
+`generic`) for querying runs and failures; nothing branches on it.
+
+The old answer library and rules are the archive, kept only for the facts
+session and dropped after it: nothing in an application reads it, not even as
+a suggestion. `jobs/archive/rules.py` keeps every retired rule verbatim with its
+translation — the fact key it read and, where its wording implied one, a
+formatter — and `jobs/archive/lookup.py` applies them in the old order, for
+`os hunt archive` to show. `tests/fixtures/archive_translations.json` freezes
+what every archived question translates to (R30). `jobs/facts/catalog.py` is
+every fact key with its label, type, sensitivity, and whether it is stored,
+career-derived, or derived.
 
 `jobs/inbox.py` is `os hunt inbox`; `jobs/knowledge.py` is `os hunt patterns`,
 `prose`, and `archive`.
@@ -66,14 +70,18 @@ label, type, sensitivity, and whether it is stored, career-derived, or derived.
 ## Repair
 
 `jobs/repair/` is the repair lane (`docs/jobs-cli.md` describes using it).
-`repairer.py` retries one failed field on a live page — every applicable
+With `apply --repair`, `AutofillSession.repair_in_place` retries each field that
+stopped at a format or a strategy on the live page, right after that step's
+fill, on any site. `repairer.py` retries one failed field — every applicable
 strategy for a `strategy` failure, every other rendering of the fact for a
 `format` failure — and returns the first that reads back. `guards.py` holds the
 two independent submit guards installed before a repair or validation page
 loads: a page script that cancels submissions and submit-labelled clicks, and a
 network route that aborts any non-GET request naming a submission; the repairer
-also refuses to operate a control that reads as submitting. `commands.py` is
-`os hunt repair [--watch]` and `os hunt validate`. A validated strategy reaches
+also refuses to operate a control that reads as submitting — the only guard in
+place on your own live tab, which you go on to submit. `commands.py` is
+`os hunt repair [--watch]`, for failures from runs without `--repair`, and
+`os hunt validate`. A validated strategy reaches
 live fills through the run context as a control preference that
 `browser.apply_autofill` tries first.
 
@@ -83,13 +91,12 @@ live fills through the run context as a control preference that
 run's `Knowledge` — stored facts over career-derived ones, then the derived and
 posting facts (`employment.worked_for` for this company) — and answers a field
 in a fixed order: the question's active binding, then active expression
-patterns (exactly one fact among those that match), then the archive. The engine
+patterns (exactly one fact among those that match). The engine
 answers its own fields first: consent and attestation take the agreeing option,
 the resume and transcript upload, "how did you hear" ranks the employer's site,
 a job board, then Other, and no value that declines to answer is ever chosen.
-The archive fills only when the fact exists, renders for this control, and
-agrees with any archived answer to the same question; otherwise the field is
-left, and the run remembers why (`Miss`). Whatever is still empty goes to one
+A pattern whose fact is missing or fits none of the options leaves the field,
+and the run remembers why (`Miss`). Whatever is still empty goes to one
 bounded model pass (`short_answers.py`) that only names a fact — `fits_fact`,
 `no_fact` with the missing fact's name, or `unsure` — and `VerdictResolver`
 renders that fact like any other. Sensitive facts reach the model by key and
@@ -108,7 +115,7 @@ seeded by the application.
 
 **What is left.** After every tier, each empty field — required first, then
 optional — is outlined on the page and listed with why it is empty (no fact yet,
-an archived answer that disagrees, a fact the model said is missing). You own
+a fact that fits no option, a fact the model said is missing). You own
 Next and Submit; what you type is captured as `manual` and, once the
 application goes in, waits in the Inbox.
 

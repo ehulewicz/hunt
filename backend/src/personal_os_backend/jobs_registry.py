@@ -85,8 +85,8 @@ async def record_fill_events(
 ) -> int:
     """Write one row per attempt; return how many were written.
 
-    Each event records its question (R44). An archive or model fill that read
-    back proposes a candidate binding from its question to the fact it used
+    Each event records its question (R44). A model fill that read back
+    proposes a candidate binding from its question to the fact it used
     (R43); nothing here activates one.
     """
     controls: dict[tuple[str, str], UUID] = {}
@@ -187,7 +187,7 @@ async def record_fill_events(
             question_id is not None
             and event.fact_key
             and event.operated_ok is True
-            and event.source in {"archive", "model"}
+            and event.source == "model"
         ):
             await propose_binding(
                 connection,
@@ -195,8 +195,6 @@ async def record_fill_events(
                 question_id=question_id,
                 fact_key=event.fact_key,
                 formatter=event.formatter,
-                origin="archive" if event.source == "archive" else "model",
-                archive_ref=event.resolver_id if event.source == "archive" else None,
             )
         written += 1
     return written

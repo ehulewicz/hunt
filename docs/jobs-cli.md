@@ -25,7 +25,7 @@ os hunt patterns --all
 os hunt prose        # saved long-form writing
 os hunt prose add --question "Why this company?" --file ./answer.md
 os hunt prose approve 2
-os hunt archive      # the old answer library, frozen, with each question's fact
+os hunt archive      # the old answer library, for the facts session only
 os hunt archive rules
 os hunt archive prose --markdown ~/archived-answers.md
 os hunt facts        # = os hunt facts list; stored and derived facts, sensitive values masked
@@ -48,15 +48,15 @@ os hunt skipped restore 2     # back on the board
 
 os hunt apply 1 --dry-run
 os hunt apply 1
-os hunt apply                     # top board row on a supported ATS
+os hunt apply                     # top board row, on any site
 os hunt apply --ats greenhouse    # top Greenhouse row
-os hunt apply today               # first of `os hunt today` on a supported ATS
+os hunt apply today               # first of `os hunt today`, on any site
 os hunt apply today --ats greenhouse
 os hunt apply 1 --no-claude
 os hunt apply 1 --done       # applied outside the worker; just record it
 
-os hunt apply 1 --repair      # retry failed fields in an isolated browser while you apply
-os hunt repair                # drain the repair queue now
+os hunt apply 1 --repair      # retry failed fields in place, on the page you are filling
+os hunt repair                # retry queued failures from runs without --repair
 os hunt validate              # watch each repaired rule fill, then accept or reject it
 os hunt apply failures list
 os hunt apply failures show 1
@@ -88,15 +88,19 @@ submitted. `apps` lists everything past the queue with its lifecycle status
 
 Since 2026-10-14 the system learns answers from scratch (design §0). The old
 answer library, profile, and rules are the **archive**: frozen, readable with
-`os hunt archive`, and consulted only when a question has no active pattern —
-and then only to name the fact the question asks about, never to type an old
-answer. A fill the archive (or the model) supplies from a fact records a
-`candidate` binding from that question to that fact.
+`os hunt archive`, and used only to get the facts right in the facts session,
+after which it is dropped. No application reads it, not even as a suggestion.
+A fill the model supplies from a fact records a `candidate` binding from that
+question to that fact.
 
-`os hunt inbox` is the human step. It walks candidates (accept, reject, or widen
-an archived rule's binding to the rule's old expression), questions you
-answered that nothing is bound to (bind to a fact, creating it from the catalog
-if needed; keep as a one-off; or mark long-form), and long-form writing from
+Every site is filled the same way, from its controls: there are no per-site
+adapters, and a pattern or strategy learned on one board applies to the same
+question or control on any other. `--ats` and a run's ATS are only labels.
+
+`os hunt inbox` is the human step. It walks candidates (accept or reject),
+questions you answered that nothing is bound to (bind to a fact — `?` lists
+every fact key — creating it from the catalog if needed; keep as a one-off; or
+mark long-form), and long-form writing from
 submitted applications (approve for reuse, or delete). An accepted pattern is
 `active`, and the next application fills that question deterministically;
 `os hunt patterns` shows the state of the loop. Prose is reused only once
@@ -127,7 +131,7 @@ does not gate navigation on a required-field audit. No automated action contains
 Next, Submit, signature, or captcha operations; consent and attestation
 controls take their agreeing option. Each step ends with a **Left for you**
 list of every control still empty — required first, then optional — each with
-why (no fact yet, an archived answer that disagrees, a fact the model said is
+why (no fact yet, a fact that fits no option, a fact the model said is
 missing), and the same controls are outlined on the page. A cover-letter control opens the
 letter (from `artifacts/career/cover_letter.md`, slots drafted by Claude) in VS
 Code; close the tab to fill or upload it. In the
@@ -136,8 +140,7 @@ far for review, Ctrl+A records answers and marks the application applied when yo
 it yourself, Ctrl+D skips the listing (it leaves the board as `skipped`, a
 resync cannot bring it back, and `os hunt skipped restore <n>` can), and
 Ctrl+C stops and records the application state. A field fills from a fact: the
-pattern you accepted for its question (tagged `pattern`), else the archive's
-translation (tagged `archive`, which proposes a candidate for the Inbox), else
+pattern you accepted for its question (tagged `pattern`), else
 one bounded local Claude pass per page step that names which fact answers each
 remaining short or choice question (tagged `claude`, also a candidate);
 `--no-claude` skips that last pass. A textarea is seeded with approved prose
@@ -168,16 +171,16 @@ on the fact.
 
 A field that fails stops at `format` (the fact fit nothing the control offered)
 or `strategy` (the widget would not take the value), and the failure says which.
-`os hunt repair` reopens each such application in a new, isolated browser
-context — no shared cookies or drafts, its own window — and retries only the
-failed field: every strategy that applies to the control for a strategy
-failure, every other rendering of the fact for a format failure, each checked by
-readback. What worked is stored on the issue as a candidate and the issue
-becomes `repaired`. `apply --repair` runs the same worker in the background
-while you apply, logging to `~/.local/state/personal-os/repair.log`. Neither
-can submit: a page script cancels every form submission and every click on a
-control labelled as submitting, and a network guard aborts any non-GET request
-that names a submission.
+`apply --repair` retries each such field in place, on the page you are filling,
+right after the step's fill, on any site: every strategy that applies to the
+control for a strategy failure, every other rendering of the fact for a format
+failure, each checked by readback. What worked fills the field now, is stored on
+the issue as a candidate, and the issue becomes `repaired`; the terminal tags
+the line `repaired`. The retry never operates a control that reads as
+submitting. `os hunt repair` does the same for failures from runs without
+`--repair`, in a new, isolated browser context, where a page script also
+cancels every form submission and submit-labelled click and a network guard
+aborts any non-GET request that names a submission.
 
 `os hunt validate` walks the repaired issues. It opens a visible page on an
 unsubmitted application that showed the question, another posting first, fills
@@ -185,8 +188,9 @@ only that field with the candidate, outlines it, and asks. Accepting a strategy
 makes it that control's first strategy in every later run; accepting a format
 binds the question to the fact with that formatter. Rejecting sends the issue
 back to the queue. Pattern-stage failures never come here: no retry invents a
-fact, so they go to the Inbox. Account-gated boards (Workday) wait for an
-adapter before in-place repair exists (R52).
+fact, so they go to the Inbox. On account-gated boards (Workday) the isolated
+retry cannot reach the form; `apply --repair` can, because it works on your
+signed-in page.
 
 Failure diagnosis and fix drafting use subscription-authenticated local Claude.
 `apply-fix` requires the literal confirmation `apply`, changes only worker or

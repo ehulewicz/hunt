@@ -9,7 +9,6 @@ from typing import Any, cast
 
 from playwright.sync_api import Browser, Error, Page, Playwright, sync_playwright
 
-from personal_os_worker.jobs.adapters import failure_signature, option_match
 from personal_os_worker.jobs.autofill import (
     FILE_KINDS,
     MULTI,
@@ -25,6 +24,7 @@ from personal_os_worker.jobs.options import choose_option, normalize_question
 from personal_os_worker.jobs.registry.events import fill_event, form_of
 from personal_os_worker.jobs.registry.kinds import classify, control_key, question_of
 from personal_os_worker.jobs.registry.strategies import candidates
+from personal_os_worker.jobs.sites import failure_signature, option_match
 
 # Playwright auto-waits 30s for a control before an action fails; a control that
 # vanished because the page moved on (the user submitted) must fail in seconds.
@@ -455,16 +455,8 @@ def apply_autofill(
     failures: list[dict[str, Any]] = []
     events: list[dict[str, Any]] = []
     documents = {"resume": resume_path, "transcript": transcript_path}
-    # Uploads first on boards that re-render the form after one.
-    ordered_fills = sorted(
-        plan.fills,
-        key=lambda fill: (
-            0
-            if fill.kind in FILE_KINDS
-            and str(fields[fill.index].get("ats")) in {"greenhouse", "ashby"}
-            else 1
-        ),
-    )
+    # Uploads first: some forms re-render after one, and none minds the order.
+    ordered_fills = sorted(plan.fills, key=lambda fill: 0 if fill.kind in FILE_KINDS else 1)
     for fill in ordered_fills:
         assert_active()
         field = fields[fill.index]

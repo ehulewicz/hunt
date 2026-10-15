@@ -1,9 +1,10 @@
 # Jobs system: modules, registry, and the application path
 
-Date: 2026-10-08, revised 2026-10-14. Status: slices A (Facts) and D (Registry)
-were built 2026-10-08; the 2026-10-14 revision (§0) restarts the learned
-knowledge from scratch and reshapes slice C, and B, C, E, and F were built under
-it the same day, all but in-place mode (R52).
+Date: 2026-10-08, revised 2026-10-14 and 2026-10-15. Status: slices A (Facts)
+and D (Registry) were built 2026-10-08; the 2026-10-14 revision (§0) restarts the
+learned knowledge from scratch and reshapes slice C, and B, C, E, and F were
+built under it the same day. The 2026-10-15 revision (R53–R55) removes per-site
+adapters, takes the archive out of applications, and makes repair in place.
 
 This document describes the Jobs system as a set of modules with explicit
 boundaries, and specifies them in enough detail to build. It replaces the
@@ -47,7 +48,7 @@ to unlearn.
 > exact-label map `PROFILE_LABELS`, and the two library regex rows all move to
 > the archive. Supersedes R27 and the sort-with-you migration of §14.
 
-> **R41 — The archive answers *which fact*, never *what value*.** An archive
+> **R41 — The archive answers *which fact*, never *what value*.** *Superseded by R54.* An archive
 > hit names the fact a question asks about; the value always comes from that
 > fact, through a formatter. An archived answer that maps to no fact ("Search →
 > python async", "When are you available to start? → Yes") is shown to you as a
@@ -62,7 +63,7 @@ to unlearn.
 > it. Long-form archive text is readable with `os hunt archive prose`, which can
 > write it to a Markdown file of your choosing; no export is committed.
 
-> **R43 — An archive or model fill proposes, it does not decide.** When the
+> **R43 — An archive or model fill proposes, it does not decide.** *Superseded by R54.* When the
 > archive (or the model pass, §7.4) supplies the fact for a question, the field
 > is filled from that fact and tagged `archive` (or `model`) in the terminal, and
 > a `candidate` binding is recorded. Nothing becomes `active` until you accept it
@@ -100,7 +101,7 @@ to unlearn.
 > `validated` means; accept moves it to `active` in one step. `validated` remains
 > the state a repaired rule reaches through `hunt validate` (§10.5).
 
-> **R49 — An archived rule's expression is adopted on request.** A binding
+> **R49 — An archived rule's expression is adopted on request.** *Superseded by R54.* A binding
 > translated from an archived rule can be widened, from the Inbox, into that
 > rule's old regular expression as an `expression` pattern (origin `archive`), so
 > every phrasing resolves. The Inbox offers it once two accepted bindings come
@@ -120,7 +121,7 @@ to unlearn.
 > (`education.degree_type` "Bachelor's" vs the career record's "BS", tenure 4 vs
 > the derived 2) behind your back.
 
-> **R52 — In-place mode waits for an account-gated adapter.** Workday is not
+> **R52 — In-place mode waits for an account-gated adapter.** *Superseded by R53.* Workday is not
 > supported by `hunt apply` today, so §10.4 has nothing to run on. Repair (F)
 > ships for the single-page ATSs (Greenhouse, Ashby, Lever), where "advance to
 > the failing step" is the first page; in-place mode lands with the first
@@ -128,6 +129,33 @@ to unlearn.
 
 The facts session (seed review, the catalog keys the old answers show you need,
 and settling R51's shadows) happens with you after this lands.
+
+### Revision 2026-10-15
+
+> **R53 — No adapters: every site is filled from its controls.** The point of
+> the registry is that what is learned about a control on one board answers the
+> same control on any other, so nothing branches on the board. `hunt apply`
+> runs on any URL, generic sites included; the run's `ats` (`greenhouse`,
+> `ashby`, `lever`, `workday`, `generic`) is a label for querying runs and
+> failures, never behavior. Per-site adapters may come later, built on top of
+> this, not instead of it. *Decided by you.* Supersedes R52.
+
+> **R54 — The archive is for the facts session only, then dropped.** No
+> application reads the archive, not even as a suggestion: it is not in a run's
+> context, not a resolution tier, and not reference for a long-form draft. It
+> exists so the facts session can settle every fact against what the old system
+> said, and is dropped right after. A candidate binding comes only from a model
+> fill that read back. *Decided by you.* Supersedes the fill-time half of R41,
+> the archive half of R43, and R49.
+
+> **R55 — Repair runs in place.** Under `--repair`, each field that stopped at a
+> format or a strategy is retried on the live page right after that step's
+> fill, on any site — account-gated boards included, because the page is
+> already signed in. What reads back fills the field now and is stored as the
+> issue's candidate; `os hunt validate` still decides whether it becomes the
+> rule. There is no background worker. `os hunt repair` keeps the isolated
+> context (R22, R23) for failures from runs without `--repair`. *Decided by
+> you: less overhead.* Supersedes R24 and R25.
 
 ---
 
@@ -814,10 +842,10 @@ Each fill event records the stage it reached:
 
 **Resolution order** stays the shape it is today, with facts in place of the
 profile and the library: active question binding → active expression patterns
-(exactly one match wins; zero or several pass through) → archive (§14) → model
-pass → you. Only `active` patterns are read; a `candidate` waits in the Inbox
-(R43), so the same question keeps reaching the archive or the model until you
-accept what they proposed.
+(exactly one match wins; zero or several pass through) → model pass → you. The
+archive is never a tier (R54). Only `active` patterns are read; a `candidate`
+waits in the Inbox (R43), so the same question keeps reaching the model until
+you accept what it proposed.
 
 ---
 
@@ -982,7 +1010,7 @@ Pattern-stage failures do not go to Repair: no amount of retrying invents a
 fact. They go to the Inbox (§7.4).
 
 > **R22 — The repair browser is a separate headed context, not headless at
-> first.** A new isolated context in the same Chrome over CDP: no shared
+> first.** *Now only for `os hunt repair` (R55).* A new isolated context in the same Chrome over CDP: no shared
 > cookies, no shared drafts, its own window that can sit behind yours. Headless
 > changes the user agent, viewport, and font metrics — exactly the signals bot
 > detection and layout-dependent widgets react to — so a headless repair would
@@ -995,18 +1023,22 @@ fact. They go to the Inbox (§7.4).
 > repair worker itself. Two independent guards, because a stray submit is the
 > one irreversible mistake in this design.
 
-> **R24 — Account-gated ATSs are never repaired in a second browser.** Workday
+> **R24 — Account-gated ATSs are never repaired in a second browser.** *Superseded by R55.* Workday
 > and similar ATSs save drafts server-side per account; a second context editing
 > the same draft would race the live run. Under `--repair` they use in-place
 > mode instead (§10.4). *Decided by you.*
 
 > **R25 — Repairs run in one background process started by `hunt apply
-> --repair`.** One worker, one repair at a time, consuming the queue while you
+> --repair`.** *Superseded by R55.* One worker, one repair at a time, consuming the queue while you
 > apply. It also runs standalone (`os hunt repair`) to drain what accumulated
 > without the flag. Its progress shows as a single status line in the apply
 > session, so it never interleaves with prompts that need you.
 
 ### 10.4 In-place mode: Workday as the training ground
+
+*Superseded by R55: `--repair` retries a failed field on the live page right
+after the step's fill, on every site, and does not hold the run on the page.
+Kept for the record.*
 
 For Workday and other account-gated ATSs, `--repair` changes the run instead of
 starting a worker: **the run stays on the current page until every field on it
@@ -1356,34 +1388,22 @@ records its review trigger and the decision it informs, or it is not collected.*
 
 ---
 
-## 14. The archive, and translation on a miss
+## 14. The archive
 
-*Rewritten 2026-10-14 (R40–R43).* Nothing is migrated up front. A question that
-no active pattern answers goes to the archive before the model pass, and the
-archive looks it up two ways:
+*Rewritten 2026-10-15 (R54).* Nothing is migrated up front, and nothing in an
+application reads the archive. It serves the facts session: every retired rule
+— the 26 builtins, the priority policies, the exact-label map, the two library
+regex rows — keeps its regular expression and its translation (the fact key it
+reads and, where the wording decides it, a formatter), so `os hunt archive` can
+show each old question beside the fact it asked about and what you answered,
+and `os hunt facts review` can show what the old answers said beside each
+unverified fact. Once the facts session has settled every fact, the archive
+tables and `jobs/archive/` are dropped.
 
-1. **Archived rules.** Every retired rule — the 26 builtins, the priority
-   policies, the exact-label map, the two library regex rows — keeps its regular
-   expression and gains a translation: the fact key it reads and, where the
-   wording decides it, a formatter. Exactly one translated fact among the
-   matching rules wins; rules that disagree pass the question through, the same
-   discipline the old dispatch had.
-2. **Archived answers.** When the question's normalized key matches an archived
-   answer, that row's question is run through the archived rules for its fact.
-   A row no rule translates is a hint, never a value (R41).
+A question with no active pattern goes to the model pass and then to you; what
+you bind in the Inbox is what fills it next time.
 
-| The archive finds | Fact present | What happens |
-|---|---|---|
-| a fact, through a rule | yes | filled from the fact and formatted, tagged `archive`; a `candidate` binding (origin `archive`, `archive_ref` = the rule) goes to the Inbox |
-| a fact, through a rule | no | left for you; the Inbox proposes creating the fact from the catalog (§7.2), with the old answer as the suggested value, then binding |
-| an old answer, no fact | — | named as a hint in the terminal's **Left for you**; what you type is kept as this application's answer, and the Inbox offers one-off, new fact, or long-form |
-| nothing | — | model pass, then you |
-
-Long-form questions never take an archived answer verbatim either: archived
-prose is handed to the drafting call as reference, beside approved prose (§7.5),
-and without the model it is listed for you to read.
-
-> **R30 — Every archived phrasing becomes a regression test.** *Changed by R40.*
+> **R30 — Every archived phrasing becomes a regression test.** *Changed by R40; dropped with the archive (R54).*
 > The archived questions that translate to a fact — the ~25 sponsorship
 > phrasings, the graduation phrasings, and the rest — are the test corpus for
 > the archive's translation: each must name the same fact key it did before. The
@@ -1497,7 +1517,7 @@ waits for A, C, and D; F waits for D and E.
 | | |
 |---|---|
 | **Status** | built 2026-10-14 |
-| **Delivers** | resolution from active patterns, then the archive, then the model, always through a fact and a formatter (§8, §14); formatters; the `resolve_priority_answer` split (R14), its old branches archived; office selection (§9); the every-field page gate (§10.2); the cover letter always attached; model-pass verdicts `fits_fact` / `no_fact` / `unsure`; sensitive facts withheld from model calls; $40/hour |
+| **Delivers** | resolution from active patterns, then the model (the archive tier was removed by R54), always through a fact and a formatter (§8, §14); formatters; the `resolve_priority_answer` split (R14), its old branches archived; office selection (§9); the every-field page gate (§10.2); the cover letter always attached; model-pass verdicts `fits_fact` / `no_fact` / `unsure`; sensitive facts withheld from model calls; $40/hour |
 | **Owns** | `workers/…/jobs/formatters.py`, `jobs/office.py`; `autofill.py`, `autofill_session.py`, `short_answers.py` |
 | **Depends on** | A, C, D |
 | **Done when** | formatter tests cover every `value_type` × control kind pair in use; office selection is tested for every tier and multi-location shape with a fixed seed; a fixture page with an empty optional field does not advance |
@@ -1506,15 +1526,15 @@ waits for A, C, and D; F waits for D and E.
 
 | | |
 |---|---|
-| **Status** | built 2026-10-14, except in-place mode (R52) |
-| **Delivers** | `--repair`; the repair worker and its isolated context; in-place mode for account-gated ATSs (deferred, R52); rule status; `os hunt repair`; `os hunt validate`; the minimal Inbox read API (R38); metering for `_failure_claude` (R39) |
+| **Status** | built 2026-10-14; repair made in place 2026-10-15 (R55) |
+| **Delivers** | `--repair`, retrying in place on the live page (R55); the isolated context for `os hunt repair`; rule status; `os hunt repair`; `os hunt validate`; the minimal Inbox read API (R38); metering for `_failure_claude` (R39) |
 | **Owns** | migration `…_jobs_repair.sql`; `workers/…/jobs/repair/`; `commands.py` failure path |
 | **Depends on** | D, E |
 | **Done when** | a seeded strategy failure is repaired and validated end to end on a fixture; the repair context's submit is refused by both guards; an in-place run blocks on a missing fact and resumes when it is set |
 
 ### Later
 
-Audit, Condenser, prose vectors, unattended batch, in-place mode (R52).
+Audit, Condenser, prose vectors, unattended batch; dropping the archive after the facts session (R54).
 
 ### Not doing
 
@@ -1551,10 +1571,10 @@ on its own judgement and report the decisions; dispute any by number.
 | R19 | "Remote" ranks after tier 3 | agreed |
 | R20 | Multi-location: all of tiers 1–2; limited slots tier 1 then 2; typed slots tier 1 only | decided by you |
 | R21 | Optional fields are filled like required ones | changed by you |
-| R22 | Repair runs in a separate headed context, headless later | agreed |
+| R22 | Repair runs in a separate headed context, headless later | agreed; `os hunt repair` only (R55) |
 | R23 | Two independent submit guards in Repair | agreed |
-| R24 | Account-gated ATSs use in-place mode, never a second browser | decided by you |
-| R25 | One background repair worker, only under `--repair` | decided by you |
+| R24 | Account-gated ATSs use in-place mode, never a second browser | superseded by R55 |
+| R25 | One background repair worker, only under `--repair` | superseded by R55 |
 | R26 | Validation prefers a fresh posting | agreed |
 | R27 | Existing builtin rules start `active` | superseded by R40, R46 |
 | R28 | Rename `jobs_answer_library` (now to `jobs_archive_answers`) | changed by R42 |
@@ -1570,18 +1590,21 @@ on its own judgement and report the decisions; dispute any by number.
 | R38 | Minimal Inbox read API, no table (moved to slice C by R47) | delegated |
 | R39 | Meter `_failure_claude` | delegated |
 | R40 | No pattern is active on day one; old rules archived | delegated (your direction) |
-| R41 | The archive answers which fact, never what value | delegated |
+| R41 | The archive answers which fact, never what value | delegated; fill-time half superseded by R54 |
 | R42 | Archive in place, frozen; rules move to `jobs/archive/` | delegated |
-| R43 | Archive and model fills propose candidates; you activate | delegated |
+| R43 | Archive and model fills propose candidates; you activate | delegated; model only (R54) |
 | R44 | Questions recorded when they are met | delegated |
 | R45 | Engine rules stay active and are not patterns | delegated |
 | R46 | Strategies stay active; controls learned by observation | delegated |
 | R47 | `os hunt inbox` ships in slice C | delegated |
 | R48 | Accepting a candidate activates it | delegated |
-| R49 | An archived rule's expression is adopted on request | delegated |
+| R49 | An archived rule's expression is adopted on request | superseded by R54 |
 | R50 | Old failures archived; stale runs abandoned | delegated |
 | R51 | Stored facts shadow career-derived ones until removed | delegated |
-| R52 | In-place mode waits for an account-gated adapter | delegated |
+| R52 | In-place mode waits for an account-gated adapter | superseded by R53 |
+| R53 | No adapters; every site filled from its controls; `ats` is a label | decided by you |
+| R54 | The archive is for the facts session only, then dropped | decided by you |
+| R55 | Repair runs in place on the live page under `--repair` | decided by you |
 
 ## 18. Open questions
 

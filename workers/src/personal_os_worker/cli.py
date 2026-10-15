@@ -23,11 +23,11 @@ from personal_os_worker.core.tables import ReferenceError, console
 from personal_os_worker.documents import resume as resumes
 from personal_os_worker.jobs import commands as hunt
 from personal_os_worker.jobs import inbox, knowledge
-from personal_os_worker.jobs.adapters import ATS_NAMES
 from personal_os_worker.jobs.commands import APPLICATION_STATUSES, DEFAULT_TECHNICAL_FAMILIES
 from personal_os_worker.jobs.facts import commands as facts
 from personal_os_worker.jobs.facts.commands import VALUE_TYPES
 from personal_os_worker.jobs.repair import commands as repairs
+from personal_os_worker.jobs.sites import ATS_NAMES
 
 HUNT_COMMANDS = (
     "today", "sync", "open", "apps", "skipped", "inbox", "patterns", "facts", "prose",

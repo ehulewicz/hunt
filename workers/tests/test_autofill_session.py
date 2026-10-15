@@ -23,17 +23,23 @@ def known(
     *,
     patterns: list[dict[str, Any]] | None = None,
     prose: list[dict[str, Any]] | None = None,
-    archive: list[dict[str, Any]] | None = None,
 ) -> Knowledge:
     return Knowledge.build(
         facts=[{"key": key, "value": value} for key, value in facts.items()],
         career=None,
         patterns=patterns or [],
         prose=prose or [],
-        archive=archive or [],
         company="Acme",
         seed="application-1",
     )
+
+
+def binding(question_key: str, fact_key: str) -> dict[str, Any]:
+    return {"id": f"b-{fact_key}", "kind": "binding", "question_key": question_key,
+            "fact_key": fact_key, "resolver_id": f"binding:{fact_key}", "status": "active"}
+
+
+CONTACT = [binding("first name", "identity.first_name"), binding("email", "contact.email")]
 
 
 @pytest.fixture(scope="module")
@@ -350,7 +356,7 @@ def test_visible_submit_bypasses_the_application_form_heuristic(
     context = SessionContext(
         api=FakeApi(),  # type: ignore[arg-type]
         run_id="run-submit",
-        adapter_name="greenhouse",
+        ats="greenhouse",
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
@@ -405,7 +411,7 @@ def test_session_stops_when_page_closes_during_form_inspection(
     context = SessionContext(
         api=FakeApi(),  # type: ignore[arg-type]
         run_id="run-race",
-        adapter_name="greenhouse",
+        ats="greenhouse",
         browser=cast(Any, browser),
         page=cast(Any, page),
         console_errors=[],
@@ -445,7 +451,7 @@ def test_session_reraises_unrelated_playwright_error_that_mentions_target_closed
     context = SessionContext(
         api=FakeApi(),  # type: ignore[arg-type]
         run_id="run-error",
-        adapter_name="greenhouse",
+        ats="greenhouse",
         browser=cast(Any, browser),
         page=cast(Any, page),
         console_errors=[],
@@ -484,7 +490,7 @@ def test_session_stops_cleanly_when_browser_or_application_tab_closes(
     context = SessionContext(
         api=FakeApi(),  # type: ignore[arg-type]
         run_id="run-closed",
-        adapter_name="greenhouse",
+        ats="greenhouse",
         browser=browser,
         page=cast(Any, page),
         console_errors=[],
@@ -512,12 +518,13 @@ def test_ctrl_d_skips_the_listing_and_still_saves_what_was_picked_up(
     context = SessionContext(
         api=api,  # type: ignore[arg-type]
         run_id="run-skip",
-        adapter_name="greenhouse",
+        ats="greenhouse",
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
         knowledge=known(
-            {"identity.legal_name": "Alex Example", "contact.email": "ethan@example.com"}
+            {"identity.legal_name": "Alex Example", "contact.email": "ethan@example.com"},
+            patterns=CONTACT,
         ),
         resume_json={},
         resume_pdf=tmp_path / "main.pdf",
@@ -581,7 +588,7 @@ def test_cover_letter_is_drafted_once_edited_in_the_editor_then_filled_and_uploa
     context = SessionContext(
         api=api,  # type: ignore[arg-type]
         run_id="run-letter",
-        adapter_name="greenhouse",
+        ats="greenhouse",
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
@@ -654,7 +661,7 @@ def test_cover_letter_pdf_build_failure_reports_the_latex_error_not_a_readback_m
     context = SessionContext(
         api=api,  # type: ignore[arg-type]
         run_id="run-letter-build",
-        adapter_name="greenhouse",
+        ats="greenhouse",
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
@@ -713,7 +720,7 @@ def test_session_seeds_long_form_records_every_answer_and_ends_on_submit(
     context = SessionContext(
         api=api,  # type: ignore[arg-type]
         run_id="run-1",
-        adapter_name="greenhouse",
+        ats="greenhouse",
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
@@ -723,15 +730,14 @@ def test_session_seeds_long_form_records_every_answer_and_ends_on_submit(
                 "contact.email": "ethan@example.com",
                 "contact.phone": "5550001111",
             },
-            archive=[
+            patterns=CONTACT,
+            prose=[
                 {
-                    "question": "Why this team specifically?",
-                    "normalized_key": "why this team specifically",
-                    "answer_text": (
+                    "question_label": "Why this team specifically?",
+                    "text": (
                         "Similar, not exact, and long enough to count as writing: the team "
                         "builds the tools I want to build."
                     ),
-                    "reuse_policy": "exact",
                 }
             ],
         ),
@@ -774,15 +780,16 @@ def test_session_seeds_long_form_records_every_answer_and_ends_on_submit(
     assert any(result.resolver_id == "model:long_form_v1"
                for result in session.state.resolutions.values())
     assert saved["Why this team?"]["form"] == "long"
-    # The archived essay to a similar question was reference for the draft, not the draft.
+    # Approved writing on a similar question was reference for the draft, not the draft.
     assert [item["question"] for item in references] == ["Why this team specifically?"]
     assert saved["Country"]["answer_text"] == "Canada"
     assert saved["Country"]["source"] == "manual"
     assert saved["Country"]["form"] == "short"
     assert saved["Country"]["control_kind"] == "select"
-    # Day one: no pattern yet, so the archive translated "First name" to the fact.
-    assert saved["First name"]["source"] == "archive"
-    assert saved["First name"]["resolver_id"] == "archive:label:first_name"
+    # The accepted binding names the fact; the value is the fact's.
+    assert saved["First name"]["answer_text"] == "Ethan"
+    assert saved["First name"]["source"] == "pattern"
+    assert saved["First name"]["resolver_id"] == "binding:identity.first_name"
     assert saved["Email"]["answer_text"] == "ethan@example.com"
     assert "dry_run" not in outcome
     assert outcome["submitted"] is True
@@ -840,7 +847,7 @@ def test_session_resolves_pattern_and_claude_tiers_for_unfilled_fields(
     context = SessionContext(
         api=api,  # type: ignore[arg-type]
         run_id="run-tiers",
-        adapter_name="greenhouse",
+        ats="greenhouse",
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
@@ -856,6 +863,9 @@ def test_session_resolves_pattern_and_claude_tiers_for_unfilled_fields(
                 {"id": "11111111-1111-4111-8111-111111111111", "kind": "expression",
                  "expression": "consider me for other", "fact_key": "preferences.other_roles",
                  "resolver_id": "expression:other-roles", "status": "active"},
+                *CONTACT,
+                binding("have you ever worked for acme", "employment.worked_for"),
+                binding("what school are you attending", "education.school_name"),
             ],
         ),
         resume_json={},
@@ -881,23 +891,23 @@ def test_session_resolves_pattern_and_claude_tiers_for_unfilled_fields(
 
     outcome = session.run()
 
-    # Only the question neither a pattern nor the archive answered went to the model.
+    # Only the question no pattern answered went to the model.
     assert asked == ["Which campus will you report to?"]
     saved = {item["question"]: item for item in outcome["answers"]}
     assert saved["Consider me for other roles?"]["answer_text"] == "Yes"
     assert saved["Consider me for other roles?"]["source"] == "pattern"
     assert saved["Consider me for other roles?"]["resolver_id"] == "expression:other-roles"
     assert saved["Have you ever worked for Acme?"]["answer_text"] == "No - never"
-    assert saved["Have you ever worked for Acme?"]["source"] == "archive"
+    assert saved["Have you ever worked for Acme?"]["source"] == "pattern"
     assert saved["What school are you attending?"]["answer_text"] == (
         "Example Institute of Technology"
     )
-    assert saved["What school are you attending?"]["source"] == "archive"
+    assert saved["What school are you attending?"]["source"] == "pattern"
     assert saved["Which campus will you report to?"]["answer_text"] == "Atlanta"
     assert saved["Which campus will you report to?"]["source"] == "model"
     printed = capsys.readouterr().out
     assert "pattern    Consider me for other roles?" in printed and "-> Yes" in printed
-    assert "archive    Have you ever worked for Acme?" in printed and "-> No - never" in printed
+    assert "pattern    Have you ever worked for Acme?" in printed and "-> No - never" in printed
     assert "claude     Which campus will you report to?" in printed
     # Every fill event names the fact it came from; the pattern's id rides along.
     events = [event for step in api.steps for event in step.get("fill_events", [])]
@@ -919,7 +929,7 @@ def test_dry_run_plans_without_opening_tabs_or_writing(
     context = SessionContext(
         api=api,  # type: ignore[arg-type]
         run_id="run-2",
-        adapter_name="greenhouse",
+        ats="greenhouse",
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
@@ -958,12 +968,13 @@ def test_ctrl_c_ends_cleanly_with_the_answers_picked_up_so_far(
     context = SessionContext(
         api=FakeApi(),  # type: ignore[arg-type]
         run_id="run-3",
-        adapter_name="greenhouse",
+        ats="greenhouse",
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
         knowledge=known(
-            {"identity.legal_name": "Alex Example", "contact.email": "ethan@example.com"}
+            {"identity.legal_name": "Alex Example", "contact.email": "ethan@example.com"},
+            patterns=CONTACT,
         ),
         resume_json={},
         resume_pdf=tmp_path / "main.pdf",
@@ -1005,7 +1016,7 @@ def test_claude_is_asked_about_a_question_once_per_run(
     context = SessionContext(
         api=FakeApi(),  # type: ignore[arg-type]
         run_id="run-once",
-        adapter_name="greenhouse",
+        ats="greenhouse",
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
@@ -1050,7 +1061,7 @@ def test_ctrl_a_saves_marks_submitted_and_ends(
     context = SessionContext(
         api=api,  # type: ignore[arg-type]
         run_id="run-ctrl-a",
-        adapter_name="greenhouse",
+        ats="greenhouse",
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
@@ -1089,7 +1100,7 @@ def test_submitting_during_the_claude_pass_ends_the_session_promptly(
     context = SessionContext(
         api=FakeApi(),  # type: ignore[arg-type]
         run_id="run-race",
-        adapter_name="greenhouse",
+        ats="greenhouse",
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
@@ -1158,9 +1169,6 @@ def test_no_claude_still_reuses_approved_prose_for_the_same_question() -> None:
     session.ctx.knowledge = known(
         {},
         prose=[{"id": "p1", "question_label": "Why this team?", "text": "Approved wording"}],
-        # An archived answer is never seeded as is, even to the same question.
-        archive=[{"question": "Why this team?", "normalized_key": "why this team",
-                  "answer_text": "Old wording", "reuse_policy": "exact"}],
     )
     assert session.seed_for("Why this team?") == (
         "Approved wording", "prose", "prose:p1", "approved prose (edit freely)"
