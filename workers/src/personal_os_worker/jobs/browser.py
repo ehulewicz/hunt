@@ -5,7 +5,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 from playwright.sync_api import Browser, Error, Page, Playwright, sync_playwright
 
@@ -432,6 +432,18 @@ def _attempt_event(
     )
 
 
+class FillObserver(Protocol):
+    """Watches each planned fill: `--explain` prints it, `--step` pauses on it."""
+
+    def before(self, field: dict[str, Any], fill: FormFill, strategies: list[str]) -> bool:
+        """Called before a control is operated; False leaves it untouched."""
+        ...
+
+    def after(self, field: dict[str, Any], fill: FormFill, outcome: dict[str, Any]) -> None:
+        """What happened: each attempt and its error, the readback, the value seen."""
+        ...
+
+
 def apply_autofill(
     page: Page,
     fields: list[dict[str, Any]],
@@ -441,6 +453,7 @@ def apply_autofill(
     assert_active: Callable[[], None],
     transcript_path: Path | None = None,
     preferences: dict[str, str] | None = None,
+    observer: FillObserver | None = None,
 ) -> dict[str, Any]:
     """Operate every planned fill through its control kind's candidate strategies.
 
@@ -465,22 +478,31 @@ def apply_autofill(
         if fill.kind in FILE_KINDS and document is None:
             skipped.append(f"{label} (no {fill.kind} provided)")
             events.append(_attempt_event(field, fill, None, None, None))
+            if observer is not None:
+                observer.after(field, fill, {"skipped": f"no {fill.kind} provided"})
+            continue
+        names = candidates(classify(field), field, fill, has_document=document is not None)
+        preferred = (preferences or {}).get(control_key(field))
+        if preferred in names:
+            names = [preferred, *(name for name in names if name != preferred)]
+        if observer is not None and not observer.before(field, fill, names):
+            skipped.append(f"{label} (skipped while stepping)")
             continue
         control = fresh_control(page, field)
         expected = fill.value
         operated: str | None = None
         first_error: Exception | None = None
-        names = candidates(classify(field), field, fill, has_document=document is not None)
-        preferred = (preferences or {}).get(control_key(field))
-        if preferred in names:
-            names = [preferred, *(name for name in names if name != preferred)]
+        attempts: list[tuple[str, str | None]] = []
         for name in names:
             try:
                 result = OPERATIONS[name](Attempt(page, control, field, fill, document))
             except (Error, RuntimeError) as error:
                 first_error = first_error or error
+                attempts.append((name, str(error).splitlines()[0][:200] if str(error) else
+                                 type(error).__name__))
                 events.append(_attempt_event(field, fill, name, stopped_stage(error), False))
                 continue
+            attempts.append((name, None))
             operated = name
             if result is not None:
                 expected = result
@@ -495,8 +517,14 @@ def apply_autofill(
                     stopped_at=stopped_stage(first_error), fill=fill,
                 )
             )
+            if observer is not None:
+                observer.after(field, fill, {
+                    "attempts": attempts, "operated": None,
+                    "stopped_at": stopped_stage(first_error),
+                })
             continue
         is_upload = fill.kind in FILE_KINDS
+        observed: str | None = None
         if fill.clear:
             try:
                 verified = not fresh_control(page, field).is_checked(timeout=CONTROL_TIMEOUT_MS)
@@ -538,6 +566,13 @@ def apply_autofill(
             )
             if field.get("required") is True:
                 unanswered.append(label)
+        if observer is not None:
+            observer.after(field, fill, {
+                "attempts": attempts, "operated": operated, "expected": expected,
+                "verified": verified,
+                "observed": observed,
+                "stopped_at": None if verified else "strategy",
+            })
     # The page remains open in the dedicated visible profile for manual review.
     return {
         "captured_url": page.url,

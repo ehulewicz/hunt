@@ -254,7 +254,19 @@ def build_parser() -> argparse.ArgumentParser:
     autofill.add_argument(
         "--repair",
         action="store_true",
-        help="Retry failed fields in an isolated browser while you apply (os hunt repair)",
+        help="Retry each failed field in place, on the page you are filling",
+    )
+    autofill.add_argument(
+        "--explain",
+        action="store_true",
+        help="Print every control's whole decision: control, question, planner, resolver, "
+        "operation",
+    )
+    autofill.add_argument(
+        "--step",
+        action="store_true",
+        help="Explain, and pause before each control is filled (Enter fills, s skips, "
+        "c stops pausing)",
     )
     autofill.add_argument(
         "--done",
@@ -263,10 +275,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     repair = jobs_commands.add_parser(
-        "repair", help="Retry failed fields in an isolated browser; never submits"
+        "repair", help="Retry earlier failed fields in an isolated browser; never submits"
     )
     repair.add_argument(
-        "--watch", action="store_true", help="Keep draining the queue (apply --repair uses it)"
+        "--watch", action="store_true", help="Keep draining the queue as failures arrive"
     )
     repair.add_argument("--until", type=int, help=argparse.SUPPRESS)
     jobs_commands.add_parser(
@@ -404,7 +416,8 @@ def _dispatch(args: argparse.Namespace) -> int:
             if args.failure_action or args.failure_ref or args.verify_listing_ref:
                 raise RuntimeError("Unexpected autofill arguments")
             if args.done:
-                if args.dry_run or args.no_claude or args.ats or args.repair:
+                if (args.dry_run or args.no_claude or args.ats or args.repair
+                        or args.explain or args.step):
                     raise RuntimeError("--done takes no other flags")
                 if args.ref is None or args.ref == "today":
                     raise RuntimeError("--done needs a listing row or id")
@@ -416,11 +429,18 @@ def _dispatch(args: argparse.Namespace) -> int:
                     dry_run=args.dry_run,
                     no_claude=args.no_claude,
                     repair=args.repair,
+                    explain=args.explain,
+                    step=args.step,
                 )
             if args.ats:
                 raise RuntimeError("--ats picks the top row; do not give a row with it")
             return hunt.run_autofill(
-                args.ref, dry_run=args.dry_run, no_claude=args.no_claude, repair=args.repair
+                args.ref,
+                dry_run=args.dry_run,
+                no_claude=args.no_claude,
+                repair=args.repair,
+                explain=args.explain,
+                step=args.step,
             )
     return 2
 

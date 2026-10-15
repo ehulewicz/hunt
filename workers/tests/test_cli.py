@@ -297,7 +297,7 @@ def test_bare_apply_and_apply_today_use_the_first_row_on_any_or_the_chosen_ats(
     monkeypatch.setattr(
         hunt,
         "apply_posting",
-        lambda posting_id, *, dry_run, no_claude, repair: calls.append(
+        lambda posting_id, *, dry_run, no_claude, repair, **_: calls.append(
             ("apply", (posting_id, dry_run, no_claude))
         ),
     )

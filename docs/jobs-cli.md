@@ -53,6 +53,9 @@ os hunt apply --ats greenhouse    # top Greenhouse row
 os hunt apply today               # first of `os hunt today`, on any site
 os hunt apply today --ats greenhouse
 os hunt apply 1 --no-claude
+os hunt apply 1 --explain    # print every control's whole decision as it fills
+os hunt apply 1 --step       # the same, pausing before each control is filled
+os hunt apply 1 --dry-run --explain   # every decision, nothing touched
 os hunt apply 1 --done       # applied outside the worker; just record it
 
 os hunt apply 1 --repair      # retry failed fields in place, on the page you are filling
@@ -145,6 +148,18 @@ one bounded local Claude pass per page step that names which fact answers each
 remaining short or choice question (tagged `claude`, also a candidate);
 `--no-claude` skips that last pass. A textarea is seeded with approved prose
 for the same question, else a Claude draft that leans on your earlier writing.
+
+`--explain` prints, for every control, the five parts of how it was decided:
+the **control** (its kind, the attributes that identify it on any site, its
+flags, its options), the **question** and the key patterns match on, the
+**planner**'s reason (an engine rule, the resolver, the non-answer guard, or a
+choice group answered by another option), the **resolver**'s steps (the
+binding for this question, the expressions that match, which decided, the fact
+and its value, the formatter that wrote it, every other rendering), and the
+**operation** (strategies in order, each attempt and its error, the readback).
+Controls nothing was planned for are listed after each pass with why.
+`--step` does the same and pauses before each fill with the control outlined
+on the page: Enter fills it, `s` leaves it for you, `c` stops pausing.
 
 Ashby's Overview tab is a recognized standby state. Return to Application and
 the same step continues without refilling or another Claude pass. A submitted

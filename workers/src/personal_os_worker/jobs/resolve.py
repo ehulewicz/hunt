@@ -25,11 +25,13 @@ from personal_os_worker.jobs.autofill import AnswerResolution
 from personal_os_worker.jobs.facts.catalog import CATALOG
 from personal_os_worker.jobs.facts.derived import career_facts, derive, posting_facts
 from personal_os_worker.jobs.facts.values import fact_values
-from personal_os_worker.jobs.formatters import Rendering, render
+from personal_os_worker.jobs.formatters import Rendering, render, renderings
 from personal_os_worker.jobs.options import normalize_answer_question
 from personal_os_worker.jobs.registry.kinds import preference_key
 
 Stage = Literal["pattern", "format"]
+# One line of an `--explain` trace: (what, detail).
+Line = tuple[str, str]
 
 
 def _type_of(value: Any) -> str:
@@ -137,6 +139,33 @@ class Miss:
     note: str = ""
 
 
+def _fact_lines(
+    knowledge: Knowledge,
+    key: str,
+    field_info: dict[str, Any],
+    question: str,
+    chosen: Rendering | None,
+) -> list[Line]:
+    """The fact a decision named, and every way it could be written for this control."""
+    if key not in knowledge.facts:
+        return [("fact", f"{key} — no such fact yet")]
+    value = knowledge.facts[key]
+    value_type = knowledge.types.get(key, "text")
+    lines: list[Line] = [("fact", f"{key} = {value!r}  ({value_type})")]
+    others = [
+        f"{item.formatter} → {item.value!r}"
+        for item in renderings(key, value, value_type, field=field_info, question=question)
+        if chosen is None or item.value != chosen.value
+    ]
+    if chosen is not None:
+        lines.append(("formatter", f"{chosen.formatter} → {chosen.value!r}"))
+    else:
+        lines.append(("formatter", "none fits this control"))
+    if others:
+        lines.append(("other renderings", "; ".join(others)))
+    return lines
+
+
 class Resolver:
     """Answers fields from active patterns, always through a fact."""
 
@@ -213,6 +242,45 @@ class Resolver:
             return self._from_pattern(matched[0], field_info, question)
         return None
 
+    def explain(self, field_info: dict[str, Any]) -> list[Line]:
+        """Every step `resolve` takes for this field, without recording a miss."""
+        question = str(field_info.get("label") or "").strip()
+        key = normalize_answer_question(question)
+        lines: list[Line] = [("question key", repr(key))]
+        binding = self.bindings.get(key)
+        lines.append((
+            "binding",
+            f"{binding.get('id')} → {binding['fact_key']}"
+            + (f" (prefers {binding['formatter']})" if binding.get("formatter") else "")
+            if binding is not None
+            else f"none for this question ({len(self.bindings)} active)",
+        ))
+        matched = [pattern for regex, pattern in self.expressions if regex.search(question)]
+        lines.append((
+            "expressions",
+            "; ".join(f"/{pattern['expression']}/ → {pattern['fact_key']}" for pattern in matched)
+            if matched
+            else f"none match ({len(self.expressions)} active)",
+        ))
+        chosen: dict[str, Any] | None = binding
+        if binding is not None:
+            lines.append(("decided by", "the binding"))
+        elif len({str(pattern["fact_key"]) for pattern in matched}) == 1:
+            chosen = matched[0]
+            lines.append(("decided by", "the one fact the matching expressions name"))
+        elif matched:
+            lines.append(("decided by", "nothing: the expressions name different facts"))
+        else:
+            lines.append(("decided by", "nothing: no pattern yet; the model pass, then you"))
+        if chosen is not None:
+            fact = str(chosen["fact_key"])
+            rendering = (
+                self._render(fact, field_info, question, chosen.get("formatter"))
+                if fact in self.knowledge.facts else None
+            )
+            lines.extend(_fact_lines(self.knowledge, fact, field_info, question, rendering))
+        return lines
+
 
 class VerdictResolver:
     """Renders the fact the model named for each question it answered `fits_fact`."""
@@ -249,3 +317,18 @@ class VerdictResolver:
         return AnswerResolution(
             rendering.value, "model", "model:fact_v1", fact_key=key, formatter=rendering.formatter
         )
+
+    def explain(self, field_info: dict[str, Any]) -> list[Line]:
+        question = str(field_info.get("label") or "").strip()
+        key = self.facts.get(normalize_answer_question(question))
+        if key is None:
+            return [("model", "named no fact for this question")]
+        rendering = (
+            render(
+                key, self.knowledge.facts[key], self.knowledge.types.get(key, "text"),
+                field=field_info, question=question, seed=self.knowledge.seed,
+            )
+            if key in self.knowledge.facts else None
+        )
+        return [("model", f"fits_fact: {key}"),
+                *_fact_lines(self.knowledge, key, field_info, question, rendering)]

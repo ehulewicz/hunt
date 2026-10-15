@@ -959,6 +959,38 @@ def test_dry_run_plans_without_opening_tabs_or_writing(
     assert all(event["strategy"] is None and event["operated_ok"] is None for event in events)
 
 
+def test_explain_in_a_dry_run_shows_every_control_and_operates_none(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    browser_page.set_content((FIXTURES / "greenhouse.html").read_text())
+    context = SessionContext(
+        api=FakeApi(),  # type: ignore[arg-type]
+        run_id="run-explain",
+        ats="greenhouse",
+        browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
+        page=browser_page,
+        console_errors=[],
+        knowledge=known({"identity.legal_name": "Alex Example"}, patterns=CONTACT),
+        resume_json={},
+        resume_pdf=tmp_path / "missing.pdf",
+        company="Acme",
+        title="Backend Engineer Intern",
+        description=None,
+        dry_run=True,
+        explain=True,
+    )
+    AutofillSession(context).run()
+    out = " ".join(capsys.readouterr().out.split())
+    assert "explain · step 1, patterns and engine" in out
+    assert "#1 First name" in out and "decided by the binding" in out
+    assert "engine: the one resume upload" in out
+    assert "Not filled in this pass" in out and "Country" in out
+    assert "attempt" not in out  # a dry run operates nothing
+    assert browser_page.locator("#first").input_value() == ""
+
+
 def test_ctrl_c_ends_cleanly_with_the_answers_picked_up_so_far(
     browser_page,  # type: ignore[no-untyped-def]
     tmp_path: Path,

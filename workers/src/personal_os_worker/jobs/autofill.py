@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import re
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -52,6 +53,8 @@ class FormFill:
 class AutofillPlan:
     fills: tuple[FormFill, ...]
     unanswered_required_questions: tuple[str, ...]
+    # Control index -> why the planner filled it or left it, for `--explain`.
+    reasons: dict[int, str] = dataclasses.field(default_factory=dict)
 
 
 # Consent, terms, and attestation controls are always answered affirmatively
@@ -223,6 +226,7 @@ def build_autofill_plan(
     """
     fills: list[FormFill] = []
     unanswered: list[str] = []
+    reasons: dict[int, str] = {}
     answered_groups: set[str] = set()
     pending_choices: list[tuple[str, str]] = []
     resume_candidates = {
@@ -261,10 +265,13 @@ def build_autofill_plan(
         index = int(field["index"])
 
         if field_type in {"submit", "button", "reset", "hidden"} or tag == "button":
+            reasons[index] = "a button: never operated"
             continue
-        if field.get("filled") is True or (
-            field_type in {"radio", "checkbox"} and normalized in filled_groups
-        ):
+        if field.get("filled") is True:
+            reasons[index] = "already has a value: left as it is"
+            continue
+        if field_type in {"radio", "checkbox"} and normalized in filled_groups:
+            reasons[index] = "its group already has a choice: left as it is"
             continue
 
         value: str | None = None
@@ -278,20 +285,33 @@ def build_autofill_plan(
                     options = group_options.get(normalized) or [own]
                     chosen = own if len(options) == 1 else affirmative_option(options)
                     value = own if chosen == own else None
+                    reasons[index] = (
+                        "engine: consent takes its agreeing option"
+                        if value is not None
+                        else f"engine: consent, but the agreeing option is {chosen!r}"
+                    )
                 elif field.get("role") == "combobox":
                     chooser = "consent"
+                    reasons[index] = "engine: consent, chosen against the live menu"
                 elif tag == "select":
                     options = [str(option) for option in field.get("options") or []]
                     value = affirmative_option(options)
+                    reasons[index] = "engine: consent takes its agreeing option"
+            else:
+                reasons[index] = "sensitive (a signature, a password): left for you"
         elif field_type == "file" and index in resume_candidates and len(resume_candidates) == 1:
             kind = "resume"
+            reasons[index] = "engine: the one resume upload"
         elif (
             field_type == "file"
             and index in transcript_candidates
             and len(transcript_candidates) == 1
         ):
             kind = "transcript"
-        elif field_type != "file":
+            reasons[index] = "engine: the one transcript upload"
+        elif field_type == "file":
+            reasons[index] = "a file no rule names (or one of several): left for you"
+        else:
             options = (
                 group_options.get(normalized, [])
                 if field_type in {"radio", "checkbox"}
@@ -302,16 +322,28 @@ def build_autofill_plan(
                 resolution = AnswerResolution(
                     source_choice, "pattern", "engine:application_source"
                 )
+                reasons[index] = (
+                    "engine: how did you hear ranks the employer's site, a job board, then Other"
+                )
             elif resolver is not None:
                 resolution = resolver.resolve(
                     dict(field) | {"label": question_label, "options": options}
                 )
+                reasons[index] = (
+                    f"resolver: {resolution.resolver_id}" if resolution is not None
+                    else "resolver: nothing answered"
+                )
+            else:
+                reasons[index] = "no resolver in this pass"
             # A value that declines to answer is never chosen, whoever proposed it.
             if resolution is not None and is_non_answer_option(resolution.value):
+                reasons[index] = f"{resolution.value!r} declines to answer: never chosen"
                 resolution = None
             value = resolution.value if resolution is not None else None
             if value is None and not options and HOW_HEARD.search(question_label):
                 chooser = "source" if field.get("role") == "combobox" else None
+                if chooser is not None:
+                    reasons[index] = "engine: how did you hear, chosen against the live menu"
 
             if field_type in {"radio", "checkbox"} and value is not None:
                 own = str(field.get("label") or field.get("value") or "")
@@ -326,8 +358,14 @@ def build_autofill_plan(
                     value = own if any(
                         part.strip() == own.strip() or same_name(own, part) for part in parts
                     ) else None
+                    if value is None:
+                        reasons[index] += f"; this box is not among {parts!r}"
                 else:
                     chosen = choose_option(options, value)
+                    if chosen is None:
+                        reasons[index] += f"; no option matches {value!r}"
+                    elif chosen != own:
+                        reasons[index] += f"; the group's choice is {chosen!r}, not this option"
                     if chosen is None or chosen != own:
                         value = None
 
@@ -347,4 +385,4 @@ def build_autofill_plan(
     unanswered.extend(
         label for group_key, label in pending_choices if group_key not in answered_groups
     )
-    return AutofillPlan(tuple(fills), tuple(dict.fromkeys(unanswered)))
+    return AutofillPlan(tuple(fills), tuple(dict.fromkeys(unanswered)), reasons)

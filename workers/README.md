@@ -119,6 +119,12 @@ a fact that fits no option, a fact the model said is missing). You own
 Next and Submit; what you type is captured as `manual` and, once the
 application goes in, waits in the Inbox.
 
+**How it is explained.** `jobs/explain.py` is `apply --explain` and `--step`:
+the planner records a reason for every control (`AutofillPlan.reasons`), each
+resolver can `explain` a field without recording a miss, and `apply_autofill`
+reports each fill to a `FillObserver` before and after operating it, which
+`--step` uses to pause.
+
 **How it is operated.** `jobs/registry/` names what the fill path does. `kinds.py` classifies every
 detected control into one of seven kinds — `text_entry`, `native_select`,
 `choice_group`, `multi_choice_group`, `toggle`, `dynamic_choice`, `file` — from

@@ -82,3 +82,19 @@ class NoKeys:
     def wait(self, seconds: float) -> set[str]:
         time.sleep(seconds)
         return set()
+
+
+def read_key(prompt: str) -> str:
+    """One keypress (Enter counts), or a typed line when stdin is not a terminal."""
+    print(prompt, end="", flush=True)
+    if not sys.stdin.isatty():
+        return input()
+    fd = sys.stdin.fileno()
+    saved = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd, termios.TCSADRAIN)
+        char = os.read(fd, 1).decode(errors="ignore")
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+    print()
+    return char

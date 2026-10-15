@@ -65,6 +65,7 @@ from personal_os_worker.jobs.cover_letter import (
     render_letter,
 )
 from personal_os_worker.jobs.drafts import similar_answers
+from personal_os_worker.jobs.explain import Explainer
 from personal_os_worker.jobs.keys import KeyWatcher, NoKeys
 from personal_os_worker.jobs.options import normalize_answer_question
 from personal_os_worker.jobs.page_state import (
@@ -119,8 +120,11 @@ class SessionContext:
     letter_renderer: LetterRenderer = letter_pdf
     letter_dir: Path | None = None  # where the editable letter and its PDF live
     use_claude: bool = True
-    # Retry a field that fails right here, on the live page (design §10.4, R36).
+    # Retry a field that fails right here, on the live page (design R55).
     repair: bool = False
+    # Print every control's whole decision; with `step`, pause before each fill.
+    explain: bool = False
+    step: bool = False
     poll_seconds: float = 1.0
     keys: KeyWatcher | NoKeys = field(default_factory=KeyWatcher)
 
@@ -271,6 +275,7 @@ class AutofillSession:
         self.ctx = context
         self.state = SessionState()
         self.page = context.page
+        self._explainer: Explainer | None = None
         self.timings = AutofillTimings(report=lambda line: console.print(line, style="dim"))
 
     # ----- reporting -------------------------------------------------------
@@ -433,6 +438,16 @@ class AutofillSession:
 
     # ----- deterministic fill ---------------------------------------------
 
+    def explainer(self) -> Explainer | None:
+        """The `--explain` trace for one pass; it pauses on each fill with `--step`."""
+        if not (self.ctx.explain or self.ctx.step):
+            return None
+        if self._explainer is None:
+            self._explainer = Explainer(self.page, step=self.ctx.step)
+        # `c` while stepping stops the pauses for the rest of the run.
+        self._explainer.page = self.page
+        return self._explainer
+
     def fill_deterministic(self, fields: list[dict[str, Any]]) -> dict[str, Any]:
         resolver = Resolver(self.ctx.knowledge)
         fields[:], plan = plan_autofill(self.page, resolver=resolver)
@@ -447,6 +462,11 @@ class AutofillSession:
                     if not is_long_form_field(fields[fill.index])
                 ),
                 plan.unanswered_required_questions,
+                plan.reasons | {
+                    fill.index: "long-form: seeded from approved prose, else a Claude draft"
+                    for fill in plan.fills
+                    if is_long_form_field(fields[fill.index])
+                },
             )
         console.print()
         console.rule(f"[bold]Step {self.state.step + 1}[/bold]", align="left")
@@ -454,7 +474,14 @@ class AutofillSession:
             f"  {len(fields)} controls · {len(plan.fills)} planned deterministically · "
             f"{len(plan.unanswered_required_questions)} required still open"
         )
+        explainer = self.explainer()
+        if explainer is not None:
+            explainer.begin(
+                f"step {self.state.step + 1}, patterns and engine", fields, plan, resolver
+            )
         if self.ctx.dry_run:
+            if explainer is not None:
+                explainer.dry_run()
             self.ctx.api.persist_autofill_step(
                 self.ctx.run_id,
                 {
@@ -473,7 +500,10 @@ class AutofillSession:
             transcript_path=self.ctx.transcript_pdf,
             assert_active=lambda: None,
             preferences=self.ctx.knowledge.preferences,
+            observer=explainer,
         )
+        if explainer is not None:
+            explainer.finish()
         for fill in plan.fills:
             question = _question_for(fields[fill.index])
             applied = result["applied"].get(fill.index)
@@ -670,9 +700,14 @@ class AutofillSession:
         resolver = VerdictResolver(fits, self.ctx.knowledge)
         claude_fields, plan = plan_autofill(self.page, resolver=resolver)
         self.state.misses.update(resolver.misses)
+        explainer = self.explainer()
+        if explainer is not None:
+            explainer.begin(
+                f"step {self.state.step + 1}, the model's facts", claude_fields, plan, resolver
+            )
         claude_result = apply_autofill(
             self.page, claude_fields, plan, resume_path=None, assert_active=lambda: None,
-            preferences=self.ctx.knowledge.preferences,
+            preferences=self.ctx.knowledge.preferences, observer=explainer,
         )
         for fill in plan.fills:
             question = _question_for(claude_fields[fill.index])

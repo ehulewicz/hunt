@@ -244,7 +244,13 @@ def run_doctor_command() -> int:
 
 
 def run_autofill(
-    reference: str, *, dry_run: bool, no_claude: bool = False, repair: bool = False
+    reference: str,
+    *,
+    dry_run: bool,
+    no_claude: bool = False,
+    repair: bool = False,
+    explain: bool = False,
+    step: bool = False,
 ) -> int:
     config, token = connected()
     api = WorkerApi(config, token)
@@ -252,12 +258,22 @@ def run_autofill(
         listing = api.listing(reference)
     finally:
         api.close()
-    apply_posting(str(listing["id"]), dry_run=dry_run, no_claude=no_claude, repair=repair)
+    apply_posting(
+        str(listing["id"]), dry_run=dry_run, no_claude=no_claude, repair=repair,
+        explain=explain, step=step,
+    )
     return 0
 
 
 def run_autofill_top(
-    *, today: bool, ats: str | None, dry_run: bool, no_claude: bool = False, repair: bool = False
+    *,
+    today: bool,
+    ats: str | None,
+    dry_run: bool,
+    no_claude: bool = False,
+    repair: bool = False,
+    explain: bool = False,
+    step: bool = False,
 ) -> int:
     """Apply the first board row (or first of today), on the given ATS when one is named."""
     families = list(DEFAULT_TECHNICAL_FAMILIES)
@@ -279,7 +295,10 @@ def run_autofill_top(
     console.print(
         f"Applying row {listing.get('row')}: {listing.get('company_name')} — {listing.get('title')}"
     )
-    apply_posting(str(listing["id"]), dry_run=dry_run, no_claude=no_claude, repair=repair)
+    apply_posting(
+        str(listing["id"]), dry_run=dry_run, no_claude=no_claude, repair=repair,
+        explain=explain, step=step,
+    )
     return 0
 
 
@@ -305,7 +324,13 @@ def run_mark_applied(reference: str) -> int:
 
 
 def apply_posting(
-    posting_id: str, *, dry_run: bool, no_claude: bool, repair: bool = False
+    posting_id: str,
+    *,
+    dry_run: bool,
+    no_claude: bool,
+    repair: bool = False,
+    explain: bool = False,
+    step: bool = False,
 ) -> str:
     """Run one interactive apply session: "submitted", "skipped", or "stopped"."""
     from personal_os_worker.documents.doctor import latex_toolchain_check
@@ -449,6 +474,8 @@ def apply_posting(
                     dry_run=dry_run,
                     use_claude=not no_claude,
                     repair=repair,
+                    explain=explain,
+                    step=step,
                 )
             )
             outcome = session.run()
