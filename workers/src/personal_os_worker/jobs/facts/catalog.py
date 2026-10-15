@@ -44,11 +44,11 @@ CATALOG = _entries(
     CatalogEntry("address.line_1", "Street address", "text", sensitive=True),
     CatalogEntry("address.line_2", "Second address line", "text", sensitive=True),
     CatalogEntry("address.city", "Current city", "text"),
-    CatalogEntry("address.region", "Current state or region", "text"),
+    CatalogEntry("address.state", "Current state", "text"),
     CatalogEntry("address.postal_code", "Postal code", "text", sensitive=True),
     CatalogEntry("address.country", "Country of residence", "text"),
     CatalogEntry(
-        "address.location", "Current location as city, region, country", "text", "derived"
+        "address.location", "Current location as city, state, country", "text", "derived"
     ),
     CatalogEntry("education.school_name", "School", "text", "career"),
     CatalogEntry("education.degree_type", "Degree type", "text", "career"),

@@ -85,7 +85,7 @@ LABELS: tuple[tuple[str, str, str | None], ...] = (
     ("address|street address|address line 1", "address.line_1", None),
     ("address line 2", "address.line_2", None),
     ("city", "address.city", None),
-    ("state|state/province", "address.region", None),
+    ("state|state/province", "address.state", None),
     ("zip code|postal code", "address.postal_code", None),
     ("country", "address.country", None),
     ("linkedin|linkedin url", "contact.linkedin_url", None),

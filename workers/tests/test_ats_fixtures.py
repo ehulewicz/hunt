@@ -923,7 +923,7 @@ def test_places_city_typeahead_is_filled_by_the_location_rule(
     plan = build_autofill_plan(
         fields,
         resolver=knowing(
-            {"address.city": "Atlanta", "address.region": "Georgia",
+            {"address.city": "Atlanta", "address.state": "Georgia",
              "address.country": "United States"}
         ),
     )

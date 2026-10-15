@@ -56,8 +56,8 @@ DERIVED_FACTS = (
     DerivedFact("identity.last_name", "Last name", ("identity.legal_name",)),
     DerivedFact(
         "address.location",
-        "Current location as city, region, country",
-        ("address.city", "address.region", "address.country"),
+        "Current location as city, state, country",
+        ("address.city", "address.state", "address.country"),
     ),
     DerivedFact(
         "work_auth.citizenship_country", "Country of citizenship", ("work_auth.us_citizen",)
@@ -149,7 +149,7 @@ def derive(facts: dict[str, Any], today: date) -> dict[str, Any]:
     names = str(facts.get("identity.legal_name") or "").split()
     place = [
         str(facts.get(key) or "").strip()
-        for key in ("address.city", "address.region", "address.country")
+        for key in ("address.city", "address.state", "address.country")
     ]
     values: dict[str, Any] = {
         "coop.completed_rotations": rotations,

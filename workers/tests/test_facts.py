@@ -78,7 +78,7 @@ def test_knowledge_presents_stored_derived_and_posting_facts() -> None:
     facts = [
         fact("identity.legal_name", "Ada Lovelace"),
         fact("address.city", "Atlanta"),
-        fact("address.region", "Georgia"),
+        fact("address.state", "Georgia"),
         fact("address.country", "United States"),
         fact("work_auth.us_citizen", True) | {"value_type": "boolean"},
         fact("education.graduation_date", "2027-12-15") | {"value_type": "date"},

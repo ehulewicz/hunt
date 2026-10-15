@@ -883,7 +883,7 @@ Selection, by the builtin pattern `builtin:office_selection_v1`:
 Random draws are seeded by the application id (§4).
 
 > **R15 — This applies to office *choice*, never to current location.** "Where
-> are you currently located?" is `address.city` + `address.region`. "Which
+> are you currently located?" is `address.city` + `address.state`. "Which
 > office would you like to work from?" is this policy. The pattern matches only
 > choice questions about preferred, desired, or available offices and locations,
 > and only when options are visible.
