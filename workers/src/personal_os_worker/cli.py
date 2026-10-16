@@ -270,6 +270,11 @@ def build_parser() -> argparse.ArgumentParser:
         "c stops pausing)",
     )
     autofill.add_argument(
+        "--ask-facts",
+        action="store_true",
+        help="When a question needs a fact you have not set, ask for it here and fill it in",
+    )
+    autofill.add_argument(
         "--done",
         action="store_true",
         help="Do not fill anything; record that you applied to this listing yourself",
@@ -417,7 +422,7 @@ def _dispatch(args: argparse.Namespace) -> int:
                 raise RuntimeError("Unexpected autofill arguments")
             if args.done:
                 if (args.dry_run or args.no_claude or args.ats or not args.repair
-                        or args.fresh or args.explain or args.step):
+                        or args.fresh or args.explain or args.step or args.ask_facts):
                     raise RuntimeError("--done takes no other flags")
                 if args.ref is None or args.ref == "today":
                     raise RuntimeError("--done needs a listing row or id")
@@ -432,6 +437,7 @@ def _dispatch(args: argparse.Namespace) -> int:
                     fresh=args.fresh,
                     explain=args.explain,
                     step=args.step,
+                    ask_facts=args.ask_facts,
                 )
             if args.ats:
                 raise RuntimeError("--ats picks the top row; do not give a row with it")
@@ -443,6 +449,7 @@ def _dispatch(args: argparse.Namespace) -> int:
                 fresh=args.fresh,
                 explain=args.explain,
                 step=args.step,
+                ask_facts=args.ask_facts,
             )
     return 2
 

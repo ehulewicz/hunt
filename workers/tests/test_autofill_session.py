@@ -1026,7 +1026,7 @@ def test_ctrl_c_ends_cleanly_with_the_answers_picked_up_so_far(
     assert saved["First name"] == "Ethan"
 
 
-def test_claude_is_asked_about_a_question_once_per_run(
+def test_claude_is_asked_about_a_question_at_most_twice_per_run(
     browser_page,  # type: ignore[no-untyped-def]
     tmp_path: Path,
 ) -> None:
@@ -1063,10 +1063,15 @@ def test_claude_is_asked_about_a_question_once_per_run(
     session = AutofillSession(context)
 
     fields = inspect_fields(browser_page)
-    session.fill_with_claude(fields, {"failures": []})
-    session.fill_with_claude(fields, {"failures": []})  # a re-rendered step
+    for _attempt in range(4):
+        session.fill_with_claude(fields, {"failures": []})
 
-    assert calls == [["First name", "Why us, in a word?"]]
+    # ASK_LIMIT: the fill pass, and once more after the audit changed something.
+    # A third sighting of the same question never asks again.
+    assert calls == [
+        ["First name", "Why us, in a word?"],
+        ["First name", "Why us, in a word?"],
+    ]
 
 
 def submit_form_html() -> str:

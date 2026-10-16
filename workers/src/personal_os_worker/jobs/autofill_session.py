@@ -18,7 +18,7 @@ import json
 import subprocess
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +27,21 @@ from rich.markup import escape
 
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.tables import console
+from personal_os_worker.jobs.answer_check import (
+    WORKER_SOURCES,
+    FilledAnswer,
+    Judgement,
+    check_answers,
+)
 from personal_os_worker.jobs.answers import draft_contextual_answer
+from personal_os_worker.jobs.audit import (
+    REPAIRABLE_CAUSES,
+    Budget,
+    Finding,
+    classify_empty,
+    order,
+    summarize,
+)
 from personal_os_worker.jobs.autofill import (
     AnswerResolution,
     is_cover_letter_field,
@@ -65,7 +79,8 @@ from personal_os_worker.jobs.cover_letter import (
     render_letter,
 )
 from personal_os_worker.jobs.drafts import similar_answers
-from personal_os_worker.jobs.explain import Explainer
+from personal_os_worker.jobs.explain import Explainer, group_options
+from personal_os_worker.jobs.formatters import render
 from personal_os_worker.jobs.gateway import (
     click_gateway,
     form_appeared,
@@ -101,6 +116,7 @@ class SkippedByUser(Exception):
 
 Drafter = Callable[..., str | None]
 ShortDrafter = Callable[..., dict[str, Verdict]]
+AnswerChecker = Callable[..., dict[str, Judgement]]
 
 LetterDrafter = Callable[..., LetterSlots | None]
 LetterRenderer = Callable[..., Path]
@@ -120,10 +136,13 @@ class SessionContext:
     company: str
     title: str
     description: str | None
+    # The career record, so a fact set mid-application can rebuild what is known.
+    career: dict[str, Any] | None = None
     transcript_pdf: Path | None = None
     dry_run: bool = False
     drafter: Drafter = draft_contextual_answer
     short_drafter: ShortDrafter = draft_short_answers
+    checker: AnswerChecker = check_answers
     letter_drafter: LetterDrafter = draft_slots
     letter_template: Callable[[], LetterTemplate] = load_template
     editor: Callable[[Path], None] = edit_in_vscode
@@ -135,8 +154,13 @@ class SessionContext:
     # Print every control's whole decision; with `step`, pause before each fill.
     explain: bool = False
     step: bool = False
+    # Ask for a missing fact's value at the terminal instead of only reporting it.
+    ask_facts: bool = False
+    # How many times the audit may look, repair, and look again on one step.
+    audit_rounds: int = 2
     poll_seconds: float = 1.0
     keys: KeyWatcher | NoKeys = field(default_factory=KeyWatcher)
+    prompt: Callable[[str], str] = input
 
 
 @dataclass
@@ -155,7 +179,10 @@ class SessionState:
     tier_source: dict[str, str] = field(default_factory=dict)  # question -> "pattern" | "model"
     tier_resolver: dict[str, str] = field(default_factory=dict)
     seed_resolver: dict[str, str] = field(default_factory=dict)  # question -> prose/model id
-    asked_claude: set[str] = field(default_factory=set)  # questions already put to Claude
+    asked_claude: dict[str, int] = field(default_factory=dict)  # question -> times asked
+    judged: set[str] = field(default_factory=set)  # answers already checked against the facts
+    repair_attempted: set[str] = field(default_factory=set)  # questions repair already retried
+    budget: Budget = field(default_factory=Budget)
     misses: dict[str, Miss] = field(default_factory=dict)  # answer key -> why unanswered
     needed: dict[str, str] = field(default_factory=dict)  # question -> fact the model named
     gates_tried: set[str] = field(default_factory=set)  # gate questions already answered once
@@ -192,6 +219,13 @@ TAG_WIDTH = 10
 QUESTION_WIDTH = 42
 VALUE_WIDTH = 60
 
+# How many times one question may be put to the model in a run: the fill pass,
+# and the audit once more after a repair or a new fact has changed something.
+ASK_LIMIT = 2
+# What one repair attempt costs the question's budget. A retry walks a control's
+# strategies, or a fact's renderings across them, so it is never one operation.
+REPAIR_COST = 5
+
 TAG_STYLES = {
     "pattern": "green",
     "claude": "magenta",
@@ -202,6 +236,7 @@ TAG_STYLES = {
     "letter": "cyan",
     "picked up": "cyan",
     "saved": "green",
+    "fact": "green",
     "kept": "dim",
     "left": "yellow",
     "optional": "dim",
@@ -758,6 +793,9 @@ class AutofillSession:
             field = find_field(fields, question)
             if field is None:
                 continue
+            # The audit must not re-queue what has already been retried here.
+            self.state.repair_attempted.add(normalize_answer_question(question))
+            self.state.budget.charge(question, REPAIR_COST)
             try:
                 if stage == "format" and failure.get("fact_key"):
                     candidate = repair_format(
@@ -804,16 +842,18 @@ class AutofillSession:
                 item["options"] = []
                 if self.form_is_gone():
                     return
-        # Once per question per run: a re-render that restarts the step, or a
-        # later step showing the same question, must not ask again.
+        # A question is put to the model at most ASK_LIMIT times in a run, so a
+        # re-render that restarts the step does not ask again, while the audit
+        # may ask a second time once a new fact has appeared.
         questions = [
             question
             for question in _claude_questions(current)
-            if question.question not in self.state.asked_claude
+            if self.may_ask(question.question)
         ]
         if not questions:
             return
-        self.state.asked_claude.update(question.question for question in questions)
+        for pending_question in questions:
+            self.note_asked(pending_question.question)
         console.print(f"  [dim]asking Claude which fact answers {len(questions)} question(s)[/dim]")
         verdicts = self.ctx.short_drafter(
             questions,
@@ -1068,40 +1108,473 @@ class AutofillSession:
                     "readback_mismatch", f"Cover letter for {question!r} did not register"
                 )
 
-    def why_empty(self, question: str) -> str | None:
-        if question in self.state.needed:
-            return f"needs a fact: {self.state.needed[question]}"
-        miss = self.state.misses.get(normalize_answer_question(question))
-        return miss.note or None if miss is not None else None
+    # ----- the audit, and the repairs it drives ----------------------------
 
-    def report_left(self) -> None:
-        """Every field still empty, required first, outlined on the page (design §10.2).
+    def may_ask(self, question: str) -> bool:
+        return self.state.asked_claude.get(question, 0) < ASK_LIMIT
 
-        Optional fields count: nothing is left blank unless you leave it. What
-        the worker knows about why each is empty — no fact yet, an old answer
-        that disagrees, a missing fact the model named — is said beside it.
+    def note_asked(self, question: str) -> None:
+        self.state.asked_claude[question] = self.state.asked_claude.get(question, 0) + 1
+
+    def options_for(self, fields: list[dict[str, Any]], field: dict[str, Any]) -> list[str]:
+        """The options the question offers, gathered the way the planner gathers them."""
+        return group_options(fields, field)
+
+    def filled_answers(self, fields: list[dict[str, Any]]) -> list[FilledAnswer]:
+        """Every short answer the page holds, with who put it there.
+
+        Prose, cover letters, consent, signatures, and uploads are excluded: a
+        fact cannot judge them.
         """
         try:
-            fields = inspect_fields(self.page)
-            audit = audit_filled_form(fields)
+            entries = snapshot_entries(self.page, fields)
         except Error:
-            return
-        left = [(question, True) for question in audit["required_unfilled"]]
-        left += [(question, False) for question in audit["optional_unfilled"]]
-        if not left:
-            console.print("  [dim]every field is filled[/dim]")
+            return []
+        by_question: dict[str, dict[str, Any]] = {}
+        for item in fields:
+            question = _question_for(item)
+            if question:
+                by_question.setdefault(question, item)
+        answers: list[FilledAnswer] = []
+        for entry in entries:
+            question = str(entry["question"])
+            value = str(entry["answer_text"]).strip()
+            control = by_question.get(question)
+            if not value or control is None or entry.get("form") == "long":
+                continue
+            if (
+                is_sensitive_field(control)
+                or is_long_form_field(control)
+                or is_cover_letter_field(control)
+            ):
+                continue
+            source = self.state.tier_source.get(question)
+            if source is None:
+                seed, seed_source = self.state.seeds.get(question, ("", "empty"))
+                source = (
+                    seed_source
+                    if seed_source in {"prose", "model"} and value == seed.strip()
+                    else "manual"
+                )
+            answers.append(
+                FilledAnswer(
+                    question, value, tuple(self.options_for(fields, control)), source
+                )
+            )
+        return answers
+
+    def wrong_answers(self, fields: list[dict[str, Any]]) -> list[Finding]:
+        """Answers a fact says are wrong, judged once per answer per run."""
+        if not self.ctx.use_claude:
+            return []
+        fresh = [
+            answer
+            for answer in self.filled_answers(fields)
+            if answer.question not in self.state.judged
+        ]
+        if not fresh:
+            return []
+        self.state.judged.update(answer.question for answer in fresh)
+        console.print(f"  [dim]checking {len(fresh)} answer(s) against the facts[/dim]")
+        judgements = self.ctx.checker(
+            fresh,
+            posting={"company": self.ctx.company, "role": self.ctx.title},
+            facts=self.ctx.knowledge.for_model(),
+        )
+        held = {answer.question: answer for answer in fresh}
+        findings: list[Finding] = []
+        for judgement in judgements.values():
+            answer = held.get(judgement.question)
+            if judgement.kind != "wrong" or not judgement.fact_key or answer is None:
+                continue
+            findings.append(
+                Finding(
+                    judgement.question,
+                    "wrong_answer",
+                    required=False,
+                    note=judgement.note or f"{judgement.fact_key} says otherwise",
+                    fact_key=judgement.fact_key,
+                    answer=answer.answer,
+                    source=answer.source,
+                )
+            )
+        return findings
+
+    def audit(
+        self, fields: list[dict[str, Any]], failures: list[dict[str, Any]]
+    ) -> list[Finding]:
+        """What is still wrong with this page: nothing answered it, or a fact disagrees."""
+        try:
+            current = inspect_fields(self.page)
+            open_questions = audit_filled_form(current)
+        except Error:
+            return []
+        by_question = {
+            normalize_answer_question(str(failure.get("question") or failure.get("field_label")
+                                          or "")): failure
+            for failure in failures
+        }
+        findings = [
+            classify_empty(
+                question,
+                required=required,
+                needed=self.state.needed,
+                misses=self.state.misses,
+                failures=by_question,
+            )
+            for question, required in (
+                [(item, True) for item in open_questions["required_unfilled"]]
+                + [(item, False) for item in open_questions["optional_unfilled"]]
+            )
+        ]
+        return order(findings + self.wrong_answers(fields))
+
+    def audit_and_repair(
+        self, fields: list[dict[str, Any]], result: dict[str, Any]
+    ) -> None:
+        """Look, fix what has a path, look again, then report whatever is left.
+
+        The repairs are silent: each one echoes the line it changed, and only
+        what no lane could fix is listed for you at the end.
+        """
+        failures = list(result.get("failures") or [])
+        findings = self.audit(fields, failures)
+        for _round in range(max(1, self.ctx.audit_rounds)):
+            if not findings:
+                break
+            if not self.remediate(fields, findings):
+                break
+            findings = self.audit(fields, failures)
+        self.report_open(findings)
+
+    def remediate(self, fields: list[dict[str, Any]], findings: list[Finding]) -> bool:
+        """Run each finding's repair path; True when anything on the page changed."""
+        acted = False
+        if self.ctx.repair:
+            acted = self.queue_repairs(fields, findings) or acted
+        acted = self.ask_again(fields, findings) or acted
+        for finding in findings:
+            if finding.cause == "wrong_answer":
+                acted = self.correct_answer(fields, finding) or acted
+            elif finding.cause == "fact_gap" and self.ctx.ask_facts:
+                acted = self.ask_for_fact(fields, finding) or acted
+        return acted
+
+    def queue_repairs(self, fields: list[dict[str, Any]], findings: list[Finding]) -> bool:
+        """Record the audit's own failures, then let the repair lane retry them here.
+
+        A question the live fill already retried is not retried again; what the
+        audit adds is the field no fill event ever failed on, because no tier
+        produced a value for it at all.
+        """
+        failures: list[dict[str, Any]] = []
+        for finding in findings:
+            if finding.cause not in REPAIRABLE_CAUSES:
+                continue
+            key = normalize_answer_question(finding.question)
+            field = find_field(fields, finding.question)
+            if field is None or key in self.state.repair_attempted:
+                continue
+            if not self.state.budget.allows(finding.question):
+                continue
+            category = (
+                "format_miss" if finding.cause == "format_error" else "strategy_miss"
+            )
+            stage = "format" if finding.cause == "format_error" else "strategy"
+            fingerprint = str(field.get("fingerprint") or finding.question)
+            failures.append(
+                {
+                    "signature": failure_signature(self.ctx.ats, category, fingerprint),
+                    "category": category,
+                    "stopped_at": stage,
+                    "question": finding.question,
+                    "field_label": field.get("label") or finding.question,
+                    "control_kind": field.get("type") or field.get("tag"),
+                    "field_fingerprint": fingerprint,
+                    "fact_key": finding.fact_key,
+                    "formatter": finding.formatter,
+                    "intended_value": finding.intended_value,
+                    "error_message": finding.note or "the audit found this field empty",
+                    "dom_signals": {
+                        name: field.get(name)
+                        for name in ("tag", "type", "name", "label", "group", "role")
+                    },
+                }
+            )
+        if not failures:
+            return False
+        issues = self.ctx.api.persist_autofill_step(
+            self.ctx.run_id,
+            {
+                "step_number": self.state.step,
+                "url": self.page.url,
+                "failures": failures,
+            },
+        )
+        self.repair_in_place(fields, failures, issues)
+        return True
+
+    def ask_again(self, fields: list[dict[str, Any]], findings: list[Finding]) -> bool:
+        """Put every unanswered question back to the model, once more, with the options."""
+        if not self.ctx.use_claude:
+            return False
+        questions: list[ShortQuestion] = []
+        targets: dict[str, dict[str, Any]] = {}
+        for finding in findings:
+            if finding.cause not in {"pattern_gap", "fact_gap"}:
+                continue
+            field = find_field(fields, finding.question)
+            if field is None or not self.may_ask(finding.question):
+                continue
+            targets[finding.question] = field
+            questions.append(
+                ShortQuestion(
+                    finding.question, tuple(self.options_for(fields, field))
+                )
+            )
+        if not questions:
+            return False
+        for pending_question in questions:
+            self.note_asked(pending_question.question)
+        console.print(
+            f"  [dim]asking Claude again about {len(questions)} unanswered question(s)[/dim]"
+        )
+        verdicts = self.ctx.short_drafter(
+            questions,
+            posting={"company": self.ctx.company, "role": self.ctx.title},
+            facts=self.ctx.knowledge.for_model(),
+        )
+        fits = {
+            name: verdict for name, verdict in verdicts.items() if verdict.kind == "fits_fact"
+        }
+        for verdict in verdicts.values():
+            if verdict.kind == "no_fact" and verdict.missing_fact:
+                self.state.needed[verdict.question] = verdict.missing_fact
+        if not fits:
+            return False
+        resolver = VerdictResolver(fits, self.ctx.knowledge)
+        acted = False
+        for question, field in targets.items():
+            if question not in fits:
+                continue
+            resolution = resolver.resolve(
+                dict(field) | {"label": question, "options": self.options_for(fields, field)}
+            )
+            if resolution is None:
+                continue
+            shown = self.apply_value(
+                field,
+                resolution.value,
+                source="model",
+                resolver_id=resolution.resolver_id,
+                fact_key=resolution.fact_key,
+                formatter=resolution.formatter,
+            )
+            if shown is not None:
+                echo("claude", question, shown, note=resolution.fact_key)
+                acted = True
+        self.state.misses.update(resolver.misses)
+        return acted
+
+    def correct_answer(self, fields: list[dict[str, Any]], finding: Finding) -> bool:
+        """Re-render the fact that contradicts an answer the worker itself filled."""
+        key = str(finding.fact_key or "")
+        if key not in self.ctx.knowledge.facts:
+            return False
+        if finding.source not in WORKER_SOURCES:
+            echo(
+                "review",
+                finding.question,
+                finding.answer,
+                note=f"{key} says otherwise ({finding.note}); yours to change",
+            )
+            return False
+        field = find_field(fields, finding.question)
+        if field is None:
+            return False
+        rendering = render(
+            key,
+            self.ctx.knowledge.facts[key],
+            self.ctx.knowledge.types.get(key, "text"),
+            field=dict(field) | {"options": self.options_for(fields, field)},
+            question=finding.question,
+            seed=self.ctx.knowledge.seed,
+        )
+        if rendering is None or rendering.value == finding.answer:
+            return False
+        shown = self.apply_value(
+            field,
+            rendering.value,
+            source="model",
+            resolver_id="model:answer_check_v1",
+            fact_key=key,
+            formatter=rendering.formatter,
+        )
+        if shown is None:
+            return False
+        echo("repaired", finding.question, shown, note=f"{key} said {finding.note or 'otherwise'}")
+        return True
+
+    def ask_for_fact(self, fields: list[dict[str, Any]], finding: Finding) -> bool:
+        """Ask at the terminal for the fact this question needs, then fill it in."""
+        from personal_os_worker.jobs.facts.catalog import entry
+        from personal_os_worker.jobs.facts.commands import VALUE_TYPES, parse_value
+
+        key = str(finding.fact_key or "")
+        console.print()
+        console.print(f"  [bold]{escape(finding.question)}[/bold]")
+        if not key:
+            console.print(f"  needs a fact: {finding.missing_fact}", style="dim")
+            key = self.ctx.prompt("  fact key (blank to skip): ").strip()
+            if not key:
+                return False
+        known = entry(key)
+        label = known.label if known else self.ctx.prompt("  label: ").strip()
+        value_type = (
+            known.value_type
+            if known
+            else self.ctx.prompt(f"  type ({', '.join(VALUE_TYPES)}): ").strip()
+        )
+        if not label or value_type not in VALUE_TYPES:
+            console.print("  a fact needs a label and a type; skipped", style="yellow")
+            return False
+        raw = self.ctx.prompt(f"  value ({value_type}), blank to skip: ").strip()
+        if not raw:
+            return False
+        try:
+            value = parse_value(str(value_type), raw)
+        except ValueError as error:
+            console.print(f"  {error}", style="red")
+            return False
+        self.ctx.api.set_fact(key, value, label=label, value_type=str(value_type))
+        self.refresh_knowledge()
+        echo("fact", finding.question, str(value), note=f"set {key}")
+        field = find_field(fields, finding.question)
+        if field is None:
+            return True
+        rendering = render(
+            key,
+            self.ctx.knowledge.facts.get(key),
+            self.ctx.knowledge.types.get(key, str(value_type)),
+            field=dict(field) | {"options": self.options_for(fields, field)},
+            question=finding.question,
+            seed=self.ctx.knowledge.seed,
+        )
+        if rendering is None:
+            return True
+        shown = self.apply_value(
+            field,
+            rendering.value,
+            source="model",
+            resolver_id="model:fact_v1",
+            fact_key=key,
+            formatter=rendering.formatter,
+        )
+        if shown is not None:
+            echo("claude", finding.question, shown, note=key)
+        return True
+
+    def refresh_knowledge(self) -> None:
+        """Rebuild what the run knows after a fact was set, keeping its preferences."""
+        rebuilt = Knowledge.build(
+            facts=self.ctx.api.facts(),
+            career=self.ctx.career,
+            patterns=self.ctx.knowledge.patterns,
+            prose=self.ctx.knowledge.prose,
+            company=self.ctx.company,
+            seed=self.ctx.knowledge.seed,
+        )
+        self.ctx.knowledge = replace(rebuilt, preferences=self.ctx.knowledge.preferences)
+
+    def apply_value(
+        self,
+        field: dict[str, Any],
+        value: str,
+        *,
+        source: str,
+        resolver_id: str,
+        fact_key: str | None = None,
+        formatter: str | None = None,
+    ) -> str | None:
+        """Set one control, read it back, and record the attempt; the value shown.
+
+        Every strategy the control kind supports is tried, so this is also how a
+        repair reaches a widget the first pass could not drive.
+        """
+        question = _question_for(field)
+        spent = self.state.budget.exhausted(question)
+        if spent is not None:
+            echo("left", question, note=spent)
+            return None
+        self.state.budget.charge(question, REPAIR_COST)
+        try:
+            candidate = repair_strategy(self.page, field, value)
+        except (Error, RuntimeError):
+            candidate = None
+        shown = str(candidate.get("value") or "") if candidate is not None else ""
+        resolution = AnswerResolution(
+            shown or value, source, resolver_id, fact_key=fact_key, formatter=formatter
+        )
+        self.ctx.api.persist_autofill_step(
+            self.ctx.run_id,
+            {
+                "step_number": self.state.step,
+                "url": self.page.url,
+                "fill_events": [
+                    fill_event(
+                        field,
+                        strategy=str(candidate.get("strategy")) if candidate else None,
+                        stopped_at=None if candidate else "strategy",
+                        operated_ok=candidate is not None,
+                        value=shown or value,
+                        resolution=resolution,
+                    )
+                ],
+            },
+        )
+        if candidate is None:
+            return None
+        key = f"{self.state.step}:{field.get('fingerprint') or ''}#{field.get('index')}"
+        self.state.resolutions[key] = resolution
+        self.state.announced[key] = shown
+        self.state.tier_answers[question] = shown
+        self.state.tier_source[question] = source
+        self.state.tier_resolver[question] = resolver_id
+        return shown
+
+    def report_open(self, findings: list[Finding]) -> None:
+        """What the audit could not fix, required first, outlined on the page.
+
+        Optional fields count: nothing is left blank unless you leave it. Each
+        line says the cause, so what you do about it is never a guess.
+        """
+        if not findings:
+            console.print("  [dim]every field is filled, and no fact disagrees[/dim]")
             return
         with contextlib.suppress(Error):
             highlight_unfilled(self.page)
-        required = sum(1 for _, is_required in left if is_required)
+        empty = [item for item in findings if item.cause != "wrong_answer"]
+        wrong = [item for item in findings if item.cause == "wrong_answer"]
+        required = sum(1 for item in empty if item.required)
         console.print()
-        console.print(
-            f"  [bold]Left for you[/bold] ({required} required, {len(left) - required} optional,"
-            " outlined on the page):"
-        )
-        for question, is_required in left:
-            reason = self.why_empty(question)
-            echo("left" if is_required else "optional", question, note=reason)
+        if empty:
+            console.print(
+                f"  [bold]Left for you[/bold] ({required} required, "
+                f"{len(empty) - required} optional, outlined on the page): "
+                f"[dim]{summarize(empty)}[/dim]"
+            )
+            for item in empty:
+                echo(
+                    "left" if item.required else "optional",
+                    item.question,
+                    note=f"{item.cause.replace('_', ' ')}: {item.note}" if item.note
+                    else item.cause.replace("_", " "),
+                )
+        if wrong:
+            console.print()
+            console.print("  [bold]A fact disagrees with these answers[/bold]:")
+            for item in wrong:
+                echo("review", item.question, item.answer, note=f"{item.fact_key}: {item.note}")
 
     def report_review(self) -> None:
         """List the long-form answers that came from a draft, once per step."""
@@ -1286,7 +1759,8 @@ class AutofillSession:
                     self.fill_long_form(fields)
                 with self.timings.measure("cover_letter_review", step=self.state.step):
                     self.fill_cover_letter(fields)
-                self.report_left()
+                with self.timings.measure("audit", step=self.state.step):
+                    self.audit_and_repair(fields, result)
                 self.report_review()
                 with self.timings.measure("user_review", step=self.state.step):
                     transition = self.wait_and_advance(fields)

@@ -252,6 +252,7 @@ def run_autofill(
     fresh: bool = False,
     explain: bool = False,
     step: bool = False,
+    ask_facts: bool = False,
 ) -> int:
     config, token = connected()
     api = WorkerApi(config, token)
@@ -261,7 +262,7 @@ def run_autofill(
         api.close()
     apply_posting(
         str(listing["id"]), dry_run=dry_run, no_claude=no_claude, repair=repair,
-        fresh=fresh, explain=explain, step=step,
+        fresh=fresh, explain=explain, step=step, ask_facts=ask_facts,
     )
     return 0
 
@@ -276,6 +277,7 @@ def run_autofill_top(
     fresh: bool = False,
     explain: bool = False,
     step: bool = False,
+    ask_facts: bool = False,
 ) -> int:
     """Apply the first board row (or first of today), on the given ATS when one is named."""
     families = list(DEFAULT_TECHNICAL_FAMILIES)
@@ -299,7 +301,7 @@ def run_autofill_top(
     )
     apply_posting(
         str(listing["id"]), dry_run=dry_run, no_claude=no_claude, repair=repair,
-        fresh=fresh, explain=explain, step=step,
+        fresh=fresh, explain=explain, step=step, ask_facts=ask_facts,
     )
     return 0
 
@@ -334,6 +336,7 @@ def apply_posting(
     fresh: bool = False,
     explain: bool = False,
     step: bool = False,
+    ask_facts: bool = False,
 ) -> str:
     """Run one interactive apply session: "submitted", "skipped", or "stopped"."""
     from personal_os_worker.documents.doctor import latex_toolchain_check
@@ -485,12 +488,14 @@ def apply_posting(
                     company=expected_company,
                     title=expected_title,
                     description=body,
+                    career=career,
                     transcript_pdf=transcript_pdf_path(),
                     dry_run=dry_run,
                     use_claude=not no_claude,
                     repair=repair,
                     explain=explain,
                     step=step,
+                    ask_facts=ask_facts,
                 )
             )
             outcome = session.run()
