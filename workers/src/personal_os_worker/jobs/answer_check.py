@@ -1,4 +1,4 @@
-"""One bounded model pass over the answers a form already holds (design §10.4).
+"""One bounded model pass over the answers a form already holds (design §10.2).
 
 Emptiness is not the only way a form is wrong. An answer can be confidently
 filled and contradict a fact — "requires sponsorship: Yes" when

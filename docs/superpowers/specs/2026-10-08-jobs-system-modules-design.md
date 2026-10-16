@@ -1028,6 +1028,40 @@ any other: it does not pass empty.
 > produce it. Rather than attach an untailored template, the gate hands the field
 > to you. Dispute if an untailored letter is better than a pause.
 
+**The audit repairs what it finds.** *Added 2026-10-16.* Listing why a field is
+empty is not a gate, it is a report. After every tier has had its turn on a page
+step, the audit classifies what is still wrong and runs the matching lane, up to
+two rounds, then reports only what no lane could fix:
+
+| cause | evidence | repair |
+|---|---|---|
+| `fact_gap` | a `pattern` miss, or a `no_fact` verdict naming the fact | `--ask-facts` asks for it and fills it in; otherwise reported |
+| `pattern_gap` | no binding, no expression, nothing matched | put back to the model with the control's options |
+| `format_error` | a `format` miss, or a format failure | the fact's other renderings (§10.3) |
+| `control_error` | a failure that stopped at `strategy` | the control's other strategies (§10.3) |
+| `wrong_answer` | a fact contradicts what the page holds | re-render that fact |
+
+> **R60 — Emptiness is not the only way a form is wrong.** An answer can be
+> confidently filled and contradict a fact. One bounded model pass per step
+> reads back every short answer and asks whether a fact says otherwise; a
+> `wrong` verdict names the fact, never a value, and the correction renders that
+> fact through a formatter like any other fill. *Decided by you 2026-10-16:
+> accuracy is built in from the start, because the training loop has to be able
+> to run unattended.*
+
+> **R61 — A wrong answer you typed is reported, never overwritten.** The
+> correction only replaces a value the worker itself produced (`pattern` or
+> `model`). The only thing that outranks a fact is the person the fact is about.
+
+> **R62 — A question reaches the model at most twice in a run.** Once in the
+> fill pass, once more from the audit after a repair or a new fact changed
+> something. *Changed by you 2026-10-16: it was once per run, which meant a
+> transient failure cost that question the whole application.*
+
+> **R63 — Repair is budgeted, not unbounded.** 25 operations per question and
+> 150 per run, each retry costing five, so a pathological control cannot spend a
+> session. A question that runs out says so.
+
 ### 10.3 Repair: fix in a second browser, behind a flag
 
 Repair runs only when you ask for it: `os hunt apply --repair`. The flag stays
@@ -1604,6 +1638,10 @@ on its own judgement and report the decisions; dispute any by number.
 | R3 | Fact values are `jsonb` typed by `value_type` | agreed |
 | R4 | `sensitive` facts are withheld from model calls | **reversed 2026-10-16** — no fact is hidden from Jobs |
 | R5 | Authorization and sponsorship are separate facts | agreed |
+| R60 | The audit checks filled answers against the facts, not only emptiness | decided by you 2026-10-16 |
+| R61 | A wrong answer you typed is reported, never overwritten | decided by you 2026-10-16 |
+| R62 | A question reaches the model at most twice in a run | changed by you 2026-10-16 |
+| R63 | Repair is budgeted: 25 operations a question, 150 a run | decided by you 2026-10-16 |
 | R6 | Fact values reviewed in the database, `verified_at` per row | changed by you |
 | R7 | Minimum $40/hour; annual derived; always a number | changed by you |
 | R8 | `years_professional` derived from the career record | changed by your resume decision |

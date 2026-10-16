@@ -7,8 +7,14 @@ from typing import Any, cast
 import pytest
 from playwright.sync_api import Error, sync_playwright
 
+from personal_os_worker.jobs.answer_check import Judgement
+from personal_os_worker.jobs.audit import Budget
 from personal_os_worker.jobs.autofill import normalize_question
-from personal_os_worker.jobs.autofill_session import AutofillSession, SessionContext
+from personal_os_worker.jobs.autofill_session import (
+    REPAIR_COST,
+    AutofillSession,
+    SessionContext,
+)
 from personal_os_worker.jobs.browser import BrowserClosedError, VisibleBrowser, inspect_fields
 from personal_os_worker.jobs.page_state import ApplicationPageState, classify_application_page
 from personal_os_worker.jobs.registry.kinds import question_of
@@ -61,6 +67,14 @@ class FakeApi:
         self.steps: list[dict[str, Any]] = []
         self.artifacts: list[str] = []
         self.library: dict[str, dict[str, Any]] = {}
+        self.facts_set: list[tuple[str, Any]] = []
+
+    def set_fact(self, key: str, value: Any, **_: Any) -> dict[str, Any]:
+        self.facts_set.append((key, value))
+        return {"key": key, "value": value}
+
+    def facts(self) -> list[dict[str, Any]]:
+        return [{"key": key, "value": value} for key, value in self.facts_set]
 
     def create_answer(self, **item: Any) -> dict[str, Any]:
         self.library[str(item["question"])] = item
@@ -1282,3 +1296,170 @@ def test_a_draft_over_the_controls_cap_is_left_for_the_user(
     assert browser_page.locator("#question_1").input_value() == ""
     printed = " ".join(capsys.readouterr().out.split())
     assert "best answer runs 300 characters; the form caps it at 255" in printed
+
+
+# ----- the audit ----------------------------------------------------------
+
+
+AUDIT_FORM = """
+<form>
+  <fieldset>
+    <legend>Do you require sponsorship?</legend>
+    <label><input type="radio" name="sponsor" value="Yes" checked> Yes</label>
+    <label><input type="radio" name="sponsor" value="No"> No</label>
+  </fieldset>
+  <label for="clearance">Do you hold a security clearance?<input id="clearance"
+    name="clearance" required></label>
+</form>
+"""
+
+
+def audit_session(
+    page: Any,
+    *,
+    facts: dict[str, Any],
+    checker: Any = None,
+    short_drafter: Any = None,
+    ask_facts: bool = False,
+    prompt: Any = None,
+    api: Any = None,
+) -> AutofillSession:
+    context = SessionContext(
+        api=cast(Any, api or FakeApi()),
+        run_id="run-audit",
+        ats="greenhouse",
+        browser=cast(Any, FakeBrowser(page)),
+        page=page,
+        console_errors=[],
+        knowledge=known(facts),
+        resume_json={},
+        resume_pdf=Path("missing.pdf"),
+        company="Acme",
+        title="Backend Engineer Intern",
+        description=None,
+        checker=checker or (lambda *_, **__: {}),
+        short_drafter=short_drafter or (lambda *_, **__: {}),
+        ask_facts=ask_facts,
+        prompt=prompt or (lambda _: ""),
+    )
+    return AutofillSession(context)
+
+
+def test_the_audit_corrects_an_answer_the_worker_filled_that_a_fact_contradicts(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(AUDIT_FORM)
+    question = "Do you require sponsorship?"
+
+    def checker(answers: Any, **_: Any) -> dict[str, Judgement]:
+        assert [item.question for item in answers] == [question]
+        assert answers[0].answer == "Yes"
+        return {
+            question: Judgement(
+                question, "wrong", "work_auth.requires_sponsorship", "the fact says no"
+            )
+        }
+
+    session = audit_session(
+        browser_page, facts={"work_auth.requires_sponsorship": False}, checker=checker
+    )
+    # The worker filled it, so correcting it overwrites the worker's own work.
+    session.state.tier_source[question] = "pattern"
+    fields = inspect_fields(browser_page)
+
+    session.audit_and_repair(fields, {"failures": []})
+
+    checked = {
+        str(item.get("label")): item.get("filled")
+        for item in inspect_fields(browser_page)
+        if item.get("group") == question
+    }
+    assert checked == {"Yes": False, "No": True}
+
+
+def test_the_audit_reports_a_wrong_answer_you_typed_without_overwriting_it(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(AUDIT_FORM)
+    question = "Do you require sponsorship?"
+    session = audit_session(
+        browser_page,
+        facts={"work_auth.requires_sponsorship": False},
+        checker=lambda *_, **__: {
+            question: Judgement(question, "wrong", "work_auth.requires_sponsorship", "says no")
+        },
+    )
+    # No tier filled it, so the snapshot reads it as yours.
+    fields = inspect_fields(browser_page)
+
+    session.audit_and_repair(fields, {"failures": []})
+
+    checked = {
+        str(item.get("label")): item.get("filled")
+        for item in inspect_fields(browser_page)
+        if item.get("group") == question
+    }
+    assert checked == {"Yes": True, "No": False}
+
+
+def test_the_audit_asks_for_a_missing_fact_and_fills_it_in(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(AUDIT_FORM)
+    question = "Do you hold a security clearance?"
+    api = FakeApi()
+    session = audit_session(
+        browser_page,
+        facts={},
+        ask_facts=True,
+        prompt=lambda text: {"fact key": "work_auth.clearance", "label": "Security clearance",
+                             "type": "text", "value": "Active Secret"}[
+            next(name for name in ("fact key", "label", "type", "value") if name in text)
+        ],
+        api=api,
+    )
+    session.state.needed[question] = "security clearance status"
+    fields = inspect_fields(browser_page)
+
+    session.audit_and_repair(fields, {"failures": []})
+
+    assert api.facts_set == [("work_auth.clearance", "Active Secret")]
+    held = {
+        str(item.get("label")): item.get("filled") for item in inspect_fields(browser_page)
+    }
+    assert held[question] is True
+
+
+def test_the_audit_reports_what_no_lane_could_fix(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(AUDIT_FORM)
+    session = audit_session(browser_page, facts={})
+    fields = inspect_fields(browser_page)
+
+    findings = session.audit(fields, [])
+
+    causes = {item.question: item.cause for item in findings}
+    assert causes["Do you hold a security clearance?"] == "pattern_gap"
+    assert all(item.cause != "wrong_answer" for item in findings)
+
+
+def test_the_budget_stops_a_question_from_spending_the_run(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(AUDIT_FORM)
+    session = audit_session(browser_page, facts={"contact.email": "a@b.test"})
+    session.state.budget = Budget(per_question=REPAIR_COST, per_run=REPAIR_COST)
+    fields = inspect_fields(browser_page)
+    clearance = "Do you hold a security clearance?"
+    field = next(item for item in fields if item.get("label") == clearance)
+
+    first = session.apply_value(
+        fields, field, "once", source="model", resolver_id="model:test"
+    )
+    second = session.apply_value(
+        fields, field, "twice", source="model", resolver_id="model:test"
+    )
+
+    assert first == "once"
+    assert second is None

@@ -88,7 +88,11 @@ from personal_os_worker.jobs.gateway import (
     observed_choice,
 )
 from personal_os_worker.jobs.keys import KeyWatcher, NoKeys
-from personal_os_worker.jobs.options import normalize_answer_question
+from personal_os_worker.jobs.options import (
+    choose_option,
+    normalize_answer_question,
+    normalize_question,
+)
 from personal_os_worker.jobs.page_state import (
     ApplicationPageState,
     TabNavigation,
@@ -265,6 +269,35 @@ def _question_for(field: dict[str, Any]) -> str:
         return str(field.get("group")).strip()
     return str(field.get("label") or "").strip()
 
+
+
+def member_control(
+    fields: list[dict[str, Any]], field: dict[str, Any], value: str
+) -> dict[str, Any] | None:
+    """The control a value should operate: a choice group's matching option, else the field.
+
+    A group's question is answered by one of its options, and `find_field`
+    returns whichever option came first. Operating that one would check the
+    wrong box. A checkbox group is left alone: correcting it means unchecking
+    what is already ticked, which is yours to do.
+    """
+    field_type = str(field.get("type") or "").casefold()
+    if field_type not in {"radio", "checkbox"}:
+        return field
+    group = normalize_question(str(field.get("group") or ""))
+    members = [
+        item
+        for item in fields
+        if str(item.get("type") or "").casefold() in {"radio", "checkbox"}
+        and normalize_question(str(item.get("group") or "")) == group
+    ]
+    if field_type == "checkbox" and len(members) > 1:
+        return None
+    labels = [str(item.get("label") or item.get("value") or "") for item in members or [field]]
+    chosen = choose_option(labels, value)
+    if chosen is None:
+        return None
+    return (members or [field])[labels.index(chosen)]
 
 
 def _claude_questions(fields: list[dict[str, Any]]) -> list[ShortQuestion]:
@@ -1363,6 +1396,7 @@ class AutofillSession:
             if resolution is None:
                 continue
             shown = self.apply_value(
+                fields,
                 field,
                 resolution.value,
                 source="model",
@@ -1403,6 +1437,7 @@ class AutofillSession:
         if rendering is None or rendering.value == finding.answer:
             return False
         shown = self.apply_value(
+            fields,
             field,
             rendering.value,
             source="model",
@@ -1463,6 +1498,7 @@ class AutofillSession:
         if rendering is None:
             return True
         shown = self.apply_value(
+            fields,
             field,
             rendering.value,
             source="model",
@@ -1488,6 +1524,7 @@ class AutofillSession:
 
     def apply_value(
         self,
+        fields: list[dict[str, Any]],
         field: dict[str, Any],
         value: str,
         *,
@@ -1496,7 +1533,7 @@ class AutofillSession:
         fact_key: str | None = None,
         formatter: str | None = None,
     ) -> str | None:
-        """Set one control, read it back, and record the attempt; the value shown.
+        """Set the control this value answers, read it back, and record the attempt.
 
         Every strategy the control kind supports is tried, so this is also how a
         repair reaches a widget the first pass could not drive.
@@ -1506,6 +1543,11 @@ class AutofillSession:
         if spent is not None:
             echo("left", question, note=spent)
             return None
+        target = member_control(fields, field, value)
+        if target is None:
+            echo("left", question, note=f"no option answers {value!r}")
+            return None
+        field = target
         self.state.budget.charge(question, REPAIR_COST)
         try:
             candidate = repair_strategy(self.page, field, value)

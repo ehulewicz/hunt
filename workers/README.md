@@ -120,8 +120,7 @@ A pattern whose fact is missing or fits none of the options leaves the field,
 and the run remembers why (`Miss`). Whatever is still empty goes to one
 bounded model pass (`short_answers.py`) that only names a fact — `fits_fact`,
 `no_fact` with the missing fact's name, or `unsure` — and `VerdictResolver`
-renders that fact like any other. Sensitive facts reach the model by key and
-label only.
+renders that fact like any other. Every call sees every fact with its value.
 
 **How it is written.** `jobs/formatters.py` renders a fact for the control in
 front of it and names the formatter it used: a date as "December 2027", "Fall
@@ -134,11 +133,20 @@ Against options, the first rendering that one option matches wins; none is a
 `preferences.location_strategy` when a question is bound to it, with draws
 seeded by the application.
 
-**What is left.** After every tier, each empty field — required first, then
-optional — is outlined on the page and listed with why it is empty (no fact yet,
-a fact that fits no option, a fact the model said is missing). You own
-Next and Submit; what you type is captured as `manual` and, once the
-application goes in, waits in the Inbox.
+**What the audit does about it.** `jobs/audit.py` classifies what is still
+wrong once every tier has had its turn, and `AutofillSession.remediate` runs the
+lane each cause names: a `format_error` tries the fact's other renderings, a
+`control_error` the control's other strategies, a `pattern_gap` goes back to the
+model with the options in front of it, and a `fact_gap` is asked for at the
+terminal under `--ask-facts`. `jobs/answer_check.py` is the other half: it reads
+back the answers the page already holds and asks whether a fact contradicts one,
+because an answer can be confidently filled and wrong. A wrong answer the worker
+filled is re-rendered from the fact the model named; a wrong answer you typed is
+reported and left alone. The audit looks, repairs, and looks again at most
+twice, budgeted at 25 operations a question and 150 a run, then outlines and
+lists only what no lane could fix, each line naming its cause. You own Next and
+Submit; what you type is captured as `manual` and, once the application goes in,
+waits in the Inbox.
 
 **How it is explained.** `jobs/explain.py` is `apply --explain` and `--step`:
 the planner records a reason for every control (`AutofillPlan.reasons`), each

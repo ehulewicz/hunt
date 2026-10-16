@@ -53,6 +53,7 @@ os hunt apply --ats greenhouse    # top Greenhouse row
 os hunt apply today               # first of `os hunt today`, on any site
 os hunt apply today --ats greenhouse
 os hunt apply 1 --no-claude
+os hunt apply 1 --ask-facts  # ask for a fact a question needs, then fill it in
 os hunt apply 1 --explain    # print every control's whole decision as it fills
 os hunt apply 1 --step       # the same, pausing before each control is filled
 os hunt apply 1 --dry-run --explain   # every decision, nothing touched
@@ -157,6 +158,20 @@ one bounded local Claude pass per page step that names which fact answers each
 remaining short or choice question (tagged `claude`, also a candidate);
 `--no-claude` skips that last pass. A textarea is seeded with approved prose
 for the same question, else a Claude draft that leans on your earlier writing.
+
+Once every tier has had its turn on a page step, the **audit** looks at what is
+still wrong and fixes what it can before telling you anything. A field with no
+answer is classified — no fact yet, no pattern yet, the fact fits no option, the
+widget refused the value — and each cause runs its own repair: the fact's other
+renderings, the control's other strategies, or the question put back to the
+model with the options in front of it. The audit also reads back the answers
+already on the page and asks whether a fact says otherwise; a wrong answer the
+worker filled is re-rendered from that fact, and a wrong answer *you* typed is
+reported and left alone. It looks, repairs, and looks again, at most twice, then
+lists only what no lane could fix, each line naming its cause. Repair is
+budgeted at 25 operations a question and 150 a run, so one bad control cannot
+spend a session. `--ask-facts` asks at the terminal for a fact a question needs
+and fills the field in once you give it; without it the gap is reported.
 
 `--explain` prints, for every control, the five parts of how it was decided:
 the **control** (its kind, the attributes that identify it on any site, its
