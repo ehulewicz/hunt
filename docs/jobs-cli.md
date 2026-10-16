@@ -58,8 +58,9 @@ os hunt apply 1 --step       # the same, pausing before each control is filled
 os hunt apply 1 --dry-run --explain   # every decision, nothing touched
 os hunt apply 1 --done       # applied outside the worker; just record it
 
-os hunt apply 1 --repair      # retry failed fields in place, on the page you are filling
-os hunt repair                # retry queued failures from runs without --repair
+os hunt apply 1 --fresh       # a new tab; without it, apply continues on the open one
+os hunt apply 1 --no-repair   # leave a failed field alone instead of retrying it in place
+os hunt repair                # retry queued failures from runs with --no-repair
 os hunt validate              # watch each repaired rule fill, then accept or reject it
 os hunt apply failures list
 os hunt apply failures show 1
@@ -125,7 +126,12 @@ Run `os hunt list`, then pass a displayed row or ID prefix:
 os hunt apply 12
 ```
 
-The command verifies the company/role, saves the run/application context,
+The command continues on the tab already open for this application when there
+is one — so a stopped run, or a re-run after a code change, picks the form up
+where it stands instead of navigating away from everything typed into it;
+`--fresh` opens a new tab. It waits for the posting to render before reading it
+(a board that fills its page from script has no text at all for the first
+second or two), verifies the company/role, saves the run/application context,
 attaches `artifacts/career/Alex_Example.pdf` (published from the career record), follows one unambiguous Apply
 control when the ATS starts on a job-description page, fills the current step,
 then watches while you review required fields and use Next or Submit in the
@@ -186,14 +192,14 @@ on the fact.
 
 A field that fails stops at `format` (the fact fit nothing the control offered)
 or `strategy` (the widget would not take the value), and the failure says which.
-`apply --repair` retries each such field in place, on the page you are filling,
-right after the step's fill, on any site: every strategy that applies to the
+Apply retries each such field in place, on the page you are filling, right
+after the step's fill, on any site (`--no-repair` turns this off): every strategy that applies to the
 control for a strategy failure, every other rendering of the fact for a format
 failure, each checked by readback. What worked fills the field now, is stored on
 the issue as a candidate, and the issue becomes `repaired`; the terminal tags
 the line `repaired`. The retry never operates a control that reads as
-submitting. `os hunt repair` does the same for failures from runs without
-`--repair`, in a new, isolated browser context, where a page script also
+submitting. `os hunt repair` does the same for failures left by
+`--no-repair` runs, in a new, isolated browser context, where a page script also
 cancels every form submission and submit-labelled click and a network guard
 aborts any non-GET request that names a submission.
 
@@ -204,7 +210,7 @@ makes it that control's first strategy in every later run; accepting a format
 binds the question to the fact with that formatter. Rejecting sends the issue
 back to the queue. Pattern-stage failures never come here: no retry invents a
 fact, so they go to the Inbox. On account-gated boards (Workday) the isolated
-retry cannot reach the form; `apply --repair` can, because it works on your
+retry cannot reach the form; apply's own retry can, because it works on your
 signed-in page.
 
 Failure diagnosis and fix drafting use subscription-authenticated local Claude.

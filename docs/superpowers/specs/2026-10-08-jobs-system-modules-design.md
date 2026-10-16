@@ -157,6 +157,30 @@ and settling R51's shadows) happens with you after this lands.
 > context (R22, R23) for failures from runs without `--repair`. *Decided by
 > you: less overhead.* Supersedes R24 and R25.
 
+### Revision 2026-10-16
+
+> **R56 — Repair in place is on for every application.** The flag made the
+> default the worse behavior: a field that fails has a live page in front of it
+> and nothing is gained by leaving it. `--no-repair` turns it off and sends the
+> failure to `os hunt repair`'s isolated context instead. *Decided by you.*
+> Amends R55.
+
+> **R57 — Apply continues on the tab already open for this application.**
+> `VisibleBrowser.application_page` reuses a tab whose URL the application URL
+> is a prefix of — every board keeps the posting in the path once the form
+> opens — and brings it to the front without navigating, so stopping a run,
+> changing code, and re-running keeps whatever is already typed into the form.
+> `--fresh` opens a new tab. *Decided by you.*
+
+> **The landing page is read after it renders.** Not a recommendation, a defect:
+> the page's text was read once, right after `domcontentloaded`, which on a
+> board that fills its page from script is `<div id="root"></div>`. The Northrop
+> Grumman Workday posting failed verification for a page that said nothing yet,
+> and the same empty text would have been the posting context the cover letter
+> and long-form drafts are written from. `rendered_body_text` polls instead:
+> it returns as soon as the page names the posting, else once the text has
+> stopped changing, else at the deadline.
+
 ---
 
 ## 1. Why
@@ -1604,7 +1628,9 @@ on its own judgement and report the decisions; dispute any by number.
 | R52 | In-place mode waits for an account-gated adapter | superseded by R53 |
 | R53 | No adapters; every site filled from its controls; `ats` is a label | decided by you |
 | R54 | The archive is for the facts session only, then dropped | decided by you |
-| R55 | Repair runs in place on the live page under `--repair` | decided by you |
+| R55 | Repair runs in place on the live page under `--repair` | decided by you; flag dropped by R56 |
+| R56 | Repair in place is on for every application; `--no-repair` turns it off | decided by you |
+| R57 | Apply continues on the tab already open for this application; `--fresh` opens a new one | decided by you |
 
 ## 18. Open questions
 

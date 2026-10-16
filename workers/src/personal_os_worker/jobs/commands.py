@@ -248,7 +248,8 @@ def run_autofill(
     *,
     dry_run: bool,
     no_claude: bool = False,
-    repair: bool = False,
+    repair: bool = True,
+    fresh: bool = False,
     explain: bool = False,
     step: bool = False,
 ) -> int:
@@ -260,7 +261,7 @@ def run_autofill(
         api.close()
     apply_posting(
         str(listing["id"]), dry_run=dry_run, no_claude=no_claude, repair=repair,
-        explain=explain, step=step,
+        fresh=fresh, explain=explain, step=step,
     )
     return 0
 
@@ -271,7 +272,8 @@ def run_autofill_top(
     ats: str | None,
     dry_run: bool,
     no_claude: bool = False,
-    repair: bool = False,
+    repair: bool = True,
+    fresh: bool = False,
     explain: bool = False,
     step: bool = False,
 ) -> int:
@@ -297,7 +299,7 @@ def run_autofill_top(
     )
     apply_posting(
         str(listing["id"]), dry_run=dry_run, no_claude=no_claude, repair=repair,
-        explain=explain, step=step,
+        fresh=fresh, explain=explain, step=step,
     )
     return 0
 
@@ -328,7 +330,8 @@ def apply_posting(
     *,
     dry_run: bool,
     no_claude: bool,
-    repair: bool = False,
+    repair: bool = True,
+    fresh: bool = False,
     explain: bool = False,
     step: bool = False,
 ) -> str:
@@ -336,7 +339,13 @@ def apply_posting(
     from personal_os_worker.documents.doctor import latex_toolchain_check
     from personal_os_worker.documents.resume import ensure_resume, transcript_pdf_path
     from personal_os_worker.jobs.autofill_session import AutofillSession, SessionContext
-    from personal_os_worker.jobs.browser import VisibleBrowser, inspect_fields, sanitized_evidence
+    from personal_os_worker.jobs.browser import (
+        VisibleBrowser,
+        identifies_posting,
+        inspect_fields,
+        rendered_body_text,
+        sanitized_evidence,
+    )
     from personal_os_worker.jobs.sites import adapter_version, failure_signature
 
     # The cover letter is compiled mid-application, so a broken TeX install must
@@ -379,7 +388,9 @@ def apply_posting(
             )
         with VisibleBrowser(config.cdp_url) as browser:
             console_errors: list[str] = []
-            page = browser.open_page(direct_url, console_errors=console_errors)
+            page, reused = browser.application_page(
+                direct_url, console_errors=console_errors, fresh=fresh
+            )
 
             def report_page_failure(
                 category: str, message: str, *, step_number: int = 0
@@ -421,18 +432,17 @@ def apply_posting(
                     },
                 )
 
-            body = page.locator("body").inner_text(timeout=20_000)[:100000]
             expected_company = str(run["company_name"])
             expected_title = str(run["title"])
-            title_tokens = {
-                token.casefold().strip(".,/()-")
-                for token in expected_title.split()
-                if len(token.strip(".,/()-")) >= 5
-            }
-            visible_title_tokens = {token for token in title_tokens if token in body.casefold()}
-            if expected_company.casefold() not in body.casefold() and len(
-                visible_title_tokens
-            ) < min(2, len(title_tokens)):
+            # The posting's own text, waited for: it both identifies the page and
+            # is the context the cover letter and long-form drafts are written from.
+            body = rendered_body_text(
+                page,
+                accept=lambda text: identifies_posting(
+                    text, company=expected_company, title=expected_title
+                ),
+            )
+            if not identifies_posting(body, company=expected_company, title=expected_title):
                 report_page_failure(
                     "form_role_mismatch",
                     "The live page did not visibly match the intended company or role",
@@ -450,6 +460,11 @@ def apply_posting(
             console.print(
                 f"[bold]{expected_company}[/bold] — {expected_title}  [dim]({ats})[/dim]"
             )
+            if reused:
+                console.print(
+                    "  [dim]continuing on the tab already open for this application; "
+                    "--fresh opens a new one[/dim]"
+                )
             if repair and not dry_run:
                 console.print(
                     "  [dim]repair on: a field that fails is retried here, on this page[/dim]"

@@ -251,10 +251,20 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip the bounded Claude pass over remaining short and choice questions",
     )
+    # Repair is how a fill gets a second chance on the page it already has, so it
+    # is on for every application; --repair stays accepted and does nothing.
+    autofill.add_argument("--repair", dest="repair", action="store_true", default=True,
+                          help=argparse.SUPPRESS)
     autofill.add_argument(
-        "--repair",
+        "--no-repair",
+        dest="repair",
+        action="store_false",
+        help="Leave a failed field for you instead of retrying it in place",
+    )
+    autofill.add_argument(
+        "--fresh",
         action="store_true",
-        help="Retry each failed field in place, on the page you are filling",
+        help="Open a new tab instead of continuing on the one already on this application",
     )
     autofill.add_argument(
         "--explain",
@@ -416,8 +426,8 @@ def _dispatch(args: argparse.Namespace) -> int:
             if args.failure_action or args.failure_ref or args.verify_listing_ref:
                 raise RuntimeError("Unexpected autofill arguments")
             if args.done:
-                if (args.dry_run or args.no_claude or args.ats or args.repair
-                        or args.explain or args.step):
+                if (args.dry_run or args.no_claude or args.ats or not args.repair
+                        or args.fresh or args.explain or args.step):
                     raise RuntimeError("--done takes no other flags")
                 if args.ref is None or args.ref == "today":
                     raise RuntimeError("--done needs a listing row or id")
@@ -429,6 +439,7 @@ def _dispatch(args: argparse.Namespace) -> int:
                     dry_run=args.dry_run,
                     no_claude=args.no_claude,
                     repair=args.repair,
+                    fresh=args.fresh,
                     explain=args.explain,
                     step=args.step,
                 )
@@ -439,6 +450,7 @@ def _dispatch(args: argparse.Namespace) -> int:
                 dry_run=args.dry_run,
                 no_claude=args.no_claude,
                 repair=args.repair,
+                fresh=args.fresh,
                 explain=args.explain,
                 step=args.step,
             )

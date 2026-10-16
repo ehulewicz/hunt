@@ -485,11 +485,16 @@ def test_the_learning_commands_parse() -> None:
         build_parser().parse_args(["hunt", "answers", "list"])
 
 
-def test_repair_and_validate_are_commands_and_apply_takes_repair() -> None:
+def test_repair_and_validate_are_commands_and_apply_repairs_by_default() -> None:
     repair = build_parser().parse_args(["hunt", "repair", "--watch"])
     assert (repair.hunt_command, repair.watch, repair.until) == ("repair", True, None)
     assert build_parser().parse_args(["hunt", "validate"]).hunt_command == "validate"
-    apply = build_parser().parse_args(["hunt", "apply", "7", "--repair"])
-    assert apply.repair is True
+    apply = build_parser().parse_args(["hunt", "apply", "7"])
+    assert (apply.repair, apply.fresh) == (True, False)
+    assert build_parser().parse_args(["hunt", "apply", "7", "--repair"]).repair is True
+    assert build_parser().parse_args(["hunt", "apply", "7", "--no-repair"]).repair is False
+    assert build_parser().parse_args(["hunt", "apply", "7", "--fresh"]).fresh is True
     with pytest.raises(SystemExit, match="--done takes no other flags"):
-        main(["hunt", "apply", "7", "--done", "--repair"])
+        main(["hunt", "apply", "7", "--done", "--no-repair"])
+    with pytest.raises(SystemExit, match="--done takes no other flags"):
+        main(["hunt", "apply", "7", "--done", "--fresh"])

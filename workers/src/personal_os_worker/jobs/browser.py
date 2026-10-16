@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast
+from urllib.parse import urlsplit
 
 from playwright.sync_api import Browser, Error, Page, Playwright, sync_playwright
 
@@ -51,6 +54,89 @@ def is_browser_closed_error(page: Page, error: Error) -> bool:
         type(error).__name__ == "TargetClosedError"
         or "target page, context or browser has been closed" in message
     )
+
+
+# A single-page app answers `domcontentloaded` with an empty root, so the text is
+# polled rather than read once; a quarter second between looks, a second of the
+# same text to call it rendered.
+POLL_SECONDS = 0.25
+SETTLE_SECONDS = 1.0
+
+
+def watch_console(page: Page, console_errors: list[str]) -> None:
+    """Collect the page's console errors into the run's evidence."""
+    page.on(
+        "console",
+        lambda message: console_errors.append(message.text[:2000])
+        if message.type == "error"
+        else None,
+    )
+
+
+def rendered_body_text(
+    page: Page,
+    *,
+    timeout_ms: int = 30_000,
+    accept: Callable[[str], bool] | None = None,
+    limit: int = 100_000,
+) -> str:
+    """The page's visible text, once it has one.
+
+    Workday and every other single-page board serve `<div id="root"></div>` and
+    fill it from script, so text read straight after a navigation is empty and
+    anything judged from it — which company this is, what the posting says — is
+    judged from nothing. Return as soon as `accept` recognizes the page, else
+    once the text has stopped changing, else whatever is there at the deadline.
+    """
+    deadline = time.monotonic() + timeout_ms / 1000
+    previous, settled_for = "", 0.0
+    while True:
+        try:
+            text = page.locator("body").inner_text(timeout=5_000)[:limit]
+        except Error:
+            text = ""
+        if accept is not None and accept(text):
+            return text
+        if text.strip() and text == previous:
+            settled_for += POLL_SECONDS
+            if settled_for >= SETTLE_SECONDS:
+                return text
+        else:
+            settled_for = 0.0
+        previous = text
+        if time.monotonic() >= deadline:
+            return text
+        page.wait_for_timeout(int(POLL_SECONDS * 1000))
+
+
+def identifies_posting(text: str, *, company: str, title: str) -> bool:
+    """Whether the live page visibly names the company or enough of the role."""
+    body = text.casefold()
+    tokens = {
+        token.casefold().strip(".,/()-")
+        for token in title.split()
+        if len(token.strip(".,/()-")) >= 5
+    }
+    visible = {token for token in tokens if token in body}
+    return company.casefold() in body or len(visible) >= min(2, len(tokens))
+
+
+def tab_continues(tab_url: str, application_url: str) -> bool:
+    """Whether an open tab is this application, so a re-run can pick it up there.
+
+    Every board keeps the posting in the path once the form opens — Workday adds
+    `/apply/...`, Ashby and Lever keep their posting id — so the application URL
+    is a prefix of wherever the tab has reached. Query and fragment carry the
+    referrer and the step, never the identity.
+    """
+    tab, wanted = urlsplit(tab_url), urlsplit(application_url)
+    if tab.scheme not in ("http", "https") or (tab.netloc, tab.scheme) != (
+        wanted.netloc,
+        wanted.scheme,
+    ):
+        return False
+    here, there = tab.path.rstrip("/"), wanted.path.rstrip("/")
+    return here == there or here.startswith(f"{there}/")
 
 
 class VisibleBrowser:
@@ -146,15 +232,53 @@ class VisibleBrowser:
         if guard is not None:
             guard(page)
         if console_errors is not None:
-            page.on(
-                "console",
-                lambda message: console_errors.append(message.text[:2000])
-                if message.type == "error"
-                else None,
-            )
+            watch_console(page, console_errors)
         page.goto(url, wait_until="domcontentloaded", timeout=60_000)
         page.wait_for_timeout(1500)
         return page
+
+    def application_page(
+        self,
+        url: str,
+        *,
+        console_errors: list[str] | None = None,
+        fresh: bool = False,
+    ) -> tuple[Page, bool]:
+        """The tab this application is already on, else a new one; True when reused.
+
+        A tab left open by an earlier run still holds everything typed into it,
+        so re-running the same listing — after a code change, or after stopping
+        — picks the form up where it stands instead of navigating away from it.
+        `fresh` always opens a new tab.
+        """
+        if self._browser is None:
+            raise RuntimeError("Visible browser is not connected")
+        if not fresh:
+            existing = self.tab_on(url)
+            if existing is not None:
+                if console_errors is not None:
+                    watch_console(existing, console_errors)
+                with contextlib.suppress(Error):
+                    existing.bring_to_front()
+                return existing, True
+        return self.open_page(url, console_errors=console_errors), False
+
+    def tab_on(self, url: str) -> Page | None:
+        """The most recently opened tab that is this application, if one is open."""
+        if self._browser is None:
+            return None
+        try:
+            contexts = self._browser.contexts
+            pages = list(contexts[0].pages) if contexts else []
+        except Error:
+            return None
+        for page in reversed(pages):
+            try:
+                if not page.is_closed() and tab_continues(page.url, url):
+                    return page
+            except Error:
+                continue
+        return None
 
 
 def _distinct_destinations(candidates: list[Any]) -> list[Any]:

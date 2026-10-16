@@ -42,7 +42,14 @@ key still wins until the facts session removes it, and `os hunt facts` marks
 each one that disagrees with the record.
 
 The CLI launches local FastAPI and the dedicated native Windows Chrome profile
-as needed. It never accesses Postgres directly and never submits an application.
+as needed. `VisibleBrowser.application_page` reuses the tab already on this
+application (`tab_continues`: the application URL is a prefix of wherever the
+tab has reached) rather than opening a new one, so a re-run continues on a form
+that is already part-filled; `--fresh` overrides it. `rendered_body_text` polls
+for the page's text instead of reading it once, because a board that fills its
+page from script answers `domcontentloaded` with an empty root — and that text
+is both what identifies the posting and the context its drafts are written
+from. It never accesses Postgres directly and never submits an application.
 See `../docs/jobs-cli.md` for the deterministic mapping, contextual Claude, and
 failure-learning workflows.
 
@@ -70,7 +77,8 @@ career-derived, or derived.
 ## Repair
 
 `jobs/repair/` is the repair lane (`docs/jobs-cli.md` describes using it).
-With `apply --repair`, `AutofillSession.repair_in_place` retries each field that
+On every apply (`--no-repair` turns it off), `AutofillSession.repair_in_place`
+retries each field that
 stopped at a format or a strategy on the live page, right after that step's
 fill, on any site. `repairer.py` retries one failed field — every applicable
 strategy for a `strategy` failure, every other rendering of the fact for a
@@ -80,7 +88,7 @@ loads: a page script that cancels submissions and submit-labelled clicks, and a
 network route that aborts any non-GET request naming a submission; the repairer
 also refuses to operate a control that reads as submitting — the only guard in
 place on your own live tab, which you go on to submit. `commands.py` is
-`os hunt repair [--watch]`, for failures from runs without `--repair`, and
+`os hunt repair [--watch]`, for failures left by `--no-repair` runs, and
 `os hunt validate`. A validated strategy reaches
 live fills through the run context as a control preference that
 `browser.apply_autofill` tries first.
