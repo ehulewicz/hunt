@@ -80,7 +80,7 @@ def draft_contextual_answer(
     references: list[dict[str, Any]],
     limit: int | None = None,
 ) -> str | None:
-    """Draft one long-form answer; `facts` holds no sensitive value (R4).
+    """Draft one long-form answer from the posting, the resume, and the facts.
 
     `references` is your approved prose on similar questions, to lean on; it is
     never copied verbatim unless it is the `base`.

@@ -50,12 +50,16 @@ def _type_of(value: Any) -> str:
 
 @dataclass(frozen=True, slots=True)
 class Knowledge:
-    """What one run knows: fact values and types, active patterns, approved prose."""
+    """What one run knows: fact values and types, active patterns, approved prose.
+
+    Nothing here is withheld from anything. Jobs holds no fact worth hiding from
+    its own model calls or its own terminal, and hiding one only made a fill
+    harder to read back.
+    """
 
     facts: dict[str, Any] = field(default_factory=dict)
     types: dict[str, str] = field(default_factory=dict)
     labels: dict[str, str] = field(default_factory=dict)
-    sensitive: frozenset[str] = frozenset()
     patterns: tuple[dict[str, Any], ...] = ()
     prose: tuple[dict[str, Any], ...] = ()
     seed: str = ""
@@ -92,13 +96,10 @@ class Knowledge:
             types.setdefault(key, _type_of(value))
         labels = {key: CATALOG[key].label for key in values if key in CATALOG}
         labels |= {str(row["key"]): str(row.get("label")) for row in facts if row.get("label")}
-        sensitive = {str(row["key"]) for row in facts if row.get("sensitive")}
-        sensitive |= {key for key in values if key in CATALOG and CATALOG[key].sensitive}
         return cls(
             facts=values,
             types=types,
             labels=labels,
-            sensitive=frozenset(sensitive),
             patterns=tuple(patterns),
             prose=tuple(prose),
             seed=seed,
@@ -111,20 +112,20 @@ class Knowledge:
         )
 
     def for_model(self) -> list[dict[str, Any]]:
-        """The facts a model call may see: every key and label, no sensitive value (R4)."""
+        """Every fact a model call sees: key, label, type, and value."""
         return [
             {
                 "key": key,
                 "label": self.labels.get(key, key),
                 "type": self.types.get(key),
-                "value": "(withheld)" if key in self.sensitive else value,
+                "value": value,
             }
             for key, value in sorted(self.facts.items())
         ]
 
-    def disclosable(self) -> dict[str, Any]:
-        """Fact values that may go into a model prompt."""
-        return {key: value for key, value in self.facts.items() if key not in self.sensitive}
+    def values(self) -> dict[str, Any]:
+        """Every fact value, keyed by its dotted name."""
+        return dict(self.facts)
 
 
 @dataclass(frozen=True, slots=True)

@@ -459,7 +459,7 @@ def test_custom_consent_radio_detects_a_manual_selection(
     assert plan.unanswered_required_questions == ()
     audit = audit_filled_form(fields)
     assert audit["required_unfilled"] == []
-    assert audit["sensitive_filled"] == [question]
+    assert audit["filled_fields"] == [question]
     snapshot = snapshot_values(browser_page, fields)
     assert snapshot[question]["answer_text"] == "Yes - I consent to receiving text messages"
 

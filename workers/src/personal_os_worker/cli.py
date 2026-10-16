@@ -179,22 +179,13 @@ def build_parser() -> argparse.ArgumentParser:
         "facts", help="List, review, or set what is true about you"
     )
     fact_commands = facts_parser.add_subparsers(dest="fact_command", required=True)
-    facts_list = fact_commands.add_parser("list", help="Stored and derived facts")
-    facts_list.add_argument("--show", action="store_true", help="Show sensitive values")
+    fact_commands.add_parser("list", help="Stored and derived facts")
     fact_commands.add_parser("review", help="Accept, edit, or delete each unverified fact")
     facts_set = fact_commands.add_parser("set", help="Set one fact; setting it verifies it")
     facts_set.add_argument("key", help="Dotted fact key, e.g. education.graduation_date")
     facts_set.add_argument("value", help="Value; JSON for list and object facts")
     facts_set.add_argument("--type", choices=VALUE_TYPES, dest="value_type")
     facts_set.add_argument("--label", help="Plain-language description, required for a new fact")
-    facts_sensitivity = facts_set.add_mutually_exclusive_group()
-    facts_sensitivity.add_argument(
-        "--sensitive", action="store_const", const=True, dest="sensitive"
-    )
-    facts_sensitivity.add_argument(
-        "--not-sensitive", action="store_const", const=False, dest="sensitive"
-    )
-    facts_set.set_defaults(sensitive=None)
 
     resume = jobs_commands.add_parser(
         "resume", help="Edit or build the one-page resume from the career record"
@@ -399,7 +390,7 @@ def _dispatch(args: argparse.Namespace) -> int:
             return knowledge.run_archive(args.section, markdown=args.markdown)
         if args.hunt_command == "facts":
             if args.fact_command == "list":
-                return facts.run_facts_list(show_sensitive=args.show)
+                return facts.run_facts_list()
             if args.fact_command == "review":
                 return facts.run_facts_review()
             if args.fact_command == "set":
@@ -408,7 +399,6 @@ def _dispatch(args: argparse.Namespace) -> int:
                     args.value,
                     value_type=args.value_type,
                     label=args.label,
-                    sensitive=args.sensitive,
                 )
         if args.hunt_command == "resume":
             return run_resume(args)

@@ -4,7 +4,7 @@ A key is `stored` (a row in `jobs_facts` that you set and verify), `career`
 (derived from the career record), or `derived` (computed from other facts, the
 date, or the posting). The archive's translations, the Inbox, and the facts
 session all name facts by these keys, so a fact proposed from an old answer
-arrives with the right label, type, and sensitivity.
+arrives with the right label and type.
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ class CatalogEntry:
     label: str
     value_type: ValueType
     source: Source = "stored"
-    sensitive: bool = False
 
 
 def _entries(*items: CatalogEntry) -> dict[str, CatalogEntry]:
@@ -37,15 +36,15 @@ CATALOG = _entries(
     CatalogEntry("identity.adult", "At least 18 years old", "boolean"),
     CatalogEntry("identity.pronouns", "Pronouns", "text"),
     CatalogEntry("contact.email", "Email address", "text"),
-    CatalogEntry("contact.phone", "Phone number", "text", sensitive=True),
+    CatalogEntry("contact.phone", "Phone number", "text"),
     CatalogEntry("contact.linkedin_url", "LinkedIn profile URL", "text"),
     CatalogEntry("contact.github_url", "GitHub profile URL", "text"),
     CatalogEntry("contact.portfolio_url", "Portfolio or personal website URL", "text"),
-    CatalogEntry("address.line_1", "Street address", "text", sensitive=True),
-    CatalogEntry("address.line_2", "Second address line", "text", sensitive=True),
+    CatalogEntry("address.line_1", "Street address", "text"),
+    CatalogEntry("address.line_2", "Second address line", "text"),
     CatalogEntry("address.city", "Current city", "text"),
     CatalogEntry("address.state", "Current state", "text"),
-    CatalogEntry("address.postal_code", "Postal code", "text", sensitive=True),
+    CatalogEntry("address.postal_code", "Postal code", "text"),
     CatalogEntry("address.country", "Country of residence", "text"),
     CatalogEntry(
         "address.location", "Current location as city, state, country", "text", "derived"
@@ -91,6 +90,11 @@ CATALOG = _entries(
     CatalogEntry("preferences.willing_to_travel", "Willing to travel", "boolean"),
     CatalogEntry("preferences.remote", "Remote work preference", "choice"),
     CatalogEntry(
+        "preferences.application_start",
+        "Preferred way in when a board offers several (design §10.2)",
+        "choice",
+    ),
+    CatalogEntry(
         "preferences.location_strategy", "Office selection policy (design §9)", "object"
     ),
     CatalogEntry("compensation.minimum", "Minimum compensation", "object"),
@@ -124,13 +128,13 @@ CATALOG = _entries(
     ),
     CatalogEntry("skills.all", "Every skill on the resume, in order", "list", "career"),
     CatalogEntry("referral.status", "How you were referred; none by default", "choice"),
-    CatalogEntry("eeo.gender_identity", "Gender identity", "text", sensitive=True),
-    CatalogEntry("eeo.transgender", "Transgender", "boolean", sensitive=True),
-    CatalogEntry("eeo.race_ethnicities", "Race and ethnicity", "list", sensitive=True),
-    CatalogEntry("eeo.hispanic_latino", "Hispanic or Latino", "boolean", sensitive=True),
-    CatalogEntry("eeo.sexual_orientation", "Sexual orientation", "text", sensitive=True),
-    CatalogEntry("eeo.veteran_status", "Veteran status", "text", sensitive=True),
-    CatalogEntry("eeo.disability_status", "Disability status", "text", sensitive=True),
+    CatalogEntry("eeo.gender_identity", "Gender identity", "text"),
+    CatalogEntry("eeo.transgender", "Transgender", "boolean"),
+    CatalogEntry("eeo.race_ethnicities", "Race and ethnicity", "list"),
+    CatalogEntry("eeo.hispanic_latino", "Hispanic or Latino", "boolean"),
+    CatalogEntry("eeo.sexual_orientation", "Sexual orientation", "text"),
+    CatalogEntry("eeo.veteran_status", "Veteran status", "text"),
+    CatalogEntry("eeo.disability_status", "Disability status", "text"),
     CatalogEntry("discovery.target_roles", "Target roles for discovery", "list"),
     CatalogEntry("discovery.target_locations", "Target locations for discovery", "list"),
     CatalogEntry(

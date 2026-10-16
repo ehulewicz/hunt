@@ -78,8 +78,9 @@ can only read it.
 
 `jobs_facts` holds one row per fact, keyed per user by a dotted name, with a
 `jsonb` value whose shape a check constraint ties to `value_type` (`text`,
-`boolean`, `number`, `date`, `choice`, `list`, `object`). `sensitive` marks values
-to withhold from model calls; `verified_at` records the user's review. Facts that
+`boolean`, `number`, `date`, `choice`, `list`, `object`); `verified_at` records
+the user's review. No fact is hidden from the worker, its terminal, or its model
+calls. Facts that
 change with time — completed co-op rotations, graduation term, annual minimum
 compensation — are derived by the worker and never stored; `coop.anchor` and
 `compensation.minimum` are their stored inputs. The worker picks a form-specific

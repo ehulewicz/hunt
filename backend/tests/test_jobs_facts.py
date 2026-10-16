@@ -47,16 +47,12 @@ class FakeFactStore:
         value_type = item.value_type or existing.get("value_type")
         if not label or not value_type:
             raise ValueError("A new fact needs a label and a value_type")
-        sensitive = (
-            item.sensitive if item.sensitive is not None else bool(existing.get("sensitive"))
-        )
         now = datetime.now(UTC)
         self.rows[key] = {
             "key": key,
             "label": label,
             "value": validate_fact_value(value_type, item.value),
             "value_type": value_type,
-            "sensitive": sensitive,
             "verified_at": now if item.verified else None,
             "updated_at": now,
         }
@@ -155,13 +151,13 @@ async def test_a_new_fact_needs_a_label_and_type(client: httpx.AsyncClient) -> N
     assert body["verified_at"] is not None
 
 
-async def test_updating_a_fact_keeps_its_label_type_and_sensitivity(
+async def test_updating_a_fact_keeps_its_label_and_type(
     client: httpx.AsyncClient, store: FakeFactStore
 ) -> None:
     await client.put(
         "/v1/jobs/facts/contact.phone",
         json={"value": "555-0100", "label": "Phone number", "value_type": "text",
-              "sensitive": True, "verified": False},
+              "verified": False},
         headers=HEADERS,
     )
     assert store.rows["contact.phone"]["verified_at"] is None
@@ -175,7 +171,6 @@ async def test_updating_a_fact_keeps_its_label_type_and_sensitivity(
         "label": "Phone number",
         "value": "555-0199",
         "value_type": "text",
-        "sensitive": True,
         "verified_at": None,
         "updated_at": None,
     }

@@ -47,9 +47,9 @@ from personal_os_worker.jobs.browser import (
     highlight_unfilled,
     inspect_fields,
     is_browser_closed_error,
+    page_evidence,
     plan_autofill,
     reveal_application_form,
-    sanitized_evidence,
     set_registered_value,
     snapshot_entries,
     verify_control,
@@ -66,6 +66,12 @@ from personal_os_worker.jobs.cover_letter import (
 )
 from personal_os_worker.jobs.drafts import similar_answers
 from personal_os_worker.jobs.explain import Explainer
+from personal_os_worker.jobs.gateway import (
+    click_gateway,
+    form_appeared,
+    inspect_gateways,
+    observed_choice,
+)
 from personal_os_worker.jobs.keys import KeyWatcher, NoKeys
 from personal_os_worker.jobs.options import normalize_answer_question
 from personal_os_worker.jobs.page_state import (
@@ -74,7 +80,11 @@ from personal_os_worker.jobs.page_state import (
     capture_tab_navigation,
     classify_application_page,
 )
-from personal_os_worker.jobs.registry.events import planned_events, unresolved_events
+from personal_os_worker.jobs.registry.events import (
+    fill_event,
+    planned_events,
+    unresolved_events,
+)
 from personal_os_worker.jobs.repair.repairer import find_field, repair_format, repair_strategy
 from personal_os_worker.jobs.resolve import Knowledge, Miss, Resolver, VerdictResolver
 from personal_os_worker.jobs.short_answers import ShortQuestion, Verdict, draft_short_answers
@@ -148,6 +158,8 @@ class SessionState:
     asked_claude: set[str] = field(default_factory=set)  # questions already put to Claude
     misses: dict[str, Miss] = field(default_factory=dict)  # answer key -> why unanswered
     needed: dict[str, str] = field(default_factory=dict)  # question -> fact the model named
+    gates_tried: set[str] = field(default_factory=set)  # gate questions already answered once
+    gate_pending: dict[str, Any] | None = None  # a gate left for you, watched for your click
     step: int = 0
     form_seen: bool = False
     navigation: TabNavigation | None = None
@@ -298,7 +310,7 @@ class AutofillSession:
         if artifact_paths is None:
             captured = inspect_fields(self.page)
             artifact_paths = self.upload_evidence(
-                sanitized_evidence(self.page, captured, console_errors=self.ctx.console_errors)
+                page_evidence(self.page, captured, console_errors=self.ctx.console_errors)
             )
         fingerprint = f"{category}|{self.page.url.split('?', 1)[0]}|{self.state.step}"
         self.ctx.api.persist_autofill_step(
@@ -381,6 +393,7 @@ class AutofillSession:
             if page_state == ApplicationPageState.SUBMITTED:
                 return None
             if page_state == ApplicationPageState.FORM:
+                self.note_observed_gate()
                 self.state.form_seen = True
                 for item in fields:
                     item["ats"] = self.ctx.ats
@@ -408,6 +421,8 @@ class AutofillSession:
                 if time.monotonic() - unsettled_since < 5:
                     self.sleep()
                     continue
+            if self.pass_the_gate():
+                continue
             if not wall_reported:
                 self.report_page_failure(
                     "navigation_wall",
@@ -419,6 +434,123 @@ class AutofillSession:
                     "form. Use the open browser to reach it; I am watching the page."
                 )
             self.sleep()
+
+    # ----- the gate between the posting and its form ------------------------
+
+    def pass_the_gate(self) -> bool:
+        """Answer a gate the way a fact says, and report whether the form opened.
+
+        A gate is a choice like any other: the pattern you accepted answers it,
+        else the model names which fact does. Nothing is clicked without a fact
+        behind it, and the readback is the form itself appearing (design §10.2).
+        """
+        gates = inspect_gateways(self.page)
+        if not gates:
+            return False
+        gate = gates[0]
+        question = str(gate["label"])
+        self.state.gate_pending = gate
+        if question in self.state.gates_tried:
+            return False
+        self.state.gates_tried.add(question)
+        resolution = Resolver(self.ctx.knowledge).resolve(gate)
+        if resolution is None and self.ctx.use_claude:
+            resolution = self.gate_from_claude(gate)
+        if resolution is None:
+            console.print(
+                f"  [dim]a way in is being asked for ({', '.join(gate['options'])}); "
+                "no fact answers it yet, so it is yours to click[/dim]"
+            )
+            return False
+        clicked = click_gateway(self.page, gate, resolution.value)
+        opened = form_appeared(self.page) if clicked else False
+        self.record_gate(gate, resolution=resolution, clicked=clicked, opened=opened)
+        if opened:
+            echo(resolution.source, question, clicked, note=resolution.fact_key)
+            self.state.gate_pending = None
+        return opened
+
+    def gate_from_claude(self, gate: dict[str, Any]) -> AnswerResolution | None:
+        """One bounded pass: which fact says how you start an application."""
+        question = str(gate["label"])
+        console.print("  [dim]asking Claude which fact says how to start this application[/dim]")
+        verdicts = self.ctx.short_drafter(
+            [ShortQuestion(question, tuple(str(item) for item in gate["options"]))],
+            posting={"company": self.ctx.company, "role": self.ctx.title},
+            facts=self.ctx.knowledge.for_model(),
+        )
+        fits = {
+            name: verdict for name, verdict in verdicts.items() if verdict.kind == "fits_fact"
+        }
+        for verdict in verdicts.values():
+            if verdict.kind == "no_fact" and verdict.missing_fact:
+                self.state.needed[verdict.question] = verdict.missing_fact
+        if not fits:
+            return None
+        return VerdictResolver(fits, self.ctx.knowledge).resolve(gate)
+
+    def record_gate(
+        self,
+        gate: dict[str, Any],
+        *,
+        resolution: AnswerResolution | None,
+        clicked: str | None,
+        opened: bool,
+    ) -> None:
+        """Write the gate as a fill event, so the question and its proposal are learned."""
+        question = str(gate["label"])
+        self.ctx.api.persist_autofill_step(
+            self.ctx.run_id,
+            {
+                "step_number": self.state.step,
+                "url": self.page.url,
+                "fill_events": [
+                    fill_event(
+                        gate,
+                        strategy="click_option_button",
+                        stopped_at=None if opened else "strategy",
+                        operated_ok=opened,
+                        value=clicked,
+                        resolution=resolution,
+                        source=None if resolution is not None else "manual",
+                    )
+                ],
+            },
+        )
+        if clicked and opened:
+            self.state.tier_answers[question] = clicked
+            self.state.tier_source[question] = (
+                resolution.source if resolution is not None else "manual"
+            )
+            if resolution is not None:
+                self.state.tier_resolver[question] = resolution.resolver_id
+            self.state.observations.append(
+                {
+                    "event_index": len(self.state.observations),
+                    "step_number": self.state.step,
+                    "page_url": self.page.url,
+                    "question": question,
+                    "answer_text": clicked,
+                    "source": self.state.tier_source[question],
+                    "form": "short",
+                    "control_kind": "choice_group",
+                    "field_fingerprint": f"gate:{normalize_answer_question(question)}",
+                    "resolver_id": resolution.resolver_id if resolution is not None else None,
+                    "proposed_value": resolution.value if resolution is not None else None,
+                }
+            )
+
+    def note_observed_gate(self) -> None:
+        """Learn the way in you clicked yourself, so the next run does not ask."""
+        gate = self.state.gate_pending
+        self.state.gate_pending = None
+        if gate is None:
+            return
+        clicked = observed_choice(self.page)
+        if not clicked:
+            return
+        self.record_gate(gate, resolution=None, clicked=clicked, opened=True)
+        echo("picked up", str(gate["label"]), clicked, note="bind it in the Inbox")
 
     def emit_warnings(self, fields: list[dict[str, Any]]) -> None:
         resume_fields = [item for item in fields if is_resume_field(item)]
@@ -491,7 +623,7 @@ class AutofillSession:
                 },
             )
             return {"filled_fields": [], "skipped_fields": [], "failures": [], "plan": plan}
-        before = sanitized_evidence(self.page, fields, console_errors=self.ctx.console_errors)
+        before = page_evidence(self.page, fields, console_errors=self.ctx.console_errors)
         result = apply_autofill(
             self.page,
             fields,
@@ -552,7 +684,7 @@ class AutofillSession:
                     },
                 }
             )
-        after = sanitized_evidence(
+        after = page_evidence(
             self.page, inspect_fields(self.page), console_errors=self.ctx.console_errors
         )
         after["fill-plan.json"] = json.dumps(
@@ -774,7 +906,7 @@ class AutofillSession:
                 "description": self.ctx.description,
             },
             resume=self.ctx.resume_json,
-            facts=self.ctx.knowledge.disclosable(),
+            facts=self.ctx.knowledge.values(),
             references=self.references(question),
             limit=limit,
         )

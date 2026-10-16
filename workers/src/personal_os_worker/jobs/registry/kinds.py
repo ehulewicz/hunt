@@ -23,6 +23,9 @@ CONTROL_KINDS = (
 # `yesno` is the detector's name for a group of aria-pressed buttons; it is a
 # synthetic type, not an HTML one.
 BUTTON_GROUP = "yesno"
+# A gate's ways into the application (`jobs/gateway.py`): buttons, no input of
+# their own, operated by clicking the one the fact names — a choice group.
+GATEWAY = "gateway"
 
 
 def _lower(field: dict[str, Any], key: str) -> str:
@@ -37,7 +40,7 @@ def classify(field: dict[str, Any]) -> str:
         return "multi_choice_group" if field.get("multiple") is True else "native_select"
     if role == "combobox":
         return "dynamic_choice"
-    if field_type in {"radio", BUTTON_GROUP} or role == "radiogroup":
+    if field_type in {"radio", BUTTON_GROUP, GATEWAY} or role == "radiogroup":
         return "choice_group"
     if field_type == "checkbox" or role == "switch":
         return "multi_choice_group" if group_size(field) > 1 else "toggle"

@@ -181,6 +181,27 @@ and settling R51's shadows) happens with you after this lands.
 > it returns as soon as the page names the posting, else once the text has
 > stopped changing, else at the deadline.
 
+> **R58 — A gate is a choice control, answered by a fact.** Boards put a choice
+> between Apply and the form (Workday: autofill from a resume, apply manually,
+> reuse the last application). Nothing on such a page is an input, so field
+> capture saw an empty page and the run hit a wall with no way to learn past it
+> — the per-site adapter surviving as the Apply regex. `jobs/gateway.py`
+> captures those ways in as one `choice_group`: question from the dialog's
+> heading, options from the buttons, answer from
+> `preferences.application_start` through the ordinary resolver. Nothing is
+> clicked without a fact behind it; the page's own submit, sign-in and
+> account controls are never candidates; the readback is the form appearing. A
+> gate no fact answers is left for you, and the choice you click is recorded as
+> that question's answer so the Inbox can bind it. *Decided by you.*
+
+> **R59 — The Inbox can widen a binding into an expression.** Expression
+> patterns were readable, matchable and validated but uncreatable: R54 removed
+> the archive's widen step, which had been their only source, so every active
+> pattern was a per-question binding. Binding a question now offers a regular
+> expression — proposed from the question's own distinctive word, or typed —
+> which answers every question matching it from the same fact, including
+> phrasings no application has used yet. *Found in review.*
+
 ---
 
 ## 1. Why
@@ -537,9 +558,14 @@ the library's two regex policy rows all collapse into it.
 > object. One `jsonb` column with a declared type covers all of them; a
 > per-type column set would be mostly null.
 
-> **R4 — Facts carry a `sensitive` flag.** EEO answers, phone, and address are
+> **R4 — Facts carry a `sensitive` flag.** ~~EEO answers, phone, and address are
 > withheld from every model call: the model sees that the fact exists and its
-> label, never its value. A sensitive fact still fills deterministically.
+> label, never its value. A sensitive fact still fills deterministically.~~
+> **Reversed 2026-10-16.** No fact in Jobs is hidden from Jobs. The flag only
+> masked a value in the worker's own terminal and withheld it from the worker's
+> own model calls, which made a fill harder to read back and a failure harder to
+> diagnose. The column, the flag, and the masking are gone; every fact reaches
+> every model call with its value.
 
 > **R5 — Authorization and sponsorship are two facts, not one fact with
 > negation.** "Are you authorized to work in the US?" → Yes and "Will you
@@ -580,9 +606,9 @@ stored as ordinary facts; B moves them out.
 | `identity.preferred_name` | text | |
 | `identity.adult` | boolean | currently a builtin rule |
 | `contact.email` | text | also the resume header |
-| `contact.phone` | text | sensitive; also the resume header |
+| `contact.phone` | text | also the resume header |
 | `contact.linkedin_url` / `github_url` / `portfolio_url` | text | also the resume header |
-| `address.line_1` / `line_2` / `city` / `region` / `postal_code` / `country` | text | `line_1`, `line_2`, `postal_code` sensitive; `city`, `region`, `country` answer "current location" and are not |
+| `address.line_1` / `line_2` / `city` / `region` / `postal_code` / `country` | text | `city`, `region`, `country` answer "current location" |
 | `education.school_name` / `degree_type` / `field_of_study` | *career* | from the primary education row |
 | `education.graduation_date` | *career* | base for every graduation rendering |
 | `education.gpa` | *career* | |
@@ -606,7 +632,7 @@ stored as ordinary facts; B moves them out.
 | `experience.prior_internship` | *derived* | `coop.completed_rotations > 0` |
 | `employment.worked_for` | *career* | experience organizations, given the posting's company |
 | `referral.status` | choice | default `none` |
-| `eeo.gender_identity` / `transgender` / `race_ethnicities` / `hispanic_latino` / `veteran_status` / `disability_status` | text, boolean, list | sensitive |
+| `eeo.gender_identity` / `transgender` / `race_ethnicities` / `hispanic_latino` / `veteran_status` / `disability_status` | text, boolean, list | ordinary saved answers |
 | `discovery.target_roles` / `target_locations` / `target_career_stages` | list | not application facts; used by discovery |
 
 Dropped: `completed_at` (a form-completion marker, not a fact),
@@ -1209,7 +1235,6 @@ Fields marked *derived* are not stored. Every table also carries `user_id` and
 | `label` | text | plain-language description shown to you and to the model |
 | `value` | jsonb | R3 |
 | `value_type` | text | `text` / `boolean` / `number` / `date` / `choice` / `list` / `object` |
-| `sensitive` | boolean | R4 |
 | `verified_at` | timestamptz null | **added after approval** — R6; null until you accept the row |
 
 ### Retired: `jobs_profile`
@@ -1541,7 +1566,7 @@ waits for A, C, and D; F waits for D and E.
 | | |
 |---|---|
 | **Status** | built 2026-10-14 |
-| **Delivers** | resolution from active patterns, then the model (the archive tier was removed by R54), always through a fact and a formatter (§8, §14); formatters; the `resolve_priority_answer` split (R14), its old branches archived; office selection (§9); the every-field page gate (§10.2); the cover letter always attached; model-pass verdicts `fits_fact` / `no_fact` / `unsure`; sensitive facts withheld from model calls; $40/hour |
+| **Delivers** | resolution from active patterns, then the model (the archive tier was removed by R54), always through a fact and a formatter (§8, §14); formatters; the `resolve_priority_answer` split (R14), its old branches archived; office selection (§9); the every-field page gate (§10.2); the cover letter always attached; model-pass verdicts `fits_fact` / `no_fact` / `unsure`; $40/hour |
 | **Owns** | `workers/…/jobs/formatters.py`, `jobs/office.py`; `autofill.py`, `autofill_session.py`, `short_answers.py` |
 | **Depends on** | A, C, D |
 | **Done when** | formatter tests cover every `value_type` × control kind pair in use; office selection is tested for every tier and multi-location shape with a fixed seed; a fixture page with an empty optional field does not advance |
@@ -1577,7 +1602,7 @@ on its own judgement and report the decisions; dispute any by number.
 | R1 | Build Facts first; Repair before Audit; Registry in parallel | agreed |
 | R2 | Retire `jobs_profile` entirely | agreed |
 | R3 | Fact values are `jsonb` typed by `value_type` | agreed |
-| R4 | `sensitive` facts are withheld from model calls | agreed |
+| R4 | `sensitive` facts are withheld from model calls | **reversed 2026-10-16** — no fact is hidden from Jobs |
 | R5 | Authorization and sponsorship are separate facts | agreed |
 | R6 | Fact values reviewed in the database, `verified_at` per row | changed by you |
 | R7 | Minimum $40/hour; annual derived; always a number | changed by you |
@@ -1631,6 +1656,8 @@ on its own judgement and report the decisions; dispute any by number.
 | R55 | Repair runs in place on the live page under `--repair` | decided by you; flag dropped by R56 |
 | R56 | Repair in place is on for every application; `--no-repair` turns it off | decided by you |
 | R57 | Apply continues on the tab already open for this application; `--fresh` opens a new one | decided by you |
+| R58 | A gate between the posting and its form is a choice control answered by a fact | decided by you |
+| R59 | The Inbox widens a binding into an expression, so expressions are creatable | found in review |
 
 ## 18. Open questions
 

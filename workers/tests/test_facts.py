@@ -85,7 +85,7 @@ def test_knowledge_presents_stored_derived_and_posting_facts() -> None:
         fact("coop.anchor", ANCHOR) | {"value_type": "object"},
         fact("compensation.minimum", {"amount": 40, "currency": "USD", "period": "hour"})
         | {"value_type": "object"},
-        fact("contact.phone", "5550001111") | {"sensitive": True},
+        fact("contact.phone", "5550001111"),
     ]
     knowledge = Knowledge.build(
         facts=facts, career=CAREER, company="Northwind", today=date(2027, 5, 1)
@@ -100,10 +100,10 @@ def test_knowledge_presents_stored_derived_and_posting_facts() -> None:
     assert knowledge.facts["employment.worked_for"] is True
     assert knowledge.types["education.graduation_date"] == "date"
     assert knowledge.types["employment.worked_for"] == "boolean"
-    # The model sees every key and label, never a sensitive value.
+    # The model sees every key, label, and value; nothing is withheld.
     shown = {item["key"]: item["value"] for item in knowledge.for_model()}
-    assert shown["contact.phone"] == "(withheld)"
-    assert "contact.phone" not in knowledge.disclosable()
+    assert shown["contact.phone"] == "5550001111"
+    assert knowledge.values()["contact.phone"] == "5550001111"
 
 
 @pytest.mark.parametrize(
@@ -197,10 +197,10 @@ def test_facts_shorthand_and_parser() -> None:
     assert expand_shorthand(["hunt", "facts"]) == ["hunt", "facts", "list"]
     args = build_parser().parse_args(
         ["hunt", "facts", "set", "work_auth.security_clearance", "no", "--type", "boolean",
-         "--label", "Holds a security clearance", "--not-sensitive"]
+         "--label", "Holds a security clearance"]
     )
-    assert (args.key, args.value, args.value_type, args.sensitive) == (
-        "work_auth.security_clearance", "no", "boolean", False
+    assert (args.key, args.value, args.value_type) == (
+        "work_auth.security_clearance", "no", "boolean"
     )
 
 

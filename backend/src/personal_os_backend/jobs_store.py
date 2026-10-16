@@ -42,8 +42,9 @@ ANSWER_SOURCES = frozenset(
     {"jobs_profile", "answer_library", "model", "pattern", "manual", "archive", "prose"}
 )
 
-# Every non-data-science open listing without an active application,
-# numbered once: default technical families first, newest first, ties by id.
+# Every open listing without an active application, numbered once: default
+# technical families first, newest first, ties by id. Every role family stays on
+# the board; `--family` and `--all-roles` are how a view narrows.
 BOARD_QUERY = sql.SQL(
     """
     select posting.id, posting.created_at, company.name as company_name, posting.title,
@@ -70,7 +71,6 @@ BOARD_QUERY = sql.SQL(
       and posting.status not in ('closed', 'archived')
       and posting.career_stage = 'internship'
       and posting.feed_region = 'usa'
-      and not (posting.role_families && array['data_science']::text[])
       and application.id is null
     """
 )
@@ -313,8 +313,8 @@ class PostgresJobsStore:
     ) -> JobListingPage:
         """Board listings not yet applied to, each carrying its canonical row number.
 
-        Data-science listings remain stored but leave the board before numbering.
-        The number is computed over the remaining board before any filter applies,
+        Every role family is on the board; nothing is discarded for its family.
+        The number is computed over the whole board before any filter applies,
         so a listing keeps the same number in every view; filtered views show
         gaps. Default technical families come first so the everyday view is
         contiguous and `--all-roles` extends it rather than reshuffling it.

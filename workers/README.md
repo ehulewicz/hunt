@@ -93,6 +93,19 @@ place on your own live tab, which you go on to submit. `commands.py` is
 live fills through the run context as a control preference that
 `browser.apply_autofill` tries first.
 
+## The gate between a posting and its form
+
+`jobs/gateway.py` captures the ways into an application on a page that offers
+no form — an open dialog's choices, else the page's own controls — as one
+`choice_group` whose options are the buttons and whose question is the dialog's
+heading. `inspect_fields` never sees a button, because on a form a button is
+Next or Submit; a gate is captured only where there is no form to fill. The
+answer comes from a fact (`preferences.application_start`) through the ordinary
+resolver, so patterns, the Inbox and `--explain` need no special case, and the
+readback is `form_appeared`. A gate nothing answers is left alone: the capture
+installs a click recorder, so the choice you make yourself is recorded as that
+question's answer and the Inbox can bind it.
+
 ## How a field is filled
 
 **Which value.** Every value comes from a fact. `jobs/resolve.py` builds the

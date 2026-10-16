@@ -2,7 +2,8 @@
 
 One row per fact, keyed by a stable dotted name. Values are JSON typed by
 `value_type`; FastAPI validates a value against its type on every write, and a
-database check enforces the same shape. Derived facts (completed co-op
+database check enforces the same shape. No fact is hidden: Jobs is single-user
+and full visibility is what makes a fill readable. Derived facts (completed co-op
 rotations, graduation term) are computed by the worker and never stored.
 """
 
@@ -23,7 +24,7 @@ from personal_os_backend.config import Settings
 
 FactType = Literal["text", "boolean", "number", "date", "choice", "list", "object"]
 FACT_KEY = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
-FACT_COLUMNS = "key, label, value, value_type, sensitive, verified_at, updated_at"
+FACT_COLUMNS = "key, label, value, value_type, verified_at, updated_at"
 
 
 def validate_fact_value(value_type: str, value: Any) -> Any:
@@ -63,20 +64,18 @@ class Fact(BaseModel):
     label: str
     value: Any
     value_type: FactType
-    sensitive: bool
     verified_at: datetime | None
     updated_at: datetime
 
 
 class FactWrite(BaseModel):
-    """Set a fact's value. Label, type, and sensitivity default to the existing row."""
+    """Set a fact's value. Label and type default to the existing row."""
 
     model_config = ConfigDict(extra="forbid")
 
     value: Any
     label: str | None = Field(default=None, min_length=1, max_length=200)
     value_type: FactType | None = None
-    sensitive: bool | None = None
     verified: bool = True
 
 
@@ -115,7 +114,7 @@ class PostgresFactStore:
         ):
             await connection.execute("set local role personal_os_api")
             cursor = await connection.execute(
-                "select label, value_type, sensitive from app.jobs_facts "
+                "select label, value_type from app.jobs_facts "
                 "where user_id = %s and key = %s for update",
                 (user_id, key),
             )
@@ -124,24 +123,19 @@ class PostgresFactStore:
             value_type = item.value_type or (existing or {}).get("value_type")
             if not label or not value_type:
                 raise ValueError("A new fact needs a label and a value_type")
-            sensitive = (
-                item.sensitive
-                if item.sensitive is not None
-                else bool((existing or {}).get("sensitive"))
-            )
             value = validate_fact_value(value_type, item.value)
             cursor = await connection.execute(
                 f"""
                 insert into app.jobs_facts (
-                  user_id, key, label, value, value_type, sensitive, verified_at
-                ) values (%s, %s, %s, %s, %s, %s, case when %s then now() end)
+                  user_id, key, label, value, value_type, verified_at
+                ) values (%s, %s, %s, %s, %s, case when %s then now() end)
                 on conflict (user_id, key) do update set
                   label = excluded.label, value = excluded.value,
-                  value_type = excluded.value_type, sensitive = excluded.sensitive,
+                  value_type = excluded.value_type,
                   verified_at = excluded.verified_at
                 returning {FACT_COLUMNS}
                 """,
-                (user_id, key, label, Jsonb(value), value_type, sensitive, item.verified),
+                (user_id, key, label, Jsonb(value), value_type, item.verified),
             )
             row = await cursor.fetchone()
         if row is None:

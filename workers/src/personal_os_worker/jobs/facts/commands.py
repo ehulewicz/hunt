@@ -29,7 +29,6 @@ from personal_os_worker.jobs.facts.derived import (
 from personal_os_worker.jobs.facts.values import fact_values
 
 VALUE_TYPES = ("text", "boolean", "number", "date", "choice", "list", "object")
-MASK = "••••"
 
 # Archived questions that restated a fact, so review can show what they said.
 LIBRARY_HINTS = {
@@ -125,7 +124,6 @@ def library_conflicts(key: str, answers: list[dict[str, Any]]) -> list[tuple[str
 def render_facts(
     facts: list[dict[str, Any]],
     *,
-    show_sensitive: bool,
     today: date,
     career: dict[str, Any] | None = None,
 ) -> None:
@@ -148,13 +146,12 @@ def render_facts(
     table.add_column("state", no_wrap=True)
     for fact in facts:
         key = str(fact["key"])
-        hidden = fact.get("sensitive") and not show_sensitive
         state = "verified" if fact.get("verified_at") else "[yellow]unverified[/yellow]"
         if key in overridden:
             state += f" · [magenta]career says {escape(display(overridden[key]))}[/magenta]"
         table.add_row(
             key,
-            MASK if hidden else display(fact.get("value")),
+            display(fact.get("value")),
             str(fact.get("value_type")),
             state,
         )
@@ -182,7 +179,7 @@ def render_facts(
         )
 
 
-def run_facts_list(*, show_sensitive: bool = False) -> int:
+def run_facts_list() -> int:
     config, token = connected()
     api = WorkerApi(config, token)
     try:
@@ -193,7 +190,7 @@ def run_facts_list(*, show_sensitive: bool = False) -> int:
             career = None
     finally:
         api.close()
-    render_facts(facts, show_sensitive=show_sensitive, today=date.today(), career=career)
+    render_facts(facts, today=date.today(), career=career)
     return 0
 
 
@@ -260,7 +257,6 @@ def run_facts_set(
     *,
     value_type: str | None,
     label: str | None,
-    sensitive: bool | None,
 ) -> int:
     config, token = connected()
     api = WorkerApi(config, token)
@@ -276,7 +272,6 @@ def run_facts_set(
             parse_value(str(resolved_type), raw),
             label=label,
             value_type=value_type,
-            sensitive=sensitive,
         )
     finally:
         api.close()

@@ -116,7 +116,6 @@ class WorkerApi:
         *,
         label: str | None = None,
         value_type: str | None = None,
-        sensitive: bool | None = None,
         verified: bool = True,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"value": value, "verified": verified}
@@ -124,8 +123,6 @@ class WorkerApi:
             body["label"] = label
         if value_type is not None:
             body["value_type"] = value_type
-        if sensitive is not None:
-            body["sensitive"] = sensitive
         response = self._client.put(f"/v1/jobs/facts/{key}", json=body)
         response.raise_for_status()
         payload = response.json()

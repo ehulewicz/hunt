@@ -29,7 +29,7 @@ from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
 from personal_os_worker.core.tables import console
 from personal_os_worker.jobs.facts.catalog import CATALOG, entry
-from personal_os_worker.jobs.facts.commands import MASK, VALUE_TYPES, display, parse_value
+from personal_os_worker.jobs.facts.commands import VALUE_TYPES, display, parse_value
 from personal_os_worker.jobs.facts.derived import career_facts, derive
 from personal_os_worker.jobs.facts.values import fact_values
 
@@ -49,13 +49,13 @@ def fact_view(
     return {**derive(values, today), **values}
 
 
-def shown(key: str, values: dict[str, Any], sensitive: set[str]) -> str:
+def shown(key: str, values: dict[str, Any]) -> str:
     if key not in values:
         known = entry(key)
         if known is not None and known.source == "derived":
             return "(derived when an application is filled)"
         return "(no fact yet)"
-    return MASK if key in sensitive else display(values[key])
+    return display(values[key])
 
 
 def choose(ask: Ask, prompt: str, options: str) -> str:
@@ -84,14 +84,13 @@ def review_candidate(
     item: dict[str, Any],
     *,
     values: dict[str, Any],
-    sensitive: set[str],
     ask: Ask,
     counts: dict[str, int],
 ) -> None:
     pattern = item["pattern"]
     key = str(pattern["fact_key"])
     console.print(f"\n[bold]Candidate[/bold]  {pattern.get('question_label') or ''}", markup=True)
-    console.print(f"  answers from  {key} = {shown(key, values, sensitive)}", markup=False)
+    console.print(f"  answers from  {key} = {shown(key, values)}", markup=False)
     console.print(f"  proposed by   {pattern.get('origin')}", markup=False)
     if item.get("answers"):
         console.print("  filled", style="dim")
@@ -142,9 +141,71 @@ def new_fact(
         value,
         label=label,
         value_type=value_type,
-        sensitive=known.sensitive if known else False,
     )
     console.print(f"  set {key}", style="dim")
+    return True
+
+
+
+# Words that say nothing about which fact a question wants.
+STOPWORDS = frozenset({
+    "about", "after", "again", "against", "already", "always", "another", "answer",
+    "applying", "because", "been", "before", "being", "below", "between", "could",
+    "currently", "does", "doing", "during", "either", "every", "following", "future",
+    "have", "here", "however", "includes", "including", "into", "least", "legally",
+    "more", "most", "must", "other", "ours", "over", "please", "position", "question",
+    "require", "required", "role", "same", "select", "should", "since", "some", "such",
+    "than", "that", "their", "them", "then", "there", "these", "they", "this", "those",
+    "through", "under", "until", "very", "what", "when", "where", "whether", "which",
+    "while", "will", "with", "would", "your", "yours",
+})
+
+
+def propose_expression(label: str) -> str:
+    """A regular expression that would match questions like this one.
+
+    The longest word a question does not share with every other question is
+    almost always the thing it asks about — "sponsorship", "graduation",
+    "clearance". It is a proposal: you type your own over it.
+    """
+    words = [word for word in re.findall(r"[a-z]{5,}", label.casefold()) if word not in STOPWORDS]
+    if not words:
+        return ""
+    return re.escape(str(max(words, key=len)))
+
+
+def offer_expression(api: WorkerApi, label: str, key: str, ask: Ask) -> bool:
+    """Widen a binding into an expression, which answers questions never met yet.
+
+    A binding answers the one question it names. An expression answers every
+    question matching it, which is how one acceptance covers a phrasing no
+    application has used yet.
+    """
+    proposed = propose_expression(label)
+    prompt = (
+        f"  also answer questions matching a regex? [{proposed}] y, your own, Enter to skip: "
+        if proposed
+        else "  also answer questions matching a regex? type one, Enter to skip: "
+    )
+    reply = ask(prompt).strip()
+    if not reply:
+        return False
+    expression = proposed if reply.casefold() == "y" else reply
+    if not expression:
+        return False
+    try:
+        re.compile(expression, re.IGNORECASE)
+    except re.error as error:
+        console.print(f"  that expression does not compile: {error}", style="yellow")
+        return False
+    api.create_pattern(
+        kind="expression",
+        expression=expression,
+        fact_key=key,
+        origin="inbox",
+        status="active",
+    )
+    console.print(f"  /{expression}/ now answers from {key}", style="dim")
     return True
 
 
@@ -153,7 +214,6 @@ def review_question(
     item: dict[str, Any],
     *,
     values: dict[str, Any],
-    sensitive: set[str],
     ask: Ask,
     counts: dict[str, int],
 ) -> None:
@@ -184,6 +244,8 @@ def review_question(
             status="active",
         )
         counts["bound"] += 1
+        if offer_expression(api, label, key, ask):
+            counts["widened"] += 1
     elif choice == "o":
         api.update_question(str(question["id"]), disposition="one_off")
         counts["one_off"] += 1
@@ -224,15 +286,14 @@ def walk_inbox(api: WorkerApi, *, ask: Ask = input, today: date | None = None) -
     except RuntimeError:
         career = None
     values = fact_view(facts, career, day)
-    sensitive = {str(fact["key"]) for fact in facts if fact.get("sensitive")}
     expressions = [
         re.compile(str(pattern["expression"]), re.IGNORECASE | re.DOTALL)
         for pattern in api.patterns("active")
         if pattern.get("kind") == "expression" and pattern.get("expression")
     ]
     counts = dict.fromkeys(
-        ("accepted", "rejected", "bound", "one_off", "long_form", "approved", "deleted",
-         "skipped"),
+        ("accepted", "rejected", "bound", "widened", "one_off", "long_form", "approved",
+         "deleted", "skipped"),
         0,
     )
     questions = [
@@ -256,14 +317,13 @@ def walk_inbox(api: WorkerApi, *, ask: Ask = input, today: date | None = None) -
     try:
         for candidate in inbox.get("candidates") or []:
             review_candidate(
-                api, candidate, values=values, sensitive=sensitive, ask=ask, counts=counts
+                api, candidate, values=values, ask=ask, counts=counts
             )
         for question in questions:
             review_question(
                 api,
                 question,
                 values=values,
-                sensitive=sensitive,
                 ask=ask,
                 counts=counts,
             )

@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from datetime import date
 from typing import Any
 
-from personal_os_worker.jobs.inbox import walk_inbox
+from personal_os_worker.jobs.inbox import propose_expression, walk_inbox
 
 TODAY = date(2026, 10, 14)
 
@@ -109,7 +109,7 @@ def test_binding_a_question_creates_the_missing_fact_from_the_catalog() -> None:
                    "prose": []})
     # `?` lists the catalog, then the key, then the suggested value (your last answer).
     counts = walk_inbox(  # type: ignore[arg-type]
-        api, ask=answers("b", "?", "identity.adult", ""), today=TODAY
+        api, ask=answers("b", "?", "identity.adult", "", ""), today=TODAY
     )
     fact = next(call for call in api.calls if call[0] == "fact")
     assert fact[1][0] == "identity.adult" and fact[1][1] is True
@@ -124,7 +124,7 @@ def test_binding_a_question_creates_the_missing_fact_from_the_catalog() -> None:
 def test_binding_to_an_existing_fact_does_not_touch_it() -> None:
     api = FakeApi({"candidates": [], "questions": [question("Visa needs?")], "prose": []})
     walk_inbox(  # type: ignore[arg-type]
-        api, ask=answers("b", "work_auth.requires_sponsorship"), today=TODAY
+        api, ask=answers("b", "work_auth.requires_sponsorship", ""), today=TODAY
     )
     assert [call[0] for call in api.calls] == ["create"]
     assert api.calls[0][1]["origin"] == "inbox"
@@ -159,3 +159,46 @@ def test_prose_is_approved_or_deleted_and_quit_stops() -> None:
     ]})
     walk_inbox(api, ask=answers("a", "d", "q"), today=TODAY)  # type: ignore[arg-type]
     assert api.calls == [("prose", ("x1", {"approved": True})), ("delete prose", "x2")]
+
+
+def test_a_question_proposes_the_word_it_asks_about() -> None:
+    assert propose_expression(
+        "Will you now or in the future require sponsorship for employment visa status?"
+    ) == "sponsorship"
+    assert propose_expression("What is your expected graduation date?") == "graduation"
+    assert propose_expression("Do you have an active security clearance?") == "clearance"
+    # Nothing distinctive to generalize on, so nothing is proposed.
+    assert propose_expression("Your name") == ""
+
+
+def test_binding_can_widen_into_an_expression_that_covers_unmet_questions() -> None:
+    api = FakeApi({"candidates": [], "questions": [question("Visa needs?")], "prose": []})
+    counts = walk_inbox(  # type: ignore[arg-type]
+        api, ask=answers("b", "work_auth.requires_sponsorship", "sponsorship"), today=TODAY
+    )
+    created = [call[1] for call in api.calls if call[0] == "create"]
+    assert created[0]["kind"] == "binding"
+    assert created[1] == {
+        "kind": "expression",
+        "expression": "sponsorship",
+        "fact_key": "work_auth.requires_sponsorship",
+        "origin": "inbox",
+        "status": "active",
+    }
+    assert counts["widened"] == 1
+
+
+def test_a_proposal_is_taken_with_y_and_a_broken_regex_is_refused() -> None:
+    api = FakeApi({"candidates": [], "questions": [question("Sponsorship needed?")], "prose": []})
+    walk_inbox(  # type: ignore[arg-type]
+        api, ask=answers("b", "work_auth.requires_sponsorship", "y"), today=TODAY
+    )
+    # Expressions are compiled case-insensitively, so the proposal is lowercase.
+    assert [call[1] for call in api.calls if call[0] == "create"][1]["expression"] == "sponsorship"
+
+    broken = FakeApi({"candidates": [], "questions": [question("Visa needs?")], "prose": []})
+    counts = walk_inbox(  # type: ignore[arg-type]
+        broken, ask=answers("b", "work_auth.requires_sponsorship", "wha(t"), today=TODAY
+    )
+    assert [call[0] for call in broken.calls] == ["create"]
+    assert counts["widened"] == 0

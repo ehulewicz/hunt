@@ -1273,14 +1273,20 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
     return results
 
 
-def sanitized_evidence(
+def page_evidence(
     page: Page,
     fields: list[dict[str, Any]],
     *,
     console_errors: list[str] | None = None,
 ) -> dict[str, bytes]:
-    """Capture visible form evidence without field values or browser/session data."""
-    safe_fields = [
+    """Capture the form as it stands: every control, its value, and the page.
+
+    Nothing is redacted. A failure is diagnosed from what the form actually
+    held, and a captured page with its values stripped out could not show why a
+    fill went wrong. Only the captcha widget is dropped, so a saved page does
+    not try to render a live challenge.
+    """
+    captured_fields = [
         {
             key: field.get(key)
             for key in (
@@ -1298,21 +1304,16 @@ def sanitized_evidence(
                 "autocomplete",
                 "section",
                 "options",
+                "value",
+                "filled",
                 "fingerprint",
             )
         }
         for field in fields
-        if str(field.get("type") or "").casefold() not in {"password", "hidden"}
     ]
     html_script = """
         body => {
           const clone = body.cloneNode(true);
-          clone.querySelectorAll('input, textarea').forEach(element => {
-            element.removeAttribute('value'); element.textContent = '';
-          });
-          clone.querySelectorAll('input[type="hidden"], input[type="password"]').forEach(
-            element => element.remove()
-          );
           clone.querySelectorAll(
             '[data-sitekey], iframe[src*="captcha" i]'
           ).forEach(e => e.remove());
@@ -1320,7 +1321,7 @@ def sanitized_evidence(
         }
         """
     evidence = {
-        "controls.json": json.dumps(safe_fields, indent=2, default=str).encode(),
+        "controls.json": json.dumps(captured_fields, indent=2, default=str).encode(),
         "page.json": json.dumps({"url": page.url, "title": page.title()}, indent=2).encode(),
         "console-errors.json": json.dumps(console_errors or [], indent=2).encode(),
         "screen.png": page.screenshot(full_page=True),
@@ -1416,11 +1417,10 @@ def snapshot_values(page: Page, fields: list[dict[str, Any]]) -> dict[str, dict[
 def audit_filled_form(
     fields: list[dict[str, str | bool | None]],
 ) -> dict[str, list[str]]:
-    """Summarize a filled form without copying values into logs."""
+    """Which questions a form has answered, and which are still open."""
     filled: list[str] = []
     required_unfilled: list[str] = []
     optional_unfilled: list[str] = []
-    sensitive_filled: list[str] = []
     # A choice group is one question: it is filled once any option is checked,
     # and it is reported by the group question rather than each option's label.
     answered_groups: set[str] = set()
@@ -1441,8 +1441,6 @@ def audit_filled_form(
                     continue
                 answered_groups.add(label)
             filled.append(label)
-            if is_sensitive_field(field):
-                sensitive_filled.append(label)
         elif field.get("required") is True:
             if is_choice:
                 pending_groups.append(label)
@@ -1465,7 +1463,6 @@ def audit_filled_form(
         "optional_unfilled": [
             label for label in dict.fromkeys(optional_unfilled) if label not in required_unfilled
         ],
-        "sensitive_filled": sensitive_filled,
     }
 
 

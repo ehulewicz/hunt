@@ -113,7 +113,7 @@ def test_board_numbers_listings_once_before_any_filter() -> None:
 
     board = " ".join(BOARD_QUERY.as_string(None).split())
     assert "row_number() over ( order by case when posting.role_families && %s::text[]" in board
-    assert "not (posting.role_families && array['data_science']::text[])" in board
+    assert "data_science" not in board, "no role family leaves the board"
     assert board.endswith(
         "and application.id is null"
     ), "applied-to listings must leave the board"

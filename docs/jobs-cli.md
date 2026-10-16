@@ -28,7 +28,7 @@ os hunt prose approve 2
 os hunt archive      # the old answer library, for the facts session only
 os hunt archive rules
 os hunt archive prose --markdown ~/archived-answers.md
-os hunt facts        # = os hunt facts list; stored and derived facts, sensitive values masked
+os hunt facts        # = os hunt facts list; every stored and derived fact
 os hunt facts list --show
 os hunt facts review # accept, edit, or delete each unverified fact
 os hunt facts set education.gpa 3.78
@@ -71,9 +71,9 @@ os hunt apply failures verify 1 7
 ```
 
 Displayed listing titles are clickable when the terminal supports hyperlinks.
-A listing's `#` is assigned by the database over one canonical board. Listings
-tagged `data_science` are excluded before every other eligible open listing is
-numbered, technical families first and newest first, so a row has the same
+A listing's `#` is assigned by the database over one canonical board. Every
+eligible open listing is numbered, whatever its role family, technical families
+first and newest first, so a row has the same
 number in `os hunt`, `os hunt 9`, `os hunt today`, and every filtered view
 (filters leave gaps rather than renumbering). Listings you have applied to are
 not shown; a queued one carries a `q`. Nothing is cached on
@@ -105,8 +105,11 @@ question or control on any other. `--ats` and a run's ATS are only labels.
 questions you answered that nothing is bound to (bind to a fact — `?` lists
 every fact key — creating it from the catalog if needed; keep as a one-off; or
 mark long-form), and long-form writing from
-submitted applications (approve for reuse, or delete). An accepted pattern is
-`active`, and the next application fills that question deterministically;
+submitted applications (approve for reuse, or delete). Binding a question then
+offers to widen it: a regular expression — proposed from the question's own
+distinctive word, or typed — that answers every question matching it from the
+same fact, including phrasings no application has used yet. An accepted pattern
+is `active`, and the next application fills that question deterministically;
 `os hunt patterns` shows the state of the loop. Prose is reused only once
 approved; `prose add` saves writing directly, approved.
 
@@ -166,6 +169,16 @@ and its value, the formatter that wrote it, every other rendering), and the
 Controls nothing was planned for are listed after each pass with why.
 `--step` does the same and pauses before each fill with the control outlined
 on the page: Enter fills it, `s` leaves it for you, `c` stops pausing.
+
+A board that puts a choice between Apply and the form — Workday's "Autofill
+with Resume / Apply Manually / Use My Last Application" — is a **gate**, and it
+is answered like any other choice: by the `preferences.application_start` fact,
+through an accepted pattern first, else one bounded Claude pass naming which
+fact answers it. Nothing is clicked without a fact behind it, the page's own
+submit and your account's sign-in are never candidates, and the readback is the
+form appearing. A gate no fact answers is left for you with its choices named —
+and the one you click is recorded, so the Inbox can bind it and the next run
+passes the gate on its own.
 
 Ashby's Overview tab is a recognized standby state. Return to Application and
 the same step continues without refilling or another Claude pass. A submitted

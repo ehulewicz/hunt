@@ -331,7 +331,6 @@ def test_extension_audit_reports_presence_without_copying_values() -> None:
         "filled_fields": ["Email", "Veteran status"],
         "required_unfilled": ["Portfolio"],
         "optional_unfilled": [],
-        "sensitive_filled": [],
     }
 
 

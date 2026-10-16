@@ -712,7 +712,7 @@ def test_session_seeds_long_form_records_every_answer_and_ends_on_submit(
     def drafter(**kwargs: Any) -> str:
         drafted.append(str(kwargs["question"]))
         references.extend(kwargs["references"])
-        assert "contact.phone" not in kwargs["facts"]  # sensitive facts never reach the model
+        assert kwargs["facts"]["contact.phone"] == "5550001111"  # every fact reaches the model
         return "Claude's tailored draft."
 
     resume = tmp_path / "main.pdf"
