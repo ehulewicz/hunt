@@ -45,6 +45,7 @@ from personal_os_worker.jobs.audit import (
 )
 from personal_os_worker.jobs.autofill import (
     AnswerResolution,
+    FormFill,
     is_cover_letter_field,
     is_long_form_field,
     is_resume_field,
@@ -709,17 +710,22 @@ class AutofillSession:
                 plan.reasons,
             )
         if not self.ctx.dry_run:
-            # Prose controls are seeded by fill_long_form, which knows their source.
+            # Prose controls are seeded by fill_long_form, which knows their source,
+            # unless a pattern names the fact a big box is asking for ("the school
+            # you will attend", in a textarea): a fact beats a draft.
+            def from_a_fact(fill: FormFill) -> bool:
+                return fill.resolution is not None and fill.resolution.fact_key is not None
+
             plan = type(plan)(
                 tuple(
                     fill for fill in plan.fills
-                    if not is_long_form_field(fields[fill.index])
+                    if not is_long_form_field(fields[fill.index]) or from_a_fact(fill)
                 ),
                 plan.unanswered_required_questions,
                 plan.reasons | {
                     fill.index: "long-form: seeded from approved prose, else a Claude draft"
                     for fill in plan.fills
-                    if is_long_form_field(fields[fill.index])
+                    if is_long_form_field(fields[fill.index]) and not from_a_fact(fill)
                 },
             )
         if only is None:
@@ -1070,6 +1076,8 @@ class AutofillSession:
             if item.get("filled") is True:
                 echo("kept", question, note="already has text")
                 continue
+            if question in self.state.tier_answers:
+                continue  # a pattern answered it from a fact this step
             limit = item.get("max_length")
             seed, source, resolver_id, note = self.seed_for(question, limit=limit)
             if seed and limit is not None and len(seed) > int(limit):

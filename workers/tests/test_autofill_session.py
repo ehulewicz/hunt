@@ -1072,6 +1072,44 @@ def test_a_question_an_answer_reveals_is_filled_in_its_own_pass(
     assert any(item.get("label") == "Please identify your race" for item in fields)
 
 
+def test_a_fact_question_in_a_big_box_gets_the_fact_not_a_draft(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
+    browser_page.set_content(
+        '<label for="s">Please list the school you will be enrolled in during the internship?'
+        '</label>'
+        '<textarea id="s"></textarea>'
+        '<label for="w">Why do you want to work here?</label><textarea id="w"></textarea>'
+    )
+    context = SessionContext(
+        api=FakeApi(),  # type: ignore[arg-type]
+        run_id="run-big-box",
+        ats="lever",
+        browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
+        page=browser_page,
+        console_errors=[],
+        knowledge=known(
+            {"education.school_name": "Example Institute of Technology"},
+            patterns=[{"id": "e1", "kind": "expression", "status": "active",
+                       "expression": r"\bschool\b.{0,40}\byou will be enrolled\b",
+                       "fact_key": "education.school_name", "resolver_id": "expression:e1"}],
+        ),
+        resume_json={},
+        resume_pdf=tmp_path / "missing.pdf",
+        company="Acme",
+        title="Intern",
+        description=None,
+        use_claude=False,
+    )
+    session = AutofillSession(context)
+    fields = inspect_fields(browser_page)
+    session.fill_deterministic(fields)
+    session.fill_long_form(fields)
+    assert browser_page.input_value("#s") == "Example Institute of Technology"
+    assert browser_page.input_value("#w") == ""  # long-form stays yours
+
+
 def test_explain_in_a_dry_run_shows_every_control_and_operates_none(
     browser_page,  # type: ignore[no-untyped-def]
     tmp_path: Path,
