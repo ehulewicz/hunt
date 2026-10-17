@@ -91,10 +91,7 @@ def rendered_body_text(
     deadline = time.monotonic() + timeout_ms / 1000
     previous, settled_for = "", 0.0
     while True:
-        try:
-            text = page.locator("body").inner_text(timeout=5_000)[:limit]
-        except Error:
-            text = ""
+        text = _all_frames_text(page)[:limit]
         if accept is not None and accept(text):
             return text
         if text.strip() and text == previous:
@@ -107,6 +104,21 @@ def rendered_body_text(
         if time.monotonic() >= deadline:
             return text
         page.wait_for_timeout(int(POLL_SECONDS * 1000))
+
+
+def _all_frames_text(page: Page) -> str:
+    """The text of the page and every frame in it.
+
+    iCIMS serves the posting and its form inside an iframe; the page itself
+    says only "Skip Branding", so the top document alone never names the role.
+    """
+    parts: list[str] = []
+    for frame in page.frames:
+        try:
+            parts.append(frame.locator("body").inner_text(timeout=5_000))
+        except Error:
+            continue
+    return "\n".join(part for part in parts if part.strip())
 
 
 def identifies_posting(text: str, *, company: str, title: str) -> bool:

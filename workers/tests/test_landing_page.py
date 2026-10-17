@@ -111,3 +111,18 @@ def test_another_tab_never_continues_this_application() -> None:
     assert tab_continues("https://ngc.wd1.myworkdayjobs.com/en-US", JOB_URL) is False
     assert tab_continues("about:blank", JOB_URL) is False
     assert tab_continues("https://example.invalid/apply", JOB_URL) is False
+
+
+def test_a_posting_served_inside_an_iframe_is_read_through_it(page) -> None:  # type: ignore[no-untyped-def]
+    """iCIMS: the page says "Skip Branding" and the posting lives in a frame."""
+    inner = quote("<h1>Software Engineer Intern</h1><p>Northrop Grumman, San Antonio TX</p>")
+    page.set_content(
+        f'<a href="#x">Skip Branding</a><iframe src="data:text/html,{inner}"></iframe>'
+    )
+    page.wait_for_timeout(500)
+    text = rendered_body_text(
+        page,
+        timeout_ms=5_000,
+        accept=lambda body: identifies_posting(body, company=COMPANY, title=TITLE),
+    )
+    assert "Skip Branding" in text and "Northrop Grumman" in text
