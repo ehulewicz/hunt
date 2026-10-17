@@ -1464,7 +1464,8 @@ def test_a_pair_of_identical_apply_buttons_is_one_action(browser_page) -> None: 
         <h1>OLED Software Co-op</h1>
         <button class="top">Apply</button><p>About the role ...</p><button>Apply</button>
         <script>
-        document.querySelectorAll('button').forEach(button => button.addEventListener('click', () => {
+        document.querySelectorAll('button').forEach(button =>
+          button.addEventListener('click', () => {
           document.body.innerHTML = '<label>First Name<input name="first"></label>' +
             '<label>Email<input name="email" type="email"></label>' +
             '<label>Resume<input name="resume" type="file"></label>';
