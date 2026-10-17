@@ -160,7 +160,10 @@ detected control into one of seven kinds — `text_entry`, `native_select`,
 generic HTML and ARIA alone; a group of `aria-pressed` buttons is found by that
 state, not by any site's class names. `strategies.py` lists each kind's candidate
 strategies in order, and `browser.OPERATIONS` performs them: candidates are tried
-until one operates, then the value is read back. `events.py` turns every attempt
+until one operates, then the value is read back: a select by its chosen
+option's text (or the value attribute it was set by), a phone by its digits,
+since masks reformat it. A captcha's own response box is never captured as a
+control. `events.py` turns every attempt
 into a fill event (control, strategy, resolver, fact, formatter, the active
 pattern, value hash, whether the question wants prose, and where it stopped)
 that the step sends to FastAPI; a dry run sends one not-attempted event per

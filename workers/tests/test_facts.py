@@ -52,6 +52,15 @@ def test_graduation_term(month: int, term: str) -> None:
     assert graduation_term(date(2027, month, 15)) == term
 
 
+@pytest.mark.parametrize(
+    ("today", "age", "adult"),
+    [(date(2023, 2, 25), 17, False), (date(2023, 2, 26), 18, True), (date(2026, 10, 17), 21, True)],
+)
+def test_age_and_adulthood_follow_the_birth_date(today: date, age: int, adult: bool) -> None:
+    derived = derive({"identity.birth_date": "2005-02-26"}, today)
+    assert (derived["identity.age"], derived["identity.adult"]) == (age, adult)
+
+
 def test_derive_skips_facts_whose_inputs_are_missing() -> None:
     facts = {
         "coop.anchor": ANCHOR,

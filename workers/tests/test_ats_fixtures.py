@@ -1278,3 +1278,34 @@ def test_greenhouse_style_resume_rerender_still_verifies_as_uploaded(
     assert "Resume/CV" in result["filled_fields"]
     assert browser_page.locator("#resume").count() == 0  # confirms the rerender happened
     assert browser_page.get_by_text("Alex_Example.pdf").is_visible()
+
+
+def test_a_captchas_response_box_is_never_a_question(browser_page) -> None:  # type: ignore[no-untyped-def]
+    browser_page.set_content(
+        '<label for="first">First Name</label><input id="first">'
+        '<div class="g-recaptcha" data-sitekey="x">'
+        '<textarea id="g-recaptcha-response" name="g-recaptcha-response"></textarea></div>'
+        '<textarea name="h-captcha-response"></textarea>'
+    )
+    assert [field["label"] for field in inspect_fields(browser_page)] == ["First Name"]
+
+
+def test_readback_accepts_a_masked_phone_and_rejects_a_wrong_select_option(  # type: ignore[no-untyped-def]
+    browser_page,
+) -> None:
+    from personal_os_worker.jobs.browser import same_entry, verify_control
+
+    assert same_entry("(555) 010-0199", "5550100199")
+    assert same_entry("+1 555-010-0199", "5550100199")
+    assert not same_entry("(555) 010-0198", "5550100199")
+    assert not same_entry("1999", "2027")  # short numbers are not phones
+    browser_page.set_content(
+        '<label for="s">Veteran</label><select id="s"><option value="1">I am a veteran</option>'
+        '<option value="2">I am not a veteran</option></select>'
+    )
+    [field] = inspect_fields(browser_page)
+    browser_page.select_option("#s", value="1")
+    assert not verify_control(browser_page, field, "I am not a veteran")
+    browser_page.select_option("#s", value="2")
+    assert verify_control(browser_page, field, "I am not a veteran")
+    assert verify_control(browser_page, field, "2")  # select_by_value reports the value

@@ -105,15 +105,16 @@ def test_rejecting_a_candidate_retires_it_and_other_letters_reprompt() -> None:
 
 
 def test_binding_a_question_creates_the_missing_fact_from_the_catalog() -> None:
-    api = FakeApi({"candidates": [], "questions": [question("Are you at least 18 years of age?")],
+    api = FakeApi({"candidates": [], "questions": [question("Are you able to work on-site?")],
                    "prose": []})
     # `?` lists the catalog, then the key, then the suggested value (your last answer).
     counts = walk_inbox(  # type: ignore[arg-type]
-        api, ask=answers("b", "?", "identity.adult", "", ""), today=TODAY
+        api, ask=answers("b", "?", "availability.onsite", "", ""), today=TODAY
     )
     fact = next(call for call in api.calls if call[0] == "fact")
-    assert fact[1][0] == "identity.adult" and fact[1][1] is True
-    assert fact[1][2]["value_type"] == "boolean" and fact[1][2]["label"] == "At least 18 years old"
+    assert fact[1][0] == "availability.onsite" and fact[1][1] is True
+    assert fact[1][2]["value_type"] == "boolean"
+    assert fact[1][2]["label"] == "Available to work on-site or in person"
     created = next(call for call in api.calls if call[0] == "create")[1]
     assert created["kind"] == "binding" and created["question_id"] == "q2"
     assert created["origin"] == "inbox" and "archive_ref" not in created

@@ -912,14 +912,41 @@ def verify_control(
             return bool(wanted) and wanted <= set(selected)
         if field.get("type") in {"radio", "checkbox"}:
             return bool(control.is_checked(timeout=CONTROL_TIMEOUT_MS))
-        observed = str(control.input_value(timeout=CONTROL_TIMEOUT_MS)).strip()
         if field.get("tag") == "select" and value is not None:
-            return value.casefold() in observed.casefold() or bool(observed)
+            # The option's text is the answer; its value attribute is often an id.
+            shown = str(control.evaluate(
+                "element => element.selectedOptions[0]?.textContent?.trim() || ''",
+                timeout=CONTROL_TIMEOUT_MS,
+            ))
+            chosen = str(control.input_value(timeout=CONTROL_TIMEOUT_MS)).strip()
+            # select_by_value reports the value attribute it set, not the text.
+            return bool(chosen) and (same_entry(shown, value) or same_entry(chosen, value))
+        observed = str(control.input_value(timeout=CONTROL_TIMEOUT_MS)).strip()
         if field.get("role") == "combobox":
             return combobox_shows(control, str(value or ""))
-        return observed == str(value or "").strip()
+        return same_entry(observed, str(value or ""))
     except Error:
         return False
+
+
+PHONE_LIKE = re.compile(r"^[\d\s()+.\-]{7,}$")
+
+
+def same_entry(shown: str, expected: str) -> bool:
+    """Whether the control holds the value, allowing for how widgets reformat it.
+
+    A phone input masks `5550100199` as `(555) 010-0199` or `+1 555-010-0199`:
+    the digits are the value, and a country code of up to three digits may lead.
+    """
+    shown, expected = shown.strip(), expected.strip()
+    if shown == expected or " ".join(shown.casefold().split()) == " ".join(
+        expected.casefold().split()
+    ):
+        return True
+    if PHONE_LIKE.match(expected) and PHONE_LIKE.match(shown):
+        want, got = re.sub(r"\D", "", expected), re.sub(r"\D", "", shown)
+        return len(want) >= 7 and got.endswith(want) and len(got) - len(want) <= 3
+    return False
 
 
 COMBOBOX_VALUE_SCRIPT = """
@@ -1028,6 +1055,12 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           // React-select mirrors the chosen value into an aria-hidden input that
           // carries the required flag; the visible combobox is the real control.
           if (element.getAttribute('aria-hidden') === 'true') return false;
+          // A captcha's own response box answers the captcha, never a question.
+          const naming = `${element.getAttribute('name') || ''} ${element.id || ''}`.toLowerCase();
+          if (/captcha|turnstile/.test(naming)) return false;
+          if (element.closest('[data-sitekey], .g-recaptcha, .h-captcha, .cf-turnstile')) {
+            return false;
+          }
           return !['hidden', 'password', 'submit', 'button', 'reset'].includes(type);
         }).map((element, index) => {
           const id = element.id;

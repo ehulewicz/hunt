@@ -53,6 +53,8 @@ DERIVED_FACTS = (
         ("coop.anchor", "education.graduation_date"),
     ),
     DerivedFact("identity.first_name", "First name", ("identity.legal_name",)),
+    DerivedFact("identity.age", "Age in whole years", ("identity.birth_date",)),
+    DerivedFact("identity.adult", "At least 18 years old", ("identity.birth_date",)),
     DerivedFact("identity.last_name", "Last name", ("identity.legal_name",)),
     DerivedFact(
         "address.location",
@@ -146,6 +148,12 @@ def derive(facts: dict[str, Any], today: date) -> dict[str, Any]:
     """Every derived fact whose inputs are present, keyed by its dotted name."""
     graduation = _date(facts.get("education.graduation_date"))
     rotations = completed_rotations(facts.get("coop.anchor"), graduation, today)
+    born = _date(facts.get("identity.birth_date"))
+    age = (
+        today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+        if born
+        else None
+    )
     names = str(facts.get("identity.legal_name") or "").split()
     place = [
         str(facts.get(key) or "").strip()
@@ -158,6 +166,8 @@ def derive(facts: dict[str, Any], today: date) -> dict[str, Any]:
         "compensation.minimum_annual": annual_minimum(facts.get("compensation.minimum")),
         "experience.prior_internship": rotations > 0 if rotations is not None else None,
         "identity.first_name": names[0] if names else None,
+        "identity.age": age,
+        "identity.adult": age >= 18 if age is not None else None,
         "identity.last_name": names[-1] if len(names) > 1 else None,
         "address.location": ", ".join(part for part in place if part) or None,
         "work_auth.citizenship_country": "United States"
