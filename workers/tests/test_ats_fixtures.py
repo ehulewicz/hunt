@@ -1365,3 +1365,40 @@ def test_a_suggestion_list_without_aria_is_typed_into_and_picked(browser_page) -
     assert candidate is not None and candidate["strategy"] == "type_and_pick_suggestion"
     assert browser_page.input_value("#location-input") == "Atlanta, GA, USA"
     assert browser_page.input_value("#selected-location") == "Atlanta, GA, USA"
+
+
+def test_a_choice_lands_on_its_own_question_whatever_was_filtered_before_it(  # type: ignore[no-untyped-def]
+    browser_page,
+) -> None:
+    """Lever: two radio groups, hidden inputs and a captcha box earlier in the page.
+
+    The positional fallback counted every input while the capture skipped the
+    hidden ones, so "Yes" for export control checked another question's "yes".
+    """
+    browser_page.set_content(
+        '<input type="hidden" name="h1"><input type="hidden" name="h2">'
+        '<textarea name="h-captcha-response"></textarea>'
+        '<fieldset><legend>Earlier question?</legend>'
+        '<label><input type="radio" name="cards[a][field1]" value="yes">yes</label>'
+        '<label><input type="radio" name="cards[a][field1]" value="no">no</label></fieldset>'
+        '<fieldset><legend>Export control: are you a U.S. person?</legend>'
+        '<label><input type="radio" name="cards[b][field0]" value="Yes">Yes</label>'
+        '<label><input type="radio" name="cards[b][field0]" value="No">No</label></fieldset>'
+        '<label>City <input></label>'
+    )
+    fields = inspect_fields(browser_page)
+    plan = build_autofill_plan(
+        fields, resolver=Stub({"Export control: are you a U.S. person?": "Yes"})
+    )
+    apply_autofill(browser_page, fields, plan, resume_path=None, assert_active=lambda: None)
+    checked = browser_page.eval_on_selector_all(
+        "input[type=radio]:checked", "els => els.map(e => e.name + '=' + e.value)"
+    )
+    assert checked == ["cards[b][field0]=Yes"]
+    # A control with neither id nor name is found by its true position.
+    from personal_os_worker.jobs.browser import fresh_control
+
+    city = next(field for field in fields if field.get("label") == "City")
+    assert fresh_control(browser_page, city).evaluate("e => e.closest('label').textContent") == (
+        "City "
+    )

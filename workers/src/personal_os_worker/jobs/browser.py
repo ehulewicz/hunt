@@ -1334,15 +1334,23 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
               holder = holder.parentElement;
             }
           }
+          // A radio or checkbox shares its name with its group: its value
+          // tells it apart from the other options.
+          const optionValue = ['radio', 'checkbox'].includes(element.type)
+            && element.hasAttribute('value')
+            ? `[value="${CSS.escape(element.getAttribute('value'))}"]` : '';
           const selector = id
             ? `#${CSS.escape(id)}`
             : element.getAttribute('name')
               ? `${element.tagName.toLowerCase()}[name="${
                   CSS.escape(element.getAttribute('name'))
-                }"]`
+                }"]${optionValue}`
               : '';
           return {
             index,
+            // The position among every control the frame holds, filtered or
+            // not: what `fresh_control` counts when the selector is ambiguous.
+            control_index: elements.indexOf(element),
             tag: element.tagName.toLowerCase(),
             type: finalType,
             name: element.getAttribute('name'),
@@ -1405,7 +1413,6 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
         except Error:
             continue
         for item in cast(list[dict[str, Any]], raw):
-            item["control_index"] = item["index"]
             item["index"] = len(results)
             item["frame_index"] = frame_index
             item["frame_url"] = frame.url
