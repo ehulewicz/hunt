@@ -133,6 +133,11 @@ Against options, the first rendering that one option matches wins; none is a
 `preferences.location_strategy` when a question is bound to it, with draws
 seeded by the application.
 
+**What an answer reveals.** A form can add questions once a choice is made
+(race after Hispanic/Latino, a referral name after "were you referred"). After
+the deterministic pass the page is read again, and any empty question that was
+not there before gets its own pass (`fill_revealed`, at most twice).
+
 **What the audit does about it.** `jobs/audit.py` classifies what is still
 wrong once every tier has had its turn, and `AutofillSession.remediate` runs the
 lane each cause names: a `format_error` tries the fact's other renderings, a

@@ -104,6 +104,7 @@ from personal_os_worker.jobs.registry.events import (
     planned_events,
     unresolved_events,
 )
+from personal_os_worker.jobs.registry.kinds import question_of
 from personal_os_worker.jobs.repair.repairer import find_field, repair_format, repair_strategy
 from personal_os_worker.jobs.resolve import Knowledge, Miss, Resolver, VerdictResolver
 from personal_os_worker.jobs.short_answers import ShortQuestion, Verdict, draft_short_answers
@@ -229,6 +230,9 @@ ASK_LIMIT = 2
 # What one repair attempt costs the question's budget. A retry walks a control's
 # strategies, or a fact's renderings across them, so it is never one operation.
 REPAIR_COST = 5
+
+# Passes over questions an answer revealed, before the page is left to you.
+REVEAL_PASSES = 2
 
 TAG_STYLES = {
     "pattern": "green",
@@ -648,12 +652,52 @@ class AutofillSession:
         self._explainer.page = self.page
         return self._explainer
 
-    def fill_deterministic(self, fields: list[dict[str, Any]]) -> dict[str, Any]:
+    def fill_revealed(self, fields: list[dict[str, Any]], result: dict[str, Any]) -> None:
+        """Fill the questions an answer revealed, such as race after Hispanic/Latino.
+
+        A form can add controls once a choice is made. The page is read again
+        after the pass, and anything empty that was not there before gets its
+        own pass, at most `REVEAL_PASSES` times, so a form that keeps growing
+        cannot hold the run.
+        """
+        seen = {normalize_answer_question(question_of(item)) for item in fields}
+        for _ in range(REVEAL_PASSES):
+            new = {
+                key
+                for item in inspect_fields(self.page)
+                if item.get("filled") is not True
+                and (key := normalize_answer_question(question_of(item)))
+                and key not in seen
+            }
+            if not new:
+                return
+            seen |= new
+            more = self.fill_deterministic(fields, only=new)
+            for name in ("filled_fields", "skipped_fields", "failures"):
+                result.setdefault(name, []).extend(more.get(name) or [])
+
+    def fill_deterministic(
+        self, fields: list[dict[str, Any]], *, only: set[str] | None = None
+    ) -> dict[str, Any]:
+        """One deterministic pass; `only` limits it to these question keys."""
         resolver = Resolver(self.ctx.knowledge)
         fields[:], plan = plan_autofill(self.page, resolver=resolver)
         self.state.misses.update(resolver.misses)
         for item in fields:
             item["ats"] = self.ctx.ats
+
+        def in_scope(item: dict[str, Any]) -> bool:
+            return only is None or normalize_answer_question(question_of(item)) in only
+
+        if only is not None:
+            plan = type(plan)(
+                tuple(fill for fill in plan.fills if in_scope(fields[fill.index])),
+                tuple(
+                    question for question in plan.unanswered_required_questions
+                    if normalize_answer_question(question) in only
+                ),
+                plan.reasons,
+            )
         if not self.ctx.dry_run:
             # Prose controls are seeded by fill_long_form, which knows their source.
             plan = type(plan)(
@@ -668,16 +712,25 @@ class AutofillSession:
                     if is_long_form_field(fields[fill.index])
                 },
             )
-        console.print()
-        console.rule(f"[bold]Step {self.state.step + 1}[/bold]", align="left")
-        console.print(
-            f"  {len(fields)} controls · {len(plan.fills)} planned deterministically · "
-            f"{len(plan.unanswered_required_questions)} required still open"
-        )
+        if only is None:
+            console.print()
+            console.rule(f"[bold]Step {self.state.step + 1}[/bold]", align="left")
+            console.print(
+                f"  {len(fields)} controls · {len(plan.fills)} planned deterministically · "
+                f"{len(plan.unanswered_required_questions)} required still open"
+            )
+        else:
+            console.print(f"  [dim]{len(only)} question(s) appeared after answering; "
+                          f"{len(plan.fills)} planned[/dim]")
         explainer = self.explainer()
         if explainer is not None:
             explainer.begin(
-                f"step {self.state.step + 1}, patterns and engine", fields, plan, resolver
+                f"step {self.state.step + 1}, "
+                + ("patterns and engine" if only is None else "revealed questions"),
+                fields,
+                plan,
+                resolver,
+                scope=in_scope,
             )
         if self.ctx.dry_run:
             if explainer is not None:
@@ -793,7 +846,9 @@ class AutofillSession:
                 "fill_events": result["events"] + unresolved_events(
                     fields,
                     plan,
-                    skip=lambda item: is_long_form_field(item) or is_cover_letter_field(item),
+                    skip=lambda item: is_long_form_field(item)
+                    or is_cover_letter_field(item)
+                    or not in_scope(item),
                     misses=self.state.misses,
                 ),
             },
@@ -1794,6 +1849,8 @@ class AutofillSession:
                     result = self.fill_deterministic(fields)
                 if self.ctx.dry_run:
                     return {"final_url": self.page.url, "answers": [], "dry_run": True}
+                with self.timings.measure("revealed", step=self.state.step):
+                    self.fill_revealed(fields, result)
                 if self.ctx.use_claude:
                     with self.timings.measure("short_drafts", step=self.state.step):
                         self.fill_with_claude(fields, result)

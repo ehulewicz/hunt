@@ -55,6 +55,10 @@ CATALOG = _entries(
     CatalogEntry("education.degree_type", "Degree type", "text", "career"),
     CatalogEntry("education.field_of_study", "Field of study", "text", "career"),
     CatalogEntry("education.graduation_date", "Graduation date", "date", "career"),
+    CatalogEntry(
+        "education.degree_and_field", "Degree and field together, as one answer", "text",
+        "derived",
+    ),
     CatalogEntry("education.gpa", "GPA", "number", "career"),
     CatalogEntry("education.graduation_term", "Graduation term", "text", "derived"),
     CatalogEntry(

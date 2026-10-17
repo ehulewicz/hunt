@@ -54,6 +54,11 @@ DERIVED_FACTS = (
     ),
     DerivedFact("identity.first_name", "First name", ("identity.legal_name",)),
     DerivedFact("identity.age", "Age in whole years", ("identity.birth_date",)),
+    DerivedFact(
+        "education.degree_and_field",
+        "Degree and field together, as one answer",
+        ("education.degree_type", "education.field_of_study"),
+    ),
     DerivedFact("identity.adult", "At least 18 years old", ("identity.birth_date",)),
     DerivedFact("identity.last_name", "Last name", ("identity.legal_name",)),
     DerivedFact(
@@ -167,6 +172,10 @@ def derive(facts: dict[str, Any], today: date) -> dict[str, Any]:
         "experience.prior_internship": rotations > 0 if rotations is not None else None,
         "identity.first_name": names[0] if names else None,
         "identity.age": age,
+        "education.degree_and_field": f"{facts['education.degree_type']} in "
+        f"{facts['education.field_of_study']}"
+        if facts.get("education.degree_type") and facts.get("education.field_of_study")
+        else None,
         "identity.adult": age >= 18 if age is not None else None,
         "identity.last_name": names[-1] if len(names) > 1 else None,
         "address.location": ", ".join(part for part in place if part) or None,

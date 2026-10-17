@@ -973,6 +973,65 @@ def test_dry_run_plans_without_opening_tabs_or_writing(
     assert all(event["strategy"] is None and event["operated_ok"] is None for event in events)
 
 
+REVEALING_FORM = """
+<form>
+  <label for="hisp">Are you Hispanic/Latino?</label>
+  <select id="hisp"><option value=""></option><option>Yes</option><option>No</option></select>
+  <div id="more"></div>
+</form>
+<script>
+document.querySelector('#hisp').addEventListener('change', () => {
+  document.querySelector('#more').innerHTML =
+    '<label for="race">Please identify your race</label>' +
+    '<select id="race"><option value=""></option><option>Asian</option>' +
+    '<option>White</option></select>';
+});
+</script>
+"""
+
+
+def test_a_question_an_answer_reveals_is_filled_in_its_own_pass(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
+    browser_page.set_content(REVEALING_FORM)
+    api = FakeApi()
+    expression = {"kind": "expression", "status": "active"}
+    context = SessionContext(
+        api=api,  # type: ignore[arg-type]
+        run_id="run-reveal",
+        ats="greenhouse",
+        browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
+        page=browser_page,
+        console_errors=[],
+        knowledge=known(
+            {"eeo.hispanic_latino": False, "eeo.race_ethnicities": ["White"]},
+            patterns=[
+                expression | {"id": "e1", "expression": r"\bhispanic\b",
+                              "fact_key": "eeo.hispanic_latino", "resolver_id": "expression:e1"},
+                expression | {"id": "e2", "expression": r"^(?!.*\bhispanic\b).*\brace\b",
+                              "fact_key": "eeo.race_ethnicities", "resolver_id": "expression:e2"},
+            ],
+        ),
+        resume_json={},
+        resume_pdf=tmp_path / "missing.pdf",
+        company="Acme",
+        title="Backend Engineer Intern",
+        description=None,
+    )
+    session = AutofillSession(context)
+    fields = inspect_fields(browser_page)
+    result = session.fill_deterministic(fields)
+    assert browser_page.eval_on_selector("#hisp", "el => el.value") == "No"
+    assert browser_page.locator("#race").count() == 1  # revealed, not yet filled
+    session.fill_revealed(fields, result)
+    assert browser_page.eval_on_selector("#race", "el => el.value") == "White"
+    # The revealed pass sent its own events, for the revealed question only.
+    revealed = [event["question"] for event in api.steps[-1]["fill_events"]]
+    assert revealed == ["Please identify your race"]
+    assert any(item.get("label") == "Please identify your race" for item in fields)
+
+
 def test_explain_in_a_dry_run_shows_every_control_and_operates_none(
     browser_page,  # type: ignore[no-untyped-def]
     tmp_path: Path,

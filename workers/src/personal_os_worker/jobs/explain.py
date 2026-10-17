@@ -111,11 +111,20 @@ class Explainer:
         self.fields: list[dict[str, Any]] = []
         self.plan = AutofillPlan((), ())
         self.resolver: Any = None
+        self.scope: Callable[[dict[str, Any]], bool] = lambda _: True
 
     def begin(
-        self, title: str, fields: list[dict[str, Any]], plan: AutofillPlan, resolver: Any
+        self,
+        title: str,
+        fields: list[dict[str, Any]],
+        plan: AutofillPlan,
+        resolver: Any,
+        *,
+        scope: Callable[[dict[str, Any]], bool] | None = None,
     ) -> None:
+        """Start a pass; `scope` limits the not-filled listing to the controls it covers."""
         self.fields, self.plan, self.resolver = fields, plan, resolver
+        self.scope = scope or (lambda _: True)
         console.print()
         console.rule(f"[bold magenta]explain · {escape(title)}[/bold magenta]", align="left")
         console.print(
@@ -223,7 +232,7 @@ class Explainer:
         left = []
         for field in self.fields:
             index = int(field.get("index") or 0)
-            if index in planned:
+            if index in planned or not self.scope(field):
                 continue
             group = normalize_question(str(field.get("group") or ""))
             if group and (group in planned_groups or group in seen_groups):
