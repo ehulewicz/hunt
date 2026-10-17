@@ -172,9 +172,10 @@ control. `events.py` turns every attempt
 into a fill event (control, strategy, resolver, fact, formatter, the active
 pattern, value hash, whether the question wants prose, and where it stopped)
 that the step sends to FastAPI; a dry run sends one not-attempted event per
-question. A choice is refused, and left to you, only while a captcha you can see
-is on the page; an invisible-mode widget waiting for Submit (reCAPTCHA's badge,
-Lever's zero-height hCaptcha) does not count. A text box whose suggestions are
+question. A choice is refused, and left to you, only while a captcha challenge
+is open (its image or puzzle frame showing); a checkbox widget or an
+invisible-mode badge waiting for you at Submit does not count (R64). Nothing
+solves a captcha. A text box whose suggestions are
 plain elements rather than ARIA options (Lever's location) is typed into and the
 suggestion naming the same place is clicked (`type_and_pick_suggestion`), the
 fallback when `set_value` does not read back.

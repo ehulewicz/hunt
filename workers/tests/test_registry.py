@@ -219,7 +219,7 @@ def test_a_value_no_option_fits_stops_at_format_then_falls_back(browser_page) ->
     ]
 
 
-def test_an_invisible_captcha_does_not_park_choices_but_a_visible_one_does(  # type: ignore[no-untyped-def]
+def test_only_an_open_captcha_challenge_parks_choices(  # type: ignore[no-untyped-def]
     browser_page,
 ) -> None:
     form = """
@@ -252,11 +252,19 @@ def test_an_invisible_captcha_does_not_park_choices_but_a_visible_one_does(  # t
     )
     assert captcha_challenge_present(browser_page) is False
 
-    # A captcha you can see (the checkbox widget) parks the choice.
+    # A checkbox widget waiting for you at Submit does not park anything.
+    browser_page.set_content(
+        f'<form>{form}</form><div class="g-recaptcha" data-sitekey="s">'
+        '<iframe width="304" height="78" title="reCAPTCHA"'
+        ' src="https://www.google.com/recaptcha/api2/anchor?k=s"></iframe></div>'
+    )
+    assert captcha_challenge_present(browser_page) is False
+
+    # An open challenge (the image puzzle) parks the choice.
     browser_page.set_content(
         f'<form>{form}</form><div class="h-captcha" data-sitekey="s">'
-        '<iframe width="303" height="78" src="https://newassets.hcaptcha.com/captcha/v1/x/'
-        'static/hcaptcha.html#frame=checkbox"></iframe></div>'
+        '<iframe width="400" height="580" src="https://newassets.hcaptcha.com/captcha/v1/x/'
+        'static/hcaptcha.html#frame=challenge"></iframe></div>'
     )
     assert captcha_challenge_present(browser_page) is True
     fields = inspect_fields(browser_page)

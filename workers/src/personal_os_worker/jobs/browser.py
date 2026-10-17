@@ -413,17 +413,16 @@ class CaptchaPresent(RuntimeError):
     """An interactive captcha is on the page, so the control is left to the user."""
 
 
-# Markers of a captcha that clicking a control may trigger. Only a captcha you
-# can see counts: invisible-mode widgets (reCAPTCHA's corner badge, Lever's
-# hCaptcha in a zero-height box with hidden frames) wait for Submit and cannot
-# interrupt a click. The test is the same on every ATS.
+# An open captcha challenge: the image or puzzle frame a widget shows once it
+# is clicked or decides to test you. Only then does clicking anywhere else risk
+# dismissing or disturbing it, so only then are choices left to you (R64). A
+# checkbox widget waiting for you, an invisible-mode badge, or a hidden enclave
+# frame does not count, and nothing here ever solves a captcha.
 CAPTCHA_SCRIPT = """
 () => [...document.querySelectorAll(
-  'iframe[src*="captcha" i], [data-sitekey], [class*="captcha" i]'
+  'iframe[src*="recaptcha/api2/bframe" i], iframe[src*="recaptcha/enterprise/bframe" i],'
+  + ' iframe[src*="hcaptcha" i][src*="frame=challenge" i], iframe[title*="challenge" i]'
 )].some(element => {
-  if (element.closest('.grecaptcha-badge')) return false;
-  if ((element.getAttribute('data-size') || '').toLowerCase() === 'invisible') return false;
-  if (/[?&]size=invisible/i.test(element.getAttribute('src') || '')) return false;
   const box = element.getBoundingClientRect();
   if (box.width < 2 || box.height < 2) return false;
   const style = getComputedStyle(element);
@@ -520,14 +519,14 @@ def _click_option_button(attempt: Attempt) -> str | None:
 
 def _check_control(attempt: Attempt) -> str | None:
     if captcha_challenge_present(attempt.page):
-        raise CaptchaPresent("choice left manual because a captcha is present")
+        raise CaptchaPresent("choice left manual while a captcha challenge is open")
     attempt.control.check(timeout=CONTROL_TIMEOUT_MS)
     return attempt.fill.value
 
 
 def _uncheck_control(attempt: Attempt) -> str | None:
     if captcha_challenge_present(attempt.page):
-        raise CaptchaPresent("choice left manual because a captcha is present")
+        raise CaptchaPresent("choice left manual while a captcha challenge is open")
     attempt.control.uncheck(timeout=CONTROL_TIMEOUT_MS)
     return None
 

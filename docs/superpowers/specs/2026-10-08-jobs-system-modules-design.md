@@ -202,6 +202,19 @@ and settling R51's shadows) happens with you after this lands.
 > which answers every question matching it from the same fact, including
 > phrasings no application has used yet. *Found in review.*
 
+### Revision 2026-10-17
+
+> **R64 — Only an open captcha challenge parks a choice.** The guard left every
+> radio and checkbox to you whenever any captcha element was on the page, which
+> on Lever (an invisible hCaptcha) and JazzHR (a reCAPTCHA checkbox) meant every
+> choice question. Neither can be set off by clicking the form's own options: a
+> checkbox widget starts only when you click it, and invisible ones are bound
+> to Submit. Choices now pause only while a challenge frame (the image or
+> puzzle) is showing, where a click elsewhere could disturb it. Captchas are
+> still detected and handed to you, never solved. *Decided during unattended
+> training, 2026-10-17; yours to reverse.* Amends §4's "a captcha present means
+> the field is handed to you".
+
 ---
 
 ## 1. Why
@@ -1642,6 +1655,7 @@ on its own judgement and report the decisions; dispute any by number.
 | R61 | A wrong answer you typed is reported, never overwritten | decided by you 2026-10-16 |
 | R62 | A question reaches the model at most twice in a run | changed by you 2026-10-16 |
 | R63 | Repair is budgeted: 25 operations a question, 150 a run | decided by you 2026-10-16 |
+| R64 | Only an open captcha challenge parks a choice | decided in training 2026-10-17; yours to reverse |
 | R6 | Fact values reviewed in the database, `verified_at` per row | changed by you |
 | R7 | Minimum $40/hour; annual derived; always a number | changed by you |
 | R8 | `years_professional` derived from the career record | changed by your resume decision |
