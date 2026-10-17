@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -327,6 +328,19 @@ def run_mark_applied(reference: str) -> int:
     return 0
 
 
+CLOSED_POSTING = re.compile(
+    r"job is closed|no longer accepting|position has been filled|job (you requested )?(was )?"
+    r"not found|(job|position|posting) is no longer (available|open|active)"
+    r"|this job (has )?expired|no longer (available|open) for applications",
+    re.IGNORECASE,
+)
+
+
+def posting_closed(body: str) -> bool:
+    """Whether the live page says the posting is gone."""
+    return CLOSED_POSTING.search(body) is not None
+
+
 def apply_posting(
     posting_id: str,
     *,
@@ -445,6 +459,11 @@ def apply_posting(
                     text, company=expected_company, title=expected_title
                 ),
             )
+            # A closed posting often no longer names the role, so say "closed"
+            # before "does not match".
+            if posting_closed(body):
+                report_page_failure("closed_posting", "The live posting appears closed")
+                raise RuntimeError("The live posting appears closed; nothing was filled")
             if not identifies_posting(body, company=expected_company, title=expected_title):
                 report_page_failure(
                     "form_role_mismatch",
@@ -454,12 +473,6 @@ def apply_posting(
                     "The live page does not visibly match the intended company or role; "
                     "nothing was filled"
                 )
-            if any(
-                marker in body.casefold()
-                for marker in ("job is closed", "no longer accepting", "position has been filled")
-            ):
-                report_page_failure("closed_posting", "The live posting appears closed")
-                raise RuntimeError("The live posting appears closed; nothing was filled")
             console.print(
                 f"[bold]{expected_company}[/bold] — {expected_title}  [dim]({ats})[/dim]"
             )

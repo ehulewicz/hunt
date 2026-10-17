@@ -498,3 +498,19 @@ def test_repair_and_validate_are_commands_and_apply_repairs_by_default() -> None
         main(["hunt", "apply", "7", "--done", "--no-repair"])
     with pytest.raises(SystemExit, match="--done takes no other flags"):
         main(["hunt", "apply", "7", "--done", "--fresh"])
+
+
+@pytest.mark.parametrize(
+    ("body", "closed"),
+    [
+        ("Job not found\n\nThe job you requested was not found.", True),
+        ("This position is no longer available.", True),
+        ("We are no longer accepting applications for this role.", True),
+        ("Software Engineering Intern at Acme. Apply now.", False),
+        ("Join the team that found new ways to ship.", False),
+    ],
+)
+def test_a_closed_posting_is_recognised_in_any_wording(body: str, closed: bool) -> None:
+    from personal_os_worker.jobs.commands import posting_closed
+
+    assert posting_closed(body) is closed
