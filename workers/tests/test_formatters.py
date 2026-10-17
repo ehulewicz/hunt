@@ -185,3 +185,14 @@ def test_a_date_picks_the_range_option_that_holds_it() -> None:
     assert rendered("education.graduation_date", "2027-12-01", "date", "Graduation", spans) == (
         "Jun 2027 - Dec 2027", "date_as_range_option"
     )
+
+
+def test_no_is_a_whole_word_and_a_typeahead_reads_yes_and_no_like_a_select() -> None:
+    from personal_os_worker.jobs.browser import _pick
+    from personal_os_worker.jobs.options import choose_option
+
+    assert choose_option(["Not Applicable", "Google employee"], "No") is None
+    assert choose_option(["North Carolina", "No"], "No") == "No"
+    assert choose_option(["Yes - previous intern", "No - never"], "Yes") == "Yes - previous intern"
+    menu = ["Not Applicable", "Bet employee (Wing, X, Waymo, Other)", "Google employee"]
+    assert _pick(menu, "No") == "Not Applicable"  # the only option saying no

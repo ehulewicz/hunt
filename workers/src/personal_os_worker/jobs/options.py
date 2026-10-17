@@ -38,12 +38,18 @@ def choose_option(options: list[str], answer: str) -> str | None:
     matched = option_match(options, answer)
     if matched is not None:
         return matched
-    target = normalize_question(answer)
+    # A prefix in whole words: "Yes" names "Yes - previous intern", but "No"
+    # never names "Not Applicable" or "North Carolina".
+    target = normalize_answer_question(answer).split()
+
+    def leads(longer: list[str], shorter: list[str]) -> bool:
+        return bool(shorter) and longer[: len(shorter)] == shorter
+
     prefixed = [
         option
         for option in options
-        if normalize_question(option).startswith(target)
-        or target.startswith(normalize_question(option))
+        if leads(normalize_answer_question(option).split(), target)
+        or leads(target, normalize_answer_question(option).split())
     ]
     if len(prefixed) == 1:
         return prefixed[0]

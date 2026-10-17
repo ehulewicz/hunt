@@ -24,7 +24,7 @@ from personal_os_worker.jobs.autofill import (
     is_sensitive_field,
     preferred_source_option,
 )
-from personal_os_worker.jobs.formatters import choose_date_range
+from personal_os_worker.jobs.formatters import choose_date_range, yes_no_option
 from personal_os_worker.jobs.options import choose_option, choose_synonym, normalize_question
 from personal_os_worker.jobs.registry.events import fill_event, form_of
 from personal_os_worker.jobs.registry.kinds import classify, control_key, question_of
@@ -943,6 +943,10 @@ def _visible_texts(options: Any) -> tuple[list[int], list[str]]:
 def _pick(texts: list[str], value: str) -> str | None:
     distinct = list(dict.fromkeys(text for text in texts if text))
     chosen = choose_option(distinct, value) or choose_synonym(distinct, value)
+    if chosen is None and value.strip().casefold() in {"yes", "no"}:
+        # The same reading of yes and no a select gets ("No" is "Not Applicable"
+        # when that is the only option saying no).
+        chosen = yes_no_option(distinct, value.strip().casefold() == "yes")
     month = re.fullmatch(r"\s*([A-Za-z]+)\s+(\d{4})\s*", value)
     if chosen is None and month and month.group(1)[:3].casefold() in MONTH_PREFIXES:
         # "December 2027" against "Between December 2027 and September 2028".
