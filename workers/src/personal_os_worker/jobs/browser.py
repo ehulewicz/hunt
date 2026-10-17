@@ -23,7 +23,7 @@ from personal_os_worker.jobs.autofill import (
     is_sensitive_field,
     preferred_source_option,
 )
-from personal_os_worker.jobs.options import choose_option, normalize_question
+from personal_os_worker.jobs.options import choose_option, choose_synonym, normalize_question
 from personal_os_worker.jobs.registry.events import fill_event, form_of
 from personal_os_worker.jobs.registry.kinds import classify, control_key, question_of
 from personal_os_worker.jobs.registry.strategies import candidates
@@ -878,7 +878,7 @@ def _visible_texts(options: Any) -> tuple[list[int], list[str]]:
 
 def _pick(texts: list[str], value: str) -> str | None:
     distinct = list(dict.fromkeys(text for text in texts if text))
-    chosen = choose_option(distinct, value)
+    chosen = choose_option(distinct, value) or choose_synonym(distinct, value)
     if chosen is None:
         target = normalize_question(value)
         containing = [text for text in distinct if target and target in normalize_question(text)]

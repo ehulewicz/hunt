@@ -72,6 +72,13 @@ SYNONYM_GROUPS: tuple[frozenset[str], ...] = (
             "us citizen or national", "u s citizen or national",
         }
     ),
+    frozenset(
+        {
+            "bs", "b s", "bsc", "b sc", "bachelor", "bachelors", "bachelor s", "bachelor degree",
+            "bachelors degree", "bachelor s degree", "bachelor of science", "bachelor s of science",
+            "bachelor of science bs", "bachelor of science b s", "undergraduate degree",
+        }
+    ),
 )
 QUALIFIER_WORDS = frozenset(
     {"cis", "cisgender", "he", "him", "his", "she", "her", "hers", "they", "them"}

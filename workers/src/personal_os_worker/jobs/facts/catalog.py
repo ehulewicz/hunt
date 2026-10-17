@@ -142,6 +142,12 @@ CATALOG = _entries(
         "boolean",
         "derived",
     ),
+    CatalogEntry(
+        "employment.applied_before",
+        "Has submitted an application to this posting's company before",
+        "boolean",
+        "derived",
+    ),
     CatalogEntry("skills.all", "Every skill on the resume, in order", "list", "career"),
     CatalogEntry("referral.status", "How you were referred; none by default", "choice"),
     CatalogEntry("eeo.gender_identity", "Gender identity", "text"),

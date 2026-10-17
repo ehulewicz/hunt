@@ -86,12 +86,21 @@ HOW_HEARD = re.compile(
     r"\bhow did you (?:first )?(?:find|learn about)\b",
     re.IGNORECASE,
 )
+# A career fair, a campus career office or an info session is an event or a
+# place, never the employer's own site.
+NOT_A_SITE = frozenset(
+    {"fair", "fairs", "office", "event", "events", "center", "centre", "services", "session",
+     "expo", "seminar", "conference"}
+)
+
+
 def _is_company_site(value: str) -> bool:
-    """"Company Website", "DV Website", "Careers page": the employer's own site."""
+    """"Company Website", "Point72 Website", "Careers page": the employer's own site."""
     words = set(value.split())
-    if not words & {"website", "site", "careers", "career", "webpage"}:
+    if JOB_BOARD.search(value) or words & NOT_A_SITE:
         return False
-    if JOB_BOARD.search(value):
+    if not (words & {"website", "site", "webpage", "web"} or value in {"careers", "career page"}
+            or "careers page" in value or "career site" in value):
         return False
     return "job" not in words or "company" in words
 

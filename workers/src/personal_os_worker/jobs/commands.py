@@ -396,6 +396,7 @@ def apply_posting(
             seed=str(run.get("application_id") or run_id),
             today=date.today(),
             preferences=list(run.get("control_preferences") or []),
+            prior_applications=list(run.get("duplicate_company_applications") or []),
         )
         duplicates = list(run.get("duplicate_company_applications") or [])
         if duplicates:

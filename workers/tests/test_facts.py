@@ -73,6 +73,18 @@ def test_one_line_answers_are_derived_from_their_parts() -> None:
     assert derived["education.degree_and_field"] == "BS in Computer Science"
 
 
+def test_applied_before_counts_only_applications_that_went_in() -> None:
+    from personal_os_worker.jobs.facts.derived import posting_facts
+
+    assert posting_facts({}, "Point72", [{"status": "applied"}])[
+        "employment.applied_before"
+    ] is True
+    assert posting_facts({}, "Point72", [{"status": "skipped"}, {"status": "applying"}])[
+        "employment.applied_before"
+    ] is False
+    assert "employment.applied_before" not in posting_facts({}, "Point72")
+
+
 def test_derive_skips_facts_whose_inputs_are_missing() -> None:
     facts = {
         "coop.anchor": ANCHOR,

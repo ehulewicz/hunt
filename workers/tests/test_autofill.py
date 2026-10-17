@@ -254,6 +254,11 @@ def test_how_heard_uses_the_first_available_standing_source_preference() -> None
     assert chosen(["LinkedIn", "Handshake", "DV Website", "Other"]) == "DV Website"
     assert chosen(["LinkedIn", "Careers page", "Other"]) == "Careers page"
     assert chosen(["LinkedIn", "Job site", "Other"]) == "Other"
+    # A career fair or a campus career office is an event or a place, not the site.
+    assert chosen(["Career Fair", "Career Office", "Point72 Website", "Other"]) == (
+        "Point72 Website"
+    )
+    assert chosen(["Career Fair", "Non-campus Job Board", "Other"]) == "Non-campus Job Board"
 
 
 def test_how_heard_typeahead_without_visible_options_is_chosen_from_the_live_menu() -> None:

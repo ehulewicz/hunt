@@ -13,6 +13,7 @@ the facts session settles them, a stored fact with the same key wins (R51);
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -89,6 +90,11 @@ POSTING_FACTS = (
         "employment.worked_for",
         "Has worked or researched at the company in this posting",
         ("employment.organizations",),
+    ),
+    DerivedFact(
+        "employment.applied_before",
+        "Has submitted an application to this posting's company before",
+        ("your applications",),
     ),
 )
 
@@ -224,9 +230,25 @@ def worked_for(organizations: Any, company: str) -> bool | None:
     return any(contains(name, needle) or contains(needle, name) for name in names if name)
 
 
-def posting_facts(facts: dict[str, Any], company: str) -> dict[str, Any]:
+# An application that went in, whatever happened after.
+SUBMITTED_STATUSES = frozenset({"applied", "oa", "oa_completed", "interview", "offer", "rejected"})
+
+
+def posting_facts(
+    facts: dict[str, Any],
+    company: str,
+    prior_applications: Iterable[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Facts about you and this posting's company: worked there, applied there before."""
+    found: dict[str, Any] = {}
     known = worked_for(facts.get("employment.organizations"), company)
-    return {} if known is None else {"employment.worked_for": known}
+    if known is not None:
+        found["employment.worked_for"] = known
+    if prior_applications is not None:
+        found["employment.applied_before"] = any(
+            str(item.get("status")) in SUBMITTED_STATUSES for item in prior_applications
+        )
+    return found
 
 
 def _next_month(value: date) -> date:

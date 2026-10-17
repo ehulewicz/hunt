@@ -78,12 +78,17 @@ class Knowledge:
         seed: str = "",
         today: date | None = None,
         preferences: Iterable[dict[str, Any]] = (),
+        prior_applications: Iterable[dict[str, Any]] | None = None,
     ) -> Knowledge:
         """Stored facts over career-derived ones (R51), then derived and posting facts."""
         day = today or date.today()
         stored = fact_values(facts)
         base = {**career_facts(career, day), **stored}
-        values = {**derive(base, day), **posting_facts(base, company), **base}
+        values = {
+            **derive(base, day),
+            **posting_facts(base, company, prior_applications),
+            **base,
+        }
         types: dict[str, str] = {
             key: CATALOG[key].value_type for key in values if key in CATALOG
         }
