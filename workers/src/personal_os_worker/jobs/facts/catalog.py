@@ -51,6 +51,13 @@ CATALOG = _entries(
     CatalogEntry(
         "address.location", "Current location as city, state, country", "text", "derived"
     ),
+    CatalogEntry(
+        "address.city_state_zip", "City, state and postal code as one line", "text", "derived"
+    ),
+    CatalogEntry(
+        "address.full", "Street address, city, state and postal code as one line", "text",
+        "derived",
+    ),
     CatalogEntry("education.school_name", "School", "text", "career"),
     CatalogEntry("education.degree_type", "Degree type", "text", "career"),
     CatalogEntry("education.field_of_study", "Field of study", "text", "career"),
@@ -79,6 +86,9 @@ CATALOG = _entries(
     ),
     CatalogEntry(
         "work_auth.citizenship_country", "Country of citizenship", "text", "derived"
+    ),
+    CatalogEntry(
+        "work_auth.status", "Immigration or work authorization status", "text", "derived"
     ),
     CatalogEntry(
         "work_auth.sanctioned_country_citizen",

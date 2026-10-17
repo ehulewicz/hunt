@@ -150,3 +150,12 @@ def test_the_citizenship_option_is_chosen_only_when_asked_for() -> None:
         "work_auth.us_citizen", True, "boolean", "Authorization to work", field,
         prefer="citizenship_option",
     ) == ("I am authorized due to my nationality", "citizenship_option")
+
+
+def test_a_citizenship_status_finds_its_option_however_it_is_spelled() -> None:
+    from personal_os_worker.jobs.options import choose_synonym
+
+    for options in (["US Citizen", "Lawful Permanent Resident", "None"],
+                    ["U.S. Citizen or National", "Permanent Resident", "Other"],
+                    ["United States Citizen", "Green Card Holder"]):
+        assert choose_synonym(options, "US Citizen") == options[0]

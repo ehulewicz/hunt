@@ -61,6 +61,18 @@ def test_age_and_adulthood_follow_the_birth_date(today: date, age: int, adult: b
     assert (derived["identity.age"], derived["identity.adult"]) == (age, adult)
 
 
+def test_one_line_answers_are_derived_from_their_parts() -> None:
+    derived = derive({
+        "work_auth.us_citizen": True, "address.line_1": "100 Example Ave",
+        "address.city": "Atlanta", "address.state": "Georgia", "address.postal_code": "00000",
+        "education.degree_type": "BS", "education.field_of_study": "Computer Science",
+    }, date(2026, 10, 17))
+    assert derived["work_auth.status"] == "US Citizen"
+    assert derived["address.city_state_zip"] == "Atlanta, Georgia 00000"
+    assert derived["address.full"] == "100 Example Ave, Atlanta, Georgia 00000"
+    assert derived["education.degree_and_field"] == "BS in Computer Science"
+
+
 def test_derive_skips_facts_whose_inputs_are_missing() -> None:
     facts = {
         "coop.anchor": ANCHOR,

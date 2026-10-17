@@ -1061,6 +1061,10 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           if (element.closest('[data-sitekey], .g-recaptcha, .h-captcha, .cf-turnstile')) {
             return false;
           }
+          // A collapsed popup's own search box (a phone field's country picker)
+          // belongs to that control, never to the form.
+          const popup = element.closest('[role="dialog"], [role="listbox"], [role="menu"]');
+          if (popup && !popup.offsetWidth && !popup.offsetHeight) return false;
           return !['hidden', 'password', 'submit', 'button', 'reset'].includes(type);
         }).map((element, index) => {
           const id = element.id;

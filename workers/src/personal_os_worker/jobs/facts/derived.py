@@ -69,6 +69,19 @@ DERIVED_FACTS = (
     DerivedFact(
         "work_auth.citizenship_country", "Country of citizenship", ("work_auth.us_citizen",)
     ),
+    DerivedFact(
+        "work_auth.status", "Immigration or work authorization status", ("work_auth.us_citizen",)
+    ),
+    DerivedFact(
+        "address.city_state_zip",
+        "City, state and postal code as one line",
+        ("address.city", "address.state", "address.postal_code"),
+    ),
+    DerivedFact(
+        "address.full",
+        "Street address, city, state and postal code as one line",
+        ("address.line_1", "address.city", "address.state", "address.postal_code"),
+    ),
 )
 # Derived from the posting being filled, so only known during an application.
 POSTING_FACTS = (
@@ -153,6 +166,11 @@ def derive(facts: dict[str, Any], today: date) -> dict[str, Any]:
     """Every derived fact whose inputs are present, keyed by its dotted name."""
     graduation = _date(facts.get("education.graduation_date"))
     rotations = completed_rotations(facts.get("coop.anchor"), graduation, today)
+    city, state, postal, line_1 = (
+        str(facts.get(key) or "").strip()
+        for key in ("address.city", "address.state", "address.postal_code", "address.line_1")
+    )
+    city_state_zip = f"{city}, {state} {postal}" if city and state and postal else None
     born = _date(facts.get("identity.birth_date"))
     age = (
         today.year - born.year - ((today.month, today.day) < (born.month, born.day))
@@ -182,6 +200,9 @@ def derive(facts: dict[str, Any], today: date) -> dict[str, Any]:
         "work_auth.citizenship_country": "United States"
         if facts.get("work_auth.us_citizen") is True
         else None,
+        "work_auth.status": "US Citizen" if facts.get("work_auth.us_citizen") is True else None,
+        "address.city_state_zip": city_state_zip,
+        "address.full": f"{line_1}, {city_state_zip}" if line_1 and city_state_zip else None,
     }
     return {key: value for key, value in values.items() if value is not None}
 

@@ -1309,3 +1309,15 @@ def test_readback_accepts_a_masked_phone_and_rejects_a_wrong_select_option(  # t
     browser_page.select_option("#s", value="2")
     assert verify_control(browser_page, field, "I am not a veteran")
     assert verify_control(browser_page, field, "2")  # select_by_value reports the value
+
+
+def test_a_collapsed_popups_search_box_is_not_a_question(browser_page) -> None:  # type: ignore[no-untyped-def]
+    browser_page.set_content(
+        '<label for="phone">Phone</label><input id="phone" type="tel">'
+        '<div role="dialog" style="display:none"><input type="search" aria-label="Search"'
+        ' role="combobox"></div>'
+        '<div role="dialog"><label for="open">Visible in an open dialog</label>'
+        '<input id="open"></div>'
+    )
+    labels = [field["label"] for field in inspect_fields(browser_page)]
+    assert labels == ["Phone", "Visible in an open dialog"]

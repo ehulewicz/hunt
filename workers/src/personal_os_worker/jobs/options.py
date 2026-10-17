@@ -65,6 +65,13 @@ SYNONYM_GROUPS: tuple[frozenset[str], ...] = (
         {"female", "woman", "cis female", "cis woman", "cisgender female", "cisgender woman"}
     ),
     frozenset({"non binary", "nonbinary", "genderqueer", "gender non conforming"}),
+    frozenset(
+        {
+            "us citizen", "u s citizen", "united states citizen", "citizen of the united states",
+            "citizen of the us", "citizen of the u s", "american citizen",
+            "us citizen or national", "u s citizen or national",
+        }
+    ),
 )
 QUALIFIER_WORDS = frozenset(
     {"cis", "cisgender", "he", "him", "his", "she", "her", "hers", "they", "them"}
