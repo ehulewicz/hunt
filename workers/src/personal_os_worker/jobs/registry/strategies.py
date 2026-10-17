@@ -22,7 +22,7 @@ CANDIDATES: dict[str, tuple[str, ...]] = {
     "dynamic_choice": ("combobox_choose_from_menu", "combobox_type_and_select"),
     "choice_group": ("click_option_button", "check_control"),
     "toggle": ("check_control", "uncheck_control"),
-    "text_entry": ("set_value",),
+    "text_entry": ("set_value", "type_and_pick_suggestion"),
 }
 
 Applies = Callable[[dict[str, Any], FormFill, bool], bool]
@@ -55,6 +55,11 @@ APPLIES: dict[str, Applies] = {
     ),
     "uncheck_control": lambda field, fill, _: _type(field) == "checkbox" and fill.clear,
     "set_value": lambda field, fill, _: fill.value is not None and not _is_select(field),
+    "type_and_pick_suggestion": lambda field, fill, _: (
+        fill.value is not None
+        and not _is_select(field)
+        and _type(field) not in {"radio", "checkbox"}
+    ),
 }
 
 

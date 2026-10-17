@@ -390,16 +390,22 @@ class CaptchaPresent(RuntimeError):
     """An interactive captcha is on the page, so the control is left to the user."""
 
 
-# Markers of a captcha that clicking a control may trigger. Invisible-mode
-# reCAPTCHA (the corner badge) cannot interrupt a click, so it does not count;
-# otherwise the test is the same on every ATS.
+# Markers of a captcha that clicking a control may trigger. Only a captcha you
+# can see counts: invisible-mode widgets (reCAPTCHA's corner badge, Lever's
+# hCaptcha in a zero-height box with hidden frames) wait for Submit and cannot
+# interrupt a click. The test is the same on every ATS.
 CAPTCHA_SCRIPT = """
 () => [...document.querySelectorAll(
   'iframe[src*="captcha" i], [data-sitekey], [class*="captcha" i]'
 )].some(element => {
   if (element.closest('.grecaptcha-badge')) return false;
   if ((element.getAttribute('data-size') || '').toLowerCase() === 'invisible') return false;
-  return !/[?&]size=invisible/i.test(element.getAttribute('src') || '');
+  if (/[?&]size=invisible/i.test(element.getAttribute('src') || '')) return false;
+  const box = element.getBoundingClientRect();
+  if (box.width < 2 || box.height < 2) return false;
+  const style = getComputedStyle(element);
+  return style.visibility !== 'hidden' && style.display !== 'none'
+    && Number(style.opacity || 1) > 0;
 })
 """
 
@@ -508,10 +514,82 @@ def _set_value(attempt: Attempt) -> str | None:
     return attempt.fill.value
 
 
+# The visible, childless texts inside a field's own container: what a
+# suggestion list without ARIA roles shows once something is typed.
+FIELD_TEXTS_SCRIPT = """
+element => {
+  const box = element.closest(
+    'li, fieldset, [class*="question" i], [class*="field" i], [class*="form-group" i]'
+  ) || element.parentElement;
+  const out = [];
+  for (const node of box.querySelectorAll('*')) {
+    if (node.children.length || node === element || node.closest('label > :first-child')) continue;
+    const text = (node.textContent || '').trim();
+    const rect = node.getBoundingClientRect();
+    if (text && rect.width > 0 && rect.height > 0 && text.length < 160) out.push(text);
+  }
+  return out;
+}
+"""
+
+
+def _pick_suggestion(texts: list[str], value: str) -> str | None:
+    """The suggestion that names the same place, else the one option that matches."""
+    from personal_os_worker.jobs.office import parse
+
+    wanted = parse(value)
+    if wanted.city and wanted.state:
+        same = [
+            text for text in dict.fromkeys(texts)
+            if (place := parse(text)).city and place.city.casefold() == wanted.city.casefold()
+            and place.state == wanted.state
+        ]
+        if same:
+            return same[0]
+    return _pick(texts, value)
+
+
+def _type_and_pick_suggestion(attempt: Attempt) -> str | None:
+    """Type into a text box whose suggestions are plain elements, then click the match.
+
+    Some autocompletes (Lever's location) render suggestions with no ARIA
+    roles and clear the box on blur unless one is chosen. What appears in
+    the field's own container after typing is the suggestion list; the full
+    answer is typed first, then only its first part ("Atlanta"), since a
+    places search rarely knows "Atlanta, Georgia, United States".
+    """
+    control = attempt.control
+    value = str(attempt.fill.value)
+    before = set(control.evaluate(FIELD_TEXTS_SCRIPT, timeout=CONTROL_TIMEOUT_MS))
+    for typed in dict.fromkeys([value, value.split(",")[0].strip()]):
+        control.fill("", timeout=CONTROL_TIMEOUT_MS)
+        control.press_sequentially(typed, delay=30, timeout=CONTROL_TIMEOUT_MS)
+        deadline = time.monotonic() + SUGGESTION_TIMEOUT_S
+        while time.monotonic() < deadline:
+            attempt.page.wait_for_timeout(250)
+            texts = [
+                text
+                for text in control.evaluate(FIELD_TEXTS_SCRIPT, timeout=CONTROL_TIMEOUT_MS)
+                if text not in before
+            ]
+            chosen = _pick_suggestion(texts, value) if texts else None
+            if chosen is not None:
+                box = control.locator(
+                    "xpath=ancestor::*[self::li or self::fieldset or contains(@class,'question')"
+                    " or contains(@class,'field')][1]"
+                )
+                box.get_by_text(chosen, exact=True).first.click(timeout=CONTROL_TIMEOUT_MS)
+                attempt.page.wait_for_timeout(300)
+                shown = str(control.input_value(timeout=CONTROL_TIMEOUT_MS)).strip()
+                return shown or chosen
+    raise NoMatchingOption("no suggestion matched what was typed")
+
+
 # Every strategy in the registry, by name. `registry.strategies` decides which
 # are candidates for a fill and in what order.
 OPERATIONS: dict[str, Callable[[Attempt], str | None]] = {
     "upload_file": _upload_file,
+    "type_and_pick_suggestion": _type_and_pick_suggestion,
     "select_by_label": _select_by_label,
     "select_by_value": _select_by_value,
     "select_multiple": _select_multiple,
@@ -750,6 +828,8 @@ def set_registered_value(control: Any, value: str) -> None:
 
 
 COMBOBOX_SETTLE_MS = 300
+# How long a plain suggestion list may take to appear after typing.
+SUGGESTION_TIMEOUT_S = 4.0
 COMBOBOX_LIST_TIMEOUT_MS = 600
 COMBOBOX_OPTIONS_TIMEOUT_MS = 4_000
 

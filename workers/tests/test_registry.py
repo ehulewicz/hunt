@@ -219,7 +219,7 @@ def test_a_value_no_option_fits_stops_at_format_then_falls_back(browser_page) ->
     ]
 
 
-def test_invisible_recaptcha_does_not_park_choices_but_a_visible_challenge_does(  # type: ignore[no-untyped-def]
+def test_an_invisible_captcha_does_not_park_choices_but_a_visible_one_does(  # type: ignore[no-untyped-def]
     browser_page,
 ) -> None:
     form = """
@@ -243,7 +243,21 @@ def test_invisible_recaptcha_does_not_park_choices_but_a_visible_challenge_does(
     )
     assert result["failures"] == []
 
-    browser_page.set_content(f'<form>{form}</form><div class="h-captcha" data-sitekey="s"></div>')
+    # Lever's invisible hCaptcha: a zero-height box whose frames are hidden.
+    browser_page.set_content(
+        f'<form>{form}</form><div class="h-captcha" data-sitekey="s"></div>'
+        '<div style="visibility: hidden"><iframe width="300" height="200"'
+        ' src="https://newassets.hcaptcha.com/captcha/v1/x/static/hcaptcha-enclave.html'
+        '#frame=enclave"></iframe></div>'
+    )
+    assert captcha_challenge_present(browser_page) is False
+
+    # A captcha you can see (the checkbox widget) parks the choice.
+    browser_page.set_content(
+        f'<form>{form}</form><div class="h-captcha" data-sitekey="s">'
+        '<iframe width="303" height="78" src="https://newassets.hcaptcha.com/captcha/v1/x/'
+        'static/hcaptcha.html#frame=checkbox"></iframe></div>'
+    )
     assert captcha_challenge_present(browser_page) is True
     fields = inspect_fields(browser_page)
     plan = AutofillPlan((FormFill(index=by_label(fields, "Night"), kind="text", value="Night"),),

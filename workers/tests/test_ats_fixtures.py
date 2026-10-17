@@ -1321,3 +1321,47 @@ def test_a_collapsed_popups_search_box_is_not_a_question(browser_page) -> None: 
     )
     labels = [field["label"] for field in inspect_fields(browser_page)]
     assert labels == ["Phone", "Visible in an open dialog"]
+
+
+LEVER_LOCATION_LIVE = LEVER_LOCATION + """
+<script>
+const box = document.querySelector('#location-input');
+const results = document.querySelector('.dropdown-results');
+let chosen = '';
+box.addEventListener('input', () => {
+  chosen = '';
+  results.innerHTML = box.value.toLowerCase().startsWith('atlanta') && box.value.length < 12
+    ? '<div class="result">Atlanta, TX, USA</div><div class="result">Atlanta, GA, USA</div>'
+    : '';
+  results.querySelectorAll('.result').forEach(item => item.addEventListener('mousedown', () => {
+    chosen = item.textContent; box.value = chosen;
+    document.querySelector('#selected-location').value = chosen; results.innerHTML = '';
+  }));
+});
+// Lever forgets typed text that was never chosen from the list.
+box.addEventListener('change', () => { if (!chosen) box.value = ''; });
+</script>
+"""
+
+
+def test_a_suggestion_list_without_aria_is_typed_into_and_picked(browser_page) -> None:  # type: ignore[no-untyped-def]
+    from personal_os_worker.jobs.registry.strategies import CANDIDATES
+    from personal_os_worker.jobs.repair.repairer import repair_strategy
+
+    browser_page.set_content(LEVER_LOCATION_LIVE)
+    fields = inspect_fields(browser_page)
+    plan = build_autofill_plan(
+        fields, resolver=Stub({"Current location": "Atlanta, Georgia, United States"})
+    )
+    result = apply_autofill(
+        browser_page, fields, plan, resume_path=None, assert_active=lambda: None
+    )
+    # A plain set_value is cleared on blur: the live fill fails readback ...
+    assert result["failures"] and result["failures"][0]["stopped_at"] == "strategy"
+    assert CANDIDATES["text_entry"] == ("set_value", "type_and_pick_suggestion")
+    # ... and repair finds the suggestion that names the same city and state.
+    location = next(field for field in fields if field.get("name") == "location")
+    candidate = repair_strategy(browser_page, location, "Atlanta, Georgia, United States")
+    assert candidate is not None and candidate["strategy"] == "type_and_pick_suggestion"
+    assert browser_page.input_value("#location-input") == "Atlanta, GA, USA"
+    assert browser_page.input_value("#selected-location") == "Atlanta, GA, USA"
