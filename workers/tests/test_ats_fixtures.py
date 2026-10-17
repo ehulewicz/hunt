@@ -1456,3 +1456,24 @@ def test_jazzhr_address_parts_yes_no_boxes_and_hidden_mirrors(browser_page) -> N
     plan = build_autofill_plan(fields, resolver=resolver)
     apply_autofill(browser_page, fields, plan, resume_path=None, assert_active=lambda: None)
     assert browser_page.is_checked("#q1-2") and not browser_page.is_checked("#q1-1")
+
+
+def test_a_pair_of_identical_apply_buttons_is_one_action(browser_page) -> None:  # type: ignore[no-untyped-def]
+    browser_page.set_content(
+        """
+        <h1>OLED Software Co-op</h1>
+        <button class="top">Apply</button><p>About the role ...</p><button>Apply</button>
+        <script>
+        document.querySelectorAll('button').forEach(button => button.addEventListener('click', () => {
+          document.body.innerHTML = '<label>First Name<input name="first"></label>' +
+            '<label>Email<input name="email" type="email"></label>' +
+            '<label>Resume<input name="resume" type="file"></label>';
+        }));
+        </script>
+        """
+    )
+    assert reveal_application_form(browser_page, timeout_ms=2_000) is True
+    browser_page.set_content(
+        "<button>Apply</button><button>Apply</button><button>Apply</button>"
+    )
+    assert reveal_application_form(browser_page, timeout_ms=500) is False

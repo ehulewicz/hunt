@@ -348,6 +348,14 @@ def click_safe_transition(page: Page, *, kind: str) -> str | None:
             # of the posting; several links to the identical destination are
             # one control, not an ambiguous choice.
             candidates = _distinct_destinations(candidates)
+        if role == "button" and len(candidates) == 2 and len({
+            str(candidate.get_attribute("aria-label") or candidate.inner_text()).strip().casefold()
+            for candidate in candidates
+        }) == 1:
+            # ADP repeats an identical Apply button above and below the posting.
+            # Two with the same name are one action; three or more, or two with
+            # different names, may be different roles and stay ambiguous.
+            candidates = candidates[:1]
         if len(candidates) > 1:
             return None
         if len(candidates) == 1:
