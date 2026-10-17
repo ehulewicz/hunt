@@ -1402,3 +1402,57 @@ def test_a_choice_lands_on_its_own_question_whatever_was_filtered_before_it(  # 
     assert fresh_control(browser_page, city).evaluate("e => e.closest('label').textContent") == (
         "City "
     )
+
+
+JAZZHR = """
+<div class="job-form-fields">
+  <div class="form-group">
+    <label for="first" class="control-label">First Name<i class="asterisk">*</i></label>
+    <input type="text" id="first" name="resumator-firstname-value">
+  </div>
+  <div class="form-group">
+    <label for="resumator-address-value" class="control-label">Address</label>
+    <div class="resumator-input">
+      <input type="text" id="resumator-address-value" placeholder="Address">
+      <div class="row">
+        <div class="col"><input type="text" id="resumator-city-value" placeholder="City"></div>
+        <div class="col">
+          <input type="text" id="resumator-state-value" placeholder="State/Province"></div>
+        <div class="col"><input type="text" id="resumator-postal-value" placeholder="Postal"></div>
+      </div>
+    </div>
+  </div>
+  <textarea id="resumator-xml-value" style="display:none"></textarea>
+  <div class="form-group">
+    <label for="q1" class="control-label">Do you currently, or will you in the future require
+      sponsorship to work in the US?<i class="asterisk">*</i></label>
+    <input type="hidden" id="q1" name="resumator-questionnaire[1]">
+    <input type="checkbox" id="q1-1" name="resumator-checkbox-1-1" value="Yes">
+    <label for="q1-1">Yes</label>
+    <input type="checkbox" id="q1-2" name="resumator-checkbox-1-2" value="No">
+    <label for="q1-2">No</label>
+  </div>
+</div>
+"""
+
+
+def test_jazzhr_address_parts_yes_no_boxes_and_hidden_mirrors(browser_page) -> None:  # type: ignore[no-untyped-def]
+    browser_page.set_content(JAZZHR)
+    fields = inspect_fields(browser_page)
+    labels = [field["label"] for field in fields]
+    # Each address part keeps its own placeholder rather than the block's label,
+    # and the hidden XML mirror is not a question.
+    assert labels == ["First Name", "Address", "City", "State/Province", "Postal", "Yes", "No"]
+    boxes = [field for field in fields if field["type"] == "checkbox"]
+    assert all("require" in field["group"] and "sponsorship" in field["group"] for field in boxes)
+    assert all(field["group_size"] == 2 and field["required"] for field in boxes)
+    resolver = Resolver(Knowledge.build(
+        facts=[{"key": "work_auth.requires_sponsorship", "value": False}],
+        career=None,
+        patterns=[{"id": "e1", "kind": "expression", "expression": r"\bsponsor",
+                   "fact_key": "work_auth.requires_sponsorship",
+                   "resolver_id": "expression:e1", "status": "active"}],
+    ))
+    plan = build_autofill_plan(fields, resolver=resolver)
+    apply_autofill(browser_page, fields, plan, resume_path=None, assert_active=lambda: None)
+    assert browser_page.is_checked("#q1-2") and not browser_page.is_checked("#q1-1")

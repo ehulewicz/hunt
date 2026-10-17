@@ -1164,6 +1164,16 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           if (element.closest('[data-sitekey], .g-recaptcha, .h-captcha, .cf-turnstile')) {
             return false;
           }
+          // A text box nobody can see (an XML mirror, a "paste your resume" tab
+          // that is not open) is not a question. Hidden radios, checkboxes,
+          // files and selects stay: widgets style over them and still use them.
+          const textLike = element.tagName === 'TEXTAREA' || (
+            element.tagName === 'INPUT' && !['radio', 'checkbox', 'file'].includes(type)
+          );
+          if (textLike && !(element.offsetWidth || element.offsetHeight
+              || element.getClientRects().length)) {
+            return false;
+          }
           // A collapsed popup's own search box (a phone field's country picker)
           // belongs to that control, never to the form.
           const popup = element.closest('[role="dialog"], [role="listbox"], [role="menu"]');
@@ -1172,6 +1182,10 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
         }).map((element, index) => {
           const id = element.id;
           const explicit = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`) : null;
+          // A label that names another, existing control by its id is that
+          // control's (Ashby's education labels name ids that do not exist).
+          const ownLabel = node => !node.htmlFor || node.htmlFor === id
+            || !document.getElementById(node.htmlFor);
           const wrapping = element.closest('label');
           const fieldset = element.closest('fieldset');
           // Ashby writes the group question as a heading label, not a legend.
@@ -1196,7 +1210,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           let localWrapper = element.parentElement;
           for (let depth = 0; localWrapper && depth < 5; depth += 1) {
             localLabel = [...localWrapper.children].find(
-              child => child.tagName === 'LABEL' && !child.contains(element)
+              child => child.tagName === 'LABEL' && !child.contains(element) && ownLabel(child)
             ) || null;
             if (localLabel) break;
             localWrapper = localWrapper.parentElement;
@@ -1278,7 +1292,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
               || element.getAttribute('aria-label')
               || referenced
               || localLabel?.textContent
-              || nearby?.querySelector('label')?.textContent
+              || [...(nearby?.querySelectorAll('label') || [])].find(ownLabel)?.textContent
               || element.getAttribute('placeholder')
               || ''
             ).trim();
@@ -1310,6 +1324,36 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           // How many inputs answer the same question: options sharing a name,
           // or, unnamed, sharing a fieldset or group. One checkbox is a toggle;
           // several are a multi-choice group.
+          // Options with no shared name, fieldset or group role (JazzHR's Yes/No
+          // checkboxes): the smallest ancestor holding two or more of them is the
+          // question's block, and the question is the nearest label before them
+          // that is not an option's own.
+          let blockOptions = [];
+          let blockQuestion = null;
+          if (['radio', 'checkbox'].includes(element.type) && !legend && !group
+              && !yesnoContainer) {
+            let ancestor = element.parentElement;
+            for (let depth = 0; ancestor && depth < 5; depth += 1) {
+              const options = [...ancestor.querySelectorAll(`input[type="${element.type}"]`)];
+              if (options.length >= 2) {
+                const optionLabel = node => options.some(
+                  option => node.contains(option) || (node.htmlFor && node.htmlFor === option.id)
+                );
+                // One question only: a container holding several questions'
+                // options is a form, not a question's block.
+                const questions = [...ancestor.querySelectorAll('label, legend')].filter(
+                  node => !optionLabel(node) && (node.textContent || '').trim()
+                );
+                if (questions.length === 1 && (questions[0].compareDocumentPosition(element)
+                    & Node.DOCUMENT_POSITION_FOLLOWING)) {
+                  blockOptions = options;
+                  blockQuestion = questions[0];
+                }
+                break;
+              }
+              ancestor = ancestor.parentElement;
+            }
+          }
           let groupSize = 1;
           if (['radio', 'checkbox'].includes(element.type) && !yesnoContainer) {
             const sameType = `input[type="${element.type}"]`;
@@ -1319,6 +1363,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
                 ).length
               : element.closest('fieldset, [role="group"], [role="radiogroup"]')
                   ?.querySelectorAll(sameType).length || 1;
+            if (groupSize < 2 && blockOptions.length >= 2) groupSize = blockOptions.length;
           }
           const isCombobox = element.getAttribute('role') === 'combobox';
           // react-select empties its search input after a pick and renders the
@@ -1360,6 +1405,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
               || group?.getAttribute('aria-label')
               || nearbyQuestion?.textContent
               || (['radio', 'checkbox'].includes(element.type) ? leverQuestionText : null)
+              || blockQuestion?.textContent
               || ''
             ).trim().replace(/\\s*\\*\\s*$/, ''),
             required: element.required === true
@@ -1367,6 +1413,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
               || Boolean(localLabel && /required/i.test(String(localLabel.className)))
               || /\\*\\s*$/.test(rawLabel)
               || (['radio', 'checkbox'].includes(element.type) && groupRequired)
+              || Boolean(blockQuestion && /\\*\\s*$/.test(blockQuestion.textContent || ''))
               || (element.getAttribute('role') === 'combobox' && mirroredRequired)
               || Boolean(yesnoContainer && /_required_/.test(yesnoLabel?.className || '')),
             selector,
