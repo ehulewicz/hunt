@@ -1487,3 +1487,22 @@ def test_a_phone_box_holding_only_its_dial_code_is_empty(browser_page) -> None: 
     )
     filled = {field["label"]: field["filled"] for field in inspect_fields(browser_page)}
     assert filled == {"Mobile Number": False, "Home phone": True}
+
+
+def test_an_apply_link_inside_an_iframe_reveals_the_form_there(browser_page) -> None:  # type: ignore[no-untyped-def]
+    """iCIMS: the posting and its "Apply for this job online" link live in a frame."""
+    inner = (
+        "<a href='#' onclick=\"document.body.innerHTML = "
+        "'<label>Email<input type=email name=email></label>"
+        "<label>First Name<input name=first></label>"
+        "<label>Resume<input type=file name=resume></label>'; return false\">"
+        "Apply for this job online</a>"
+    )
+    from html import escape
+
+    browser_page.set_content(
+        f'<a href="#x">Skip Branding</a><iframe srcdoc="{escape(inner)}"></iframe>'
+    )
+    browser_page.wait_for_timeout(300)
+    assert reveal_application_form(browser_page, timeout_ms=3_000) is True
+    assert any(field.get("name") == "email" for field in inspect_fields(browser_page))

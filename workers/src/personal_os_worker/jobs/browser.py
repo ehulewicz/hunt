@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 from urllib.parse import urlsplit
 
 from playwright.sync_api import Browser, Error, Page, Playwright, sync_playwright
@@ -329,11 +329,16 @@ def _distinct_destinations(candidates: list[Any]) -> list[Any]:
     return candidates
 
 
+TRANSITION_ROLES: tuple[Literal["link", "button"], ...] = ("link", "button")
+
+
 def click_safe_transition(page: Page, *, kind: str) -> str | None:
     """Click one unambiguous non-submission navigation control."""
     patterns = {
         "apply": re.compile(
-            r"^\s*(?:apply(?: for this job| now)?|start application)\s*$", re.I
+            r"^\s*(?:apply(?: for this (?:job|position|role))?(?: online| now)?"
+            r"|start application)\s*$",
+            re.I,
         ),
         "next": re.compile(r"^\s*(?:next|continue|save and continue)\s*$", re.I),
     }
@@ -345,10 +350,15 @@ def click_safe_transition(page: Page, *, kind: str) -> str | None:
     ).count():
         return None
 
-    for role in ("link", "button"):
+    # iCIMS serves the posting, Apply link included, inside an iframe.
+    for role, frame in ((role, frame) for frame in page.frames for role in TRANSITION_ROLES):
         candidates: list[Any] = []
-        locator = page.get_by_role(role, name=pattern)
-        for index in range(locator.count()):
+        try:
+            locator = frame.get_by_role(role, name=pattern)
+            count = locator.count()
+        except Error:
+            continue
+        for index in range(count):
             candidate = locator.nth(index)
             try:
                 if candidate.is_visible() and candidate.is_enabled():
@@ -409,11 +419,20 @@ def reveal_application_form(page: Page, *, timeout_ms: int = 15_000) -> bool:
         return True
     try:
         clicked = click_safe_transition(page, kind="apply")
-        if clicked is not None:
-            page.wait_for_selector("input, textarea, select", timeout=timeout_ms)
     except Error:
         return False
-    return looks_like_application_form(inspect_fields(page))
+    if clicked is None:
+        return False
+    # The form may load in the page or in a frame (iCIMS), so poll for it.
+    deadline = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < deadline:
+        try:
+            if looks_like_application_form(inspect_fields(page)):
+                return True
+            page.wait_for_timeout(500)
+        except Error:
+            return False
+    return False
 
 
 def plan_autofill(
