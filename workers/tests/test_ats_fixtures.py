@@ -1478,3 +1478,12 @@ def test_a_pair_of_identical_apply_buttons_is_one_action(browser_page) -> None: 
         "<button>Apply</button><button>Apply</button><button>Apply</button>"
     )
     assert reveal_application_form(browser_page, timeout_ms=500) is False
+
+
+def test_a_phone_box_holding_only_its_dial_code_is_empty(browser_page) -> None:  # type: ignore[no-untyped-def]
+    browser_page.set_content(
+        '<label for="m">Mobile Number</label><input id="m" type="tel" value="+1">'
+        '<label for="h">Home phone</label><input id="h" type="tel" value="(555) 010-0199">'
+    )
+    filled = {field["label"]: field["filled"] for field in inspect_fields(browser_page)}
+    assert filled == {"Mobile Number": False, "Home phone": True}

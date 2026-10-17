@@ -1456,8 +1456,12 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
                 ? (element.files?.length || 0) > 0
                 : ['checkbox', 'radio'].includes(element.type)
                   ? element.checked === true
-                  : String(element.value || '').trim().length > 0
-                    || (isCombobox && (mirroredValue.length > 0 || chosenText.length > 0)),
+                  // A phone box prefilled with its dial code ("+1") or a mask
+                  // ("(___) ___-____") holds no number yet.
+                  : element.type === 'tel'
+                    ? String(element.value || '').replace(/\\D/g, '').length >= 7
+                    : String(element.value || '').trim().length > 0
+                      || (isCombobox && (mirroredValue.length > 0 || chosenText.length > 0)),
           };
         })
         """
