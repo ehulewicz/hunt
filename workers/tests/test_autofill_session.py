@@ -402,6 +402,46 @@ def test_active_page_rejects_a_closed_session_page_when_another_web_tab_remains(
         browser.active_page(application_page)
 
 
+def test_active_page_follows_only_tabs_of_this_application(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    """An extension's "what's new" tab took focus mid-run and was read as the form."""
+    context = browser_page.context
+    body = (
+        "<title>tab</title>"
+        "<a id='open' href='https://forms.example.org/next' target='_blank'>open</a>"
+    )
+    context.route("https://**/*", lambda route: route.fulfill(body=body, content_type="text/html"))
+    browser = VisibleBrowser("http://unused")
+    browser._browser = cast(Any, context.browser)
+    application = context.new_page()
+    opened: list[Any] = [application]
+    try:
+        application.goto("https://jobs.example.com/apply")
+        advert = context.new_page()
+        opened.append(advert)
+        advert.goto("https://getadblock.com/whats-new")
+        assert browser.active_page(application) == application
+
+        step_two = context.new_page()
+        opened.append(step_two)
+        step_two.goto("https://jobs.example.com/apply/step-2")
+        assert browser.active_page(application) == step_two
+        step_two.close()
+
+        with context.expect_page() as popup_info:
+            application.click("#open")
+        popup = popup_info.value
+        opened.append(popup)
+        popup.wait_for_load_state()
+        assert browser.active_page(application) == popup
+    finally:
+        for page in opened:
+            if not page.is_closed():
+                page.close()
+        context.unroute("https://**/*")
+
+
 def test_session_stops_when_page_closes_during_form_inspection(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

@@ -139,6 +139,24 @@ def tab_continues(tab_url: str, application_url: str) -> bool:
     return here == there or here.startswith(f"{there}/")
 
 
+def _site(url: str) -> str:
+    """The registrable part of a URL's host, near enough: its last two labels."""
+    host = (urlsplit(url).hostname or "").casefold()
+    return ".".join(host.split(".")[-2:])
+
+
+def _same_application(page: Page, current: Page) -> bool:
+    if page == current:
+        return True
+    try:
+        opener = page.opener()
+    except Error:
+        opener = None
+    if opener is not None and opener == current:
+        return True
+    return bool(_site(page.url)) and _site(page.url) == _site(current.url)
+
+
 class VisibleBrowser:
     def __init__(self, cdp_url: str) -> None:
         self._cdp_url = cdp_url
@@ -197,13 +215,18 @@ class VisibleBrowser:
             raise BrowserClosedError("The automation browser was closed") from error
         if not pages:
             raise BrowserClosedError("The application tab was closed")
+        if current_page is not None:
+            # Follow only tabs that belong to this application: one it opened,
+            # or one on the same site. An extension's "what's new" tab, or any
+            # other tab that takes focus, is not the application.
+            pages = [page for page in pages if _same_application(page, current_page)]
         for page in reversed(pages):
             try:
                 if page.evaluate("document.visibilityState") == "visible":
                     return page
             except Error:
                 continue
-        return pages[-1]
+        return current_page if current_page is not None else pages[-1]
 
     def isolated_page(self, url: str, *, guard: Callable[[Page], None]) -> Page:
         """A page in a new browser context: no shared cookies or drafts (R22).
@@ -1441,8 +1464,11 @@ def page_evidence(
         "controls.json": json.dumps(captured_fields, indent=2, default=str).encode(),
         "page.json": json.dumps({"url": page.url, "title": page.title()}, indent=2).encode(),
         "console-errors.json": json.dumps(console_errors or [], indent=2).encode(),
-        "screen.png": page.screenshot(full_page=True),
     }
+    # A screenshot is the first thing to time out on a busy page; the controls
+    # and HTML still say what happened without it.
+    with contextlib.suppress(Error):
+        evidence["screen.png"] = page.screenshot(full_page=True, timeout=10_000)
     for frame_index, frame in enumerate(page.frames):
         try:
             body = frame.locator("body")
