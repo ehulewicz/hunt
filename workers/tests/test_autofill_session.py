@@ -1522,3 +1522,22 @@ def test_the_budget_stops_a_question_from_spending_the_run(
 
     assert first == "once"
     assert second is None
+
+
+def test_a_failed_evidence_upload_is_skipped_not_fatal(capsys: pytest.CaptureFixture[str]) -> None:
+    import httpx
+
+    class FlakyApi(FakeApi):
+        def upload_autofill_artifact(self, run_id: str, *, name: str, **_: Any) -> str:
+            if name.endswith(".png"):
+                request = httpx.Request("POST", "http://api/artifacts")
+                raise httpx.HTTPStatusError(
+                    "502", request=request, response=httpx.Response(502, request=request)
+                )
+            return f"artifacts/{name}"
+
+    context = SimpleNamespace(api=FlakyApi(), run_id="run-flaky", page=None)
+    session = AutofillSession(cast(Any, context))
+    paths = session.upload_evidence({"page.png": b"x", "page.html": b"y", "more.png": b"z"})
+    assert paths == {"page.html": "artifacts/page.html"}
+    assert capsys.readouterr().out.count("Could not store failure evidence") == 1

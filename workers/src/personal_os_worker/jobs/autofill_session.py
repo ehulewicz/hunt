@@ -22,6 +22,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+import httpx
 from playwright.sync_api import Error, Page
 from rich.markup import escape
 
@@ -369,12 +370,21 @@ class AutofillSession:
             return self._upload_evidence(evidence)
 
     def _upload_evidence(self, evidence: dict[str, bytes]) -> dict[str, str]:
-        return {
-            name: self.ctx.api.upload_autofill_artifact(
-                self.ctx.run_id, name=name, content=content, content_type=content_type_for(name)
-            )
-            for name, content in evidence.items()
-        }
+        """Upload what can be uploaded; evidence is never worth ending the session over."""
+        paths: dict[str, str] = {}
+        for name, content in evidence.items():
+            try:
+                paths[name] = self.ctx.api.upload_autofill_artifact(
+                    self.ctx.run_id, name=name, content=content,
+                    content_type=content_type_for(name),
+                )
+            except httpx.HTTPError as error:
+                self.warn_once(
+                    "evidence-upload",
+                    f"Could not store failure evidence ({error.__class__.__name__}); "
+                    "the fill carries on without it.",
+                )
+        return paths
 
     def report_page_failure(
         self, category: str, message: str, *, artifact_paths: dict[str, str] | None = None
