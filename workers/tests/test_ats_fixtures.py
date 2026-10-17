@@ -1506,3 +1506,60 @@ def test_an_apply_link_inside_an_iframe_reveals_the_form_there(browser_page) -> 
     browser_page.wait_for_timeout(300)
     assert reveal_application_form(browser_page, timeout_ms=3_000) is True
     assert any(field.get("name") == "email" for field in inspect_fields(browser_page))
+
+
+SHADOW_FORM = """
+<oc-resume-upload></oc-resume-upload>
+<oc-easy-apply></oc-easy-apply>
+<city-picker></city-picker>
+<script>
+customElements.define('oc-resume-upload', class extends HTMLElement {
+  connectedCallback() {
+    this.attachShadow({mode: 'open'}).innerHTML =
+      '<div class="dropzone"><input type="file" id="resume-drop">' +
+      '<label for="resume-drop">Choose a file</label></div>';
+  }
+});
+customElements.define('oc-easy-apply', class extends HTMLElement {
+  connectedCallback() {
+    this.attachShadow({mode: 'open'}).innerHTML =
+      '<div class="dropzone"><input type="file" id="easy-drop">' +
+      '<label for="easy-drop">Choose a file</label></div>';
+  }
+});
+customElements.define('city-picker', class extends HTMLElement {
+  connectedCallback() {
+    const root = this.attachShadow({mode: 'open'});
+    root.innerHTML = '<label for="city">City</label>' +
+      '<input id="city" role="combobox" aria-autocomplete="list" aria-expanded="false">' +
+      '<ul role="listbox" id="cities"></ul>';
+    const box = root.querySelector('#city');
+    const list = root.querySelector('#cities');
+    box.addEventListener('input', () => {
+      list.innerHTML = box.value.toLowerCase().startsWith('atl')
+        ? '<li role="option">Atlanta, GA, USA</li><li role="option">Atlantic City, NJ, USA</li>'
+        : '';
+      list.querySelectorAll('li').forEach(item => item.addEventListener('click', () => {
+        box.value = item.textContent; list.innerHTML = '';
+      }));
+    });
+  }
+});
+</script>
+"""
+
+
+def test_shadow_dom_resume_dropzone_and_typeahead(browser_page, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    """SmartRecruiters renders its form in shadow roots."""
+    from personal_os_worker.jobs.autofill import is_resume_field
+    from personal_os_worker.jobs.browser import select_combobox_option
+
+    browser_page.set_content(SHADOW_FORM)
+    fields = inspect_fields(browser_page)
+    files = [field for field in fields if field.get("type") == "file"]
+    assert [is_resume_field(field) for field in files] == [True, False]
+    city = next(field for field in fields if field.get("label") == "City")
+    from personal_os_worker.jobs.browser import fresh_control
+
+    chosen = select_combobox_option(browser_page, fresh_control(browser_page, city), "Atlanta")
+    assert chosen == "Atlanta, GA, USA"

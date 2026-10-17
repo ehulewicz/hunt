@@ -897,7 +897,16 @@ COMBOBOX_OPTIONS_TIMEOUT_MS = 4_000
 
 def _menu_options(control: Any) -> Any:
     # Scope to the control's own document so a form inside an iframe works too.
-    return control.locator("xpath=ancestor::body").get_by_role("option")
+    scoped = control.locator("xpath=ancestor::body")
+    try:
+        in_document = scoped.count() > 0
+    except Error:
+        in_document = False
+    if in_document:
+        return scoped.get_by_role("option")
+    # Inside a shadow root (SmartRecruiters) XPath cannot climb to <body>; role
+    # queries pierce shadow roots, so ask the page.
+    return control.page.get_by_role("option")
 
 
 def _visible_texts(options: Any) -> tuple[list[int], list[str]]:
@@ -1219,11 +1228,14 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           return !['hidden', 'password', 'submit', 'button', 'reset'].includes(type);
         }).map((element, index) => {
           const id = element.id;
-          const explicit = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`) : null;
+          // The document, or the shadow root the control lives in (SmartRecruiters).
+          const home = element.getRootNode();
+          const explicit = id ? home.querySelector(`label[for="${CSS.escape(id)}"]`) : null;
           // A label that names another, existing control by its id is that
           // control's (Ashby's education labels name ids that do not exist).
           const ownLabel = node => !node.htmlFor || node.htmlFor === id
-            || !document.getElementById(node.htmlFor);
+            || !(home.getElementById ? home.getElementById(node.htmlFor)
+              : document.getElementById(node.htmlFor));
           const wrapping = element.closest('label');
           const fieldset = element.closest('fieldset');
           // Ashby writes the group question as a heading label, not a legend.
@@ -1245,7 +1257,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           // the nearest label that is a direct child of a control-local
           // wrapper before falling back to the outer field/section heading.
           let localLabel = null;
-          let localWrapper = element.parentElement;
+          let localWrapper = element.parentElement || (home !== document ? home : null);
           for (let depth = 0; localWrapper && depth < 5; depth += 1) {
             localLabel = [...localWrapper.children].find(
               child => child.tagName === 'LABEL' && !child.contains(element) && ownLabel(child)
@@ -1392,6 +1404,19 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
               ancestor = ancestor.parentElement;
             }
           }
+          // What a file control sits in, crossing shadow roots: a dropzone
+          // labelled only "Choose a file" inside <oc-resume-upload> is the resume.
+          const containerHints = [];
+          if (element.type === 'file') {
+            let node = element;
+            for (let depth = 0; depth < 4; depth += 1) {
+              const root = node.getRootNode();
+              node = node.parentElement || (root instanceof ShadowRoot ? root.host : null);
+              if (!node || node === document.body) break;
+              const classes = typeof node.className === 'string' ? node.className : '';
+              containerHints.push(`${node.tagName} ${node.id || ''} ${classes}`.toLowerCase());
+            }
+          }
           let groupSize = 1;
           if (['radio', 'checkbox'].includes(element.type) && !yesnoContainer) {
             const sameType = `input[type="${element.type}"]`;
@@ -1474,6 +1499,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
                 ? (element.getAttribute('value') || '') : null,
             multiple: element.tagName === 'SELECT' && element.multiple === true,
             group_size: groupSize,
+            container: containerHints.join(' | ').slice(0, 400) || null,
             aria: {
               autocomplete: element.getAttribute('aria-autocomplete'),
               haspopup: element.getAttribute('aria-haspopup'),

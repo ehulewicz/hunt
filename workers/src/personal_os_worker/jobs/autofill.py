@@ -128,7 +128,7 @@ def is_resume_field(field: dict[str, Any]) -> bool:
     if str(field.get("type") or "").casefold() != "file":
         return False
     hints = normalize_question(
-        " ".join(str(field.get(key) or "") for key in ("label", "name", "selector"))
+        " ".join(str(field.get(key) or "") for key in ("label", "name", "selector", "container"))
     )
     return "resume" in hints or re.search(r"(?<![a-z])cv(?![a-z])", hints) is not None
 
@@ -138,7 +138,7 @@ def is_transcript_field(field: dict[str, Any]) -> bool:
     if str(field.get("type") or "").casefold() != "file":
         return False
     hints = normalize_question(
-        " ".join(str(field.get(key) or "") for key in ("label", "name", "selector"))
+        " ".join(str(field.get(key) or "") for key in ("label", "name", "selector", "container"))
     )
     return "transcript" in hints
 
