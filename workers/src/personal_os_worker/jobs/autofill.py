@@ -123,13 +123,22 @@ def preferred_source_option(question: str, options: list[str]) -> str | None:
     return None
 
 
+# An upload that fills the application in from a resume ("Easy Apply",
+# "apply with resume") is a way into the form, not the form's resume field.
+AUTOFILL_UPLOAD = re.compile(
+    r"apply[\s_-]+with[\s_-]+(your[\s_-]+)?resume|easy[\s_-]*apply|auto[\s_-]*fill|\bparse"
+)
+
+
 def is_resume_field(field: dict[str, Any]) -> bool:
-    """A file control for the resume, whether its label or only its id says so."""
+    """A file control for the resume, whether its label, its id, or what it sits in says so."""
     if str(field.get("type") or "").casefold() != "file":
         return False
     hints = normalize_question(
         " ".join(str(field.get(key) or "") for key in ("label", "name", "selector", "container"))
     )
+    if AUTOFILL_UPLOAD.search(hints):
+        return False
     return "resume" in hints or re.search(r"(?<![a-z])cv(?![a-z])", hints) is not None
 
 

@@ -11,6 +11,7 @@ value that fits no option is a `format` failure that can be attributed.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -18,6 +19,7 @@ from typing import Any
 
 from personal_os_worker.jobs.facts.derived import HOURS_PER_YEAR, graduation_term
 from personal_os_worker.jobs.office import choose_offices
+from personal_os_worker.jobs.office import parse as parse_place
 from personal_os_worker.jobs.options import choose_numeric_range, choose_option
 from personal_os_worker.jobs.sites import is_non_answer_option
 
@@ -261,6 +263,14 @@ def _multiple(field: dict[str, Any]) -> bool:
         return False
 
 
+def _city_with_state(key: str, value: Any, context: Mapping[str, Any] | None) -> str | None:
+    """"Atlanta, Georgia": a city with the state that tells it from its namesakes."""
+    state = (context or {}).get("address.state")
+    if key != "address.city" or not state or not str(value).strip():
+        return None
+    return f"{str(value).strip()}, {state}"
+
+
 def render(
     key: str,
     value: Any,
@@ -270,15 +280,35 @@ def render(
     question: str,
     prefer: str | None = None,
     seed: str = "",
+    context: Mapping[str, Any] | None = None,
 ) -> Rendering | None:
-    """The fact's value as this control needs it, or None when nothing fits."""
+    """The fact's value as this control needs it, or None when nothing fits.
+
+    `context` is the run's other facts, for the few renderings that need one
+    (a city in a typeahead goes in with its state).
+    """
     if value is None:
         return None
     options = _options(field)
+    with_state = _city_with_state(key, value, context)
     if options:
+        if with_state is not None:
+            # Five Atlantas: the option naming the same city and state.
+            wanted = parse_place(with_state)
+            same = [
+                option for option in options
+                if (place := parse_place(option)).city
+                and wanted.city
+                and place.city.casefold() == wanted.city.casefold()
+                and place.state == wanted.state
+            ]
+            if len(same) == 1:
+                return Rendering(same[0], "city_with_state_option")
         return _choose_among(
             key, value, value_type, field, question, options, prefer=prefer, seed=seed
         )
+    if with_state is not None and str(field.get("role") or "") == "combobox":
+        return Rendering(with_state, "city_with_state")
     candidates = _text_candidates(key, value, value_type, field, question)
     if prefer:
         candidates.sort(key=lambda rendering: rendering.formatter != prefer)

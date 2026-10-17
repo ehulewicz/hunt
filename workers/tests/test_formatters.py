@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from personal_os_worker.jobs.formatters import polarity, render, yes_no_option
+from personal_os_worker.jobs.formatters import Rendering, polarity, render, yes_no_option
 
 GRADUATION = "2027-12-15"
 MINIMUM = {"amount": 40, "currency": "USD", "period": "hour"}
@@ -159,3 +159,16 @@ def test_a_citizenship_status_finds_its_option_however_it_is_spelled() -> None:
                     ["U.S. Citizen or National", "Permanent Resident", "Other"],
                     ["United States Citizen", "Green Card Holder"]):
         assert choose_synonym(options, "US Citizen") == options[0]
+
+
+def test_a_city_meets_its_namesakes_with_its_state() -> None:
+    context = {"address.state": "Georgia"}
+    menu = {"tag": "select", "options": ["Atlanta, TX, US", "Atlanta, GA, US", "Atlanta, IL, US"]}
+    assert render("address.city", "Atlanta", "text", field=menu, question="City",
+                  context=context) == Rendering("Atlanta, GA, US", "city_with_state_option")
+    typeahead = {"tag": "input", "role": "combobox"}
+    assert render("address.city", "Atlanta", "text", field=typeahead, question="City",
+                  context=context) == Rendering("Atlanta, Georgia", "city_with_state")
+    # A plain City box keeps the city alone.
+    assert render("address.city", "Atlanta", "text", field=TEXT, question="City",
+                  context=context) == Rendering("Atlanta", "text_as_is")

@@ -1510,7 +1510,7 @@ def test_an_apply_link_inside_an_iframe_reveals_the_form_there(browser_page) -> 
 
 SHADOW_FORM = """
 <oc-resume-upload></oc-resume-upload>
-<oc-easy-apply></oc-easy-apply>
+<oc-apply-with-resume></oc-apply-with-resume>
 <city-picker></city-picker>
 <script>
 customElements.define('oc-resume-upload', class extends HTMLElement {
@@ -1520,7 +1520,7 @@ customElements.define('oc-resume-upload', class extends HTMLElement {
       '<label for="resume-drop">Choose a file</label></div>';
   }
 });
-customElements.define('oc-easy-apply', class extends HTMLElement {
+customElements.define('oc-apply-with-resume', class extends HTMLElement {
   connectedCallback() {
     this.attachShadow({mode: 'open'}).innerHTML =
       '<div class="dropzone"><input type="file" id="easy-drop">' +
@@ -1537,7 +1537,7 @@ customElements.define('city-picker', class extends HTMLElement {
     const list = root.querySelector('#cities');
     box.addEventListener('input', () => {
       list.innerHTML = box.value.toLowerCase().startsWith('atl')
-        ? '<li role="option">Atlanta, GA, USA</li><li role="option">Atlantic City, NJ, USA</li>'
+        ? '<li role="option">Atlanta, TX, USA</li><li role="option">Atlanta, GA, USA</li>'
         : '';
       list.querySelectorAll('li').forEach(item => item.addEventListener('click', () => {
         box.value = item.textContent; list.innerHTML = '';
@@ -1561,5 +1561,7 @@ def test_shadow_dom_resume_dropzone_and_typeahead(browser_page, tmp_path: Path) 
     city = next(field for field in fields if field.get("label") == "City")
     from personal_os_worker.jobs.browser import fresh_control
 
-    chosen = select_combobox_option(browser_page, fresh_control(browser_page, city), "Atlanta")
+    chosen = select_combobox_option(
+        browser_page, fresh_control(browser_page, city), "Atlanta, Georgia"
+    )
     assert chosen == "Atlanta, GA, USA"

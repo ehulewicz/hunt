@@ -206,6 +206,7 @@ class Resolver:
             question=question,
             prefer=prefer,
             seed=self.knowledge.seed,
+            context=self.knowledge.facts,
         )
 
     def _from_pattern(

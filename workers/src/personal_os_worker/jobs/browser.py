@@ -909,11 +909,28 @@ def _menu_options(control: Any) -> Any:
     return control.page.get_by_role("option")
 
 
+# An option's text, wherever its component renders it: its own text, else
+# what its <slot>s show, else its shadow host's light text (SmartRecruiters'
+# dropdown items keep the text outside the shadow root that holds role=option).
+OPTION_TEXT_SCRIPT = """
+element => {
+  const own = (element.innerText || '').trim();
+  if (own) return own;
+  const slotted = [...element.querySelectorAll('slot')]
+    .flatMap(slot => slot.assignedNodes({flatten: true}))
+    .map(node => node.textContent || '').join(' ').replace(/\\s+/g, ' ').trim();
+  if (slotted) return slotted;
+  const host = element.getRootNode().host;
+  return host ? (host.innerText || host.textContent || '').replace(/\\s+/g, ' ').trim() : '';
+}
+"""
+
+
 def _visible_texts(options: Any) -> tuple[list[int], list[str]]:
     # Pages keep other listboxes in the DOM (Greenhouse's phone-code list has
     # every country as a hidden option); only what the menu shows is a choice.
     visible = [index for index in range(options.count()) if options.nth(index).is_visible()]
-    return visible, [str(options.nth(index).inner_text()).strip() for index in visible]
+    return visible, [str(options.nth(index).evaluate(OPTION_TEXT_SCRIPT)) for index in visible]
 
 
 def _pick(texts: list[str], value: str) -> str | None:
@@ -986,21 +1003,28 @@ def select_combobox_option(page: Page, control: Any, value: str) -> str:
         if chosen is not None:
             options.nth(visible[texts.index(chosen)]).click()
             return chosen
-    control.fill("", timeout=CONTROL_TIMEOUT_MS)
-    control.press_sequentially(value, delay=20, timeout=CONTROL_TIMEOUT_MS)
-    if not _await_options(page, options, COMBOBOX_OPTIONS_TIMEOUT_MS):
-        # A free-entry typeahead offers nothing to pick; Enter commits the text.
-        control.press("Enter", timeout=CONTROL_TIMEOUT_MS)
-        if combobox_value(control).casefold() == value.strip().casefold():
-            return value.strip()
-        raise RuntimeError("no unambiguous combobox option (none appeared)")
-    visible, texts = _visible_texts(options)
-    chosen = _pick(texts, value)
-    if chosen is None:
-        control.press("Escape", timeout=CONTROL_TIMEOUT_MS)
-        raise RuntimeError("no unambiguous combobox option")
-    options.nth(visible[texts.index(chosen)]).click()
-    return chosen
+    # A place ("Atlanta, Georgia") is searched whole, then by its first part,
+    # since a places search rarely knows the state's full name; either way the
+    # option naming the same city and state is the one picked.
+    tries = list(dict.fromkeys([value, value.split(",")[0].strip()]))
+    for attempt, typed in enumerate(tries):
+        control.fill("", timeout=CONTROL_TIMEOUT_MS)
+        control.press_sequentially(typed, delay=20, timeout=CONTROL_TIMEOUT_MS)
+        if not _await_options(page, options, COMBOBOX_OPTIONS_TIMEOUT_MS):
+            if attempt + 1 < len(tries):
+                continue
+            # A free-entry typeahead offers nothing to pick; Enter commits the text.
+            control.press("Enter", timeout=CONTROL_TIMEOUT_MS)
+            if combobox_value(control).casefold() == value.strip().casefold():
+                return value.strip()
+            raise RuntimeError("no unambiguous combobox option (none appeared)")
+        visible, texts = _visible_texts(options)
+        chosen = _pick_suggestion(texts, value)
+        if chosen is not None:
+            options.nth(visible[texts.index(chosen)]).click()
+            return chosen
+    control.press("Escape", timeout=CONTROL_TIMEOUT_MS)
+    raise RuntimeError("no unambiguous combobox option")
 
 
 def _verify_upload(page: Page, field: dict[str, Any], filename: str | None) -> bool:
@@ -1409,7 +1433,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           const containerHints = [];
           if (element.type === 'file') {
             let node = element;
-            for (let depth = 0; depth < 4; depth += 1) {
+            for (let depth = 0; depth < 8; depth += 1) {
               const root = node.getRootNode();
               node = node.parentElement || (root instanceof ShadowRoot ? root.host : null);
               if (!node || node === document.body) break;
@@ -1499,7 +1523,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
                 ? (element.getAttribute('value') || '') : null,
             multiple: element.tagName === 'SELECT' && element.multiple === true,
             group_size: groupSize,
-            container: containerHints.join(' | ').slice(0, 400) || null,
+            container: containerHints.join(' | ').slice(0, 600) || null,
             aria: {
               autocomplete: element.getAttribute('aria-autocomplete'),
               haspopup: element.getAttribute('aria-haspopup'),
