@@ -91,6 +91,12 @@ CATALOG = _entries(
         "work_auth.status", "Immigration or work authorization status", "text", "derived"
     ),
     CatalogEntry(
+        "work_auth.sponsorship_type",
+        "The kind of sponsorship needed: Not Applicable when none is",
+        "text",
+        "derived",
+    ),
+    CatalogEntry(
         "work_auth.sanctioned_country_citizen",
         "Citizen or resident of a sanctioned or export-controlled country",
         "boolean",

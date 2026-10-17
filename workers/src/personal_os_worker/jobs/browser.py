@@ -6,6 +6,7 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any, Literal, Protocol, cast
 from urllib.parse import urlsplit
@@ -23,6 +24,7 @@ from personal_os_worker.jobs.autofill import (
     is_sensitive_field,
     preferred_source_option,
 )
+from personal_os_worker.jobs.formatters import choose_date_range
 from personal_os_worker.jobs.options import choose_option, choose_synonym, normalize_question
 from personal_os_worker.jobs.registry.events import fill_event, form_of
 from personal_os_worker.jobs.registry.kinds import classify, control_key, question_of
@@ -594,6 +596,11 @@ element => {
 """
 
 
+MONTH_PREFIXES = (
+    "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+)
+
+
 def _pick_suggestion(texts: list[str], value: str) -> str | None:
     """The suggestion that names the same place, else the one option that matches."""
     from personal_os_worker.jobs.office import parse
@@ -936,6 +943,11 @@ def _visible_texts(options: Any) -> tuple[list[int], list[str]]:
 def _pick(texts: list[str], value: str) -> str | None:
     distinct = list(dict.fromkeys(text for text in texts if text))
     chosen = choose_option(distinct, value) or choose_synonym(distinct, value)
+    month = re.fullmatch(r"\s*([A-Za-z]+)\s+(\d{4})\s*", value)
+    if chosen is None and month and month.group(1)[:3].casefold() in MONTH_PREFIXES:
+        # "December 2027" against "Between December 2027 and September 2028".
+        when = date(int(month.group(2)), MONTH_PREFIXES.index(month.group(1)[:3].casefold()) + 1, 1)
+        chosen = choose_date_range(distinct, when)
     if chosen is None:
         target = normalize_question(value)
         containing = [text for text in distinct if target and target in normalize_question(text)]
@@ -1050,8 +1062,12 @@ def _verify_upload(page: Page, field: dict[str, Any], filename: str | None) -> b
         pass
     if not filename:
         return False
+    # The filename shows in the field's own frame (Greenhouse embedded on an
+    # employer's site lives in an iframe).
+    frame_index = int(field.get("frame_index") or 0)
+    frame = page.frames[frame_index] if frame_index < len(page.frames) else page.main_frame
     try:
-        return page.get_by_text(filename, exact=False).first.is_visible()
+        return frame.get_by_text(filename, exact=False).first.is_visible()
     except Error:
         return False
 

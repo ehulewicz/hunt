@@ -10,6 +10,7 @@ value that fits no option is a `format` failure that can be attributed.
 
 from __future__ import annotations
 
+import contextlib
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -244,6 +245,11 @@ def _choose_among(
             if ranged is not None:
                 return Rendering(ranged, f"{rendering.formatter}_option")
         return None
+    if value_type == "date":
+        with contextlib.suppress(ValueError):
+            ranged = choose_date_range(options, date.fromisoformat(str(value)))
+            if ranged is not None:
+                return Rendering(ranged, "date_as_range_option")
     candidates = _text_candidates(key, value, value_type, field, question)
     if prefer:
         candidates.sort(key=lambda rendering: rendering.formatter != prefer)
@@ -252,6 +258,39 @@ def _choose_among(
         if chosen is not None:
             return Rendering(chosen, f"{rendering.formatter}_option")
     return None
+
+
+_MONTH = r"(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{4})"
+
+
+def _month_start(month: str, year: str) -> date:
+    return date(int(year), [name[:3].casefold() for name in MONTHS].index(month[:3]) + 1, 1)
+
+
+def _month_end(month: str, year: str) -> date:
+    start = _month_start(month, year)
+    following = date(start.year + start.month // 12, start.month % 12 + 1, 1)
+    return date.fromordinal(following.toordinal() - 1)
+
+
+def choose_date_range(options: list[str], when: date) -> str | None:
+    """The one option whose month range holds the date ("Between December 2027 and
+    September 2028" for 2027-12-01); None when none or several do."""
+    hits: list[str] = []
+    for option in options:
+        text = option.casefold()
+        months = re.findall(_MONTH, text)
+        if re.match(r"^\s*(before|prior to|earlier than)\b", text) and len(months) == 1:
+            low, high = date.min, date.fromordinal(_month_start(*months[0]).toordinal() - 1)
+        elif re.match(r"^\s*(after|later than)\b", text) and len(months) == 1:
+            low, high = date.fromordinal(_month_end(*months[0]).toordinal() + 1), date.max
+        elif len(months) == 2 and re.search(r"\b(between|and|to|through)\b|[-\u2013]", text):
+            low, high = _month_start(*months[0]), _month_end(*months[1])
+        else:
+            continue
+        if low <= when <= high:
+            hits.append(option)
+    return hits[0] if len(hits) == 1 else None
 
 
 def _multiple(field: dict[str, Any]) -> bool:

@@ -172,3 +172,16 @@ def test_a_city_meets_its_namesakes_with_its_state() -> None:
     # A plain City box keeps the city alone.
     assert render("address.city", "Atlanta", "text", field=TEXT, question="City",
                   context=context) == Rendering("Atlanta", "text_as_is")
+
+
+def test_a_date_picks_the_range_option_that_holds_it() -> None:
+    menu = {"tag": "select", "options": [
+        "Before December 2027", "Between December 2027 and September 2028", "After September 2028",
+    ]}
+    assert rendered("education.graduation_date", "2027-12-01", "date", "Graduation", menu) == (
+        "Between December 2027 and September 2028", "date_as_range_option"
+    )
+    spans = {"tag": "select", "options": ["Dec 2026 - May 2027", "Jun 2027 - Dec 2027"]}
+    assert rendered("education.graduation_date", "2027-12-01", "date", "Graduation", spans) == (
+        "Jun 2027 - Dec 2027", "date_as_range_option"
+    )

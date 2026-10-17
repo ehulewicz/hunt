@@ -74,6 +74,11 @@ DERIVED_FACTS = (
         "work_auth.status", "Immigration or work authorization status", ("work_auth.us_citizen",)
     ),
     DerivedFact(
+        "work_auth.sponsorship_type",
+        "The kind of sponsorship needed: Not Applicable when none is",
+        ("work_auth.requires_sponsorship",),
+    ),
+    DerivedFact(
         "address.city_state_zip",
         "City, state and postal code as one line",
         ("address.city", "address.state", "address.postal_code"),
@@ -207,6 +212,9 @@ def derive(facts: dict[str, Any], today: date) -> dict[str, Any]:
         if facts.get("work_auth.us_citizen") is True
         else None,
         "work_auth.status": "US Citizen" if facts.get("work_auth.us_citizen") is True else None,
+        "work_auth.sponsorship_type": "Not Applicable"
+        if facts.get("work_auth.requires_sponsorship") is False
+        else None,
         "address.city_state_zip": city_state_zip,
         "address.full": f"{line_1}, {city_state_zip}" if line_1 and city_state_zip else None,
     }
