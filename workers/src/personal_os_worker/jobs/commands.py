@@ -13,6 +13,7 @@ from playwright.sync_api import Error
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
 from personal_os_worker.core.doctor import run_doctor
+from personal_os_worker.core.secrets import secrets_check
 from personal_os_worker.core.service import ensure_chrome, open_external_url
 from personal_os_worker.core.tables import console, pick
 from personal_os_worker.documents.doctor import CHECKS as DOCUMENT_CHECKS
@@ -239,7 +240,7 @@ def run_skipped(restore: str | None = None) -> int:
 
 def run_doctor_command() -> int:
     config, token = connected()
-    checks = run_doctor(config, token, extra=DOCUMENT_CHECKS)
+    checks = run_doctor(config, token, extra=(*DOCUMENT_CHECKS, secrets_check))
     for check in checks:
         console.print(f"[{'OK' if check.ok else 'FAIL'}] {check.name}: {check.detail}")
     return 0 if all(check.ok for check in checks) else 1
