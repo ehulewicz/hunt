@@ -212,3 +212,11 @@ def test_orientation_and_pronouns_find_their_options() -> None:
 
     assert choose_synonym(["Gay", "Heterosexual", "Bisexual"], "Straight") == "Heterosexual"
     assert choose_synonym(["She/Her", "He/Him/His", "They/Them"], "He/Him") == "He/Him/His"
+
+
+def test_of_several_yes_options_the_open_ended_one_is_chosen() -> None:
+    options = ["Yes- Somerville, MA only", "Yes- Devens, MA only",
+               "Yes- Either Somerville or Devens works for me", "No- I cannot work"]
+    assert yes_no_option(options, True) == "Yes- Either Somerville or Devens works for me"
+    assert yes_no_option(options, False) == "No- I cannot work"
+    assert yes_no_option(["Yes - Boston only", "Yes - Austin only", "No"], True) is None

@@ -90,6 +90,15 @@ def yes_no_option(options: list[str], answer: bool) -> str | None:
     leading = [option for option in eligible if _words(option).split()[:1] == opener]
     if len(leading) == 1:
         return leading[0]
+    if answer and len(leading) > 1:
+        # "Yes - Somerville only", "Yes - Devens only", "Yes - either works": a
+        # yes with no conditions is the one that leaves every place open.
+        open_ended = [
+            option for option in leading
+            if re.search(r"\b(either|any|all|both|flexible|anywhere|open to)\b", _words(option))
+        ]
+        if len(open_ended) == 1:
+            return open_ended[0]
     if answer:
         hits = [option for option in eligible if not NEGATIVE.search(_words(option))]
     else:
