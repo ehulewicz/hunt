@@ -96,3 +96,47 @@ def test_doctor_check_passes_when_both_read(monkeypatch: pytest.MonkeyPatch) -> 
     check = secrets.secrets_check()
     assert check.ok is True
     assert "a" not in check.detail.split()
+
+
+def test_hung_gcloud_is_unavailable_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(secrets.shutil, "which", lambda _: "/usr/bin/gcloud")
+
+    def hang(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(command, kwargs.get("timeout", 30))
+
+    monkeypatch.setattr(secrets.subprocess, "run", hang)
+    with pytest.raises(secrets.SecretUnavailable, match="jobs-ats-password"):
+        secrets.read_secret(secrets.ATS_PASSWORD)
+
+
+def test_empty_secret_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_gcloud(monkeypatch, {"jobs-ats-password": (0, "\n", "")})
+    with pytest.raises(secrets.SecretUnavailable, match="empty"):
+        secrets.read_secret(secrets.ATS_PASSWORD)
+    assert secrets.loaded_values() == ()
+
+
+def test_doctor_check_says_why(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_gcloud(
+        monkeypatch,
+        {
+            "jobs-ats-password": (0, "a", ""),
+            "jobs-gmail-app-password": (1, "", "ERROR: PERMISSION_DENIED: reauthenticate"),
+        },
+    )
+    assert "PERMISSION_DENIED" in secrets.secrets_check().detail
+
+
+def test_os_doctor_runs_the_secrets_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    from personal_os_worker.jobs import commands
+
+    seen: dict[str, Any] = {}
+
+    def fake_doctor(config: Any, token: str, *, extra: Any) -> list[Any]:
+        seen["extra"] = tuple(extra)
+        return []
+
+    monkeypatch.setattr(commands, "connected", lambda: (object(), "token"))
+    monkeypatch.setattr(commands, "run_doctor", fake_doctor)
+    assert commands.run_doctor_command() == 0
+    assert secrets.secrets_check in seen["extra"]

@@ -30,19 +30,25 @@ def read_secret(name: str) -> str:
     gcloud = shutil.which("gcloud")
     if gcloud is None:
         raise SecretUnavailable("gcloud is not installed or not on PATH")
-    result = subprocess.run(
-        [gcloud, "secrets", "versions", "access", "latest", f"--secret={name}",
-         f"--project={PROJECT}"],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    try:
+        result = subprocess.run(
+            [gcloud, "secrets", "versions", "access", "latest", f"--secret={name}",
+             f"--project={PROJECT}"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as error:
+        # gcloud waiting on a re-login prompt hangs rather than failing.
+        raise SecretUnavailable(f"{name}: gcloud did not answer in 30s") from error
     if result.returncode != 0:
         lines = result.stderr.strip().splitlines()
         detail = lines[-1][:300] if lines else f"gcloud exited {result.returncode}"
         raise SecretUnavailable(f"{name}: {detail}")
     value = result.stdout.removesuffix("\n")
+    if not value:
+        raise SecretUnavailable(f"{name}: the secret is empty")
     _cache[name] = value
     return value
 
@@ -60,8 +66,8 @@ def secrets_check() -> DoctorCheck:
     for name in (ATS_PASSWORD, GMAIL_APP_PASSWORD):
         try:
             read_secret(name)
-        except SecretUnavailable:
-            missing.append(name)
+        except SecretUnavailable as error:
+            missing.append(str(error))
     if missing:
-        return DoctorCheck("Account secrets", False, f"cannot read {', '.join(missing)}")
+        return DoctorCheck("Account secrets", False, "; ".join(missing))
     return DoctorCheck("Account secrets", True, f"both readable from {PROJECT}")
