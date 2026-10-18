@@ -1,0 +1,37 @@
+<!doctype html>
+<html><head><title>Create Account - Acme Careers</title></head>
+<body>
+<header><a href="/en-US/External">Careers Home</a></header>
+<div role="dialog" aria-labelledby="create-title" data-automation-id="createAccountContent">
+  <h2 id="create-title">Create Account</h2>
+  <form onsubmit="return false">
+    <div data-automation-id="formField-email">
+      <label for="email">Email Address*</label>
+      <input id="email" type="text" data-automation-id="email" autocomplete="email">
+    </div>
+    <div data-automation-id="formField-password">
+      <label for="password">Password*</label>
+      <input id="password" type="password" data-automation-id="password">
+    </div>
+    <div data-automation-id="formField-verifyPassword">
+      <label for="verify">Verify New Password*</label>
+      <input id="verify" type="password" data-automation-id="verifyPassword">
+    </div>
+    <div data-automation-id="formField-createAccountCheckbox">
+      <input id="terms" type="checkbox" data-automation-id="createAccountCheckbox">
+      <label for="terms">Yes, I have read and consent to the Terms and Conditions*</label>
+    </div>
+    <div>
+      <input id="marketing" type="checkbox" name="marketingOptIn">
+      <label for="marketing">Send me emails about new jobs and career events</label>
+    </div>
+    <div id="errors"></div>
+    <div style="position: relative; display: inline-block">
+      <button type="submit" data-automation-id="createAccountSubmitButton" tabindex="-1">Create Account</button>
+      <div data-automation-id="click_filter" aria-label="Create Account" role="button" tabindex="0"
+           style="position: absolute; inset: 0"></div>
+    </div>
+  </form>
+  <p>Already have an account? <button data-automation-id="signInLink">Sign In</button></p>
+</div>
+</body></html>

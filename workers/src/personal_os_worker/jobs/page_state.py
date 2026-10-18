@@ -9,11 +9,13 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 
 from playwright.sync_api import Error, Page
 
+from personal_os_worker.jobs.account_page import inspect_account
 from personal_os_worker.jobs.browser import has_submit_control, looks_like_application_form
 
 
 class ApplicationPageState(StrEnum):
     FORM = "form"
+    ACCOUNT = "account"
     OVERVIEW = "overview"
     SUBMITTED = "submitted"
     LOADING = "loading"
@@ -97,6 +99,9 @@ def classify_application_page(
         return ApplicationPageState.SUBMITTED
     if looks_like_application_form(fields) or has_submit_control(page):
         return ApplicationPageState.FORM
+    # A sign-in or create-account wall, and only where no form is offered.
+    if inspect_account(page) is not None:
+        return ApplicationPageState.ACCOUNT
     current = normalize_navigation_url(page.url)
     if navigation is not None:
         if current == navigation.overview_url:

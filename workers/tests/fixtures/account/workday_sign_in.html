@@ -1,0 +1,39 @@
+<!doctype html>
+<html><head><title>Sign In - Acme Careers</title></head>
+<body>
+<header>
+  <a href="/en-US/External">Careers Home</a>
+  <button data-automation-id="utilityButtonSignIn">Sign In</button>
+</header>
+<div role="dialog" aria-labelledby="sign-in-title" data-automation-id="signInContent">
+  <h2 id="sign-in-title">Sign In</h2>
+  <form id="sign-in" onsubmit="return false">
+    <div data-automation-id="formField-email">
+      <label for="email">Email Address*</label>
+      <input id="email" type="text" data-automation-id="email" autocomplete="email">
+    </div>
+    <div data-automation-id="formField-password">
+      <label for="password">Password*</label>
+      <input id="password" type="password" data-automation-id="password">
+    </div>
+    <div id="errors"></div>
+    <div style="position: relative; display: inline-block">
+      <button type="submit" data-automation-id="signInSubmitButton" tabindex="-1">Sign In</button>
+      <div data-automation-id="click_filter" aria-label="Sign In" role="button" tabindex="0"
+           style="position: absolute; inset: 0"></div>
+    </div>
+  </form>
+  <button data-automation-id="forgotPasswordLink">Forgot your password?</button>
+  <p>Don't have an account yet?
+    <button data-automation-id="createAccountLink">Create Account</button></p>
+</div>
+<script>
+window.sent = null;
+document.querySelector('[data-automation-id="click_filter"]').addEventListener('click', () => {
+  window.sent = {
+    email: document.querySelector('#email').value,
+    password: document.querySelector('#password').value,
+  };
+});
+</script>
+</body></html>
