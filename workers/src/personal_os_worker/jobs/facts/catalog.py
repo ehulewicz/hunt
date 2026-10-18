@@ -101,7 +101,26 @@ CATALOG = _entries(
         "Citizen or resident of a sanctioned or export-controlled country",
         "boolean",
     ),
-    CatalogEntry("availability.earliest_start_date", "Earliest start date", "date"),
+    CatalogEntry(
+        "availability.earliest_start_date",
+        "Two weeks from accepting, or the posting's term start if later",
+        "date",
+        "derived",
+    ),
+    CatalogEntry(
+        "availability.internship_dates",
+        "The twelve-week window from the earliest start, as one line",
+        "text",
+        "derived",
+    ),
+    CatalogEntry("availability.term", "The term the posting names", "text", "derived"),
+    CatalogEntry(
+        "availability.conflicts_with_school",
+        "Whether the window runs into your last semester",
+        "boolean",
+        "derived",
+    ),
+    CatalogEntry("availability.remote", "Open to working remotely", "boolean"),
     CatalogEntry(
         "availability.notice_period_weeks", "Notice period before starting, in weeks", "number"
     ),
@@ -155,7 +174,26 @@ CATALOG = _entries(
         "derived",
     ),
     CatalogEntry("skills.all", "Every skill on the resume, in order", "list", "career"),
-    CatalogEntry("referral.status", "How you were referred; none by default", "choice"),
+    CatalogEntry(
+        "referral.referred", "Referred for this application (apply --referred)", "boolean",
+        "derived",
+    ),
+    CatalogEntry(
+        "referral.referrer_name", "Who referred you (apply --referred NAME)", "text", "derived"
+    ),
+    CatalogEntry("work_auth.security_clearance", "Holds an active security clearance", "boolean"),
+    CatalogEntry(
+        "employment.government", "Has worked for the US government (prior employment)", "boolean"
+    ),
+    CatalogEntry(
+        "employment.relatives_at_company",
+        "Has relatives or close relationships at the posting's company",
+        "boolean",
+    ),
+    CatalogEntry("identity.other_languages", "Languages spoken besides English", "text"),
+    CatalogEntry("education.class_standing", "Class standing (year in school)", "text"),
+    CatalogEntry("education.start_date", "When you started your degree", "date"),
+    CatalogEntry("preferences.position_type", "Internship or co-op preference", "text"),
     CatalogEntry("eeo.gender_identity", "Gender identity", "text"),
     CatalogEntry("eeo.transgender", "Transgender", "boolean"),
     CatalogEntry("eeo.race_ethnicities", "Race and ethnicity", "list"),

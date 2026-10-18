@@ -196,3 +196,19 @@ def test_no_is_a_whole_word_and_a_typeahead_reads_yes_and_no_like_a_select() -> 
     assert choose_option(["Yes - previous intern", "No - never"], "Yes") == "Yes - previous intern"
     menu = ["Not Applicable", "Bet employee (Wing, X, Waymo, Other)", "Google employee"]
     assert _pick(menu, "No") == "Not Applicable"  # the only option saying no
+
+
+def test_starting_within_weeks_follows_the_notice_period() -> None:
+    yes_no = {"tag": "select", "options": ["Yes", "No"]}
+    assert rendered("availability.notice_period_weeks", 2, "number",
+                    "If offered a position, will you be able to start within 3 weeks?",
+                    yes_no) == ("Yes", "notice_within_option")
+    assert rendered("availability.notice_period_weeks", 2, "number",
+                    "Can you start within 10 days?", TEXT) == ("No", "notice_within")
+
+
+def test_orientation_and_pronouns_find_their_options() -> None:
+    from personal_os_worker.jobs.options import choose_synonym
+
+    assert choose_synonym(["Gay", "Heterosexual", "Bisexual"], "Straight") == "Heterosexual"
+    assert choose_synonym(["She/Her", "He/Him/His", "They/Them"], "He/Him") == "He/Him/His"

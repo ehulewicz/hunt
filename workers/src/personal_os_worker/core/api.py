@@ -93,6 +93,24 @@ class WorkerApi:
             raise RuntimeError("Listing response was invalid")
         return payload
 
+    def listing_from_url(
+        self, url: str, *, company: str | None = None, title: str | None = None
+    ) -> dict[str, Any] | None:
+        """The posting at this URL, or a new one named by company and title; None when
+        no posting has the URL and it was not named."""
+        body = {"url": url, "company": company, "title": title}
+        response = self._client.post(
+            "/v1/jobs/listings/from-url",
+            json={key: value for key, value in body.items() if value},
+        )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Listing response was invalid")
+        return payload
+
     def sync_listings(self) -> dict[str, Any]:
         response = self._client.post("/v1/jobs/listings/sync")
         response.raise_for_status()

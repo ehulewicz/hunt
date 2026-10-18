@@ -33,6 +33,7 @@ from personal_os_backend.jobs_models import (
     JobApplication,
     JobListing,
     JobListingPage,
+    ListingFromUrl,
     ListingSyncResponse,
     RoleFamily,
     ValidationTarget,
@@ -77,6 +78,19 @@ async def list_listings(
         limit=limit,
         offset=offset,
     )
+
+
+@router.post("/listings/from-url", response_model=JobListing)
+async def listing_from_url(
+    item: ListingFromUrl, principal: CurrentPrincipal, store: Store
+) -> JobListing:
+    """The posting at a URL, or a new manual posting when company and title are given."""
+    listing = await store.listing_from_url(principal.user_id, item)
+    if listing is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "No posting has this URL; give a company and title"
+        )
+    return listing
 
 
 @router.get("/listings/{reference}", response_model=JobListing)

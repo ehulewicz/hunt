@@ -47,6 +47,9 @@ class FormFill:
     resolution: AnswerResolution | None = None
     # Clear the control instead of setting it: uncheck a box a prior pass checked.
     clear: bool = False
+    # This application came through a referral (`apply --referred`): a source
+    # chosen against the live menu prefers the referral option.
+    referred: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,12 +108,24 @@ def _is_company_site(value: str) -> bool:
     return "job" not in words or "company" in words
 
 
-def preferred_source_option(question: str, options: list[str]) -> str | None:
-    """The user's standing source choice, ranked by the options actually offered."""
+def preferred_source_option(
+    question: str, options: list[str], *, referred: bool = False
+) -> str | None:
+    """The user's standing source choice, ranked by the options actually offered.
+
+    A referred application names the referral first.
+    """
     if not HOW_HEARD.search(question):
         return None
 
     normalized = [(option, normalize_answer_question(option)) for option in options]
+    if referred:
+        named = [
+            option for option, value in normalized
+            if re.search(r"\breferr(al|ed)\b", value) and not re.search(r"\bnot\b", value)
+        ]
+        if named:
+            return named[0]
     preferences = (
         _is_company_site,
         lambda value: re.search(r"\bjob\s+boards?\b", value) is not None,
@@ -245,6 +260,8 @@ def build_autofill_plan(
     fills: list[FormFill] = []
     unanswered: list[str] = []
     reasons: dict[int, str] = {}
+    knowledge = getattr(resolver, "knowledge", None)
+    referred = bool(knowledge is not None and knowledge.facts.get("referral.referred"))
     answered_groups: set[str] = set()
     pending_choices: list[tuple[str, str]] = []
     resume_candidates = {
@@ -335,7 +352,7 @@ def build_autofill_plan(
                 if field_type in {"radio", "checkbox"}
                 else [str(option) for option in field.get("options") or []]
             )
-            source_choice = preferred_source_option(question_label, options)
+            source_choice = preferred_source_option(question_label, options, referred=referred)
             if source_choice is not None:
                 resolution = AnswerResolution(
                     source_choice, "pattern", "engine:application_source"
@@ -389,7 +406,8 @@ def build_autofill_plan(
 
         if kind in FILE_KINDS or value is not None or chooser is not None:
             fills.append(FormFill(
-                index=index, kind=kind, value=value, chooser=chooser, resolution=resolution
+                index=index, kind=kind, value=value, chooser=chooser, resolution=resolution,
+                referred=referred,
             ))
             if field_type in {"radio", "checkbox"} and group:
                 answered_groups.add(normalized)

@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 # A co-op rotation is complete once its boundary is reached: spring on May 1,
@@ -101,6 +101,24 @@ POSTING_FACTS = (
         "Has submitted an application to this posting's company before",
         ("your applications",),
     ),
+    DerivedFact(
+        "availability.earliest_start_date",
+        "Two weeks from accepting, or the posting's term start if later",
+        ("availability.notice_period_weeks", "the posting's title"),
+    ),
+    DerivedFact(
+        "availability.internship_dates",
+        "The twelve-week window from the earliest start, as one line",
+        ("availability.earliest_start_date",),
+    ),
+    DerivedFact("availability.term", "The term the posting names", ("the posting's title",)),
+    DerivedFact(
+        "availability.conflicts_with_school",
+        "Whether the window runs into your last semester",
+        ("availability.internship_dates", "education.graduation_date"),
+    ),
+    DerivedFact("referral.referred", "Referred for this application (apply --referred)", ()),
+    DerivedFact("referral.referrer_name", "Who referred you (apply --referred NAME)", ()),
 )
 
 
@@ -242,13 +260,82 @@ def worked_for(organizations: Any, company: str) -> bool | None:
 SUBMITTED_STATUSES = frozenset({"applied", "oa", "oa_completed", "interview", "offer", "rejected"})
 
 
+# When a term's internship usually starts (month, day), and how long one runs
+# (decided 2026-10-18: aim for twelve-week ranges).
+TERM_STARTS = {"winter": (1, 4), "spring": (1, 11), "summer": (5, 18), "fall": (8, 31)}
+INTERNSHIP_WEEKS = 12
+TERM = re.compile(
+    r"\b(winter|spring|summer|fall|autumn)\b(?:\s*[/&-]\s*(?:winter|spring|summer|fall|autumn))*"
+    r"\s*['\u2019]?(\d{4}|\d{2})\b",
+    re.IGNORECASE,
+)
+
+
+def internship_window(
+    title: str, today: date, notice_weeks: Any = 2
+) -> tuple[date, date, str | None]:
+    """(start, end, term) for this posting.
+
+    You can start two weeks after accepting (your notice period); a posting
+    that names its term ("Summer 2027") starts no earlier than that term does.
+    The window runs twelve weeks from the start.
+    """
+    try:
+        weeks = max(0, int(notice_weeks))
+    except (TypeError, ValueError):
+        weeks = 2
+    earliest = today + timedelta(weeks=weeks)
+    found = TERM.search(title or "")
+    if found is None:
+        return earliest, earliest + timedelta(weeks=INTERNSHIP_WEEKS), None
+    season = "fall" if found.group(1).casefold() == "autumn" else found.group(1).casefold()
+    year = int(found.group(2))
+    year = year + 2000 if year < 100 else year
+    month, day = TERM_STARTS[season]
+    start = max(date(year, month, day), earliest)
+    return start, start + timedelta(weeks=INTERNSHIP_WEEKS), f"{season.title()} {year}"
+
+
+def overlaps_final_term(start: date, end: date, graduation: date | None) -> bool:
+    """Whether the window runs into the last semester before graduating, which you
+    attend (decided 2026-10-18: avoid Fall 2027)."""
+    if graduation is None:
+        return False
+    final_term_start = date(graduation.year, 8, 15) if graduation.month >= 9 else date(
+        graduation.year, 1, 5
+    )
+    return start < graduation and end > final_term_start
+
+
+def _long_date(value: date) -> str:
+    return f"{value:%B} {value.day}, {value.year}"
+
+
 def posting_facts(
     facts: dict[str, Any],
     company: str,
     prior_applications: Iterable[dict[str, Any]] | None = None,
+    *,
+    title: str = "",
+    today: date | None = None,
+    referral: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Facts about you and this posting's company: worked there, applied there before."""
+    """Facts about you and this posting: its company, its term, how you came to it."""
     found: dict[str, Any] = {}
+    day = today or date.today()
+    start, end, term = internship_window(title, day, facts.get("availability.notice_period_weeks"))
+    found["availability.earliest_start_date"] = start.isoformat()
+    found["availability.internship_dates"] = f"{_long_date(start)} \u2013 {_long_date(end)}"
+    found["availability.conflicts_with_school"] = overlaps_final_term(
+        start, end, _date(facts.get("education.graduation_date"))
+    )
+    if term is not None:
+        found["availability.term"] = term
+    # A referral is about this application, not about you: `apply --referred`.
+    referred = referral or {}
+    found["referral.referred"] = bool(referred.get("referred"))
+    if referred.get("name"):
+        found["referral.referrer_name"] = str(referred["name"])
     known = worked_for(facts.get("employment.organizations"), company)
     if known is not None:
         found["employment.worked_for"] = known

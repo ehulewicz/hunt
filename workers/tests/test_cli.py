@@ -514,3 +514,35 @@ def test_a_closed_posting_is_recognised_in_any_wording(body: str, closed: bool) 
     from personal_os_worker.jobs.commands import posting_closed
 
     assert posting_closed(body) is closed
+
+
+
+@pytest.mark.parametrize(
+    ("meta", "expected"),
+    [
+        ({"page_title": "Software Development Engineer Intern - Job ID: 1 | Amazon.jobs",
+          "og_title": "", "site_name": ""},
+         ("Amazon", "Software Development Engineer Intern")),
+        ({"page_title": "Job Application for Backend Intern at Acme", "og_title": "",
+          "site_name": ""}, ("Acme", "Backend Intern")),
+        ({"page_title": "Careers", "og_title": "ML Intern", "site_name": "Zipline"},
+         ("Zipline", "ML Intern")),
+        ({"page_title": "Firmware Intern", "og_title": "", "site_name": ""},
+         ("Example", "Firmware Intern")),
+    ],
+)
+def test_a_posting_url_names_its_company_and_role(
+    meta: dict[str, str], expected: tuple[str, str]
+) -> None:
+    from personal_os_worker.jobs.commands import guess_identity
+
+    assert guess_identity(url="https://jobs.example.com/1", **meta) == expected
+
+
+def test_referred_takes_an_optional_name() -> None:
+    parser = build_parser()
+    assert parser.parse_args(["hunt", "apply", "3"]).referred is None
+    assert parser.parse_args(["hunt", "apply", "3", "--referred"]).referred == ""
+    assert parser.parse_args(["hunt", "apply", "3", "--referred", "Jane Doe"]).referred == (
+        "Jane Doe"
+    )

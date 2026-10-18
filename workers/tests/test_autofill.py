@@ -261,6 +261,18 @@ def test_how_heard_uses_the_first_available_standing_source_preference() -> None
     assert chosen(["Career Fair", "Non-campus Job Board", "Other"]) == "Non-campus Job Board"
 
 
+def test_a_referred_application_names_the_referral_as_its_source() -> None:
+    from personal_os_worker.jobs.autofill import preferred_source_option
+
+    options = ["Company Website", "Employee Referral", "LinkedIn", "Other"]
+    question = "How did you hear about us?"
+    assert preferred_source_option(question, options) == "Company Website"
+    assert preferred_source_option(question, options, referred=True) == "Employee Referral"
+    assert preferred_source_option(question, ["Not referred", "Website"], referred=True) == (
+        "Website"
+    )
+
+
 def test_how_heard_typeahead_without_visible_options_is_chosen_from_the_live_menu() -> None:
     fields = [
         {

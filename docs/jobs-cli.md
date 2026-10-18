@@ -58,6 +58,9 @@ os hunt apply 1 --explain    # print every control's whole decision as it fills
 os hunt apply 1 --step       # the same, pausing before each control is filled
 os hunt apply 1 --dry-run --explain   # every decision, nothing touched
 os hunt apply 1 --done       # applied outside the worker; just record it
+os hunt apply https://www.amazon.jobs/en/jobs/123/... --referred "Jane Doe"
+                             # any posting URL, a referral link included; NAME optional
+os hunt apply <url> --company Amazon --title "SDE Intern"   # name a page that hides it
 
 os hunt apply 1 --fresh       # a new tab; without it, apply continues on the open one
 os hunt apply 1 --no-repair   # leave a failed field alone instead of retrying it in place

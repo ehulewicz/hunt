@@ -79,6 +79,8 @@ class Knowledge:
         today: date | None = None,
         preferences: Iterable[dict[str, Any]] = (),
         prior_applications: Iterable[dict[str, Any]] | None = None,
+        title: str = "",
+        referral: dict[str, Any] | None = None,
     ) -> Knowledge:
         """Stored facts over career-derived ones (R51), then derived and posting facts."""
         day = today or date.today()
@@ -86,7 +88,14 @@ class Knowledge:
         base = {**career_facts(career, day), **stored}
         values = {
             **derive(base, day),
-            **posting_facts(base, company, prior_applications),
+            **posting_facts(
+                {**derive(base, day), **base},
+                company,
+                prior_applications,
+                title=title,
+                today=day,
+                referral=referral,
+            ),
             **base,
         }
         types: dict[str, str] = {

@@ -110,12 +110,21 @@ question's answer and the Inbox can bind it.
 
 **Which value.** Every value comes from a fact. `jobs/resolve.py` builds the
 run's `Knowledge` — stored facts over career-derived ones, then the derived and
-posting facts (`employment.worked_for` for this company) — and answers a field
+posting facts — and answers a field
 in a fixed order: the question's active binding, then active expression
 patterns (exactly one fact among those that match). The engine
 answers its own fields first: consent and attestation take the agreeing option,
 the resume and transcript upload, "how did you hear" ranks the employer's site,
-a job board, then Other, and no value that declines to answer is ever chosen.
+a job board, then Other (a referral first under `--referred`), and no value that
+declines to answer is ever chosen.
+
+**Posting facts.** Some facts belong to the posting, not to you, and are derived
+per run in `jobs/facts/derived.py`: whether you worked at or applied to its
+company before, its term ("Summer 2027" in the title), your earliest start
+(two weeks from accepting, your notice period, or the term's start if later:
+winter January 4, spring January 11, summer May 18, fall August 31) and a
+twelve-week window from it, whether that window runs into your last semester
+(apply warns), and whether you were referred (`apply --referred [NAME]`).
 A pattern whose fact is missing or fits none of the options leaves the field,
 and the run remembers why (`Miss`). Whatever is still empty goes to one
 bounded model pass (`short_answers.py`) that only names a fact — `fits_fact`,

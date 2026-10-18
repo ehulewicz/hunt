@@ -84,6 +84,12 @@ class FakeJobsStore:
             )
         return None
 
+    async def listing_from_url(self, user_id: UUID, item: object) -> JobListing | None:
+        self.from_url = item
+        known = str(getattr(item, "url", "")) == "https://boards.example/jobs/1"
+        named = bool(getattr(item, "company", None) and getattr(item, "title", None))
+        return await self.get_listing(user_id, "22222222") if known or named else None
+
     async def sync_listings(self, user_id: UUID, listings: object) -> ListingSyncResponse:
         self.synced_count = len(listings)  # type: ignore[arg-type]
         return ListingSyncResponse(
@@ -319,6 +325,34 @@ async def test_a_listing_resolves_by_board_number_or_id_prefix(
     assert by_prefix.json()["created_at"] == by_row.json()["created_at"]
     assert (await client.get("/v1/jobs/listings/1111", headers=headers)).status_code == 409
     assert (await client.get("/v1/jobs/listings/99", headers=headers)).status_code == 404
+
+
+async def test_a_posting_is_found_or_named_by_its_url(
+    app: FastAPI, client: httpx.AsyncClient
+) -> None:
+    store = FakeJobsStore()
+
+    async def override_store() -> FakeJobsStore:
+        return store
+
+    app.dependency_overrides[get_jobs_store] = override_store
+    headers = {"Authorization": "Bearer approved"}
+    known = await client.post(
+        "/v1/jobs/listings/from-url", headers=headers,
+        json={"url": "https://boards.example/jobs/1"},
+    )
+    assert known.status_code == 200 and known.json()["id"] == str(POSTING_ID)
+    unknown = {"url": "https://www.amazon.jobs/en/jobs/1/sde-intern?refid=x"}
+    response = await client.post("/v1/jobs/listings/from-url", headers=headers, json=unknown)
+    assert response.status_code == 404 and "company and title" in response.json()["detail"]
+    named = unknown | {"company": "Amazon", "title": "SDE Intern"}
+    assert (
+        await client.post("/v1/jobs/listings/from-url", headers=headers, json=named)
+    ).status_code == 200
+    not_a_url = {"url": "javascript:alert(1)"}
+    assert (
+        await client.post("/v1/jobs/listings/from-url", headers=headers, json=not_a_url)
+    ).status_code == 422
 
 
 async def test_an_application_can_be_recorded_without_a_queue(

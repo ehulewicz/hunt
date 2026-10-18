@@ -541,7 +541,8 @@ def _select_multiple(attempt: Attempt) -> str | None:
 def _combobox_choose_from_menu(attempt: Attempt) -> str | None:
     label = str(attempt.field.get("label") or attempt.field.get("name") or "")
     return choose_combobox_option(
-        attempt.page, attempt.control, str(attempt.fill.chooser), question=label
+        attempt.page, attempt.control, str(attempt.fill.chooser), question=label,
+        referred=attempt.fill.referred,
     )
 
 
@@ -981,7 +982,9 @@ def combobox_options(page: Page, control: Any) -> list[str]:
     return texts
 
 
-def choose_combobox_option(page: Page, control: Any, chooser: str, *, question: str) -> str:
+def choose_combobox_option(
+    page: Page, control: Any, chooser: str, *, question: str, referred: bool = False
+) -> str:
     """Open a typeahead and pick by standing policy: the how-heard source or the consent."""
     control.click(timeout=CONTROL_TIMEOUT_MS)
     options = _menu_options(control)
@@ -993,7 +996,7 @@ def choose_combobox_option(page: Page, control: Any, chooser: str, *, question: 
     if chooser == "consent":
         chosen = affirmative_option(distinct)
     else:
-        chosen = preferred_source_option(question, distinct)
+        chosen = preferred_source_option(question, distinct, referred=referred)
     if chosen is None:
         control.press("Escape", timeout=CONTROL_TIMEOUT_MS)
         raise RuntimeError(f"no unambiguous combobox option for {chooser}")

@@ -85,6 +85,13 @@ SYNONYM_GROUPS: tuple[frozenset[str], ...] = (
             "bachelor of science bs", "bachelor of science b s", "undergraduate degree",
         }
     ),
+    frozenset(
+        {
+            "straight", "heterosexual", "heterosexual or straight", "straight or heterosexual",
+            "heterosexual straight", "straight heterosexual",
+        }
+    ),
+    frozenset({"he him", "he him his", "he his", "him his", "he"}),
 )
 QUALIFIER_WORDS = frozenset(
     {"cis", "cisgender", "he", "him", "his", "she", "her", "hers", "they", "them"}

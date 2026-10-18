@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import (
     BaseModel,
+    ConfigDict,
     Field,
     field_validator,
     model_validator,
@@ -59,6 +60,16 @@ class JobListing(BaseModel):
     application_id: UUID | None = None
     application_status: str | None = None
     row: int | None = None  # canonical number on the board; None once applied to
+
+
+class ListingFromUrl(BaseModel):
+    """A posting to apply to by its URL; company and title name a new one."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(min_length=8, max_length=2000, pattern=r"^https?://")
+    company: str | None = Field(default=None, min_length=1, max_length=200)
+    title: str | None = Field(default=None, min_length=1, max_length=300)
 
 
 class JobListingPage(BaseModel):

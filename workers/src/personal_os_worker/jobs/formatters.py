@@ -310,6 +310,31 @@ def _city_with_state(key: str, value: Any, context: Mapping[str, Any] | None) ->
     return f"{str(value).strip()}, {state}"
 
 
+WITHIN = re.compile(
+    r"\bwithin\s+(\d+|one|two|three|four|five|six|seven|eight)\s+(weeks?|days?)\b",
+    re.IGNORECASE,
+)
+SMALL_NUMBERS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+}
+
+
+def _notice_within(key: str, value: Any, question: str) -> bool | None:
+    """"Can you start within 3 weeks?" answered from the notice period in weeks."""
+    asked = WITHIN.search(question) if key == "availability.notice_period_weeks" else None
+    if asked is None:
+        return None
+    try:
+        weeks = float(value)
+    except (TypeError, ValueError):
+        return None
+    count = asked.group(1).casefold()
+    limit = float(SMALL_NUMBERS.get(count) or count)
+    if asked.group(2).casefold().startswith("day"):
+        limit /= 7
+    return weeks <= limit
+
+
 def render(
     key: str,
     value: Any,
@@ -329,6 +354,12 @@ def render(
     if value is None:
         return None
     options = _options(field)
+    within = _notice_within(key, value, question)
+    if within is not None:
+        if options:
+            chosen = yes_no_option(options, within)
+            return Rendering(chosen, "notice_within_option") if chosen else None
+        return Rendering("Yes" if within else "No", "notice_within")
     with_state = _city_with_state(key, value, context)
     if options:
         if with_state is not None:

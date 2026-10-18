@@ -6,6 +6,7 @@ import re
 from datetime import date
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from playwright.sync_api import Error
 
@@ -244,6 +245,66 @@ def run_doctor_command() -> int:
     return 0 if all(check.ok for check in checks) else 1
 
 
+POSTING_URL = re.compile(r"^https?://", re.IGNORECASE)
+SITE_SUFFIX = re.compile(r"\.(jobs|careers|com|io|co|net|org)$", re.IGNORECASE)
+
+
+def guess_identity(
+    *, page_title: str, og_title: str, site_name: str, url: str
+) -> tuple[str, str]:
+    """(company, title) read off a posting page: its title, its site name, its host."""
+    title = " ".join((og_title or page_title or "").split())
+    company = " ".join((site_name or "").split())
+    at = re.match(r"^(?:job application for\s+)?(.+?)\s+at\s+(.+)$", title, re.IGNORECASE)
+    if at:
+        title, company = at.group(1), company or at.group(2)
+    parts = [part for part in re.split(r"\s+[|\u2013\u2014-]\s+", title) if part]
+    if len(parts) > 1:
+        title, company = parts[0], company or parts[-1]
+    if not company:
+        labels = (urlsplit(url).hostname or "").split(".")
+        company = labels[-2] if len(labels) >= 2 else labels[0]
+    company = SITE_SUFFIX.sub("", company).strip()
+    return company[:1].upper() + company[1:], title.strip()
+
+
+def read_posting_identity(url: str) -> tuple[str, str]:
+    """Open the URL in the automation browser and read who is hiring for what."""
+    from personal_os_worker.jobs.browser import VisibleBrowser, rendered_body_text
+
+    config, _token = connected()
+    ensure_chrome(config.cdp_url)
+    with VisibleBrowser(config.cdp_url) as browser:
+        page, _reused = browser.application_page(url, console_errors=[], fresh=False)
+        rendered_body_text(page, timeout_ms=15_000)
+        meta = page.evaluate(
+            """() => ({
+              page_title: document.title || '',
+              og_title: document.querySelector('meta[property="og:title"]')?.content || '',
+              site_name: document.querySelector('meta[property="og:site_name"]')?.content || '',
+            })"""
+        )
+    return guess_identity(url=url, **{key: str(value) for key, value in meta.items()})
+
+
+def listing_for(
+    api: WorkerApi, reference: str, *, company: str | None = None, title: str | None = None
+) -> dict[str, Any]:
+    """A board row, an id prefix, or any posting URL (a referral link included)."""
+    if not POSTING_URL.match(reference):
+        return api.listing(reference)
+    listing = api.listing_from_url(reference)
+    if listing is None:
+        if not (company and title):
+            read_company, read_title = read_posting_identity(reference)
+            company, title = company or read_company, title or read_title
+        console.print(f"New posting from its URL: [bold]{company}[/bold] \u2014 {title}")
+        listing = api.listing_from_url(reference, company=company, title=title)
+    if listing is None:
+        raise RuntimeError("Could not record a posting for that URL")
+    return listing
+
+
 def run_autofill(
     reference: str,
     *,
@@ -254,16 +315,19 @@ def run_autofill(
     explain: bool = False,
     step: bool = False,
     ask_facts: bool = False,
+    referred: str | None = None,
+    company: str | None = None,
+    title: str | None = None,
 ) -> int:
     config, token = connected()
     api = WorkerApi(config, token)
     try:
-        listing = api.listing(reference)
+        listing = listing_for(api, reference, company=company, title=title)
     finally:
         api.close()
     apply_posting(
         str(listing["id"]), dry_run=dry_run, no_claude=no_claude, repair=repair,
-        fresh=fresh, explain=explain, step=step, ask_facts=ask_facts,
+        fresh=fresh, explain=explain, step=step, ask_facts=ask_facts, referred=referred,
     )
     return 0
 
@@ -312,7 +376,7 @@ def run_mark_applied(reference: str) -> int:
     config, token = connected()
     api = WorkerApi(config, token)
     try:
-        listing = api.listing(reference)
+        listing = listing_for(api, reference)
         posting_id = str(listing["id"])
         application = next(
             (item for item in api.applications() if str(item.get("posting_id")) == posting_id),
@@ -351,8 +415,13 @@ def apply_posting(
     explain: bool = False,
     step: bool = False,
     ask_facts: bool = False,
+    referred: str | None = None,
 ) -> str:
-    """Run one interactive apply session: "submitted", "skipped", or "stopped"."""
+    """Run one interactive apply session: "submitted", "skipped", or "stopped".
+
+    `referred` is None unless this application came through a referral: then it
+    is the referrer's name, or "" when none was given.
+    """
     from personal_os_worker.documents.doctor import latex_toolchain_check
     from personal_os_worker.documents.resume import ensure_resume, transcript_pdf_path
     from personal_os_worker.jobs.autofill_session import AutofillSession, SessionContext
@@ -397,7 +466,19 @@ def apply_posting(
             today=date.today(),
             preferences=list(run.get("control_preferences") or []),
             prior_applications=list(run.get("duplicate_company_applications") or []),
+            title=str(run["title"]),
+            referral={"referred": referred is not None, "name": referred or None},
         )
+        if knowledge.facts.get("availability.conflicts_with_school"):
+            console.print(
+                f"[yellow]Warning:[/yellow] this posting's dates "
+                f"({knowledge.facts.get('availability.internship_dates')}) run into your last "
+                "semester; you meant to avoid Fall 2027."
+            )
+        if referred is not None:
+            console.print(
+                "  [dim]referred" + (f" by {referred}" if referred else "") + "[/dim]"
+            )
         duplicates = list(run.get("duplicate_company_applications") or [])
         if duplicates:
             console.print(

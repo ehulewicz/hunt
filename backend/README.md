@@ -115,6 +115,14 @@ context carries the validated strategy candidates as control preferences. FastAP
 and verifies ownership on upload and download; storage paths are never trusted as
 authorization. Submission and submitted status stay manual.
 
+### A posting by its URL
+
+`POST /v1/jobs/listings/from-url` returns the posting whose application or
+discovery URL is the one given (exactly, else with the query string dropped
+when that names a single posting). A URL no posting has becomes a `manual`
+posting once a company and title are given; the worker reads them off the page,
+which is how a referral link off the board is applied to.
+
 ### Scheduled listing sync
 
 The importer reads only the US internship `README.md` files from the 2027 SWE and

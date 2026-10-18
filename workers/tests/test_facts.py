@@ -85,6 +85,41 @@ def test_applied_before_counts_only_applications_that_went_in() -> None:
     assert "employment.applied_before" not in posting_facts({}, "Point72")
 
 
+@pytest.mark.parametrize(
+    ("title", "dates", "term", "conflict"),
+    [
+        ("Software Engineering Intern - Summer 2027", "May 18, 2027 \u2013 August 10, 2027",
+         "Summer 2027", False),
+        ("Co-op - Spring/Summer 2027", "January 11, 2027 \u2013 April 5, 2027", "Spring 2027",
+         False),
+        ("Intern - Fall 2027", "August 31, 2027 \u2013 November 23, 2027", "Fall 2027", True),
+        ("Backend Intern", "November 1, 2026 \u2013 January 24, 2027", None, False),
+    ],
+)
+def test_the_window_starts_two_weeks_out_or_at_the_postings_term(
+    title: str, dates: str, term: str | None, conflict: bool
+) -> None:
+    from personal_os_worker.jobs.facts.derived import posting_facts
+
+    found = posting_facts(
+        {"availability.notice_period_weeks": 2, "education.graduation_date": "2027-12-01"},
+        "Acme", title=title, today=date(2026, 10, 18),
+    )
+    assert found["availability.internship_dates"] == dates
+    assert found.get("availability.term") == term
+    assert found["availability.conflicts_with_school"] is conflict
+
+
+def test_a_referral_belongs_to_the_application() -> None:
+    from personal_os_worker.jobs.facts.derived import posting_facts
+
+    plain = posting_facts({}, "Amazon", title="SDE Intern", today=date(2026, 10, 18))
+    assert plain["referral.referred"] is False and "referral.referrer_name" not in plain
+    named = posting_facts({}, "Amazon", title="SDE Intern", today=date(2026, 10, 18),
+                          referral={"referred": True, "name": "Jane Doe"})
+    assert named["referral.referred"] is True and named["referral.referrer_name"] == "Jane Doe"
+
+
 def test_derive_skips_facts_whose_inputs_are_missing() -> None:
     facts = {
         "coop.anchor": ANCHOR,

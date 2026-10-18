@@ -32,11 +32,12 @@ from personal_os_backend.jobs_models import (
     JobApplication,
     JobListing,
     JobListingPage,
+    ListingFromUrl,
     ListingSyncResponse,
     ValidationTarget,
 )
 from personal_os_backend.jobs_registry import record_fill_events
-from personal_os_backend.jobs_sources import SOURCE_NAME, SourceListing
+from personal_os_backend.jobs_sources import SOURCE_NAME, SourceListing, classify_role_families
 
 ANSWER_SOURCES = frozenset(
     {"jobs_profile", "answer_library", "model", "pattern", "manual", "archive", "prose"}
@@ -101,6 +102,10 @@ class JobsStore(Protocol):
     ) -> JobListingPage: ...
 
     async def get_listing(self, user_id: UUID, reference: str) -> JobListing | None: ...
+
+    async def listing_from_url(
+        self, user_id: UUID, item: ListingFromUrl
+    ) -> JobListing | None: ...
 
     async def create_application(
         self, user_id: UUID, posting_id: UUID, status: str
@@ -430,6 +435,88 @@ class PostgresJobsStore:
             if len(rows) > 1:
                 raise AmbiguousReference(reference)
             return JobListing.model_validate(rows[0]) if rows else None
+
+    async def listing_from_url(
+        self, user_id: UUID, item: ListingFromUrl
+    ) -> JobListing | None:
+        """The posting at this URL, or a new manual one; None when it needs naming.
+
+        A referral link or any posting off the board is applied to by its URL.
+        The URL matches a posting's application or discovery URL exactly, else
+        with its query string dropped when that names one posting. A URL no
+        posting has becomes a `manual` posting once a company and title are
+        given; the worker reads them off the page.
+        """
+        url = str(item.url).strip()
+        base = url.split("#", 1)[0].split("?", 1)[0]
+        async with (
+            self._pool.connection(timeout=self._timeout) as connection,
+            connection.transaction(),
+        ):
+            await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                """
+                select id::text from app.jobs_postings
+                where user_id = %s and (application_url = %s or discovery_url = %s)
+                order by status in ('closed', 'archived'), created_at desc
+                limit 1
+                """,
+                (user_id, url, url),
+            )
+            found = await cursor.fetchone()
+            if found is None:
+                cursor = await connection.execute(
+                    """
+                    select id::text from app.jobs_postings
+                    where user_id = %s
+                      and (split_part(split_part(application_url, '#', 1), '?', 1) = %s
+                           or split_part(split_part(discovery_url, '#', 1), '?', 1) = %s)
+                    limit 2
+                    """,
+                    (user_id, base, base),
+                )
+                matches = await cursor.fetchall()
+                found = matches[0] if len(matches) == 1 else None
+            if found is None:
+                if not (item.company and item.title):
+                    return None
+                company_cursor = await connection.execute(
+                    """
+                    insert into app.jobs_companies (user_id, name)
+                    values (%s, %s)
+                    on conflict (user_id, name) do update set name = excluded.name
+                    returning id
+                    """,
+                    (user_id, item.company.strip()),
+                )
+                company = await company_cursor.fetchone()
+                if company is None:
+                    raise RuntimeError("Company upsert returned no id")
+                now = datetime.now(UTC)
+                posting_cursor = await connection.execute(
+                    """
+                    insert into app.jobs_postings (
+                      user_id, company_id, title, source, source_url, external_id, status,
+                      discovered_at, application_url, discovery_url, role_families,
+                      source_category, normalized_locations, career_stage, feed_region,
+                      last_seen_at
+                    )
+                    values (%s, %s, %s, 'manual', %s, %s, 'saved', %s, %s, %s, %s,
+                            'other', '{}', 'internship', 'usa', %s)
+                    on conflict (user_id, source, external_id)
+                    where source is not null and external_id is not null
+                    do update set title = excluded.title
+                    returning id::text
+                    """,
+                    (
+                        user_id, company["id"], item.title.strip(), url, url, now, url, url,
+                        list(classify_role_families(item.title)), now,
+                    ),
+                )
+                found = await posting_cursor.fetchone()
+                if found is None:
+                    raise RuntimeError("Posting insert returned no id")
+        return await self.get_listing(user_id, str(found["id"]))
 
     async def create_application(
         self, user_id: UUID, posting_id: UUID, status: str

@@ -217,7 +217,8 @@ def build_parser() -> argparse.ArgumentParser:
     autofill.add_argument(
         "ref",
         nargs="?",
-        help="Listing row/id, 'today', or 'failures'; omitted = the top board row",
+        help="Listing row/id, a posting URL (a referral link too), 'today', or 'failures'; "
+        "omitted = the top board row",
     )
     autofill.add_argument(
         "--ats", choices=ATS_NAMES, help="Top row on this form type (no row given, or 'today')"
@@ -269,6 +270,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Explain, and pause before each control is filled (Enter fills, s skips, "
         "c stops pausing)",
     )
+    autofill.add_argument(
+        "--referred",
+        nargs="?",
+        const="",
+        metavar="NAME",
+        help="This application came through a referral; NAME is who referred you",
+    )
+    autofill.add_argument("--company", help="Company, for a posting URL that is not on the board")
+    autofill.add_argument("--title", help="Role title, for a posting URL that is not on the board")
     autofill.add_argument(
         "--ask-facts",
         action="store_true",
@@ -450,6 +460,9 @@ def _dispatch(args: argparse.Namespace) -> int:
                 explain=args.explain,
                 step=args.step,
                 ask_facts=args.ask_facts,
+                referred=args.referred,
+                company=args.company,
+                title=args.title,
             )
     return 2
 
