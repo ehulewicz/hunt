@@ -215,6 +215,23 @@ and settling R51's shadows) happens with you after this lands.
 > training, 2026-10-17; yours to reverse.* Amends §4's "a captcha present means
 > the field is handed to you".
 
+### Revision 2026-10-18
+
+> **R65 — The start date is a rule, not a date.** You can start two weeks after
+> accepting, want twelve-week internships, and want to be back in class for
+> Fall 2027. The earliest start is derived per posting: the notice period from
+> today, or the term the posting names if later (winter January 4, spring
+> January 11, summer May 18, fall August 31), with a twelve-week window from
+> it. A window that runs into the last semester before graduating is warned
+> about rather than refused; "can you start within N weeks" is answered from
+> the notice period. *Decided by you, completed at my discretion.*
+
+> **R66 — A referral belongs to the application, and any URL can be applied
+> to.** Most applications are not referred; a referred one usually arrives as
+> its own link. `os hunt apply <url> --referred [NAME]` applies to a posting by
+> its URL (recording it as a `manual` posting when it is not on the board) and
+> makes the referral a fact of that run only. *Decided by you.*
+
 ---
 
 ## 1. Why
@@ -1656,6 +1673,8 @@ on its own judgement and report the decisions; dispute any by number.
 | R62 | A question reaches the model at most twice in a run | changed by you 2026-10-16 |
 | R63 | Repair is budgeted: 25 operations a question, 150 a run | decided by you 2026-10-16 |
 | R64 | Only an open captcha challenge parks a choice | decided in training 2026-10-17; yours to reverse |
+| R65 | The earliest start is derived per posting: notice period or the named term, twelve weeks | decided by you 2026-10-18 |
+| R66 | A referral belongs to the application; apply takes any posting URL | decided by you 2026-10-18 |
 | R6 | Fact values reviewed in the database, `verified_at` per row | changed by you |
 | R7 | Minimum $40/hour; annual derived; always a number | changed by you |
 | R8 | `years_professional` derived from the career record | changed by your resume decision |
