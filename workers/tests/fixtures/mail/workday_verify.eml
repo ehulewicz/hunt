@@ -1,0 +1,30 @@
+From: Acme Corporation <acme@myworkday.com>
+To: alex.example@example.com
+Subject: Verify Your Candidate Account
+Date: Sun, 18 Oct 2026 21:00:00 +0000
+Message-ID: <verify.7f3c9a2e1b@myworkday.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="b1"
+
+--b1
+Content-Type: text/plain; charset="utf-8"
+
+Unsubscribe: https://acme.myworkday.com/acme/notifications/unsubscribe?confirm=1&id=99
+
+Thank you for creating a candidate account with Acme Corporation.
+Verify your email address to finish setting it up:
+https://acme.wd5.myworkdayjobs.com/en-US/External/activate/7f3c9a2e1b?redirect=%2Fen-US%2FExternal
+
+--b1
+Content-Type: text/html; charset="utf-8"
+
+<html><body>
+<div style="font-size:11px"><a href="https://acme.myworkday.com/acme/notifications/unsubscribe?confirm=1&amp;id=99">Unsubscribe</a>
+| <a href="https://www.acme.com/privacy?validate=1">Privacy</a></div>
+<p>Thank you for creating a candidate account with Acme Corporation.</p>
+<p>Verify your email address to finish setting it up.</p>
+<p><a href="https://acme.wd5.myworkdayjobs.com/en-US/External/activate/7f3c9a2e1b?redirect=%2Fen-US%2FExternal"
+   style="background:#0875e1;color:#fff;padding:8px 16px">Verify Account</a></p>
+</body></html>
+
+--b1--

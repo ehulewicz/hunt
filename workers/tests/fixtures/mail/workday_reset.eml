@@ -1,0 +1,14 @@
+From: Acme Corporation <acme@myworkday.com>
+To: alex.example@example.com
+Subject: Reset Your Password
+Date: Sun, 18 Oct 2026 21:20:00 +0000
+Message-ID: <reset.4d2b8e@myworkday.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+
+<html><body>
+<p><a href="https://www.acme.com/legal/privacy#password-security">Privacy Policy</a></p>
+<p>We received a request to reset the password for your Acme Corporation candidate account.</p>
+<p><a href="https://acme.wd5.myworkdayjobs.com/en-US/External/passwordreset/4d2b8e?redirect=%2Fen-US%2FExternal">Reset Password</a></p>
+<p>This link expires in 24 hours.</p>
+</body></html>
