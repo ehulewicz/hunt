@@ -339,3 +339,30 @@ def test_fill_code_across_digit_boxes(page) -> None:  # type: ignore[no-untyped-
 
     assert fill_code(page, "482913") is True
     assert "".join(page.input_value(f"#d{index}") for index in range(6)) == "482913"
+
+
+def test_workday_new_password_page(page) -> None:  # type: ignore[no-untyped-def]
+    """Workday's reset page reuses verifyPassword; with no email box it is not create."""
+    page.set_content(
+        "<h2>Reset Password</h2>"
+        "<label for=p>New Password</label><input id=p type=password data-automation-id=password>"
+        "<label for=v>Verify New Password</label>"
+        "<input id=v type=password data-automation-id=verifyPassword>"
+        "<button>Reset Password</button>"
+    )
+
+    seen = inspect_account(page)
+
+    assert seen is not None and seen.view == "new_password"
+
+
+def test_reset_password_button_submits_the_new_password(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(
+        "<h2>Reset Password</h2><form onsubmit='return false'>"
+        "<label for=p>New Password</label><input id=p type=password>"
+        "<label for=v>Verify New Password</label><input id=v type=password>"
+        "<button onclick='window.reset = true'>Reset Password</button></form>"
+    )
+
+    assert click_account_control(page, "submit") is True
+    assert page.evaluate("window.reset") is True

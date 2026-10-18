@@ -1,0 +1,195 @@
+<!doctype html>
+<html><head><title>Acme Careers</title></head>
+<body>
+<div id="app"></div>
+<script>
+// A Workday-like account wall, as one page. The account lives in localStorage so
+// a mailed link opened in another tab of the same browser can verify it. Modes:
+//   new        no account; sign-in says none exists; create mails a code
+//   ambiguous  no account; sign-in says "wrong email or password" either way
+//   link       no account; create mails a verification link instead of a code
+//   existing   the account exists with the reusable password
+//   wrong      the account exists with an old password; a reset mail fixes it
+//   stubborn   like wrong, but sign-in keeps failing after the reset
+//   rule       no account; create rejects the reusable password
+//   captcha    a reCAPTCHA checkbox sits on the sign-in form
+//   google     sign-in offers Google, and Google signs you in
+const params = new URLSearchParams(location.search);
+const MODE = params.get('mode') || localStorage.getItem('mode') || 'new';
+localStorage.setItem('mode', MODE);
+const store = {
+  get account() { return JSON.parse(localStorage.getItem('account') || 'null'); },
+  set account(value) { localStorage.setItem('account', JSON.stringify(value)); },
+};
+if (!localStorage.getItem('initialized')) {
+  localStorage.setItem('initialized', '1');
+  if (MODE === 'existing' || MODE === 'google') store.account = { password: 'pw-secret', verified: true };
+  if (MODE === 'wrong' || MODE === 'stubborn') store.account = { password: 'old-pw', verified: true };
+}
+if (params.get('signed') === '1') localStorage.setItem('signedIn', '1');
+window.clicks = [];
+const app = document.querySelector('#app');
+const button = (id, label) => `
+  <div style="position: relative; display: inline-block">
+    <button type="submit" data-automation-id="${id}" tabindex="-1">${label}</button>
+    <div data-automation-id="click_filter" aria-label="${label}" role="button" tabindex="0"
+         style="position: absolute; inset: 0"></div>
+  </div>`;
+const field = (id, label, type) => `
+  <div data-automation-id="formField-${id}">
+    <label for="${id}">${label}</label>
+    <input id="${id}" type="${type}" data-automation-id="${id}">
+  </div>`;
+const error = message => {
+  document.querySelector('#errors').innerHTML =
+    `<div role="alert" data-automation-id="errorMessage">${message}</div>`;
+};
+const value = id => document.querySelector(`#${id}`).value;
+const on = (selector, handler) => {
+  document.querySelector(selector).addEventListener('click', event => {
+    window.clicks.push(event.currentTarget.getAttribute('aria-label')
+      || event.currentTarget.getAttribute('data-automation-id') || event.currentTarget.textContent);
+    handler(event);
+  });
+};
+
+function form() {
+  app.innerHTML = `
+    <h2>My Information</h2>
+    <form onsubmit="return false">
+      <label for="first">First Name*</label><input id="first" type="text">
+      <label for="last">Last Name*</label><input id="last" type="text">
+      <label for="mail">Email Address*</label><input id="mail" type="email">
+      <label for="phone">Phone Number*</label><input id="phone" type="tel">
+      <label for="resume">Resume*</label><input id="resume" type="file">
+      <button type="button">Save and Continue</button>
+    </form>`;
+}
+
+function signIn() {
+  app.innerHTML = `
+    <div role="dialog" aria-labelledby="t"><h2 id="t">Sign In</h2>
+      ${MODE === 'google' ? '<button id="google" type="button">Sign in with Google</button>' : ''}
+      <form onsubmit="return false">
+        ${field('email', 'Email Address*', 'text')}
+        ${field('password', 'Password*', 'password')}
+        ${MODE === 'captcha' ? '<iframe title="reCAPTCHA" width="304" height="78" src="data:text/html,recaptcha/api2/anchor"></iframe>' : ''}
+        <div id="errors"></div>
+        ${button('signInSubmitButton', 'Sign In')}
+      </form>
+      <button data-automation-id="forgotPasswordLink">Forgot your password?</button>
+      <button data-automation-id="createAccountLink">Create Account</button>
+    </div>`;
+  if (MODE === 'google') {
+    on('#google', () => {
+      location.href = 'https://accounts.google.com/o/oauth2/v2/auth?redirect_uri='
+        + encodeURIComponent(location.origin + location.pathname + '?mode=google&signed=1');
+    });
+  }
+  on('[data-automation-id="click_filter"]', () => {
+    const account = store.account;
+    const ambiguous = 'Wrong email address or password. Please try again.';
+    if (!account) {
+      return error(MODE === 'ambiguous' ? ambiguous : "We couldn't find an account with that email address.");
+    }
+    if (!account.verified) return error('Verify your email address before you sign in.');
+    if (MODE === 'stubborn' || account.password !== value('password')) return error(ambiguous);
+    localStorage.setItem('signedIn', '1');
+    form();
+  });
+  on('[data-automation-id="createAccountLink"]', create);
+  on('[data-automation-id="forgotPasswordLink"]', forgot);
+}
+
+function create() {
+  app.innerHTML = `
+    <div role="dialog" aria-labelledby="t"><h2 id="t">Create Account</h2>
+      <form onsubmit="return false">
+        ${field('email', 'Email Address*', 'text')}
+        ${field('password', 'Password*', 'password')}
+        ${field('verifyPassword', 'Verify New Password*', 'password')}
+        <input id="terms" type="checkbox" data-automation-id="createAccountCheckbox">
+        <label for="terms">Yes, I have read and consent to the Terms and Conditions*</label>
+        <div id="errors"></div>
+        ${button('createAccountSubmitButton', 'Create Account')}
+      </form>
+      <p>Already have an account? <button data-automation-id="signInLink">Sign In</button></p>
+    </div>`;
+  on('[data-automation-id="click_filter"]', () => {
+    if (!document.querySelector('#terms').checked) return error('You must accept the terms to continue.');
+    if (value('password') !== value('verifyPassword')) return error('The passwords do not match.');
+    if (MODE === 'rule') return error('Password must contain at least one special character.');
+    if (store.account) return error('An account with this email address already exists.');
+    store.account = { password: value('password'), verified: false };
+    window.createdWith = value('email');
+    MODE === 'link' ? checkEmail() : code();
+  });
+  on('[data-automation-id="signInLink"]', signIn);
+}
+
+function code() {
+  app.innerHTML = `
+    <div role="dialog" aria-labelledby="t"><h2 id="t">Verify Your Email</h2>
+      <p>Enter the verification code we sent to your email.</p>
+      <form onsubmit="return false">
+        <label for="code">Verification Code*</label>
+        <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code">
+        <div id="errors"></div>
+        <button id="verify" type="submit">Verify</button>
+      </form>
+    </div>`;
+  on('#verify', () => {
+    if (value('code') !== '482913') return error('That code is invalid.');
+    store.account = { ...store.account, verified: true };
+    signIn();
+  });
+}
+
+function checkEmail() {
+  app.innerHTML = `<h2>Check your email</h2>
+    <p>We've sent a verification link to your email. Click it, then sign in.</p>`;
+}
+
+function forgot() {
+  app.innerHTML = `
+    <div role="dialog" aria-labelledby="t"><h2 id="t">Forgot your password?</h2>
+      <form onsubmit="return false">
+        ${field('email', 'Email Address*', 'text')}
+        <button id="send" type="submit">Submit</button>
+      </form>
+    </div>`;
+  on('#send', () => {
+    window.resetFor = value('email');
+    app.innerHTML = '<p>If an account exists, we sent a link to reset your password.</p>';
+  });
+}
+
+function newPassword() {
+  app.innerHTML = `
+    <div role="dialog" aria-labelledby="t"><h2 id="t">Reset Password</h2>
+      <form onsubmit="return false">
+        ${field('password', 'New Password*', 'password')}
+        ${field('verifyPassword', 'Verify New Password*', 'password')}
+        <div id="errors"></div>
+        <button id="reset" type="submit">Reset Password</button>
+      </form>
+    </div>`;
+  on('#reset', () => {
+    if (value('password') !== value('verifyPassword')) return error('The passwords do not match.');
+    store.account = { password: value('password'), verified: true };
+    app.innerHTML = '<p>Your password has been reset.</p>';
+  });
+}
+
+if (location.pathname.includes('/activate/')) {
+  store.account = { ...store.account, verified: true };
+  app.innerHTML = '<p>Your account is verified. You can close this tab.</p>';
+} else if (location.pathname.includes('/passwordreset/')) {
+  newPassword();
+} else if (localStorage.getItem('signedIn')) {
+  form();
+} else {
+  signIn();
+}
+</script>
+</body></html>

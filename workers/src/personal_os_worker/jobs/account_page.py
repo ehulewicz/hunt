@@ -244,8 +244,11 @@ def _account_scope(seen: _Seen) -> AccountView | None:
 def _view(seen: _Seen) -> AccountView | None:
     ids = seen.automation
     heading = " | ".join(seen.headings)
-    if "verifyPassword" in ids or "createAccountSubmitButton" in ids:
+    if "createAccountSubmitButton" in ids:
         return "create"
+    if "verifyPassword" in ids:
+        # Workday's password reset page confirms the new password the same way.
+        return "create" if seen.emails else "new_password"
     if "signInSubmitButton" in ids:
         return "sign_in"
     if seen.passwords >= 2:
@@ -331,9 +334,11 @@ SUBMIT_WORDS: dict[AccountView, re.Pattern[str]] = {
 GENERIC_SUBMIT = re.compile(
     r"\b(?:continue|next|submit|send|verify|confirm|save|done|sign[ -]?in|log[ -]?in)\b", re.I
 )
+# Not the form's own button: the forgot link ("Reset Password" is a reset page's button).
+FORGOT_LINK = re.compile(r"\bforgot(?:ten)?\b|\btrouble signing in\b", re.IGNORECASE)
 NOT_SUBMIT = re.compile(
     "|".join(
-        (OTHER_SIGN_IN.pattern, FORGOT_WORDS.pattern, r"\bresend\b", APPLICATION_SUBMIT.pattern)
+        (OTHER_SIGN_IN.pattern, FORGOT_LINK.pattern, r"\bresend\b", APPLICATION_SUBMIT.pattern)
     ),
     re.IGNORECASE,
 )
