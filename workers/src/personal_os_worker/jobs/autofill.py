@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from personal_os_worker.jobs.formatters import polarity
 from personal_os_worker.jobs.options import (
     choose_option,
     normalize_answer_question,
@@ -84,6 +85,12 @@ AFFIRMATION = re.compile(
 )
 JOB_BOARD = re.compile(r"\b(job\s+boards?|linkedin|indeed|handshake|glassdoor|wellfound|dice)\b")
 
+# A follow-up that applies only after one answer: "If you answered No to the
+# above, ...", "If yes, please ...".
+CONDITIONAL = re.compile(
+    r"^\s*if\s+(?:you\s+(?:answered|selected|chose|said)\s+)?[\"'\u201c\u2018]?(yes|no)\b",
+    re.IGNORECASE,
+)
 HOW_HEARD = re.compile(
     r"\bhow did you (?:first )?hear\b|\bwhere did you (?:first )?hear\b|"
     r"\bhow did you (?:first )?(?:find|learn about)\b",
@@ -275,6 +282,8 @@ def build_autofill_plan(
     reasons: dict[int, str] = {}
     knowledge = getattr(resolver, "knowledge", None)
     referred = bool(knowledge is not None and knowledge.facts.get("referral.referred"))
+    # The yes or no of the last choice question planned, for its follow-up.
+    last_choice: bool | None = None
     answered_groups: set[str] = set()
     pending_choices: list[tuple[str, str]] = []
     resume_candidates = {
@@ -428,11 +437,28 @@ def build_autofill_plan(
                     if chosen is None or chosen != own:
                         value = None
 
+        condition = CONDITIONAL.match(question_label)
+        if (
+            value is None and chooser is None and required and condition is not None
+            and field_type not in {"radio", "checkbox", "file"} and tag != "select"
+            and last_choice is not None and (condition.group(1).casefold() == "yes") != last_choice
+        ):
+            # "If you answered No to the above, ..." after a Yes: it does not apply.
+            resolution = AnswerResolution("N/A", "pattern", "engine:not_applicable")
+            value = resolution.value
+            reasons[index] = (
+                f"engine: the question above was answered {'Yes' if last_choice else 'No'}, "
+                "so this follow-up does not apply"
+            )
         if kind in FILE_KINDS or value is not None or chooser is not None:
             fills.append(FormFill(
                 index=index, kind=kind, value=value, chooser=chooser, resolution=resolution,
                 referred=referred,
             ))
+            if value is not None and (field_type in {"radio", "checkbox"} or tag == "select"):
+                answer = polarity(value)
+                if answer is not None:
+                    last_choice = answer
             if field_type in {"radio", "checkbox"} and group:
                 answered_groups.add(normalized)
         elif required and label:

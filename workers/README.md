@@ -115,8 +115,10 @@ in a fixed order: the question's active binding, then active expression
 patterns (exactly one fact among those that match). The engine
 answers its own fields first: consent and attestation take the agreeing option,
 the resume and transcript upload, "how did you hear" ranks the employer's site,
-a job board, then Other (a referral first under `--referred`), and no value that
-declines to answer is ever chosen.
+a job board, then Other (a referral first under `--referred`; a free-text box
+gets "Company website"), a required "If you answered No…" follow-up gets "N/A"
+when the choice above was answered the other way, and no value that declines to
+answer is ever chosen.
 
 **Posting facts.** Some facts belong to the posting, not to you, and are derived
 per run in `jobs/facts/derived.py`: whether you worked at or applied to its

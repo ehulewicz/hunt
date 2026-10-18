@@ -662,3 +662,21 @@ def test_how_heard_as_free_text_gets_the_standing_source() -> None:
     assert fill.value == "Company website"
     assert fill.resolution is not None
     assert fill.resolution.resolver_id == "engine:application_source"
+
+
+def test_a_follow_up_the_answer_above_rules_out_is_not_applicable() -> None:
+    question = "Are you a U.S. person under export control laws?"
+    follow_up = "If you answered “No” to the above, please provide your citizenship."
+    fields = [
+        {"index": 0, "tag": "input", "type": "radio", "name": "q", "label": "Yes",
+         "group": question, "required": True},
+        {"index": 1, "tag": "input", "type": "radio", "name": "q", "label": "No",
+         "group": question, "required": True},
+        {"index": 2, "tag": "input", "type": "text", "label": follow_up, "required": True},
+    ]
+    plan = build_autofill_plan(fields, resolver=Stub({question: "Yes"}))
+    assert [(fill.index, fill.value) for fill in plan.fills] == [(0, "Yes"), (2, "N/A")]
+    # When the follow-up does apply, it is yours.
+    plan = build_autofill_plan(fields, resolver=Stub({question: "No"}))
+    assert [(fill.index, fill.value) for fill in plan.fills] == [(1, "No")]
+    assert follow_up in plan.unanswered_required_questions
