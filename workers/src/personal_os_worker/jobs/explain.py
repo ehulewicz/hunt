@@ -31,13 +31,13 @@ from personal_os_worker.core.tables import console
 from personal_os_worker.jobs.autofill import (
     AutofillPlan,
     FormFill,
+    choice_group_key,
     is_consent_field,
     is_long_form_field,
     is_sensitive_field,
 )
 from personal_os_worker.jobs.browser import fresh_control
 from personal_os_worker.jobs.keys import read_key
-from personal_os_worker.jobs.options import normalize_question
 from personal_os_worker.jobs.registry.kinds import classify, control_attributes, question_of
 
 LABEL_WIDTH = 17
@@ -61,12 +61,12 @@ def group_options(fields: list[dict[str, Any]], field: dict[str, Any]) -> list[s
         "group"
     ):
         return [str(option) for option in field.get("options") or []]
-    group = normalize_question(str(field["group"]))
+    group = choice_group_key(field)
     return [
         str(item.get("label") or item.get("value") or "")
         for item in fields
         if str(item.get("type") or "").casefold() in {"radio", "checkbox"}
-        and normalize_question(str(item.get("group") or "")) == group
+        and choice_group_key(item) == group
     ]
 
 
@@ -224,7 +224,7 @@ class Explainer:
         """Every control nothing was planned for, once per choice group."""
         planned = {fill.index for fill in self.plan.fills}
         planned_groups = {
-            normalize_question(str(self.fields[index].get("group") or ""))
+            choice_group_key(self.fields[index])
             for index in planned
             if index < len(self.fields) and self.fields[index].get("group")
         }
@@ -234,7 +234,7 @@ class Explainer:
             index = int(field.get("index") or 0)
             if index in planned or not self.scope(field):
                 continue
-            group = normalize_question(str(field.get("group") or ""))
+            group = choice_group_key(field) if field.get("group") else ""
             if group and (group in planned_groups or group in seen_groups):
                 continue
             if group:

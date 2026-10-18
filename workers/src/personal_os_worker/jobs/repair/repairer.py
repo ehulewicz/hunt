@@ -16,7 +16,7 @@ from typing import Any
 
 from playwright.sync_api import Error, Page
 
-from personal_os_worker.jobs.autofill import FormFill
+from personal_os_worker.jobs.autofill import FormFill, choice_group_key
 from personal_os_worker.jobs.browser import (
     OPERATIONS,
     Attempt,
@@ -24,8 +24,8 @@ from personal_os_worker.jobs.browser import (
     inspect_fields,
     verify_control,
 )
-from personal_os_worker.jobs.formatters import renderings
-from personal_os_worker.jobs.options import normalize_answer_question
+from personal_os_worker.jobs.formatters import polarity, renderings, yes_no_option
+from personal_os_worker.jobs.options import choose_option, normalize_answer_question
 from personal_os_worker.jobs.registry.kinds import classify, control_attributes, question_of
 from personal_os_worker.jobs.registry.strategies import APPLIES, CANDIDATES
 from personal_os_worker.jobs.repair.guards import SUBMITTING
@@ -41,6 +41,28 @@ def find_field(fields: list[dict[str, Any]], question: str) -> dict[str, Any] | 
         (field for field in fields if normalize_answer_question(question_of(field)) == wanted),
         None,
     )
+
+
+def _choice_target(page: Page, field: dict[str, Any], value: str) -> dict[str, Any] | None:
+    """The control to operate for this value: the field itself, or, for a radio or
+    checkbox, the option of its group that says the value (None when none does).
+
+    A radio's readback is only whether it is checked, so operating the first
+    option with any value would "repair" it with nonsense.
+    """
+    if str(field.get("type") or "").casefold() not in {"radio", "checkbox"}:
+        return field
+    key = choice_group_key(field)
+    group = [
+        item for item in inspect_fields(page)
+        if str(item.get("type") or "").casefold() in {"radio", "checkbox"}
+        and choice_group_key(item) == key
+    ] or [field]
+    labels = [str(item.get("label") or item.get("value") or "") for item in group]
+    chosen = choose_option(labels, value)
+    if chosen is None and (answer := polarity(value)) is not None:
+        chosen = yes_no_option(labels, answer)
+    return group[labels.index(chosen)] if chosen in labels else None
 
 
 def _refuse_submit(field: dict[str, Any]) -> None:
@@ -79,6 +101,10 @@ def repair_strategy(
     order: tuple[str, ...] | None = None,
 ) -> dict[str, Any] | None:
     kind = classify(field)
+    target = _choice_target(page, field, value)
+    if target is None:
+        return None
+    field = target
     fill = FormFill(index=int(field.get("index") or 0), kind="text", value=value)
     for name in order or CANDIDATES.get(kind, ()):
         applies = APPLIES.get(name)
@@ -119,12 +145,15 @@ def repair_format(
     ):
         if rendering.formatter == failed_formatter:
             continue
-        fill = FormFill(index=int(field.get("index") or 0), kind="text", value=rendering.value)
+        target = _choice_target(page, field, rendering.value)
+        if target is None:
+            continue
+        fill = FormFill(index=int(target.get("index") or 0), kind="text", value=rendering.value)
         for name in CANDIDATES.get(kind, ()):
             applies = APPLIES.get(name)
-            if applies is not None and not applies(field, fill, False):
+            if applies is not None and not applies(target, fill, False):
                 continue
-            shown = _attempt(page, field, fill, name, operations)
+            shown = _attempt(page, target, fill, name, operations)
             if shown is not None:
                 return {
                     "kind": "format",

@@ -1537,6 +1537,12 @@ class AutofillSession:
             if not key:
                 return False
         known = entry(key)
+        if known is not None and known.source != "stored":
+            # A derived fact comes from others; storing it would freeze it, and a
+            # referrer named here would follow every application after.
+            hint = " (apply --referred NAME)" if key.startswith("referral.") else ""
+            console.print(f"  {key} is derived, not asked for{hint}", style="dim")
+            return False
         label = known.label if known else self.ctx.prompt("  label: ").strip()
         value_type = (
             known.value_type
@@ -1585,15 +1591,26 @@ class AutofillSession:
 
     def refresh_knowledge(self) -> None:
         """Rebuild what the run knows after a fact was set, keeping its preferences."""
+        from personal_os_worker.jobs.facts.derived import POSTING_FACTS
+
+        old = self.ctx.knowledge
         rebuilt = Knowledge.build(
             facts=self.ctx.api.facts(),
             career=self.ctx.career,
-            patterns=self.ctx.knowledge.patterns,
-            prose=self.ctx.knowledge.prose,
+            patterns=old.patterns,
+            prose=old.prose,
             company=self.ctx.company,
-            seed=self.ctx.knowledge.seed,
+            seed=old.seed,
         )
-        self.ctx.knowledge = replace(rebuilt, preferences=self.ctx.knowledge.preferences)
+        # Posting facts (its term and window, a referral, your history with the
+        # company) came from this run's inputs, not from your facts: keep them.
+        kept = {item.key for item in POSTING_FACTS if item.key in old.facts}
+        self.ctx.knowledge = replace(
+            rebuilt,
+            facts={**rebuilt.facts, **{key: old.facts[key] for key in kept}},
+            types={**rebuilt.types, **{key: old.types[key] for key in kept if key in old.types}},
+            preferences=old.preferences,
+        )
 
     def apply_value(
         self,

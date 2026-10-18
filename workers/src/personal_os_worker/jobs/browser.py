@@ -21,6 +21,7 @@ from personal_os_worker.jobs.autofill import (
     Resolves,
     affirmative_option,
     build_autofill_plan,
+    choice_group_key,
     is_sensitive_field,
     preferred_source_option,
 )
@@ -1736,8 +1737,8 @@ def audit_filled_form(
     # A choice group is one question: it is filled once any option is checked,
     # and it is reported by the group question rather than each option's label.
     answered_groups: set[str] = set()
-    pending_groups: list[str] = []
-    optional_groups: list[str] = []
+    pending_groups: list[tuple[str, str]] = []
+    optional_groups: list[tuple[str, str]] = []
     for field in fields:
         field_type = str(field.get("type") or "").casefold()
         if field_type in {"submit", "button", "reset", "hidden"}:
@@ -1747,27 +1748,29 @@ def audit_filled_form(
         label = group if is_choice else str(
             field.get("label") or field.get("name") or field.get("index") or "field"
         )
+        # Two questions worded alike stay two groups (choice_group_key).
+        key = choice_group_key(field) if is_choice else label
         if field.get("filled") is True:
             if is_choice:
-                if label in answered_groups:
+                if key in answered_groups:
                     continue
-                answered_groups.add(label)
+                answered_groups.add(key)
             filled.append(label)
         elif field.get("required") is True:
             if is_choice:
-                pending_groups.append(label)
+                pending_groups.append((key, label))
             else:
                 required_unfilled.append(label)
         elif str(field.get("type") or "").casefold() != "file" and not is_sensitive_field(field):
             if is_choice:
-                optional_groups.append(label)
+                optional_groups.append((key, label))
             else:
                 optional_unfilled.append(label)
     required_unfilled.extend(
-        dict.fromkeys(group for group in pending_groups if group not in answered_groups)
+        dict.fromkeys(label for key, label in pending_groups if key not in answered_groups)
     )
     optional_unfilled.extend(
-        dict.fromkeys(group for group in optional_groups if group not in answered_groups)
+        dict.fromkeys(label for key, label in optional_groups if key not in answered_groups)
     )
     return {
         "filled_fields": filled,

@@ -245,6 +245,19 @@ def affirmative_option(options: list[str]) -> str | None:
     return candidates[0] if len(candidates) == 1 and not agreeing else None
 
 
+def choice_group_key(field: dict[str, Any]) -> str:
+    """Which choice group an option belongs to.
+
+    Radios answer one question per `name` (HTML groups them that way), so two
+    questions worded alike (Lever repeats a card) stay two groups. Checkboxes
+    group by their question alone: JazzHR names each Yes/No box differently.
+    """
+    group = normalize_question(str(field.get("group") or ""))
+    if str(field.get("type") or "").casefold() == "radio" and field.get("name"):
+        return f"{group}|{field['name']}"
+    return group
+
+
 def build_autofill_plan(
     fields: list[dict[str, Any]],
     *,
@@ -281,7 +294,7 @@ def build_autofill_plan(
     filled_groups: set[str] = set()
     for field in fields:
         if str(field.get("type") or "").casefold() in {"radio", "checkbox"} and field.get("group"):
-            group_key = normalize_question(str(field["group"]))
+            group_key = choice_group_key(field)
             group_options.setdefault(group_key, []).append(
                 str(field.get("label") or field.get("value") or "")
             )
@@ -293,7 +306,9 @@ def build_autofill_plan(
         field_type = str(field.get("type") or "").casefold()
         group = str(field.get("group") or "").strip()
         question_label = group if field_type in {"radio", "checkbox"} and group else label
-        normalized = normalize_question(question_label)
+        normalized = choice_group_key(field) if field_type in {"radio", "checkbox"} else (
+            normalize_question(question_label)
+        )
         tag = str(field.get("tag") or "").casefold()
         sensitive = is_sensitive_field(field)
         required = field.get("required") is True
@@ -376,9 +391,18 @@ def build_autofill_plan(
                 resolution = None
             value = resolution.value if resolution is not None else None
             if value is None and not options and HOW_HEARD.search(question_label):
-                chooser = "source" if field.get("role") == "combobox" else None
-                if chooser is not None:
+                if field.get("role") == "combobox":
+                    chooser = "source"
                     reasons[index] = "engine: how did you hear, chosen against the live menu"
+                elif tag in {"input", "textarea"}:
+                    # A free-text box gets the same standing answer a menu does.
+                    resolution = AnswerResolution(
+                        "Employee referral" if referred else "Company website",
+                        "pattern",
+                        "engine:application_source",
+                    )
+                    value = resolution.value
+                    reasons[index] = "engine: how did you hear, the standing source"
 
             if field_type in {"radio", "checkbox"} and value is not None:
                 own = str(field.get("label") or field.get("value") or "")

@@ -632,3 +632,33 @@ def test_the_audit_lists_optional_fields_left_empty_after_required_ones() -> Non
     assert audit["required_unfilled"] == ["Email"]
     # Files are uploaded by the engine or left to you; consent is the engine's.
     assert audit["optional_unfilled"] == ["Pronouns", "Relocate?"]
+
+
+
+def test_two_questions_worded_alike_are_two_radio_groups() -> None:
+    """Lever repeats a card: same question, different names, Yes/No in different cases."""
+    question = "Will you be able to start within 3 weeks?"
+    fields = [
+        {"index": 0, "tag": "input", "type": "radio", "name": "a", "label": "yes",
+         "group": question, "required": True},
+        {"index": 1, "tag": "input", "type": "radio", "name": "a", "label": "no",
+         "group": question, "required": True},
+        {"index": 2, "tag": "input", "type": "radio", "name": "b", "label": "Yes",
+         "group": question, "required": True},
+        {"index": 3, "tag": "input", "type": "radio", "name": "b", "label": "No",
+         "group": question, "required": True},
+    ]
+    plan = build_autofill_plan(fields, resolver=Stub({question: "Yes"}))
+    assert sorted(fill.index for fill in plan.fills) == [0, 2]
+    assert plan.unanswered_required_questions == ()
+
+
+
+def test_how_heard_as_free_text_gets_the_standing_source() -> None:
+    fields = [{"index": 0, "tag": "input", "type": "text",
+               "label": "How did you hear about this job?", "required": False}]
+    plan = build_autofill_plan(fields)
+    [fill] = plan.fills
+    assert fill.value == "Company website"
+    assert fill.resolution is not None
+    assert fill.resolution.resolver_id == "engine:application_source"

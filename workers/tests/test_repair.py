@@ -225,3 +225,19 @@ def test_a_fill_repairs_in_place_on_any_site_and_stores_the_candidate(  # type: 
     printed = " ".join(capsys.readouterr().out.split())
     assert "repaired" in printed and "date_as_term" in printed
     assert "nothing else took" in printed  # the strategy failure had nothing to retry
+
+
+def test_a_radio_is_repaired_only_with_the_option_that_says_the_value(page) -> None:  # type: ignore[no-untyped-def]
+    """A radio's readback is only "checked", so any value would have passed."""
+    page.set_content(
+        '<fieldset><legend>Can you start within 3 weeks?</legend>'
+        '<label><input type="radio" name="start" value="yes">yes</label>'
+        '<label><input type="radio" name="start" value="no">no</label></fieldset>'
+    )
+    field = find_field(inspect_fields(page), "Can you start within 3 weeks?")
+    assert field is not None
+    assert repair_strategy(page, field, "2") is None
+    assert page.locator("input:checked").count() == 0
+    candidate = repair_strategy(page, field, "No")
+    assert candidate is not None and candidate["value"].casefold() == "no"
+    assert page.locator("input[value=no]").is_checked()
