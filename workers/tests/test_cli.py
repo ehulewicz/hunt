@@ -518,25 +518,40 @@ def test_a_closed_posting_is_recognised_in_any_wording(body: str, closed: bool) 
 
 
 @pytest.mark.parametrize(
-    ("meta", "expected"),
+    ("page_title", "url", "expected"),
     [
-        ({"page_title": "Software Development Engineer Intern - Job ID: 1 | Amazon.jobs",
-          "og_title": "", "site_name": ""},
-         ("Amazon", "Software Development Engineer Intern")),
-        ({"page_title": "Job Application for Backend Intern at Acme", "og_title": "",
-          "site_name": ""}, ("Acme", "Backend Intern")),
-        ({"page_title": "Careers", "og_title": "ML Intern", "site_name": "Zipline"},
-         ("Zipline", "ML Intern")),
-        ({"page_title": "Firmware Intern", "og_title": "", "site_name": ""},
-         ("Example", "Firmware Intern")),
+        ("Software Development Engineer Intern - Job ID: 1 | Amazon.jobs",
+         "https://www.amazon.jobs/en/jobs/1", ("Amazon", "Software Development Engineer Intern")),
+        ("Job Application for Software Engineering Intern, Backend at AiDASH, Inc.",
+         "https://job-boards.greenhouse.io/aidashinc/jobs/1",
+         ("AiDASH, Inc.", "Software Engineering Intern, Backend")),
+        ("Manufacturing Software Engineer Intern - Winter 2027 @ Skydio",
+         "https://jobs.ashbyhq.com/skydio/x",
+         ("Skydio", "Manufacturing Software Engineer Intern - Winter 2027")),
+        ("Forward Deployed Software Engineer Internship - Healthpeak Properties, Inc. - "
+         "Career Page",
+         "https://healthpeak.applytojob.com/apply/x",
+         ("Healthpeak Properties, Inc.", "Forward Deployed Software Engineer Internship")),
+        ("Wing Careers | Data Infra Software Engineering Intern, Summer 2027",
+         "https://wing.com/careers/1",
+         ("Wing", "Data Infra Software Engineering Intern, Summer 2027")),
     ],
 )
 def test_a_posting_url_names_its_company_and_role(
-    meta: dict[str, str], expected: tuple[str, str]
+    page_title: str, url: str, expected: tuple[str, str]
 ) -> None:
     from personal_os_worker.jobs.commands import guess_identity
 
-    assert guess_identity(url="https://jobs.example.com/1", **meta) == expected
+    assert guess_identity(page_title=page_title, og_title="", site_name="", url=url) == expected
+
+
+def test_an_ats_name_is_never_the_company() -> None:
+    from personal_os_worker.jobs.commands import guess_identity
+
+    assert guess_identity(
+        page_title="Careers", og_title="", site_name="Greenhouse",
+        url="https://job-boards.greenhouse.io/point72/jobs/1", heading="Software Engineer Intern",
+    ) == ("Point72", "Software Engineer Intern")
 
 
 def test_referred_takes_an_optional_name() -> None:

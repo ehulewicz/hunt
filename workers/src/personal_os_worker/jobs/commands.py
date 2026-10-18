@@ -247,25 +247,70 @@ def run_doctor_command() -> int:
 
 POSTING_URL = re.compile(r"^https?://", re.IGNORECASE)
 SITE_SUFFIX = re.compile(r"\.(jobs|careers|com|io|co|net|org)$", re.IGNORECASE)
+# Title segments that name the page, not the role or the employer.
+GENERIC_SEGMENT = re.compile(
+    r"^(careers?|career page|career site|jobs?|job board|job application|apply|open roles?"
+    r"|greenhouse|lever|workday|ashby|icims|smartrecruiters|jobvite|jazzhr|bamboohr)$",
+    re.IGNORECASE,
+)
+ROLE_WORDS = re.compile(
+    r"\b(intern|internship|co-?op|engineer|developer|scientist|analyst|researcher|associate"
+    r"|specialist|designer|manager|software|technician)\b",
+    re.IGNORECASE,
+)
+# Hosted boards put the employer in the subdomain or the first path segment.
+ATS_HOSTS = ("greenhouse.io", "lever.co", "ashbyhq.com", "applytojob.com", "icims.com",
+             "smartrecruiters.com", "myworkdayjobs.com", "jobvite.com", "bamboohr.com")
+
+
+def _company_from_url(url: str) -> str:
+    parts = urlsplit(url)
+    host = (parts.hostname or "").casefold()
+    segments = [segment for segment in parts.path.split("/") if segment]
+    if any(host.endswith(ats) for ats in ATS_HOSTS):
+        label = host.split(".")[0]
+        if label in {"boards", "job-boards", "jobs", "www", "apply", "careers"} and segments:
+            return segments[0].replace("-", " ")
+        return label.split("-")[-1] if label.startswith("careers-") else label
+    labels = host.split(".")
+    return labels[-2] if len(labels) >= 2 else labels[0]
 
 
 def guess_identity(
-    *, page_title: str, og_title: str, site_name: str, url: str
+    *, page_title: str, og_title: str, site_name: str, url: str, heading: str = ""
 ) -> tuple[str, str]:
-    """(company, title) read off a posting page: its title, its site name, its host."""
-    title = " ".join((og_title or page_title or "").split())
+    """(company, title) read off a posting page: its title, heading, site name, URL."""
+    title_text = " ".join((page_title or og_title or "").split())
     company = " ".join((site_name or "").split())
-    at = re.match(r"^(?:job application for\s+)?(.+?)\s+at\s+(.+)$", title, re.IGNORECASE)
+    if GENERIC_SEGMENT.match(company):
+        company = ""
+    role = ""
+    at = re.match(
+        r"^(?:job application for\s+)?(.+?)\s+(?:at|@)\s+(.+)$", title_text, re.IGNORECASE
+    )
     if at:
-        title, company = at.group(1), company or at.group(2)
-    parts = [part for part in re.split(r"\s+[|\u2013\u2014-]\s+", title) if part]
-    if len(parts) > 1:
-        title, company = parts[0], company or parts[-1]
-    if not company:
-        labels = (urlsplit(url).hostname or "").split(".")
-        company = labels[-2] if len(labels) >= 2 else labels[0]
-    company = SITE_SUFFIX.sub("", company).strip()
-    return company[:1].upper() + company[1:], title.strip()
+        role, company = at.group(1), company or at.group(2)
+    else:
+        segments = [
+            re.sub(r"\s+(careers?|jobs)$", "", part, flags=re.IGNORECASE).strip()
+            for part in re.split(r"\s+[|\u2013\u2014-]\s+|\s+\|\s*", title_text)
+        ]
+        segments = [part for part in segments if part and not GENERIC_SEGMENT.match(part)]
+        roles = [part for part in segments if ROLE_WORDS.search(part)]
+        role = roles[0] if roles else (segments[0] if segments else "")
+        # The employer is the last other segment that is not an id ("Job ID: 1").
+        others = [
+            part for part in segments
+            if part != role and not re.search(r"\b(job id|req(uisition)?|id)\b|^#?\d", part, re.I)
+        ]
+        company = company or (others[-1] if others else "")
+    if not ROLE_WORDS.search(role):
+        for candidate in (heading, og_title):
+            if candidate and ROLE_WORDS.search(candidate):
+                role = candidate
+                break
+    company = SITE_SUFFIX.sub("", company or _company_from_url(url)).strip()
+    return company[:1].upper() + company[1:], " ".join(role.split())
 
 
 def read_posting_identity(url: str) -> tuple[str, str]:
@@ -282,6 +327,7 @@ def read_posting_identity(url: str) -> tuple[str, str]:
               page_title: document.title || '',
               og_title: document.querySelector('meta[property="og:title"]')?.content || '',
               site_name: document.querySelector('meta[property="og:site_name"]')?.content || '',
+              heading: document.querySelector('h1')?.innerText || '',
             })"""
         )
     return guess_identity(url=url, **{key: str(value) for key, value in meta.items()})
