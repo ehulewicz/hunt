@@ -7,7 +7,13 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import Error, sync_playwright
 
-from personal_os_worker.jobs.account_page import inspect_account
+from personal_os_worker.jobs.account_page import (
+    click_account_control,
+    fill_code,
+    fill_credentials,
+    inspect_account,
+    tick_account_terms,
+)
 from personal_os_worker.jobs.browser import inspect_fields
 from personal_os_worker.jobs.page_state import ApplicationPageState, classify_application_page
 
@@ -208,3 +214,128 @@ def test_job_alert_signup_is_not_an_account_page(page) -> None:  # type: ignore[
     )
 
     assert inspect_account(page) is None
+
+
+def record_clicks(page) -> None:  # type: ignore[no-untyped-def]
+    page.evaluate(
+        """() => {
+          window.clicked = [];
+          document.addEventListener('click', event => {
+            const target = event.target.closest('[data-automation-id], button, a');
+            if (target) window.clicked.push(
+              target.getAttribute('data-automation-id') || target.textContent.trim()
+            );
+          }, true);
+        }"""
+    )
+
+
+def test_fill_and_submit_sign_in(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(fixture("workday_sign_in.html"))
+
+    fill_credentials(page, email="e@x.com", password="pw")
+
+    assert click_account_control(page, "submit") is True
+    assert page.evaluate("window.sent") == {"email": "e@x.com", "password": "pw"}
+
+
+def test_fills_confirm_password(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(fixture("workday_create.html"))
+
+    fill_credentials(page, email="e@x.com", password="pw")
+
+    assert page.input_value("#email") == "e@x.com"
+    assert page.input_value("#password") == "pw"
+    assert page.input_value("#verify") == "pw"
+
+
+def test_submit_on_create_is_create_not_sign_in(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(fixture("workday_create.html"))
+    record_clicks(page)
+
+    assert click_account_control(page, "submit") is True
+    assert page.evaluate("window.clicked") == ["click_filter"]
+    assert page.evaluate(
+        "document.querySelector('[data-automation-id=click_filter]').getAttribute('aria-label')"
+    ) == "Create Account"
+
+
+def test_opens_create_and_forgot(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(fixture("workday_sign_in.html"))
+    record_clicks(page)
+
+    assert click_account_control(page, "create") is True
+    assert click_account_control(page, "forgot") is True
+    assert page.evaluate("window.clicked") == ["createAccountLink", "forgotPasswordLink"]
+
+
+def test_google_control_is_clicked_by_its_words(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(
+        fixture("workday_sign_in.html").replace(
+            "</form>", "</form><button type=button>Continue with Google</button>"
+        )
+    )
+    record_clicks(page)
+
+    assert click_account_control(page, "google") is True
+    assert page.evaluate("window.clicked") == ["Continue with Google"]
+
+
+def test_ticks_only_terms(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(fixture("workday_create.html"))
+
+    assert tick_account_terms(page) == 1
+    assert page.is_checked("#terms") is True
+    assert page.is_checked("#marketing") is False
+
+
+def test_agreeing_to_marketing_is_not_terms(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(
+        fixture("workday_create.html").replace(
+            "Send me emails about new jobs and career events",
+            "I agree to receive marketing emails and job alerts",
+        )
+    )
+
+    assert tick_account_terms(page) == 1
+    assert page.is_checked("#marketing") is False
+
+
+def test_never_clicks_application_submit(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(
+        "<form onsubmit='return false'><label for=e>Email</label><input id=e type=email>"
+        "<label for=p>Password</label><input id=p type=password>"
+        "<button id=go onclick='window.submitted = true'>Submit application</button></form>"
+    )
+
+    assert click_account_control(page, "submit") is False
+    assert page.evaluate("window.submitted === undefined") is True
+
+
+def test_forgot_page_bare_submit_is_the_account_button(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(
+        "<h2>Forgot your password?</h2><form onsubmit='return false'>"
+        "<label for=e>Email Address</label><input id=e data-automation-id=email type=text>"
+        "<button onclick='window.sent = true'>Submit</button></form>"
+    )
+
+    assert click_account_control(page, "submit") is True
+    assert page.evaluate("window.sent") is True
+
+
+def test_fill_code(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(fixture("workday_code.html"))
+
+    assert fill_code(page, "482913") is True
+    assert page.input_value("#code") == "482913"
+
+
+def test_fill_code_across_digit_boxes(page) -> None:  # type: ignore[no-untyped-def]
+    boxes = "".join(
+        f"<input id=d{index} maxlength=1 inputmode=numeric aria-label='Digit {index + 1}'>"
+        for index in range(6)
+    )
+    page.set_content(f"<h2>Enter the verification code</h2>{boxes}<button>Verify</button>")
+
+    assert fill_code(page, "482913") is True
+    assert "".join(page.input_value(f"#d{index}") for index in range(6)) == "482913"
