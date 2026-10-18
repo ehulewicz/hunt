@@ -106,6 +106,47 @@ readback is `form_appeared`. A gate nothing answers is left alone: the capture
 installs a click recorder, so the choice you make yourself is recorded as that
 question's answer and the Inbox can bind it.
 
+## The account wall
+
+`jobs/account_page.py` recognizes an ATS sign-in, create-account, forgot,
+new-password, code or check-your-email page — Workday's `data-automation-id`s
+first, wording elsewhere — and `page_state` reports it as `ACCOUNT` only when no
+application form is on the page. `jobs/account.py` then runs a deterministic
+chain, each step at most once: Google (the `contact.email` tile in the
+automation profile; any challenge falls through), sign in, create (a refused
+sign-in creates first, because Workday says "wrong email or password" when
+there is no account; "already exists" leads to the reset), verify, and reset.
+`jobs/mail.py` reads the verification or reset mail over IMAP, read-only
+(EXAMINE and `BODY.PEEK[]`), taking only mail that arrived after the click and
+names this tenant or company. A captcha, a refused password, a mail timeout or
+a missing secret parks the run as an `account_wall` failure. There is no model
+call and nothing is stored.
+
+Two secrets live in GCP Secret Manager (project `example-gcp-project`) and are
+read through `gcloud` into memory by `core/secrets.py`: `jobs-ats-password`, the
+one reusable ATS password, and `jobs-gmail-app-password`, the Gmail app password
+IMAP signs in with. Neither is written to disk, logged, stored as a fact or sent
+to the API. `page_evidence` empties and masks password boxes and replaces every
+secret read so far, raw or escaped, in each captured file.
+
+One-time setup, on the machine that runs `os hunt apply`:
+
+1. Run `os chrome` and sign into `alex.example@example.com` at
+   accounts.google.com in that window, so Google sign-in has its tile.
+2. `os hunt facts set contact.email alex.example@example.com`.
+3. Turn on 2-Step Verification for that account, and create an app password at
+   myaccount.google.com/apppasswords.
+4. Store each secret without it touching shell history (the ATS password: 16
+   characters with upper, lower, digit and symbol; `jobs-ats-password` already
+   exists):
+
+   ```bash
+   read -rs P && printf %s "$P" | gcloud secrets create jobs-gmail-app-password \
+     --data-file=- --replication-policy=automatic --project=example-gcp-project; unset P
+   ```
+
+5. `os doctor` shows "Account secrets" OK.
+
 ## How a field is filled
 
 **Which value.** Every value comes from a fact. `jobs/resolve.py` builds the

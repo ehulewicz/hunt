@@ -366,3 +366,32 @@ def test_reset_password_button_submits_the_new_password(page) -> None:  # type: 
 
     assert click_account_control(page, "submit") is True
     assert page.evaluate("window.reset") is True
+
+
+def test_evidence_redacts_passwords(
+    page, monkeypatch: pytest.MonkeyPatch  # type: ignore[no-untyped-def]
+) -> None:
+    from personal_os_worker.core import secrets
+    from personal_os_worker.jobs.browser import page_evidence
+
+    secret = 'pw-secret&"<x'
+    monkeypatch.setitem(secrets._cache, secrets.ATS_PASSWORD, secret)
+    page.set_content(fixture("workday_sign_in.html") + "<p id=echo></p>")
+    page.fill("#password", secret)
+    page.evaluate(
+        """secret => {
+          document.querySelector('#password').setAttribute('value', secret);
+          document.querySelector('#echo').textContent = 'You typed ' + secret;
+        }""",
+        secret,
+    )
+
+    evidence = page_evidence(
+        page, inspect_fields(page), console_errors=[f"login failed for {secret}"]
+    )
+
+    assert evidence
+    for name, data in evidence.items():
+        if name.endswith(".png"):
+            continue
+        assert b"pw-secret" not in data, name

@@ -1619,3 +1619,134 @@ def test_a_failed_evidence_upload_is_skipped_not_fatal(capsys: pytest.CaptureFix
     paths = session.upload_evidence({"page.png": b"x", "page.html": b"y", "more.png": b"z"})
     assert paths == {"page.html": "artifacts/page.html"}
     assert capsys.readouterr().out.count("Could not store failure evidence") == 1
+
+
+class FakeAccount:
+    """An account flow that answers with a set result, optionally changing the page."""
+
+    def __init__(self, outcome: str, reason: str = "", on_run: Any = None) -> None:
+        from personal_os_worker.jobs.account import AccountOutcome, AccountResult
+
+        self.email = "e@x.com"
+        self.result = AccountResult(AccountOutcome(outcome), reason)
+        self.on_run = on_run
+        self.calls = 0
+
+    def run(self, page: Any) -> Any:
+        self.calls += 1
+        if self.on_run is not None:
+            self.on_run(page)
+        return self.result
+
+
+SIGN_IN_WALL = (
+    Path(__file__).parent / "fixtures" / "account" / "workday_sign_in.html"
+).read_text()
+SIGNED_IN_FORM = """
+<label for=first>First Name</label><input id=first type=text>
+<label for=last>Last Name</label><input id=last type=text>
+<label for=email>Email</label><input id=email type=email>
+<label for=phone>Phone</label><input id=phone type=tel>
+"""
+
+
+def account_session(page: Any, tmp_path: Path, account: Any, **kwargs: Any) -> AutofillSession:
+    return AutofillSession(
+        SessionContext(
+            api=FakeApi(),  # type: ignore[arg-type]
+            run_id="run-account",
+            ats="workday",
+            browser=FakeBrowser(page),  # type: ignore[arg-type]
+            page=page,
+            console_errors=[],
+            knowledge=known({}),
+            resume_json={},
+            resume_pdf=tmp_path / "resume.pdf",
+            company="Acme",
+            title="Engineer",
+            description=None,
+            account=account,
+            **kwargs,
+        )
+    )
+
+
+def bounded(session: AutofillSession, polls: int) -> None:
+    """Let the standby poll a few times, then stop it as Ctrl+C would."""
+    count = iter(range(polls))
+
+    def sleep() -> None:
+        if next(count, None) is None:
+            raise KeyboardInterrupt
+
+    session.sleep = sleep  # type: ignore[method-assign]
+
+
+def test_account_page_runs_flow_then_fills(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
+    browser_page.set_content(SIGN_IN_WALL)
+    account = FakeAccount("signed_in", on_run=lambda page: page.set_content(SIGNED_IN_FORM))
+    session = account_session(browser_page, tmp_path, account)
+    bounded(session, 2)
+
+    fields = session.wait_for_form()
+
+    assert fields is not None
+    assert {field.get("label") for field in fields} >= {"First Name", "Email"}
+    assert account.calls == 1
+
+
+def test_account_parked_reports_once(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    browser_page.set_content(SIGN_IN_WALL)
+    account = FakeAccount("parked", "captcha on the account page")
+    session = account_session(browser_page, tmp_path, account)
+    failures: list[tuple[str, str]] = []
+    session.report_page_failure = (  # type: ignore[method-assign]
+        lambda category, message: failures.append((category, message))
+    )
+    bounded(session, 3)
+
+    with pytest.raises(KeyboardInterrupt):
+        session.wait_for_form()
+
+    assert failures == [("account_wall", "captcha on the account page")]
+    assert account.calls == 1
+    assert "Account wall:" in capsys.readouterr().out
+
+
+def test_account_flow_never_runs_on_a_dry_run(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
+    browser_page.set_content(SIGN_IN_WALL)
+    account = FakeAccount("signed_in")
+    session = account_session(browser_page, tmp_path, account, dry_run=True)
+    session.report_page_failure = lambda *_: None  # type: ignore[method-assign]
+    bounded(session, 2)
+
+    with pytest.raises(KeyboardInterrupt):
+        session.wait_for_form()
+
+    assert account.calls == 0
+
+
+def test_account_page_without_an_email_says_so(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    browser_page.set_content(SIGN_IN_WALL)
+    session = account_session(browser_page, tmp_path, None)
+    session.report_page_failure = lambda *_: None  # type: ignore[method-assign]
+    bounded(session, 2)
+
+    with pytest.raises(KeyboardInterrupt):
+        session.wait_for_form()
+
+    assert capsys.readouterr().out.count("contact.email") == 1

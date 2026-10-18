@@ -291,3 +291,12 @@ def test_reason_never_contains_the_password_the_site_echoes(context) -> None:  #
 
     assert result.outcome == AccountOutcome.PARKED
     assert "must contain a symbol" in result.reason
+
+
+def test_account_flow_needs_the_contact_email() -> None:
+    from personal_os_worker.jobs.commands import account_flow
+    from personal_os_worker.jobs.resolve import Knowledge
+
+    assert account_flow(Knowledge(facts={}), "Acme") is None
+    built = account_flow(Knowledge(facts={"contact.email": "e@x.com"}), "Acme")
+    assert built is not None and built.email == "e@x.com" and built.company == "Acme"

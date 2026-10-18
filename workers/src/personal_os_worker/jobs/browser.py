@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import html
 import json
 import re
 import time
@@ -13,6 +14,7 @@ from urllib.parse import urlsplit
 
 from playwright.sync_api import Browser, Error, Page, Playwright, sync_playwright
 
+from personal_os_worker.core.secrets import loaded_values
 from personal_os_worker.jobs.autofill import (
     FILE_KINDS,
     MULTI,
@@ -1591,10 +1593,12 @@ def page_evidence(
 ) -> dict[str, bytes]:
     """Capture the form as it stands: every control, its value, and the page.
 
-    Nothing is redacted. A failure is diagnosed from what the form actually
-    held, and a captured page with its values stripped out could not show why a
-    fill went wrong. Only the captcha widget is dropped, so a saved page does
-    not try to render a live challenge.
+    A failure is diagnosed from what the form actually held, and a captured
+    page with its values stripped out could not show why a fill went wrong. So
+    only two things are taken out: the captcha widget, so a saved page does not
+    try to render a live challenge, and passwords. A password box is emptied
+    and masked, and every secret the worker has read is replaced wherever it
+    appears, in whichever escaping the capture wrote it.
     """
     captured_fields = [
         {
@@ -1627,6 +1631,7 @@ def page_evidence(
           clone.querySelectorAll(
             '[data-sitekey], iframe[src*="captcha" i]'
           ).forEach(e => e.remove());
+          clone.querySelectorAll('input[type="password"]').forEach(e => e.removeAttribute('value'));
           return clone.outerHTML;
         }
         """
@@ -1638,7 +1643,9 @@ def page_evidence(
     # A screenshot is the first thing to time out on a busy page; the controls
     # and HTML still say what happened without it.
     with contextlib.suppress(Error):
-        evidence["screen.png"] = page.screenshot(full_page=True, timeout=10_000)
+        evidence["screen.png"] = page.screenshot(
+            full_page=True, timeout=10_000, mask=[page.locator('input[type="password"]')]
+        )
     for frame_index, frame in enumerate(page.frames):
         try:
             body = frame.locator("body")
@@ -1646,7 +1653,38 @@ def page_evidence(
                 evidence[f"frame-{frame_index}.html"] = str(body.evaluate(html_script)).encode()
         except Error:
             continue
-    return evidence
+    return redact_secrets(evidence)
+
+
+REDACTED = b"[redacted]"
+
+
+def redact_secrets(evidence: dict[str, bytes]) -> dict[str, bytes]:
+    """Every text entry with each secret read so far replaced, raw or escaped."""
+    forms = sorted(
+        {
+            form.encode()
+            for secret in loaded_values()
+            for form in (
+                secret,
+                json.dumps(secret)[1:-1],
+                html.escape(secret, quote=True),
+                html.escape(secret, quote=False),
+            )
+            if form
+        },
+        key=len,
+        reverse=True,
+    )
+    if not forms:
+        return evidence
+    redacted: dict[str, bytes] = {}
+    for name, data in evidence.items():
+        if not name.endswith(".png"):
+            for form in forms:
+                data = data.replace(form, REDACTED)
+        redacted[name] = data
+    return redacted
 
 
 def snapshot_entries(page: Page, fields: list[dict[str, Any]]) -> list[dict[str, Any]]:

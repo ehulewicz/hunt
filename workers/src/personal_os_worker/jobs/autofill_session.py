@@ -28,6 +28,7 @@ from rich.markup import escape
 
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.tables import console
+from personal_os_worker.jobs.account import AccountFlow, AccountOutcome, AccountResult
 from personal_os_worker.jobs.answer_check import (
     WORKER_SOURCES,
     FilledAnswer,
@@ -100,6 +101,7 @@ from personal_os_worker.jobs.page_state import (
     TabNavigation,
     capture_tab_navigation,
     classify_application_page,
+    normalize_navigation_url,
 )
 from personal_os_worker.jobs.registry.events import (
     fill_event,
@@ -165,6 +167,8 @@ class SessionContext:
     ask_facts: bool = False
     # How many times the audit may look, repair, and look again on one step.
     audit_rounds: int = 2
+    # Signs in past an ATS account wall; None without a contact.email fact.
+    account: AccountFlow | None = None
     poll_seconds: float = 1.0
     keys: KeyWatcher | NoKeys = field(default_factory=KeyWatcher)
     prompt: Callable[[str], str] = input
@@ -194,6 +198,8 @@ class SessionState:
     needed: dict[str, str] = field(default_factory=dict)  # question -> fact the model named
     gates_tried: set[str] = field(default_factory=set)  # gate questions already answered once
     gate_pending: dict[str, Any] | None = None  # a gate left for you, watched for your click
+    account_tried: set[str] = field(default_factory=set)  # account page URLs already tried
+    account_parked: bool = False  # the account flow gave the wall to you; it stays yours
     step: int = 0
     form_seen: bool = False
     navigation: TabNavigation | None = None
@@ -504,7 +510,13 @@ class AutofillSession:
                 if time.monotonic() - unsettled_since < 5:
                     self.sleep()
                     continue
-            if self.pass_the_gate():
+            if page_state == ApplicationPageState.ACCOUNT:
+                # The account step is the gate in front of the gate.
+                result = self.through_the_account_wall()
+                if result is not None and result.outcome == AccountOutcome.SIGNED_IN:
+                    continue
+                wall_reported = wall_reported or result is not None
+            elif self.pass_the_gate():
                 continue
             if not wall_reported:
                 self.report_page_failure(
@@ -517,6 +529,38 @@ class AutofillSession:
                     "form. Use the open browser to reach it; I am watching the page."
                 )
             self.sleep()
+
+    # ----- the account wall --------------------------------------------------
+
+    def through_the_account_wall(self) -> AccountResult | None:
+        """Sign in past an account page, once per page; None when it was not tried.
+
+        A wall the flow could not pass is reported once and then left to you:
+        the flow never runs again in this session, so it cannot type over what
+        you are doing in the browser.
+        """
+        key = normalize_navigation_url(self.page.url)
+        if self.ctx.dry_run or self.state.account_parked or key in self.state.account_tried:
+            return None
+        self.state.account_tried.add(key)
+        if self.ctx.account is None:
+            console.print(
+                "  [dim]account page: set the contact.email fact and I sign in for you; "
+                "for now it is yours[/dim]"
+            )
+            return None
+        console.print(f"  account page: signing in as {self.ctx.account.email}")
+        result = self.ctx.account.run(self.page)
+        if result.outcome == AccountOutcome.SIGNED_IN:
+            console.print(f"  [green]{result.reason}[/green]")
+            return result
+        self.state.account_parked = True
+        console.print(
+            f"[yellow]Account wall:[/yellow] {result.reason}. "
+            "Finish it in the open browser; I am watching the page."
+        )
+        self.report_page_failure("account_wall", result.reason)
+        return result
 
     # ----- the gate between the posting and its form ------------------------
 

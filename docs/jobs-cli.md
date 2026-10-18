@@ -198,6 +198,21 @@ form appearing. A gate no fact answers is left for you with its choices named �
 and the one you click is recorded, so the Inbox can bind it and the next run
 passes the gate on its own.
 
+An **account wall** — a sign-in, create-account or verify-your-email page with
+no application form on it — is the one place the worker operates your account.
+It signs in as the `contact.email` fact: through "Sign in / Continue with
+Google" when the site offers it, else with the reusable ATS password; when the
+site has no account it creates one and finishes verification from the mailed
+link or code, and when the account exists under another password it resets it
+through the mailed reset link. While the page is an account page it may click
+sign-in, create-account, Google, forgot-password and the account form's own
+button; it never clicks the application's Next or Submit, and a captcha parks
+it. Each step runs once, so a site that keeps refusing is reported once as an
+`account_wall` failure with what it said, and the wall is yours from then on —
+the run watches the page while you finish. A form that only offers "Apply with
+Google" or a password to save your progress stays a form. `--dry-run` never
+signs in. The one-time setup is in `../workers/README.md`.
+
 Ashby's Overview tab is a recognized standby state. Return to Application and
 the same step continues without refilling or another Claude pass. A submitted
 success panel ends automatically. On detected submission, Ctrl+A, Ctrl+D, or

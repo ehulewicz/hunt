@@ -17,6 +17,7 @@ from personal_os_worker.core.secrets import secrets_check
 from personal_os_worker.core.service import ensure_chrome, open_external_url
 from personal_os_worker.core.tables import console, pick
 from personal_os_worker.documents.doctor import CHECKS as DOCUMENT_CHECKS
+from personal_os_worker.jobs.account import AccountFlow
 from personal_os_worker.jobs.resolve import Knowledge
 from personal_os_worker.jobs.tables import render_applications, render_listings
 
@@ -236,6 +237,12 @@ def run_skipped(restore: str | None = None) -> int:
         return 0
     render_applications(skipped, title="Skipped")
     return 0
+
+
+def account_flow(knowledge: Knowledge, company: str) -> AccountFlow | None:
+    """The account-wall flow, signing in as the contact.email fact; None without one."""
+    email = str(knowledge.facts.get("contact.email") or "").strip()
+    return AccountFlow(email=email, company=company) if email else None
 
 
 def run_doctor_command() -> int:
@@ -638,6 +645,7 @@ def apply_posting(
                     explain=explain,
                     step=step,
                     ask_facts=ask_facts,
+                    account=account_flow(knowledge, expected_company),
                 )
             )
             outcome = session.run()
