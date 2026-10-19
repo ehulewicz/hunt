@@ -15,6 +15,8 @@
 //   captcha    a reCAPTCHA checkbox sits on the sign-in form
 //   google     sign-in offers Google, and Google signs you in
 //   offsite    Create Account leaves for another site
+//   slow       opens on Create Account with an earlier error showing; creating clears
+//              it at once and signs you in a moment later, with no mail (Workday)
 const params = new URLSearchParams(location.search);
 const MODE = params.get('mode') || localStorage.getItem('mode') || 'new';
 localStorage.setItem('mode', MODE);
@@ -127,6 +129,15 @@ function create() {
     }
     if (value('password') !== value('verifyPassword')) return error('The passwords do not match.');
     if (MODE === 'rule') return error('Password must contain at least one special character.');
+    if (MODE === 'slow') {
+      document.querySelector('#errors').innerHTML = '';
+      setTimeout(() => {
+        store.account = { password: value('password'), verified: true };
+        localStorage.setItem('signedIn', '1');
+        form();
+      }, 1500);
+      return;
+    }
     if (store.account) return error('An account with this email address already exists.');
     store.account = { password: value('password'), verified: false };
     window.createdWith = value('email');
@@ -196,6 +207,10 @@ if (location.pathname.includes('/activate/')) {
   newPassword();
 } else if (localStorage.getItem('signedIn')) {
   form();
+} else if (MODE === 'slow') {
+  create();
+  document.querySelector('#errors').innerHTML = '<p data-automation-id="inputAlert">'
+    + '<span>Error: </span>Please check the box to continue</p>';
 } else {
   signIn();
 }

@@ -172,6 +172,9 @@ class AccountFlow:
                 )
             step = self._next_step(run, seen)
             if step is None or step in run.done:
+                # A slow site may still be answering the last step: look once more first.
+                if self._answered(seen, self._settle(run.page, seen)):
+                    continue
                 return self._result(run, AccountOutcome.PARKED, self._stuck(seen, step))
             run.done.add(step)
             getattr(self, f"_{step}")(run, seen)
@@ -424,10 +427,25 @@ class AccountFlow:
             page.wait_for_timeout(POLL_MS)
             if self._loaded(page):
                 seen = inspect_account(page)
-                if before is None or seen != before or time.monotonic() >= deadline:
+                if before is None or self._answered(before, seen) or time.monotonic() >= deadline:
                     return seen
             elif time.monotonic() >= deadline:
                 return inspect_account(page)
+
+    @staticmethod
+    def _answered(before: AccountPage, seen: AccountPage | None) -> bool:
+        """Whether the page has answered: it left the wall, moved on, or says something new.
+
+        An earlier error clearing at the click is not an answer. Workday clears
+        it at once and moves on a moment later, and the flow must not park in
+        between.
+        """
+        if seen is None or seen.view != before.view:
+            return True
+        return seen.error is not None and (seen.error, seen.error_text) != (
+            before.error,
+            before.error_text,
+        )
 
     def _loaded(self, page: Page) -> bool:
         try:

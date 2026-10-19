@@ -372,3 +372,16 @@ def test_reset_link_that_only_looks_like_the_ats_is_never_followed(  # type: ign
     assert "not followed" in result.reason
     assert hits == []
     assert page.url.startswith(ATS)
+
+
+def test_create_that_signs_in_after_a_moment_is_not_parked(context) -> None:  # type: ignore[no-untyped-def]
+    """Live Workday: a stale error clears at the click, and the form comes a moment later."""
+    page = open_wall(context, "slow")
+    account, opened = flow()
+
+    result = finished(account.run(page))
+
+    assert result.outcome == AccountOutcome.SIGNED_IN, result.reason
+    assert result.created is True
+    assert opened.count == 0
+    assert form_visible(page)
