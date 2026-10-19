@@ -115,7 +115,11 @@ application form is on the page. `jobs/account.py` then runs a deterministic
 chain, each step at most once: Google (the `contact.email` tile in the
 automation profile; any challenge falls through), sign in, create (a refused
 sign-in creates first, because Workday says "wrong email or password" when
-there is no account; "already exists" leads to the reset), verify, and reset.
+there is no account; "already exists" leads to the reset), verify (when the
+sign-in page says to verify first, from the mail create sent, or after "Resend
+Account Verification" for an account made earlier), and reset. Sign-in counts
+only once the page has stayed off the wall for about two seconds, because a
+tenant redirecting from create to its sign-in page shows nothing in between.
 `jobs/mail.py` reads the verification or reset mail over IMAP, read-only
 (EXAMINE and `BODY.PEEK[]`), taking only mail that arrived after the click and
 names this tenant or company. Because a sender's name can be forged, the flow
