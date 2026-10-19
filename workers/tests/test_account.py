@@ -339,3 +339,36 @@ def test_never_types_the_password_on_another_site(context) -> None:  # type: ign
     assert "other.example" in result.reason
     assert page.input_value("#password") == ""
     assert page.input_value("#email") == ""
+
+
+@pytest.mark.parametrize(
+    "forged",
+    [
+        # Python reads the host after "@"; the browser reads "\" as a slash.
+        "https://evil.example\\@acme.wd5.myworkdayjobs.com",
+        # Same last two labels, another host: a shared suffix is not the wall.
+        "https://evil.myworkdayjobs.com",
+    ],
+)
+def test_reset_link_that_only_looks_like_the_ats_is_never_followed(  # type: ignore[no-untyped-def]
+    context, forged: str
+) -> None:
+    hits: list[str] = []
+
+    def record(route: Route) -> None:
+        hits.append(route.request.url)
+        route.abort()
+
+    context.route("https://evil.example/**", record)
+    context.route("https://evil.myworkdayjobs.com/**", record)
+    raw = (FIXTURES / "mail" / "workday_reset.eml").read_bytes()
+    message = parse_message(raw.replace(ATS.encode(), forged.encode()))
+    page = open_wall(context, "wrong")
+    account, _ = flow(FakeInbox([message]))
+
+    result = finished(account.run(page))
+
+    assert result.outcome == AccountOutcome.PARKED
+    assert "not followed" in result.reason
+    assert hits == []
+    assert page.url.startswith(ATS)
