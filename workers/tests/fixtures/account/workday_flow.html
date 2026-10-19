@@ -112,15 +112,19 @@ function create() {
         ${field('email', 'Email Address*', 'text')}
         ${field('password', 'Password*', 'password')}
         ${field('verifyPassword', 'Verify New Password*', 'password')}
-        <input id="terms" type="checkbox" data-automation-id="createAccountCheckbox">
-        <label for="terms">Yes, I have read and consent to the Terms and Conditions*</label>
+        <input id="input-9" type="checkbox" data-automation-id="createAccountCheckbox">
+        <label for="input-9">I Accept</label>
         <div id="errors"></div>
         ${button('createAccountSubmitButton', 'Create Account')}
       </form>
       <p>Already have an account? <button data-automation-id="signInLink">Sign In</button></p>
     </div>`;
   on('[data-automation-id="click_filter"]', () => {
-    if (!document.querySelector('#terms').checked) return error('You must accept the terms to continue.');
+    if (!document.querySelector('#input-9').checked) {
+      document.querySelector('#errors').innerHTML = '<p id="error1-input-9" data-automation-id="inputAlert">'
+        + '<span>Error: </span>Please check the box to continue</p>';
+      return;
+    }
     if (value('password') !== value('verifyPassword')) return error('The passwords do not match.');
     if (MODE === 'rule') return error('Password must contain at least one special character.');
     if (store.account) return error('An account with this email address already exists.');

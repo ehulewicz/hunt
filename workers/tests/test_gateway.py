@@ -159,3 +159,22 @@ def test_a_bound_question_resolves_the_gate_without_the_model(page) -> None:  # 
     assert resolution.value == "Autofill with Resume"
     assert click_gateway(page, gate, resolution.value) == "Autofill with Resume"
     assert form_appeared(page, timeout_ms=5_000) is True
+
+
+def test_a_way_in_that_opens_an_account_wall_has_opened(page) -> None:  # type: ignore[no-untyped-def]
+    """Workday's Apply Manually leads to Create Account first; the gate did its job."""
+    page.click("#apply")
+    gate = inspect_gateways(page)[0]
+    page.evaluate(
+        """() => document.querySelectorAll('.way').forEach(way => way.addEventListener('click',
+          () => setTimeout(() => { document.querySelector('#form').innerHTML =
+            '<h2>Create Account</h2><label for=e>Email Address</label>'
+            + '<input id=e data-automation-id=email type=text>'
+            + '<label for=p>Password</label><input id=p type=password>'
+            + '<label for=v>Verify New Password</label><input id=v type=password>'
+            + '<button data-automation-id=createAccountSubmitButton>Create Account</button>'; }, 0),
+          true))"""
+    )
+
+    assert click_gateway(page, gate, "Apply Manually") == "Apply Manually"
+    assert form_appeared(page, timeout_ms=5_000) is True

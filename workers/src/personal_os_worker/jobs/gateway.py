@@ -20,6 +20,7 @@ from typing import Any
 
 from playwright.sync_api import Error, Page
 
+from personal_os_worker.jobs.account_page import inspect_account
 from personal_os_worker.jobs.browser import (
     CONTROL_TIMEOUT_MS,
     captcha_challenge_present,
@@ -159,11 +160,14 @@ def click_gateway(page: Page, gate: dict[str, Any], value: str | None) -> str | 
 
 
 def form_appeared(page: Page, *, timeout_ms: int = 15_000) -> bool:
-    """Whether the application's form is on the page now; the gate's readback."""
+    """Whether the application is on the page now: its form, or the account wall in
+    front of it (Workday's Apply Manually opens Create Account first). The gate's readback."""
     deadline = time.monotonic() + timeout_ms / 1000
     while True:
         try:
             if looks_like_application_form(inspect_fields(page)) or has_submit_control(page):
+                return True
+            if inspect_account(page) is not None:
                 return True
         except Error:
             pass

@@ -143,7 +143,7 @@ ACCOUNT_SCRIPT = """
   });
   const alerts = all(
     '[role="alert"], [aria-live="assertive"], [data-automation-id="errorMessage"],'
-    + ' [data-automation-id*="error" i], [class*="error" i]'
+    + ' [data-automation-id="inputAlert"], [data-automation-id*="error" i], [class*="error" i]'
   ).filter(element => !element.querySelector('input, button, select, textarea'))
     .map(words).filter(text => text && text.length <= 300);
   return {
@@ -344,6 +344,11 @@ NOT_SUBMIT = re.compile(
     ),
     re.IGNORECASE,
 )
+# Workday's account terms box; on a live tenant it says only "I Accept".
+WORKDAY_TERMS = "createAccountCheckbox"
+ACCEPT_WORDS = re.compile(
+    r"\bI accept\b|\baccept(?:ed)? (?:the )?(?:terms|conditions|policy)\b", re.IGNORECASE
+)
 # A checkbox that agrees to mail is not the account's terms, whatever it says.
 MARKETING_WORDS = re.compile(
     r"\bmarketing\b|\bnewsletters?\b|\bpromotional\b|\bjob alerts?\b|\btext messages?\b"
@@ -435,7 +440,10 @@ TERMS_SCRIPT = """
         (label && label.innerText) || box.getAttribute('aria-label')
         || (box.parentElement && box.parentElement.innerText) || ''
       ).trim().replace(/\\s+/g, ' ').slice(0, 300);
-      return { token, label: text, name: box.name || box.id || '' };
+      return {
+        token, label: text, name: box.name || box.id || '',
+        automation: box.getAttribute('data-automation-id') || '',
+      };
     })
     .filter(Boolean);
 }
@@ -583,7 +591,12 @@ def tick_account_terms(page: Page) -> int:
         for box in boxes:
             label = str(box.get("label") or "")
             field = {"label": label, "name": str(box.get("name") or "")}
-            if not is_consent_field(field) or MARKETING_WORDS.search(label):
+            terms = (
+                box.get("automation") == WORKDAY_TERMS
+                or is_consent_field(field)
+                or ACCEPT_WORDS.search(label)
+            )
+            if not terms or MARKETING_WORDS.search(label):
                 continue
             try:
                 frame.locator(f'[data-personal-os-terms="{box["token"]}"]').check(

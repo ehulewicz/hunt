@@ -285,7 +285,7 @@ def test_ticks_only_terms(page) -> None:  # type: ignore[no-untyped-def]
     page.set_content(fixture("workday_create.html"))
 
     assert tick_account_terms(page) == 1
-    assert page.is_checked("#terms") is True
+    assert page.is_checked("#input-9") is True
     assert page.is_checked("#marketing") is False
 
 
@@ -451,3 +451,17 @@ def test_google_button_frame_alone_is_an_account_page(page) -> None:  # type: ig
     seen = inspect_account(page)
 
     assert seen is not None and seen.google is True
+
+
+def test_workday_input_alert_is_an_error(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(fixture("workday_create.html"))
+    page.evaluate(
+        """() => { document.querySelector('#errors').innerHTML =
+          '<p id="error1-input-9" data-automation-id="inputAlert"><span>Error: </span>'
+          + 'Please check the box to continue</p>'; }"""
+    )
+
+    seen = inspect_account(page)
+
+    assert seen is not None and seen.error == "other"
+    assert seen.error_text == "Error: Please check the box to continue"
