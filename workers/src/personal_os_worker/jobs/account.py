@@ -60,6 +60,9 @@ NAVIGATION_TIMEOUT_MS = 30_000
 POLL_MS = 250
 # Every step runs once; this bounds the loop that dispatches them.
 MAX_STEPS = 16
+# Off the wall for this many polls in a row (about 2 s) before it counts: a site
+# redirecting from create to its sign-in page shows nothing account-like between.
+STABLE_POLLS = 4
 REASON_LIMIT = 300
 
 
@@ -185,11 +188,13 @@ class AccountFlow:
         if seen.google and seen.view in {"sign_in", "create"} and "google" not in run.done:
             return "google"
         if seen.view == "sign_in":
+            if seen.verify_first and "verify" not in run.done:
+                return "verify"
             if "new_password" in run.done:
                 return "sign_in_after_reset"
             if run.exists:
                 return "open_forgot"
-            if "create" in run.done:
+            if "create" in run.done or "verify" in run.done:
                 return "sign_in_again"
             if "sign_in" not in run.done:
                 return "sign_in"
@@ -240,13 +245,17 @@ class AccountFlow:
             run.created = True
 
     def _verify(self, run: _Run, seen: AccountPage) -> None:
+        if seen.view == "sign_in" and run.mail_since is None:
+            # Nothing of ours is on its way: the account was made before this run.
+            run.mail_since = datetime.now(UTC)
+            if not click_account_control(run.page, "resend"):
+                raise self._park(run, f"the account needs verifying: {seen.error_text}")
         message = self._await(run, "verify")
         code = verification_code(message)
         if seen.view == "code" and code is not None:
             if not fill_code(run.page, code):
                 raise self._park(run, "could not type the mailed verification code")
             self._submit(run, seen, "verify")
-            run.created = True
             return
         link = self._own_link(run, message, "verify")
         tab = run.page.context.new_page()
@@ -255,7 +264,6 @@ class AccountFlow:
             tab.wait_for_load_state(timeout=NAVIGATION_TIMEOUT_MS)
         finally:
             tab.close()
-        run.created = True
         self._return_to_application(run)
 
     def _open_forgot(self, run: _Run, seen: AccountPage) -> None:
@@ -454,9 +462,12 @@ class AccountFlow:
             return False
 
     def _left_the_wall(self, page: Page) -> bool:
-        """No account page, twice, on a loaded page: a navigation in between is not success."""
-        page.wait_for_timeout(POLL_MS * 2)
-        return self._loaded(page) and inspect_account(page) is None
+        """No account page on a loaded page for a while: a redirect in between is not success."""
+        for _ in range(STABLE_POLLS):
+            page.wait_for_timeout(POLL_MS * 2)
+            if not self._loaded(page) or inspect_account(page) is not None:
+                return False
+        return True
 
     def _park(self, run: _Run, reason: str) -> _Finished:
         return _Finished(self._result(run, AccountOutcome.PARKED, reason))

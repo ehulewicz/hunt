@@ -25,7 +25,7 @@ from personal_os_worker.jobs.browser import (
 
 AccountView = Literal["sign_in", "create", "forgot", "new_password", "code", "check_email"]
 AccountError = Literal["no_account", "wrong_password", "exists", "password_rule", "other"]
-AccountControl = Literal["sign_in", "create", "forgot", "google", "submit"]
+AccountControl = Literal["sign_in", "create", "forgot", "google", "resend", "submit"]
 
 SIGN_IN_WORDS = re.compile(r"\b(?:sign[ -]?in|log[ -]?in|signin|login)\b", re.IGNORECASE)
 CREATE_WORDS = re.compile(
@@ -78,6 +78,17 @@ CHECK_EMAIL_WORDS = re.compile(
 CODE_WORDS = re.compile(
     r"\b(?:verification|security|one[- ]time|confirmation|access) code\b"
     r"|\benter (?:the )?code\b",
+    re.IGNORECASE,
+)
+# The account exists but must be verified before it can sign in (Workday's alert).
+VERIFY_FIRST_WORDS = re.compile(
+    r"\bverify your (?:account|e-?mail(?: address)?) before\b"
+    r"|\b(?:account|e-?mail(?: address)?) (?:is not|isn't|has not been|hasn't been|not yet)"
+    r" (?:been |yet )?verified\b",
+    re.IGNORECASE,
+)
+RESEND_WORDS = re.compile(
+    r"\bresend\b.{0,30}\bverification\b|\bresend (?:the |a )?(?:e-?mail|link|code)\b",
     re.IGNORECASE,
 )
 NEW_PASSWORD_WORDS = re.compile(
@@ -179,6 +190,8 @@ class AccountPage:
     error: AccountError | None
     error_text: str
     captcha: bool
+    # The site's own alert says to verify the account first (a standing hint does not).
+    verify_first: bool = False
 
 
 @dataclass(slots=True)
@@ -294,6 +307,7 @@ def inspect_account(page: Page) -> AccountPage | None:
         error=error,
         error_text=error_text,
         captcha=bool(seen.captcha) or captcha_challenge_present(page),
+        verify_first=any(VERIFY_FIRST_WORDS.search(text) for text in seen.alerts),
     )
 
 
@@ -309,6 +323,7 @@ WORKDAY_CONTROLS: dict[AccountControl, tuple[str, ...]] = {
     "create": ("createAccountLink",),
     "forgot": ("forgotPasswordLink",),
     "google": (),
+    "resend": (),
     "submit": (),
 }
 WORKDAY_SUBMIT: dict[AccountView, tuple[str, ...]] = {
@@ -321,6 +336,7 @@ CONTROL_WORDS: dict[AccountControl, tuple[re.Pattern[str], re.Pattern[str] | Non
     "create": (CREATE_WORDS, OTHER_SIGN_IN),
     "forgot": (FORGOT_WORDS, None),
     "google": (GOOGLE_WORDS, None),
+    "resend": (RESEND_WORDS, None),
 }
 # What the account form's own button says on each view; a generic pass follows.
 SUBMIT_WORDS: dict[AccountView, re.Pattern[str]] = {

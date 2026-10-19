@@ -465,3 +465,22 @@ def test_workday_input_alert_is_an_error(page) -> None:  # type: ignore[no-untyp
 
     assert seen is not None and seen.error == "other"
     assert seen.error_text == "Error: Please check the box to continue"
+
+
+def test_verify_first_is_read_from_the_alert_not_the_standing_blurb(page) -> None:  # type: ignore[no-untyped-def]
+    blurb = (
+        "<div><span data-automation-id=informationalBlurbText>Still can't sign in? Be sure to"
+        " check your spam folder, your account may need verification</span>"
+        "<button data-automation-id=informationalBlurbButton>Resend Account Verification"
+        "</button></div>"
+    )
+    page.set_content(fixture("workday_sign_in.html").replace("</form>", "</form>" + blurb))
+
+    seen = inspect_account(page)
+    assert seen is not None and seen.verify_first is False
+
+    show_error(page, "Verify your account before you sign in or request a verification email.")
+
+    seen = inspect_account(page)
+    assert seen is not None and seen.verify_first is True
+    assert click_account_control(page, "resend") is True

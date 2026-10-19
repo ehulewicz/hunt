@@ -385,3 +385,30 @@ def test_create_that_signs_in_after_a_moment_is_not_parked(context) -> None:  # 
     assert result.created is True
     assert opened.count == 0
     assert form_visible(page)
+
+
+def test_create_then_verify_first_waits_for_the_link(context) -> None:  # type: ignore[no-untyped-def]
+    """Live T-Mobile: after create the page blanks, then sign-in says to verify first."""
+    page = open_wall(context, "verifyfirst")
+    account, opened = flow(FakeInbox([mail("workday_verify.eml")]))
+
+    result = finished(account.run(page))
+
+    assert result.outcome == AccountOutcome.SIGNED_IN, result.reason
+    assert result.created is True
+    assert len(opened.inbox.waits) == 1
+    assert form_visible(page)
+    assert page.evaluate("localStorage.getItem('resent')") is None
+
+
+def test_unverified_account_resends_then_verifies(context) -> None:  # type: ignore[no-untyped-def]
+    page = open_wall(context, "unverified")
+    account, opened = flow(FakeInbox([mail("workday_verify.eml")]))
+
+    result = finished(account.run(page))
+
+    assert result.outcome == AccountOutcome.SIGNED_IN, result.reason
+    assert result.created is False
+    assert page.evaluate("localStorage.getItem('resent')") == "1"
+    assert len(opened.inbox.waits) == 1
+    assert form_visible(page)

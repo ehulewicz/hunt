@@ -17,6 +17,9 @@
 //   offsite    Create Account leaves for another site
 //   slow       opens on Create Account with an earlier error showing; creating clears
 //              it at once and signs you in a moment later, with no mail (Workday)
+//   verifyfirst no account; create blanks the page a moment, then lands on sign-in
+//              saying to verify first, and a mailed link verifies it (T-Mobile)
+//   unverified the account exists but was never verified; only a resent link helps
 const params = new URLSearchParams(location.search);
 const MODE = params.get('mode') || localStorage.getItem('mode') || 'new';
 localStorage.setItem('mode', MODE);
@@ -28,6 +31,7 @@ if (!localStorage.getItem('initialized')) {
   localStorage.setItem('initialized', '1');
   if (MODE === 'existing' || MODE === 'google') store.account = { password: 'pw-secret', verified: true };
   if (MODE === 'wrong' || MODE === 'stubborn') store.account = { password: 'old-pw', verified: true };
+  if (MODE === 'unverified') store.account = { password: 'pw-secret', verified: false };
 }
 if (params.get('signed') === '1') localStorage.setItem('signedIn', '1');
 window.clicks = [];
@@ -80,6 +84,11 @@ function signIn() {
         <div id="errors"></div>
         ${button('signInSubmitButton', 'Sign In')}
       </form>
+      ${['verifyfirst', 'unverified'].includes(MODE) ? `<div>
+        <span data-automation-id="informationalBlurbText">Still can't sign in? Be sure to check
+          your spam folder, your account may need verification</span>
+        <button data-automation-id="informationalBlurbButton">Resend Account Verification</button>
+      </div>` : ''}
       <button data-automation-id="forgotPasswordLink">Forgot your password?</button>
       <button data-automation-id="createAccountLink">Create Account</button>
     </div>`;
@@ -95,7 +104,7 @@ function signIn() {
     if (!account) {
       return error(MODE === 'ambiguous' ? ambiguous : "We couldn't find an account with that email address.");
     }
-    if (!account.verified) return error('Verify your email address before you sign in.');
+    if (!account.verified) return error('Verify your account before you sign in or request a verification email.');
     if (MODE === 'stubborn' || account.password !== value('password')) return error(ambiguous);
     localStorage.setItem('signedIn', '1');
     form();
@@ -105,6 +114,8 @@ function signIn() {
     else create();
   });
   on('[data-automation-id="forgotPasswordLink"]', forgot);
+  const resend = document.querySelector('[data-automation-id="informationalBlurbButton"]');
+  if (resend) on('[data-automation-id="informationalBlurbButton"]', () => localStorage.setItem('resent', '1'));
 }
 
 function create() {
@@ -141,6 +152,14 @@ function create() {
     if (store.account) return error('An account with this email address already exists.');
     store.account = { password: value('password'), verified: false };
     window.createdWith = value('email');
+    if (MODE === 'verifyfirst') {
+      app.innerHTML = '';
+      setTimeout(() => {
+        signIn();
+        error('Verify your account before you sign in or request a verification email.');
+      }, 1000);
+      return;
+    }
     MODE === 'link' ? checkEmail() : code();
   });
   on('[data-automation-id="signInLink"]', signIn);
