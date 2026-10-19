@@ -157,8 +157,10 @@ ACCOUNT_SCRIPT = """
     automation: [...new Set(all('[data-automation-id]').map(
       element => element.getAttribute('data-automation-id')
     ))],
+    // Google's rendered button, not One Tap's prompt, which floats over any page.
     google: all(
-      'iframe[src*="accounts.google.com/gsi" i], iframe[title*="sign in with google" i]'
+      'iframe[src*="accounts.google.com/gsi/button" i],'
+      + ' iframe[title*="sign in with google button" i]'
     ).length,
     captcha: all(
       'iframe[src*="recaptcha" i][src*="anchor" i]:not([src*="size=invisible" i]),'
@@ -403,7 +405,8 @@ TARGET_SCRIPT = """
       }
       return scope;
     }).filter(Boolean);
-    if (scopes.length) pool = pool.filter(element => scopes.some(scope => scope.contains(element)));
+    // No account inputs, no account form: nothing on the page is its button.
+    pool = pool.filter(element => scopes.some(scope => scope.contains(element)));
     pool = pool.filter(element => element.tagName !== 'A');
   }
   const found = pool.find(element => {
@@ -480,11 +483,12 @@ def click_account_control(page: Page, control: AccountControl) -> bool:
     "submit" is the account form's own button (sign in, create account, send,
     verify, reset), chosen from inside the form that holds the account inputs.
     """
-    if _application_present(page):
+    seen = inspect_account(page)
+    # Account controls are operated only on an account page (the rule's one exception).
+    if seen is None or _application_present(page):
         return False
     if control == "submit":
-        seen = inspect_account(page)
-        view = seen.view if seen is not None else None
+        view: AccountView | None = seen.view
         other = CREATE_WORDS if view == "sign_in" else SIGN_IN_WORDS if view == "create" else None
         passes: list[dict[str, Any]] = [
             {

@@ -395,3 +395,59 @@ def test_evidence_redacts_passwords(
         if name.endswith(".png"):
             continue
         assert b"pw-secret" not in data, name
+
+
+def test_evidence_redacts_a_secret_with_both_quotes_in_an_attribute(
+    page, monkeypatch: pytest.MonkeyPatch  # type: ignore[no-untyped-def]
+) -> None:
+    """A shown password (a text box) keeps its value attribute; " is escaped, ' is not."""
+    from personal_os_worker.core import secrets
+    from personal_os_worker.jobs.browser import page_evidence
+
+    secret = "Ab1\"x'y>z<"
+    monkeypatch.setitem(secrets._cache, secrets.ATS_PASSWORD, secret)
+    page.set_content("<label for=shown>Password</label><input id=shown type=text>")
+    page.evaluate(
+        "secret => document.querySelector('#shown').setAttribute('value', secret)", secret
+    )
+
+    evidence = page_evidence(page, [])
+
+    for name, data in evidence.items():
+        if not name.endswith(".png"):
+            assert b"Ab1" not in data, (name, data[:400])
+
+
+def test_never_submits_a_page_that_is_not_an_account_page(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(
+        "<h2>Voluntary Disclosures</h2><label for=v>Veteran status</label>"
+        "<select id=v><option>No</option></select>"
+        "<button onclick='window.saved = true'>Save and Continue</button>"
+    )
+
+    assert inspect_account(page) is None
+    assert click_account_control(page, "submit") is False
+    assert click_account_control(page, "create") is False
+    assert page.evaluate("window.saved === undefined") is True
+
+
+def test_google_one_tap_on_a_posting_is_not_an_account_page(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(
+        "<h1>Software Engineering Intern</h1><p>Build things.</p><button>Apply</button>"
+        '<iframe width="390" height="200" title="Sign in with Google Dialog"'
+        ' src="data:text/html,accounts.google.com/gsi/iframe/select?client_id=x"></iframe>'
+    )
+
+    assert inspect_account(page) is None
+
+
+def test_google_button_frame_alone_is_an_account_page(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(
+        "<h2>Sign in to apply</h2>"
+        '<iframe width="240" height="44" title="Sign in with Google Button"'
+        ' src="data:text/html,accounts.google.com/gsi/button?client_id=x"></iframe>'
+    )
+
+    seen = inspect_account(page)
+
+    assert seen is not None and seen.google is True

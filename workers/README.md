@@ -118,9 +118,12 @@ sign-in creates first, because Workday says "wrong email or password" when
 there is no account; "already exists" leads to the reset), verify, and reset.
 `jobs/mail.py` reads the verification or reset mail over IMAP, read-only
 (EXAMINE and `BODY.PEEK[]`), taking only mail that arrived after the click and
-names this tenant or company. A captcha, a refused password, a mail timeout or
-a missing secret parks the run as an `account_wall` failure. There is no model
-call and nothing is stored.
+names this tenant or company. Because a sender's name can be forged, the flow
+follows a mailed link only back to the wall's own site, and types nothing once
+the page has moved to another site; it never runs on Google's own pages, and it
+operates account controls only while `inspect_account` sees an account page. A
+captcha, a refused password, a mail timeout or a missing secret parks the run as
+an `account_wall` failure. There is no model call and nothing is stored.
 
 Two secrets live in GCP Secret Manager (project `example-gcp-project`) and are
 read through `gcloud` into memory by `core/secrets.py`: `jobs-ats-password`, the

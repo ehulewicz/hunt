@@ -1750,3 +1750,23 @@ def test_account_page_without_an_email_says_so(
         session.wait_for_form()
 
     assert capsys.readouterr().out.count("contact.email") == 1
+
+
+def test_account_flow_never_runs_on_google(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
+    browser_page.context.route(
+        "https://accounts.google.com/**",
+        lambda route: route.fulfill(content_type="text/html", body=SIGN_IN_WALL),
+    )
+    browser_page.goto("https://accounts.google.com/signin/v2/identifier")
+    account = FakeAccount("signed_in")
+    session = account_session(browser_page, tmp_path, account)
+    session.report_page_failure = lambda *_: None  # type: ignore[method-assign]
+    bounded(session, 2)
+
+    with pytest.raises(KeyboardInterrupt):
+        session.wait_for_form()
+
+    assert account.calls == 0

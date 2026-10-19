@@ -300,3 +300,42 @@ def test_account_flow_needs_the_contact_email() -> None:
     assert account_flow(Knowledge(facts={}), "Acme") is None
     built = account_flow(Knowledge(facts={"contact.email": "e@x.com"}), "Acme")
     assert built is not None and built.email == "e@x.com" and built.company == "Acme"
+
+
+def test_reset_link_off_the_ats_is_never_followed(context) -> None:  # type: ignore[no-untyped-def]
+    hits: list[str] = []
+
+    def record(route: Route) -> None:
+        hits.append(route.request.url)
+        route.abort()
+
+    context.route("https://evil.example/**", record)
+    raw = (FIXTURES / "mail" / "workday_reset.eml").read_bytes()
+    forged = parse_message(raw.replace(ATS.encode(), b"https://evil.example"))
+    page = open_wall(context, "wrong")
+    account, _ = flow(FakeInbox([forged]))
+
+    result = finished(account.run(page))
+
+    assert result.outcome == AccountOutcome.PARKED
+    assert "evil.example" in result.reason
+    assert hits == []
+    assert page.url.startswith(ATS)
+
+
+def test_never_types_the_password_on_another_site(context) -> None:  # type: ignore[no-untyped-def]
+    create = (FIXTURES / "account" / "workday_create.html").read_text()
+    context.route(
+        "https://other.example/**",
+        lambda route: route.fulfill(content_type="text/html", body=create),
+    )
+    page = open_wall(context, "offsite")
+    account, _ = flow()
+
+    result = finished(account.run(page))
+
+    assert result.outcome == AccountOutcome.PARKED
+    assert page.url.startswith("https://other.example/")
+    assert "other.example" in result.reason
+    assert page.input_value("#password") == ""
+    assert page.input_value("#email") == ""

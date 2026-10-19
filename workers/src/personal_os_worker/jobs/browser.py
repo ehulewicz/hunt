@@ -156,7 +156,7 @@ def tab_continues(tab_url: str, application_url: str) -> bool:
     return here == there or here.startswith(f"{there}/")
 
 
-def _site(url: str) -> str:
+def registrable_site(url: str) -> str:
     """The registrable part of a URL's host, near enough: its last two labels."""
     host = (urlsplit(url).hostname or "").casefold()
     return ".".join(host.split(".")[-2:])
@@ -171,7 +171,8 @@ def _same_application(page: Page, current: Page) -> bool:
         opener = None
     if opener is not None and opener == current:
         return True
-    return bool(_site(page.url)) and _site(page.url) == _site(current.url)
+    site = registrable_site(page.url)
+    return bool(site) and site == registrable_site(current.url)
 
 
 class VisibleBrowser:
@@ -1659,6 +1660,13 @@ def page_evidence(
 REDACTED = b"[redacted]"
 
 
+def _attribute_escaped(text: str, *, angles: bool) -> str:
+    """How Chrome writes text into an attribute: & and " escaped, ' left; newer Chrome
+    escapes < and > too."""
+    escaped = text.replace("&", "&amp;").replace('"', "&quot;").replace("\xa0", "&nbsp;")
+    return escaped.replace("<", "&lt;").replace(">", "&gt;") if angles else escaped
+
+
 def redact_secrets(evidence: dict[str, bytes]) -> dict[str, bytes]:
     """Every text entry with each secret read so far replaced, raw or escaped."""
     forms = sorted(
@@ -1670,6 +1678,8 @@ def redact_secrets(evidence: dict[str, bytes]) -> dict[str, bytes]:
                 json.dumps(secret)[1:-1],
                 html.escape(secret, quote=True),
                 html.escape(secret, quote=False),
+                _attribute_escaped(secret, angles=False),
+                _attribute_escaped(secret, angles=True),
             )
             if form
         },

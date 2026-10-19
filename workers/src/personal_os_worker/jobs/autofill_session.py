@@ -21,6 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from playwright.sync_api import Error, Page
@@ -28,7 +29,12 @@ from rich.markup import escape
 
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.tables import console
-from personal_os_worker.jobs.account import AccountFlow, AccountOutcome, AccountResult
+from personal_os_worker.jobs.account import (
+    GOOGLE_HOST,
+    AccountFlow,
+    AccountOutcome,
+    AccountResult,
+)
 from personal_os_worker.jobs.answer_check import (
     WORKER_SOURCES,
     FilledAnswer,
@@ -541,6 +547,9 @@ class AutofillSession:
         """
         key = normalize_navigation_url(self.page.url)
         if self.ctx.dry_run or self.state.account_parked or key in self.state.account_tried:
+            return None
+        # Google's own sign-in (a popup left open, a late redirect) is never an ATS wall.
+        if urlsplit(self.page.url).hostname == GOOGLE_HOST:
             return None
         self.state.account_tried.add(key)
         if self.ctx.account is None:

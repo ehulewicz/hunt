@@ -38,7 +38,7 @@ from personal_os_worker.jobs.account_page import (
     inspect_account,
     tick_account_terms,
 )
-from personal_os_worker.jobs.browser import CONTROL_TIMEOUT_MS
+from personal_os_worker.jobs.browser import CONTROL_TIMEOUT_MS, registrable_site
 from personal_os_worker.jobs.mail import (
     Inbox,
     MailKind,
@@ -140,6 +140,14 @@ class AccountFlow:
                     reason = "created the account and signed in" if run.created else "signed in"
                     return self._result(run, AccountOutcome.SIGNED_IN, reason)
                 continue
+            if not self._on_the_wall(run, run.page.url):
+                # A late Google page, or a link that led elsewhere: not where the password goes.
+                return self._result(
+                    run,
+                    AccountOutcome.PARKED,
+                    f"the account page moved to {urlsplit(run.page.url).hostname}, off "
+                    f"{registrable_site(run.start_url)}; nothing typed there",
+                )
             if seen.captcha:
                 return self._result(run, AccountOutcome.PARKED, "captcha on the account page")
             if seen.error == "password_rule":
@@ -221,9 +229,7 @@ class AccountFlow:
             self._submit(run, seen, "verify")
             run.created = True
             return
-        link = action_link(message, "verify")
-        if link is None:
-            raise self._park(run, "the verification mail had no link to open")
+        link = self._own_link(run, message, "verify")
         tab = run.page.context.new_page()
         try:
             tab.goto(link, timeout=NAVIGATION_TIMEOUT_MS)
@@ -246,9 +252,7 @@ class AccountFlow:
         run.mail_since = datetime.now(UTC)
         self._submit(run, seen, "password-reset")
         message = self._await(run, "reset")
-        link = action_link(message, "reset")
-        if link is None:
-            raise self._park(run, "the reset mail had no link to open")
+        link = self._own_link(run, message, "reset")
         run.page.goto(link, timeout=NAVIGATION_TIMEOUT_MS)
         self._settle(run.page, None)
 
@@ -361,6 +365,27 @@ class AccountFlow:
             minutes = max(1, round(self.mail_timeout / 60))
             raise self._park(run, f"no {what} mail arrived within {minutes} min")
         return message
+
+    def _on_the_wall(self, run: _Run, url: str) -> bool:
+        return registrable_site(url) == registrable_site(run.start_url)
+
+    def _own_link(self, run: _Run, message: EmailMessage, kind: MailKind) -> str:
+        """The mailed link, only when it leads back to the wall's own site.
+
+        Sender matching is by name, which a forged mail can copy; the link's
+        host is what decides where the password would be typed.
+        """
+        link = action_link(message, kind)
+        what = "verification" if kind == "verify" else "reset"
+        if link is None:
+            raise self._park(run, f"the {what} mail had no link to open")
+        if not self._on_the_wall(run, link):
+            raise self._park(
+                run,
+                f"the {what} mail's link points to {urlsplit(link).hostname}, off "
+                f"{registrable_site(run.start_url)}; not followed",
+            )
+        return link
 
     def _submit(self, run: _Run, seen: AccountPage, what: str) -> AccountPage | None:
         if not click_account_control(run.page, "submit"):
