@@ -449,7 +449,8 @@ def run_mark_applied(reference: str) -> int:
 CLOSED_POSTING = re.compile(
     r"job is closed|no longer accepting|position has been filled|job (you requested )?(was )?"
     r"not found|(job|position|posting) is no longer (available|open|active)"
-    r"|this job (has )?expired|no longer (available|open) for applications",
+    r"|this job (has )?expired|no longer (available|open) for applications"
+    r"|page you are looking for (doesn['\u2019]t|does not) exist",
     re.IGNORECASE,
 )
 

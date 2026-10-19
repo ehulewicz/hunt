@@ -506,6 +506,9 @@ def test_repair_and_validate_are_commands_and_apply_repairs_by_default() -> None
         ("Job not found\n\nThe job you requested was not found.", True),
         ("This position is no longer available.", True),
         ("We are no longer accepting applications for this role.", True),
+        # Workday, for a requisition it has taken down (Carrier, 2026-10-19).
+        ("Search for Jobs\nThe page you are looking for doesn't exist.\nSearch for Jobs", True),
+        ("Read about the page you are looking for in our docs.", False),
         ("Software Engineering Intern at Acme. Apply now.", False),
         ("Join the team that found new ways to ship.", False),
     ],
