@@ -204,6 +204,11 @@ class Cdp(Protocol):
     async def close(self) -> None: ...
 
 
+def _read_failure(future: asyncio.Future[dict[str, Any]]) -> None:
+    if not future.cancelled():
+        future.exception()
+
+
 class CdpConnection:
     """One websocket to the browser endpoint, with flattened per-tab sessions."""
 
@@ -259,6 +264,10 @@ class CdpConnection:
         if session_id is not None:
             message["sessionId"] = session_id
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+        # Chrome closing the connection fails every pending command, including one whose
+        # send already failed and that no one will await; its error is read here, so it
+        # is not reported as never retrieved. A caller still waiting still gets it.
+        future.add_done_callback(_read_failure)
         self._pending[number] = future
         try:
             await self._websocket.send(json.dumps(message))

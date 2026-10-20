@@ -125,12 +125,16 @@ export function useDeviceSession(
   const [state, dispatch] = useReducer(sessionReducer, initialSession);
   const session = useRef<DeviceSession | null>(null);
   const viewRef = useRef(initialView);
+  // Read once, never a dependency: the production minifier inlines the default opener
+  // into the parameter, so it is a new function on every render, and an effect keyed
+  // on it reconnected after every message the agent sent.
+  const openRef = useRef(open);
   const [attempt, reconnect] = useReducer((count: number) => count + 1, 0);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let shown: string | null = null;
-    const current = open({ url }, viewRef.current(), {
+    const current = openRef.current({ url }, viewRef.current(), {
       onOpen: () => undefined,
       onMessage: (message) => dispatch({ type: "message", message }),
       onFrame: (header: FrameHeader, jpeg: Blob) => {
@@ -153,7 +157,7 @@ export function useDeviceSession(
       session.current = null;
       if (shown) URL.revokeObjectURL(shown);
     };
-  }, [url, open, attempt]);
+  }, [url, attempt]);
 
   const send = useCallback((message: object) => session.current?.send(message), []);
   const retry = useCallback(() => {

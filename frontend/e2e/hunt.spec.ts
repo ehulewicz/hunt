@@ -63,6 +63,7 @@ test("the Hunt page drives a device: run, live tab, letter, and a fact", async (
   await signedIn(page);
   const fromPage: Record<string, unknown>[] = [];
   const runs: unknown[] = [];
+  let sockets = 0;
   await page.route(`${DEVICE_URL}/runs`, async (route) => {
     const cors = {
       "access-control-allow-origin": "http://localhost:3000",
@@ -75,6 +76,7 @@ test("the Hunt page drives a device: run, live tab, letter, and a fact", async (
     return route.fulfill({ status: 202, headers: cors, json: { run: { ...RUN, phase: "updating" } } });
   });
   await page.routeWebSocket(`wss://desktop-home.tail1234.ts.net/session`, (socket) => {
+    sockets += 1;
     socket.onMessage((raw) => {
       const message = JSON.parse(String(raw)) as Record<string, unknown>;
       fromPage.push(message);
@@ -103,6 +105,11 @@ test("the Hunt page drives a device: run, live tab, letter, and a fact", async (
   await expect(surface.locator("img")).toHaveAttribute("src", /^blob:/);
   await expect(page.getByRole("list", { name: "Run log" })).toContainText("agent started");
   expect(fromPage[0]).toMatchObject({ type: "auth", token: "approved" });
+  // One session, held: a page that reconnects on every hello never shows a frame for
+  // long, and the agent tears its stream down each time.
+  const settled = sockets;
+  await page.waitForTimeout(2000);
+  expect(sockets).toBe(settled);
 
   await page.getByRole("button", { name: "Next on board" }).click();
   await expect.poll(() => runs).toEqual([{ reference: null, fresh: false }]);

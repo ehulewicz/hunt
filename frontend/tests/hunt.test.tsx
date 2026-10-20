@@ -225,6 +225,25 @@ test("a replaced session waits for you instead of fighting the other window", ()
   vi.useRealTimers();
 });
 
+test("a session opens once, however its opener is passed", () => {
+  // The production minifier inlines the default opener into the parameter, so the
+  // hook gets a new function on every render; each render must not reconnect.
+  const opened: SessionHandlers[] = [];
+  const spy = vi.fn((_device: unknown, _view: unknown, handlers: SessionHandlers) => {
+    opened.push(handlers);
+    return { send: vi.fn(), close: vi.fn() };
+  });
+  const { result } = renderHook(() => useDeviceSession(
+    device().url,
+    () => ({ width: 800, height: 500, dpr: 1 }),
+    ((...args: Parameters<typeof spy>) => spy(...args)) as never,
+  ));
+  act(() => opened[0].onMessage({ type: "hello", device: null, run: null, log: [] } as never));
+  act(() => opened[0].onMessage({ type: "log", lines: [[{ text: "next" }]] } as never));
+  expect(result.current.state.status).toBe("open");
+  expect(spy).toHaveBeenCalledTimes(1);
+});
+
 test("a session starts on a ready online device", () => {
   expect(defaultDevice([device({ id: "a", online: false }), device({ id: "b", ready: false, problem: "x" }), device({ id: "c" })])).toBe("c");
   expect(defaultDevice([device({ id: "b", ready: false, problem: "x" })])).toBe("b");

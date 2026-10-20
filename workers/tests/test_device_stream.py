@@ -357,3 +357,49 @@ async def test_chrome_going_away_is_reported_even_to_a_viewer_that_left() -> Non
     await view.open({"width": 640, "height": 400})
     cdp.handler("Stream.closed", {}, None)
     await asyncio.sleep(0.01)  # no unhandled task error
+
+
+class ClosingSocket:
+    """A CDP websocket that Chrome closes while a command is still being sent."""
+
+    def __init__(self) -> None:
+        self.ended = asyncio.Event()
+        self.release = asyncio.Event()
+
+    def __aiter__(self) -> "ClosingSocket":
+        return self
+
+    async def __anext__(self) -> str:
+        await self.ended.wait()
+        raise StopAsyncIteration
+
+    async def send(self, _data: str) -> None:
+        await self.release.wait()
+        raise ConnectionError("sent 1000 (OK); then received 1000 (OK)")
+
+    async def close(self) -> None:
+        self.ended.set()
+
+
+async def test_a_command_cut_off_by_chrome_closing_leaves_nothing_unretrieved() -> None:
+    import gc
+
+    from personal_os_worker.device.stream import CdpConnection, CdpError
+
+    reported: list[dict[str, Any]] = []
+    loop = asyncio.get_running_loop()
+    loop.set_exception_handler(lambda _loop, context: reported.append(context))
+    socket = ClosingSocket()
+    connection = CdpConnection(socket, lambda *_: None)
+    command = asyncio.create_task(connection.send("Page.screencastFrameAck"))
+    await asyncio.sleep(0)
+    socket.ended.set()  # Chrome goes away: the reader fails every pending command
+    await asyncio.sleep(0)
+    socket.release.set()  # and the send itself then fails on the closed socket
+    with pytest.raises(CdpError):
+        await command
+    del command
+    gc.collect()
+    await asyncio.sleep(0)
+    loop.set_exception_handler(None)
+    assert [context.get("message") for context in reported] == []
