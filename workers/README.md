@@ -91,8 +91,11 @@ distro; `os device status` says what it is doing.
   itself when its own source changes, between runs only.
 - `stream.py` is the live view: a raw CDP connection to the browser endpoint,
   separate from the run's Playwright. It attaches only to the tab being shown,
-  screencasts it as JPEG (each frame acknowledged once delivered, which is Chrome's
-  own flow control), follows the run's tab and any popup the shown tab opens
+  screencasts it as quality-90 JPEG with a width limit based on the viewer's
+  display density, up to 2560 pixels. Capture height follows Chrome's native
+  aspect ratio: limiting it to a short panel would shrink the width and blur
+  text when displayed. Each frame is acknowledged once delivered, which is
+  Chrome's own flow control. The stream follows the run's tab and any popup it opens
   (Google sign-in), un-minimizes the window, and maps the page's fractional
   positions and DOM key fields to CDP input against the last frame's metadata.
 - `runs.py` holds the one run the agent knows about. A page run's output is the log

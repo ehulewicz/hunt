@@ -24,7 +24,7 @@ from typing import Any, Protocol
 
 import httpx
 
-QUALITY = 70
+QUALITY = 90
 MAX_SIDE = 2560
 DEFAULT_SIZE = (1280, 800)
 # A minimized or idle tab may not paint; one screenshot shows it until it does.
@@ -385,10 +385,13 @@ class Stream:
                 )
 
     async def _start(self, cdp: Cdp) -> None:
-        width, height = screencast_size(self.view)
+        width, _ = screencast_size(self.view)
+        # Chrome preserves aspect ratio. Capping a tall native window to the
+        # panel's height also shrinks its width, which the page then upscales.
+        # Capture at the viewer's pixel width and let its panel scroll vertically.
         await cdp.send(
             "Page.startScreencast",
-            {"format": "jpeg", "quality": QUALITY, "maxWidth": width, "maxHeight": height,
+            {"format": "jpeg", "quality": QUALITY, "maxWidth": width,
              "everyNthFrame": 1},
             self.session,
         )

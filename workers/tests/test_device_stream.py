@@ -186,6 +186,19 @@ async def test_the_stream_shows_the_runs_tab_and_lists_only_pages() -> None:
     assert [tab["id"] for tab in tabs["tabs"]] == ["T1", "T2"] and tabs["current"] == "T2"
 
 
+async def test_a_short_viewer_does_not_reduce_the_resolution_of_a_tall_chrome_window() -> None:
+    view, cdp, _, _ = await started()
+    await view.resize({"width": 1180, "height": 700, "dpr": 1})
+    params = [params for method, params, _ in cdp.sent if method == "Page.startScreencast"][-1]
+    # A height cap of 700 shrinks a 1280x1800 window to 498x700; the page then
+    # enlarges those 498 pixels back to the pane's 1180-pixel width.
+    assert params["maxWidth"] == 1180
+    assert "maxHeight" not in params
+    assert params["quality"] >= 90
+    assert not any(method.startswith("Emulation.") for method, _, _ in cdp.sent)
+    await view.close()
+
+
 async def test_each_frame_reaches_the_viewer_before_it_is_acknowledged() -> None:
     view, cdp, frames, _ = await started(run_tab="T1")
     jpeg = b"\xff\xd8 fake jpeg"
