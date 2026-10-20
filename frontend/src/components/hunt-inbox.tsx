@@ -134,7 +134,7 @@ export function HuntInbox({ inbox, facts, onRefresh }: { inbox: Inbox | null; fa
 
   return (
     <section aria-label="Needs attention" className="dashboard-panel attention-panel">
-      <header className="panel-header"><div><h2>Needs attention{total !== null && total > 0 && <span className="count-badge">{total}</span>}</h2><p>A little input. Smoother applications.</p></div><ListFilter aria-hidden="true" /></header>
+      <header className="panel-header"><h2>Needs attention{total !== null && total > 0 && <span className="count-badge">{total}</span>}</h2><ListFilter aria-hidden="true" /></header>
       <div aria-label="Review categories" className="segment-control">
         {(["Facts", "Prose", "Patterns"] as const).map((name) => <button aria-pressed={section === name} key={name} onClick={() => { setSection(name); setReview(null); setNotice(null); }} type="button">{name}<span>{counts?.[name] ?? "—"}</span></button>)}
       </div>

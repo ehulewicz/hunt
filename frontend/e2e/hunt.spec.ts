@@ -125,6 +125,7 @@ test("the overview fits one desktop screen and connects only after starting an a
   const agent = await setup(page);
   await page.goto("/hunt");
   await expect(page.getByRole("group", { name: "Application totals" }).getByLabel("Applied", { exact: true })).toContainText("2");
+  await expect(page.getByRole("group", { name: "Application totals" }).getByLabel("Interviews", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Applications", exact: true }).getByRole("button", { name: /Resume/ })).toHaveCount(3);
   expect(agent.sockets()).toBe(0);
   await expect(page.getByRole("region", { name: "Live view" })).toHaveCount(0);
@@ -135,6 +136,11 @@ test("the overview fits one desktop screen and connects only after starting an a
   await page.setViewportSize({ width: 1280, height: 720 });
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
   await expect(page.getByRole("heading", { name: "Needs attention" })).toBeInViewport();
+  const attention = (await page.getByRole("region", { name: "Needs attention" }).boundingBox())!;
+  const totals = (await page.getByRole("group", { name: "Application totals" }).boundingBox())!;
+  const applications = (await page.getByRole("region", { name: "Applications", exact: true }).boundingBox())!;
+  expect(attention.y).toBeCloseTo(totals.y, 0);
+  expect(attention.y + attention.height).toBeCloseTo(applications.y + applications.height, 0);
   await page.setViewportSize({ width: 1440, height: 900 });
 
   await page.getByRole("button", { name: "Next on board" }).click();

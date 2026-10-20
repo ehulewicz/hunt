@@ -45,9 +45,9 @@ this page.
 `/hunt` opens an overview, without connecting to a device or streaming Chrome.
 It reads application history, the answer inbox, facts, and the board total through
 FastAPI. Totals show applications sent (including later outcomes), pending
-applications, current interviews, and listings on the board. Failed overview
-loads show an unavailable state, or the last successful overview, rather than
-zero counts. Overview data and devices refresh every 30 seconds and on return
+applications, and listings on the board. Failed overview loads show an unavailable
+state, or the last successful overview, rather than zero counts. Overview data
+and devices refresh every 30 seconds and on return
 from an application.
 
 The overview starts an application by board number, posting id prefix, or direct
@@ -89,11 +89,11 @@ can take over a session. Run controls and answer submission are disabled while
 disconnected. The console uses token classes for its styled spans, follows new
 lines at the bottom, and holds still when scrolled up.
 
-The overview starts with its totals and application launcher; the Applications
-and Needs attention panels fill the remaining height. On desktop, Hunt fits the
-viewport; application lists, the inbox, the answer panel, the log, and Chrome have
-bounded scrolling. Narrow screens use document
-scrolling and stack the workspace panels on phones. The rest of the app uses the
+The overview keeps compact totals, the application launcher, and Applications
+on the left; Needs attention fills the right column from top to bottom. On desktop,
+Hunt fits the viewport; application lists, the inbox, the answer panel, the log,
+and Chrome have bounded scrolling. Narrow screens use document scrolling and
+stack the workspace panels on phones. The rest of the app uses the
 same compact icon rail and ember theme.
 
 Jobs otherwise runs through the `os hunt` CLI, see

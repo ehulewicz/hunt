@@ -46,7 +46,8 @@ test("Hunt opens an overview with real totals without connecting to Chrome", asy
   const totals = await screen.findByRole("group", { name: "Application totals" });
   await waitFor(() => expect(within(totals).getByLabelText("Applied")).toHaveTextContent("2"));
   expect(within(totals).getByLabelText("Pending")).toHaveTextContent("1");
-  expect(within(totals).getByLabelText("Interviews")).toHaveTextContent("1");
+  expect(within(totals).getByLabelText("On the board")).toHaveTextContent("42");
+  expect(within(totals).queryByLabelText("Interviews")).not.toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Needs attention" })).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Live view" })).not.toBeInTheDocument();
   expect(openDeviceSession).not.toHaveBeenCalled();
