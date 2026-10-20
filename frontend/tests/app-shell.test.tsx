@@ -17,10 +17,10 @@ test("account initials use the first and final names", () => {
   expect(accountInitials("Eah Middle Tree")).toBe("ET");
 });
 
-test("the shell links Hunt and Integrations, and no Dashboard or other Jobs page", () => {
+test("the shell links only Hunt, with Integrations in the account menu", () => {
   render(<AppShell account={account} onSignOut={() => undefined}><h1>Hunt</h1></AppShell>);
   expect(screen.getByRole("link", { name: "Hunt" })).toHaveAttribute("href", "/hunt");
-  expect(screen.getByRole("link", { name: "Integrations" })).toHaveAttribute("href", "/integrations");
+  expect(screen.queryByRole("link", { name: "Integrations" })).not.toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Dashboard" })).not.toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Jobs" })).not.toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Hunt" })).toBeInTheDocument();
@@ -31,6 +31,7 @@ test("account menu shows identity and no profile route", () => {
   render(<AccountMenu account={account} onSignOut={onSignOut} />);
   fireEvent.click(screen.getByRole("button", { name: "Account: Eah Tree" }));
   expect(screen.getByText("eahtree@gmail.com")).toBeInTheDocument();
+  expect(screen.getByRole("menuitem", { name: "Integrations" })).toHaveAttribute("href", "/integrations");
   expect(screen.queryByRole("menuitem", { name: "Profile" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("menuitem", { name: "Log out" }));
   expect(onSignOut).toHaveBeenCalledOnce();

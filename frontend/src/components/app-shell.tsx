@@ -2,7 +2,6 @@
 
 import {
   Briefcase,
-  Cable,
   Database,
 } from "lucide-react";
 import Link from "next/link";
@@ -32,9 +31,6 @@ export function AppShell({
         <nav aria-label="Primary navigation">
           <Link aria-current={pathname === "/hunt" ? "page" : undefined} className={pathname === "/hunt" ? "nav-link active" : "nav-link"} href="/hunt">
             <Briefcase aria-hidden="true" /><span>Hunt</span>
-          </Link>
-          <Link aria-current={pathname === "/integrations" ? "page" : undefined} className={pathname === "/integrations" ? "nav-link active" : "nav-link"} href="/integrations">
-            <Cable aria-hidden="true" /><span>Integrations</span>
           </Link>
         </nav>
         <div className="sidebar-spacer" />

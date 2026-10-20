@@ -26,9 +26,9 @@ the token travels with every request.
 Required browser environment: `NEXT_PUBLIC_SUPABASE_URL`,
 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_API_URL`.
 
-Current scope is deliberately small: Hunt and Integrations are the pages in the
-sidebar, and `/` lands on Hunt. Settings is a routed placeholder that is not yet in
-the nav.
+Current scope is deliberately small: Hunt is the only sidebar page, and `/` lands
+on it. Integrations and Settings open from the account menu; Settings is still a
+routed placeholder.
 
 ### Integrations
 
