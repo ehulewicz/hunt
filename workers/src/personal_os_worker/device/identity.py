@@ -129,4 +129,11 @@ def tailnet_url(run: Run = subprocess.run) -> str:
     name = str((status.get("Self") or {}).get("DNSName") or "").rstrip(".").casefold()
     if not name.endswith(".ts.net"):
         raise DeviceError("Tailscale has no MagicDNS name for this machine; turn MagicDNS on")
+    # Without a certificate the page cannot open the address, and `tailscale serve`
+    # waits on an approval link instead of failing.
+    if name not in {str(domain).casefold() for domain in status.get("CertDomains") or ()}:
+        raise DeviceError(
+            "HTTPS certificates are off for this tailnet; turn them on under DNS in the "
+            "Tailscale admin console"
+        )
     return f"https://{name}"

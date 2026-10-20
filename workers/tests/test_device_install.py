@@ -46,6 +46,16 @@ def test_tailscale_serves_the_loopback_port_over_https(monkeypatch: pytest.Monke
     assert not any("funnel" in part for part in calls[0])
 
 
+def test_a_serve_left_waiting_says_how_to_see_why(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(install, "tailscale_exe", lambda: "tailscale.exe")
+
+    def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    with pytest.raises(DeviceError, match=r"tailscale\.exe serve --bg --https=443"):
+        install.serve_on_tailnet(run=run)
+
+
 def test_serve_needs_an_installed_device(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

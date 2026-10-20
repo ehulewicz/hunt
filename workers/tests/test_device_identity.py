@@ -23,10 +23,17 @@ def windows(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 def test_the_address_is_the_machines_magicdns_name_over_https() -> None:
-    status = {"BackendState": "Running", "Self": {"DNSName": "Desktop-Home.tail1234.ts.net."}}
+    status = {
+        "BackendState": "Running",
+        "Self": {"DNSName": "Desktop-Home.tail1234.ts.net."},
+        "CertDomains": ["desktop-home.tail1234.ts.net"],
+    }
     assert identity.tailnet_url(answering(json.dumps(status))) == (
         "https://desktop-home.tail1234.ts.net"
     )
+
+
+NO_CERTS = {"BackendState": "Running", "Self": {"DNSName": "home.tail1.ts.net."}}
 
 
 @pytest.mark.parametrize(
@@ -35,6 +42,9 @@ def test_the_address_is_the_machines_magicdns_name_over_https() -> None:
         (json.dumps({"BackendState": "Stopped", "Self": {}}), "Stopped"),
         ("", "running"),
         (json.dumps({"BackendState": "Running", "Self": {"DNSName": ""}}), "MagicDNS"),
+        # With HTTPS off, `tailscale serve` waits on an approval link nobody sees.
+        (json.dumps(NO_CERTS), "HTTPS certificates"),
+        (json.dumps({**NO_CERTS, "CertDomains": None}), "HTTPS certificates"),
     ],
 )
 def test_tailscale_that_cannot_serve_says_why(stdout: str, message: str) -> None:

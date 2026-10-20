@@ -82,13 +82,15 @@ def serve_on_tailnet(run: Run = subprocess.run) -> None:
     executable = tailscale_exe()
     if executable is None:
         raise DeviceError("Tailscale for Windows is not installed")
-    result = run(
-        [executable, "serve", "--bg", "--https=443", f"http://127.0.0.1:{AGENT_PORT}"],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    command = [executable, "serve", "--bg", "--https=443", f"http://127.0.0.1:{AGENT_PORT}"]
+    try:
+        result = run(command, check=False, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        # Serve waits for an approval it prints a link to, which capture hides.
+        raise DeviceError(
+            "tailscale serve did not finish in 60s; run 'tailscale.exe serve --bg --https=443 "
+            f"http://127.0.0.1:{AGENT_PORT}' in a terminal to see what it is waiting for"
+        ) from None
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip().splitlines()
         raise DeviceError(
