@@ -26,8 +26,8 @@ file_size_limit = "50MiB"
 
 [auth]
 enabled = true
-site_url = "https://personal-os-ten-kappa.vercel.app"
-additional_redirect_urls = ["https://personal-os-ten-kappa.vercel.app/auth/callback"]
+site_url = "https://hunt.example.com"
+additional_redirect_urls = ["https://hunt.example.com/auth/callback"]
 jwt_expiry = 3600
 enable_refresh_token_rotation = true
 refresh_token_reuse_interval = 10

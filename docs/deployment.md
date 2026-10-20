@@ -35,7 +35,7 @@ To create the missing provider credentials:
 3. Keep Auth data access to `openid`, `userinfo.email`, and `userinfo.profile`.
 4. Create a **Web application** OAuth client with:
    - Authorized JavaScript origin:
-     `https://personal-os-ten-kappa.vercel.app`
+     `https://hunt.example.com`
    - Authorized redirect URI:
      `https://exampleprojectref.supabase.co/auth/v1/callback`
 5. Save the client ID and secret immediately. Google only displays a newly

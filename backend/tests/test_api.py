@@ -420,7 +420,7 @@ async def test_unhandled_errors_stay_visible_to_the_browser() -> None:
         supabase_url="https://exampleprojectref.supabase.co",
         allowed_user_id=USER_ID,
         allowed_email="eahtree@gmail.com",
-        cors_allowed_origins=["https://personal-os-ten-kappa.vercel.app"],
+        cors_allowed_origins=["https://hunt.example.com"],
     )
     application = create_app(settings, lifespan=no_lifespan)
 
@@ -433,13 +433,13 @@ async def test_unhandled_errors_stay_visible_to_the_browser() -> None:
     ) as api_client:
         response = await api_client.get(
             "/boom-for-test",
-            headers={"Origin": "https://personal-os-ten-kappa.vercel.app"},
+            headers={"Origin": "https://hunt.example.com"},
         )
 
     assert response.status_code == 500
     assert (
         response.headers.get("access-control-allow-origin")
-        == "https://personal-os-ten-kappa.vercel.app"
+        == "https://hunt.example.com"
     )
     assert response.json() == {"detail": "Internal server error"}
 
