@@ -90,12 +90,12 @@
       ]
     },
     {
-      "title": "Personal Dynamics Engine",
-      "date": "November 2025",
+      "title": "Job Application Agent",
+      "date": "June 2026",
       "bullets": [
-        "Building a personal data platform to continuously capture wearable audio/biometrics, device activity, and location",
-        "Shipped a Python/FastAPI control plane over private Supabase Postgres, centralizing auth, ingestion, and database access",
-        "Designing a time-aligned longitudinal store across every stream for durable recall and personal state modeling"
+        "Building an agent that fills applications on any ATS from its form controls and learns from every failed field",
+        "Limited Claude to choosing which stored fact answers each short question, so no filled value is invented",
+        "Streamed each device's Chrome to a Vercel control page over Tailscale, with remote input, live logs, and run controls"
       ]
     }
   ],
@@ -106,7 +106,7 @@
     },
     {
       "category": "Tools & Infrastructure",
-      "items": "Git, Linux, Docker, PostgreSQL, Redis, Google Cloud, Azure, Modal, Oracle Cloud"
+      "items": "Git, Linux, Docker, Tailscale, PostgreSQL, Redis, Google Cloud, Azure, Modal, Oracle Cloud"
     },
     {
       "category": "Frameworks & Libraries",
