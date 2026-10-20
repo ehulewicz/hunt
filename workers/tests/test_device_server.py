@@ -253,6 +253,36 @@ async def test_the_agent_restarts_only_between_runs(agent: Agent) -> None:
     assert restarted == [1]
 
 
+class FakeSocket:
+    def __init__(self) -> None:
+        self.sent: list[dict[str, Any]] = []
+        self.closed: int | None = None
+
+    async def send_json(self, message: dict[str, Any]) -> None:
+        if self.closed is not None:
+            raise RuntimeError('Cannot call "send" once a close message has been sent.')
+        self.sent.append(message)
+
+    async def close(self, code: int = 1000, reason: str | None = None) -> None:
+        self.closed = code
+
+
+async def test_a_stream_that_fails_after_its_viewer_was_replaced_tells_no_one(
+    agent: Agent,
+) -> None:
+    # Chrome too busy to answer: by the time it fails, a newer viewer has the session.
+    first, second = FakeSocket(), FakeSocket()
+
+    def busy_chrome() -> None:
+        agent.viewer = server.Viewer(second)  # type: ignore[arg-type]
+        asyncio.run(first.close(server.REPLACED))
+        raise RuntimeError("Chrome holds port 9333 but is not answering")
+
+    agent.ensure_chrome = busy_chrome
+    await agent.attach(server.Viewer(first), {})  # type: ignore[arg-type]
+    assert [message["type"] for message in first.sent] == ["hello"]
+
+
 def test_nothing_here_imports_jobs() -> None:
     source = Path(server.__file__).read_text()
     assert "personal_os_worker.jobs" not in source

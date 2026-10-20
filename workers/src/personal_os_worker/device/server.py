@@ -243,8 +243,10 @@ class Agent:
                 self.stream = None
             with contextlib.suppress(Exception):
                 await stream.close()
-            await viewer.send_json({"type": "stream", "state": "unavailable",
-                                    "message": str(error)[:300]})
+            if self.viewer is viewer:  # a viewer replaced meanwhile is already closed
+                with contextlib.suppress(Exception):
+                    await viewer.send_json({"type": "stream", "state": "unavailable",
+                                            "message": str(error)[:300]})
             return
         if self.viewer is not viewer and self.stream is stream:
             await self.close_stream()

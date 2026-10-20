@@ -52,7 +52,9 @@ on the right.
 The left pane starts a run (a board number, an id prefix, or a posting URL; or
 "Next on board"), and drives it with Save, Submitted, Skip, and Stop, the page's
 Ctrl+S, Ctrl+A, Ctrl+D, and Ctrl+C. The run's console arrives as styled spans and
-is drawn with token classes (`log-green`, `log-dim`, …), never a raw color. A run
+is drawn with token classes (`log-green`, `log-dim`, …), never a raw color. The log
+scrolls in its own box like a terminal, following new lines while you are at its
+bottom and holding still while you scroll up to read. A run
 the page started sends its drafted cover letter here to edit; "Use this letter"
 sends it back and the run continues. The audit's "Left for you" list arrives as
 structured gaps, and a fact gap takes its value inline: the run stores the fact and
@@ -79,7 +81,8 @@ These are binding, not suggestions.
   build on either.
 - Prefer flat bordered lists and 2–4px corners. Shadows belong only on transient
   overlays.
-- The document owns vertical scrolling; avoid nested vertical scroll regions.
+- The document owns vertical scrolling; avoid nested vertical scroll regions. The Hunt run
+  log is the one exception: a console that scrolls on its own.
 - Next.js and TypeScript are presentation and browser-auth concerns only. Business
   logic belongs in Python.
 - Reuse the persistent workspace layout for Hunt, Settings, and Integrations.

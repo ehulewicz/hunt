@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, memo, useState } from "react";
+import { type FormEvent, memo, useLayoutEffect, useRef, useState } from "react";
 
 import type { Gap, LogLine, RunSnapshot, Span } from "@/lib/device";
 
@@ -27,10 +27,29 @@ const LogRow = memo(function LogRow({ line }: { line: LogLine }) {
   return <li>{line.length ? line.map((span, part) => <LogSpan key={part} span={span} />) : " "}</li>;
 });
 
+// Within this many pixels of the bottom counts as reading the newest line.
+const FOLLOW_SLACK = 24;
+
 export function RunLog({ lines }: { lines: LogLine[] }) {
+  const list = useRef<HTMLOListElement>(null);
+  const following = useRef(true);
+  // Like a terminal: new lines keep the newest in view, unless you scrolled up to read.
+  useLayoutEffect(() => {
+    const element = list.current;
+    if (element && following.current) element.scrollTop = element.scrollHeight;
+  }, [lines]);
   if (lines.length === 0) return <p className="muted run-empty">Nothing has run on this device since its agent started.</p>;
   return (
-    <ol aria-label="Run log" className="run-log">
+    <ol
+      aria-label="Run log"
+      className="run-log"
+      onScroll={(event) => {
+        const element = event.currentTarget;
+        following.current = element.scrollHeight - element.scrollTop - element.clientHeight <= FOLLOW_SLACK;
+      }}
+      ref={list}
+      tabIndex={0}
+    >
       {lines.map((line, index) => <LogRow key={index} line={line} />)}
     </ol>
   );

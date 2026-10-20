@@ -126,7 +126,34 @@ def test_running_chrome_is_not_relaunched(monkeypatch: pytest.MonkeyPatch) -> No
     assert service.ensure_chrome("http://127.0.0.1:9333") is False
 
 
+def test_a_busy_chrome_is_waited_for_not_relaunched(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A Chrome slow to answer still holds its port. Relaunching it only opens another
+    # window in the running browser, which slows it further: 435 windows, once.
+    monkeypatch.setattr(service, "_port_refuses", lambda *a, **k: False)
+    health = iter([False, False, True])
+    monkeypatch.setattr(service, "chrome_is_running", lambda *a, **k: next(health))
+    monkeypatch.setattr(service.time, "sleep", lambda _: None)
+
+    def explode(*_: object, **__: object) -> None:
+        raise AssertionError("must not launch Chrome over a running one")
+
+    monkeypatch.setattr(service.subprocess, "Popen", explode)
+    assert service.ensure_chrome("http://127.0.0.1:9333", quiet=True) is False
+
+
+def test_a_chrome_that_never_answers_is_reported_not_relaunched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(service, "_port_refuses", lambda *a, **k: False)
+    monkeypatch.setattr(service, "chrome_is_running", lambda *a, **k: False)
+    monkeypatch.setattr(service, "CHROME_TIMEOUT_SECONDS", 0.0)
+    monkeypatch.setattr(service.subprocess, "Popen", lambda *a, **k: pytest.fail("launched"))
+    with pytest.raises(service.ChromeUnavailable, match="not answering"):
+        service.ensure_chrome("http://127.0.0.1:9333", quiet=True)
+
+
 def test_chrome_launches_with_a_dedicated_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(service, "_port_refuses", lambda *a, **k: True)
     monkeypatch.setattr(service.Path, "exists", lambda _: True)
     monkeypatch.setattr(service, "chrome_profile", lambda: r"C:\Users\someone\personal-os-chrome")
     spawned: list[list[str]] = []
@@ -191,6 +218,7 @@ def test_without_windows_there_is_no_profile(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_missing_chrome_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(service, "_port_refuses", lambda *a, **k: True)
     monkeypatch.setattr(service, "chrome_is_running", lambda *a, **k: False)
     monkeypatch.setattr(service.Path, "exists", lambda _: False)
     with pytest.raises(service.ChromeUnavailable, match="not found"):

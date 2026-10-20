@@ -1,4 +1,14 @@
-from personal_os_worker.jobs.sites import detect_ats, failure_signature, option_match
+import re
+from pathlib import Path
+
+import pytest
+
+from personal_os_worker.jobs.sites import (
+    adapter_version,
+    detect_ats,
+    failure_signature,
+    option_match,
+)
 
 
 def test_the_ats_is_a_label_read_from_the_host_and_never_a_gate() -> None:
@@ -24,3 +34,13 @@ def test_failure_signatures_are_stable_and_category_scoped() -> None:
     first = failure_signature("ashby", "readback_mismatch", "input|email")
     assert first == failure_signature("ashby", "readback_mismatch", "input|email")
     assert first != failure_signature("ashby", "fill_exception", "input|email")
+
+
+def test_the_version_is_read_from_the_repository_wherever_the_run_starts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capfd: pytest.CaptureFixture[str]
+) -> None:
+    # The device agent starts runs in the home directory, which is not a checkout.
+    monkeypatch.chdir(tmp_path)
+    version = adapter_version()
+    assert re.fullmatch(r"personal-os-autofill-v1@[0-9a-f]{12}(-dirty)?", version)
+    assert capfd.readouterr().err == ""  # no git usage text in the run's log

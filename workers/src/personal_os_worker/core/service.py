@@ -14,12 +14,15 @@ import os
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
+import threading
 import time
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 
@@ -36,6 +39,7 @@ TASKKILL = "/mnt/c/Windows/System32/taskkill.exe"
 CHROME_EXE = "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
 CHROME_PROFILE_NAME = "personal-os-chrome"
 CHROME_TIMEOUT_SECONDS = 30.0
+_CHROME_LOCK = threading.Lock()
 CMD = "/mnt/c/Windows/System32/cmd.exe"
 
 
@@ -270,15 +274,55 @@ def open_url(cdp_url: str, url: str) -> None:
         page.wait_for_timeout(1500)
 
 
+def _port_refuses(cdp_url: str) -> bool:
+    """Whether nothing at all listens on Chrome's port: the one sign it is not running."""
+    parsed = urlparse(cdp_url)
+    try:
+        with socket.create_connection((parsed.hostname or "127.0.0.1", parsed.port or 80), 1.0):
+            return False
+    except ConnectionRefusedError:
+        return True
+    except OSError:  # a timeout is a busy listener, not an absent one
+        return False
+
+
+def _wait_for_chrome(cdp_url: str, *, check_seconds: float, failure: str) -> None:
+    deadline = time.monotonic() + CHROME_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        if chrome_is_running(cdp_url, timeout=check_seconds):
+            return
+        time.sleep(_POLL_SECONDS)
+    raise ChromeUnavailable(failure)
+
+
 def ensure_chrome(cdp_url: str, *, quiet: bool = False) -> bool:
-    """Return True when Chrome had to be started, False when it was already up."""
+    """Return True when Chrome had to be started, False when it was already up.
+
+    Chrome is launched only when nothing holds its port. One that holds it but is slow
+    to answer is busy, not gone, and launching again would only open another window in
+    it, which makes it slower still.
+    """
+    with _CHROME_LOCK:  # concurrent callers share one check rather than each launching
+        return _ensure_chrome(cdp_url, quiet=quiet)
+
+
+def _ensure_chrome(cdp_url: str, *, quiet: bool) -> bool:
     if chrome_is_running(cdp_url):
+        return False
+
+    port = _port_of(cdp_url)
+    if not _port_refuses(cdp_url):
+        _wait_for_chrome(
+            cdp_url,
+            check_seconds=5.0,
+            failure=f"Chrome holds port {port} but is not answering; close some of its "
+            "windows or run 'os chrome restart'",
+        )
         return False
 
     if not Path(CHROME_EXE).exists():
         raise ChromeUnavailable(f"Windows Chrome not found at {CHROME_EXE}")
 
-    port = _port_of(cdp_url)
     subprocess.Popen(
         [
             CHROME_EXE,
@@ -302,17 +346,14 @@ def ensure_chrome(cdp_url: str, *, quiet: bool = False) -> bool:
 
     if not quiet:
         print("Starting Chrome ...")
-    deadline = time.monotonic() + CHROME_TIMEOUT_SECONDS
-    while time.monotonic() < deadline:
-        if chrome_is_running(cdp_url, timeout=1.0):
-            return True
-        time.sleep(_POLL_SECONDS)
-
-    raise ChromeUnavailable(
-        f"Chrome did not expose CDP on {cdp_url} within {CHROME_TIMEOUT_SECONDS:.0f}s. "
+    _wait_for_chrome(
+        cdp_url,
+        check_seconds=1.0,
+        failure=f"Chrome did not expose CDP on {cdp_url} within {CHROME_TIMEOUT_SECONDS:.0f}s. "
         "Confirm networkingMode=mirrored is set in .wslconfig and that "
-        "'wsl --shutdown' has been run since."
+        "'wsl --shutdown' has been run since.",
     )
+    return True
 
 
 def _pid_on_port(port: str) -> int | None:

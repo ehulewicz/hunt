@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 import subprocess
+from pathlib import Path
 from urllib.parse import urlparse
 
 ADAPTER_VERSION = "personal-os-autofill-v1"
@@ -17,15 +18,21 @@ ATS_NAMES = ("greenhouse", "ashby", "lever", "workday", "generic")
 
 
 def adapter_version() -> str:
+    # Asked of this source's own checkout: a run may start anywhere, and the device
+    # agent starts its runs in the home directory, where git has no repository.
+    repo = Path(__file__).resolve().parents[4]
     commit = subprocess.run(
         ["git", "rev-parse", "--short=12", "HEAD"],
         check=False,
         capture_output=True,
         text=True,
+        cwd=repo,
     ).stdout.strip()
     dirty = subprocess.run(
         ["git", "diff", "--quiet", "--", "workers/src/personal_os_worker"],
         check=False,
+        capture_output=True,
+        cwd=repo,
     ).returncode
     return f"{ADAPTER_VERSION}@{commit or 'unknown'}{'-dirty' if dirty else ''}"
 

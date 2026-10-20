@@ -44,7 +44,9 @@ key still wins until the facts session removes it, and `os hunt facts` marks
 each one that disagrees with the record.
 
 The CLI launches local FastAPI and the dedicated native Windows Chrome profile
-as needed. `VisibleBrowser.application_page` reuses the tab already on this
+as needed. Chrome is launched only when nothing holds its debugging port; one that
+holds it but is slow to answer is waited for, because launching it again only opens
+another window in the running browser. `VisibleBrowser.application_page` reuses the tab already on this
 application (`tab_continues`: the application URL is a prefix of wherever the
 tab has reached) rather than opening a new one, so a re-run continues on a form
 that is already part-filled; `--fresh` overrides it. `rendered_body_text` polls
