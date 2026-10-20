@@ -73,9 +73,16 @@ def _log_to_file() -> None:
 
 def run_serve() -> int:
     """The agent itself; the logon task runs this."""
-    import uvicorn
+    try:
+        import uvicorn
 
-    from personal_os_worker.device.server import Agent, TokenVerifier, create_app, reexec
+        from personal_os_worker.device.server import Agent, TokenVerifier, create_app, reexec
+    except ImportError as error:
+        # A worker installed before the agent existed lacks its server packages.
+        raise DeviceError(
+            f"The agent's packages are missing ({error.name}). From the repository, run: "
+            "uv tool install --reinstall --editable ./workers"
+        ) from None
 
     identity = load_identity()
     if identity is None:

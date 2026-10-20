@@ -186,3 +186,13 @@ def test_a_linked_run_that_fails_tells_the_page_why(
     assert sent == [[{"text": "Chrome [bold] went away", "style": ["red"]}], "failed", "closed"]
     assert stopped == ["failed"]
     assert "went away" not in capsys.readouterr().out  # the terminal hears it once, from the CLI
+
+
+def test_serve_without_the_agents_dependencies_says_how_to_get_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+
+    monkeypatch.setitem(sys.modules, "uvicorn", None)  # import uvicorn now raises ImportError
+    with pytest.raises(DeviceError, match="uv tool install --reinstall"):
+        commands.run_serve()
