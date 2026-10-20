@@ -20,6 +20,7 @@ from personal_os_worker.core.auth import LoginError
 from personal_os_worker.core.config import load_cli_config
 from personal_os_worker.core.service import ApiUnavailable, ChromeUnavailable
 from personal_os_worker.core.tables import ReferenceError, console
+from personal_os_worker.device import commands as devices
 from personal_os_worker.documents import resume as resumes
 from personal_os_worker.jobs import commands as hunt
 from personal_os_worker.jobs import inbox, knowledge
@@ -69,6 +70,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     chrome = commands.add_parser("chrome", help="Control the automation browser")
     chrome.add_argument("action", choices=["start", "stop", "restart"])
+
+    device = commands.add_parser(
+        "device", help="This machine as a Hunt device the Vercel page can see and drive"
+    )
+    device.add_argument(
+        "action",
+        choices=["install", "serve", "status"],
+        help="install: set up once; serve: run the agent (the logon task does); status",
+    )
 
     commands.add_parser("login", help="Sign in with Google through Supabase")
     commands.add_parser("whoami", help="Show the signed-in account")
@@ -289,6 +299,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Do not fill anything; record that you applied to this listing yourself",
     )
+    autofill.add_argument(
+        "--remote",
+        action="store_true",
+        help="Driven from the Hunt page through this device's agent (the agent passes this)",
+    )
 
     repair = jobs_commands.add_parser(
         "repair", help="Retry earlier failed fields in an isolated browser; never submits"
@@ -359,6 +374,12 @@ def _dispatch(args: argparse.Namespace) -> int:
         return services.run_api(args.action)
     if args.command == "chrome":
         return services.run_chrome(args.action)
+    if args.command == "device":
+        if args.action == "install":
+            return devices.run_install()
+        if args.action == "serve":
+            return devices.run_serve()
+        return devices.run_status()
     if args.command == "login":
         return run_login()
     if args.command == "whoami":
@@ -432,11 +453,14 @@ def _dispatch(args: argparse.Namespace) -> int:
                 raise RuntimeError("Unexpected autofill arguments")
             if args.done:
                 if (args.dry_run or args.no_claude or args.ats or not args.repair
-                        or args.fresh or args.explain or args.step or args.ask_facts):
+                        or args.fresh or args.explain or args.step or args.ask_facts
+                        or args.remote):
                     raise RuntimeError("--done takes no other flags")
                 if args.ref is None or args.ref == "today":
                     raise RuntimeError("--done needs a listing row or id")
                 return hunt.run_mark_applied(args.ref)
+            if args.remote and args.step:
+                raise RuntimeError("--step pauses at a terminal; a remote run has none")
             if args.ref is None or args.ref == "today":
                 return hunt.run_autofill_top(
                     today=args.ref == "today",
@@ -448,6 +472,7 @@ def _dispatch(args: argparse.Namespace) -> int:
                     explain=args.explain,
                     step=args.step,
                     ask_facts=args.ask_facts,
+                    remote=args.remote,
                 )
             if args.ats:
                 raise RuntimeError("--ats picks the top row; do not give a row with it")
@@ -463,6 +488,7 @@ def _dispatch(args: argparse.Namespace) -> int:
                 referred=args.referred,
                 company=args.company,
                 title=args.title,
+                remote=args.remote,
             )
     return 2
 

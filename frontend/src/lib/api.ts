@@ -76,3 +76,23 @@ export async function authenticateAndBootstrap(accessToken: string): Promise<Acc
   await accountRequest("/v1/me", "GET", accessToken);
   return accountRequest("/v1/bootstrap", "POST", accessToken);
 }
+
+export type DeviceRun = { company_name: string; title: string };
+
+export type Device = {
+  id: string;
+  name: string;
+  url: string;
+  commit: string;
+  local_changes: boolean;
+  ready: boolean;
+  problem: string | null;
+  active_run_id: string | null;
+  run: DeviceRun | null;
+  last_seen_at: string;
+  online: boolean;
+};
+
+export function listDevices(accessToken: string): Promise<Device[]> {
+  return apiRequest<Device[]>("/v1/jobs/devices", accessToken);
+}

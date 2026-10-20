@@ -25,15 +25,14 @@ from typing import Any
 
 import httpx
 
+from personal_os_worker.core.service import CHROME_EXE, chrome_profile
+
 # Must match an entry in the Supabase redirect allowlist. A fixed port keeps the
 # allowlist unambiguous; Supabase documents globbing for paths, not for ports.
 CALLBACK_PORT = 54321
 CALLBACK_PATH = "/callback"
 # Refresh a little early so a request never races the expiry.
 EXPIRY_MARGIN_SECONDS = 120
-
-CHROME_EXE = "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
-CHROME_PROFILE = r"C:\Users\eahtr\personal-os-chrome"
 
 _DONE_PAGE = (
     b"<!doctype html><meta charset=utf-8><title>Signed in</title>"
@@ -168,7 +167,7 @@ def open_in_browser(url: str) -> None:
     """Open the automation Chrome profile, which already holds the Google session."""
     if Path(CHROME_EXE).exists():
         subprocess.Popen(  # fixed executable path; the URL is constructed here
-            [CHROME_EXE, f"--user-data-dir={CHROME_PROFILE}", url],
+            [CHROME_EXE, f"--user-data-dir={chrome_profile()}", url],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )

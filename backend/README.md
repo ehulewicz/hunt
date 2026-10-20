@@ -115,6 +115,21 @@ context carries the validated strategy candidates as control preferences. FastAP
 and verifies ownership on upload and download; storage paths are never trusted as
 authorization. Submission and submitted status stay manual.
 
+### Devices
+
+`/v1/jobs/devices` is the list of machines that run the Hunt agent
+(`jobs_devices.py`). A device lists itself: its agent sends `PUT
+/v1/jobs/devices/{device_id}` every 30 seconds through its local API, and the
+device's own id is the path key while the user is always the verified JWT's. The
+heartbeat says the device's name, its tailnet address, the commit it runs and
+whether it has local changes, whether `os doctor` passes there (and if not, the
+first failing check), and the run it is busy with, which must be one of yours. The
+address must be an `https://<name>.ts.net` name, because the page sends your token
+to it. `GET` lists your devices with `online` computed from the last heartbeat
+(under 90 seconds) and the busy run's company and title. An id another user holds
+is a `409`. Nothing here carries the live view; the page connects to the device
+directly over the tailnet.
+
 ### A posting by its URL
 
 `POST /v1/jobs/listings/from-url` returns the posting whose application or
@@ -161,7 +176,7 @@ uses it. All three must pass:
 cd backend && uv run ruff check . && uv run mypy src/ && uv run pytest -q
 ```
 
-Currently 116 tests. `mypy` is scoped to `src/` because the test suite is not
+Currently 130 tests. `mypy` is scoped to `src/` because the test suite is not
 annotated; `pyproject.toml` already pins `packages = ["personal_os_backend"]`, so bare
 `uv run mypy` — the form CI uses — checks the same files.
 
@@ -188,6 +203,7 @@ src/personal_os_backend/
   jobs_sync.py      standalone sync entry point, runs as the Cloud Run Job
   jobs_storage.py   private Storage bucket reads and writes
   jobs_answers.py   questions, patterns, prose, the archive, and the Inbox
+  jobs_devices.py   /v1/jobs/devices: the heartbeat upsert and the device list
 tests/              pytest suite, async mode auto
 Dockerfile          builds from the repository root build context, not from here
 ```

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Briefcase,
   Database,
   LayoutDashboard,
 } from "lucide-react";
@@ -31,6 +32,9 @@ export function AppShell({
         <nav aria-label="Primary navigation">
           <Link aria-current={pathname === "/dashboard" ? "page" : undefined} className={pathname === "/dashboard" ? "nav-link active" : "nav-link"} href="/dashboard">
             <LayoutDashboard aria-hidden="true" /><span>Dashboard</span>
+          </Link>
+          <Link aria-current={pathname === "/hunt" ? "page" : undefined} className={pathname === "/hunt" ? "nav-link active" : "nav-link"} href="/hunt">
+            <Briefcase aria-hidden="true" /><span>Hunt</span>
           </Link>
         </nav>
         <div className="sidebar-spacer" />

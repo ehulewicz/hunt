@@ -10,8 +10,8 @@ cross-boundary, reference, or historical.
 
 | Path | What it is |
 |---|---|
-| [`deployment.md`](deployment.md) | How production is built and deployed: Vercel, the GitHub Actions `Deploy` workflow, GCP Secret Manager, test ports, and the one-time Google OAuth bootstrap. |
-| [`jobs-cli.md`](jobs-cli.md) | The `os hunt` command surface and the behavior of headed apply. The user-facing reference for the Jobs CLI. |
+| [`deployment.md`](deployment.md) | How production is built and deployed: Vercel, the GitHub Actions `Deploy` workflow, GCP Secret Manager, the one-time Tailscale setup for Hunt devices, test ports, and the one-time Google OAuth bootstrap. |
+| [`jobs-cli.md`](jobs-cli.md) | The `os hunt` and `os device` command surface, the behavior of headed apply, and driving it from the Hunt page. The user-facing reference for Jobs. |
 | [`superpowers/specs/`](superpowers/specs/) | Design specs for work not yet built. A spec is a plan, not a description of the current system. |
 | [`third-party/`](third-party/) | Reviews of external projects and extensions, recording what was reimplemented and what was deliberately not vendored. |
 | [`archived/`](archived/) | Superseded documentation. Nothing there describes the current system. |

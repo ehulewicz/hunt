@@ -15,6 +15,36 @@ Required repository variables are `GCP_PROJECT_ID`, `GCP_REGION`,
 `GCP_WIF_PROVIDER`, and `GCP_DEPLOYER_SA`. The database URL, Supabase access token,
 and Google OAuth client credentials remain in GCP Secret Manager.
 
+## Hunt devices on Tailscale
+
+The Hunt page reaches each device's agent directly over Tailscale: every device
+that runs the worker and every browser that views the page is on the tailnet. The
+agent listens on 127.0.0.1:9340 inside WSL, and Windows `tailscale serve`
+publishes it at `https://<machine>.<tailnet>.ts.net`, to the tailnet only (never
+Funnel). No hosted configuration changes for it: the page reads the device list
+from Cloud Run like any other call.
+
+Once for the tailnet, in the Tailscale admin console: turn on MagicDNS and HTTPS
+certificates.
+
+Once per device (Windows + WSL, mirrored networking as the CLI already needs):
+
+1. Install Tailscale for Windows and sign in to the tailnet. Install it on each
+   laptop or phone that will view the page, too.
+2. In WSL, with the worker installed and `os login` done (Personal OS as
+   `eahtree@gmail.com`; the automation Chrome signed into Google as before),
+   run `os device install`. It records the device's id and address, runs
+   `tailscale serve --bg --https=443 http://127.0.0.1:9340`, registers the
+   "Personal OS device" logon task, starts it, and runs `os doctor`.
+3. The device appears on the Hunt page within a minute. `os device status` says
+   what its agent is doing; its log is `~/.local/state/personal-os/device.log`.
+
+The logon task needs a signed-in Windows session: after a reboot, the agent
+starts when someone signs in, not at the lock screen. A device's Chrome keeps
+painting while covered or minimized (the agent starts it with background
+throttling off and un-minimizes it for a viewer); a Chrome already open from
+before the device was installed picks the flags up after `os chrome restart`.
+
 ## Test ports
 
 There is no local product stack. Short-lived test processes may use:
@@ -23,6 +53,7 @@ There is no local product stack. Short-lived test processes may use:
 |---|---:|---|
 | Next.js | 3000 | frontend browser and visual tests |
 | FastAPI | 8000 | backend HTTP tests when a real process is required |
+| Device agent | 9340 | `os device serve`, loopback only, behind `tailscale serve` |
 
 ## One-time Google login bootstrap
 

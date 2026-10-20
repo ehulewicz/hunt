@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import re
 from datetime import date
 from pathlib import Path
@@ -16,6 +17,7 @@ from personal_os_worker.core.doctor import run_doctor
 from personal_os_worker.core.secrets import secrets_check
 from personal_os_worker.core.service import ensure_chrome, open_external_url
 from personal_os_worker.core.tables import console, pick
+from personal_os_worker.device.link import socket_path
 from personal_os_worker.documents.doctor import CHECKS as DOCUMENT_CHECKS
 from personal_os_worker.jobs.account import AccountFlow
 from personal_os_worker.jobs.resolve import Knowledge
@@ -372,6 +374,7 @@ def run_autofill(
     referred: str | None = None,
     company: str | None = None,
     title: str | None = None,
+    remote: bool = False,
 ) -> int:
     config, token = connected()
     api = WorkerApi(config, token)
@@ -382,6 +385,7 @@ def run_autofill(
     apply_posting(
         str(listing["id"]), dry_run=dry_run, no_claude=no_claude, repair=repair,
         fresh=fresh, explain=explain, step=step, ask_facts=ask_facts, referred=referred,
+        remote=remote,
     )
     return 0
 
@@ -397,6 +401,7 @@ def run_autofill_top(
     explain: bool = False,
     step: bool = False,
     ask_facts: bool = False,
+    remote: bool = False,
 ) -> int:
     """Apply the first board row (or first of today), on the given ATS when one is named."""
     families = list(DEFAULT_TECHNICAL_FAMILIES)
@@ -420,7 +425,7 @@ def run_autofill_top(
     )
     apply_posting(
         str(listing["id"]), dry_run=dry_run, no_claude=no_claude, repair=repair,
-        fresh=fresh, explain=explain, step=step, ask_facts=ask_facts,
+        fresh=fresh, explain=explain, step=step, ask_facts=ask_facts, remote=remote,
     )
     return 0
 
@@ -471,11 +476,14 @@ def apply_posting(
     step: bool = False,
     ask_facts: bool = False,
     referred: str | None = None,
+    remote: bool = False,
 ) -> str:
     """Run one interactive apply session: "submitted", "skipped", or "stopped".
 
     `referred` is None unless this application came through a referral: then it
-    is the referrer's name, or "" when none was given.
+    is the referrer's name, or "" when none was given. With this device's agent
+    listening, the run registers with it so the Hunt page sees and drives it;
+    `remote` is a run the page started, whose letter and facts the page answers.
     """
     from personal_os_worker.documents.doctor import latex_toolchain_check
     from personal_os_worker.documents.resume import ensure_resume, transcript_pdf_path
@@ -487,8 +495,12 @@ def apply_posting(
         page_evidence,
         rendered_body_text,
     )
+    from personal_os_worker.jobs.keys import KeyWatcher
+    from personal_os_worker.jobs.remote import LinkedKeys, RunLink, mirrored
     from personal_os_worker.jobs.sites import adapter_version, failure_signature
 
+    if remote and not socket_path().exists():
+        raise RuntimeError("--remote is for runs this device's agent starts; none is listening")
     # The cover letter is compiled mid-application, so a broken TeX install must
     # fail here rather than after twenty seconds of drafting on a live form.
     latex = latex_toolchain_check()
@@ -498,6 +510,9 @@ def apply_posting(
     ensure_chrome(config.cdp_url)
     api = WorkerApi(config, token)
     run_id: str | None = None
+    link: RunLink | None = None
+    mirror = contextlib.ExitStack()
+    result = "failed"
     try:
         career = api.career()
         resume_json = dict(career["document"])
@@ -507,6 +522,16 @@ def apply_posting(
             posting_id=posting_id, ats="generic", adapter_version=version
         )
         run_id = str(run["run_id"])
+        link = RunLink.connect(
+            run_id=run_id,
+            company=str(run["company_name"]),
+            title=str(run["title"]),
+            remote=remote,
+        )
+        if link is not None:
+            mirror.enter_context(mirrored(link))
+        elif remote:
+            raise RuntimeError("This device's agent did not take the run")
         direct_url = str(run["application_url"])
         # A label for querying the fill events; every site is filled the same way.
         ats = str(run.get("ats") or "generic")
@@ -545,6 +570,8 @@ def apply_posting(
             page, reused = browser.application_page(
                 direct_url, console_errors=console_errors, fresh=fresh
             )
+            if link is not None:
+                link.tab(page)
 
             def report_page_failure(
                 category: str, message: str, *, step_number: int = 0
@@ -624,6 +651,12 @@ def apply_posting(
                 )
             resume_pdf = resume.pdf
             console.print(f"  [dim]resume  {resume_pdf}[/dim]")
+            linked: dict[str, Any] = {}
+            if link is not None:
+                linked = {"link": link, "keys": LinkedKeys(link, KeyWatcher())}
+                if remote:
+                    # The page edits the letter; a terminal run keeps VS Code.
+                    linked["editor"] = link.edit_letter
             session = AutofillSession(
                 SessionContext(
                     api=api,
@@ -645,27 +678,38 @@ def apply_posting(
                     repair=repair,
                     explain=explain,
                     step=step,
-                    ask_facts=ask_facts,
+                    # A remote run has no terminal to ask at; the page asks instead.
+                    ask_facts=ask_facts and not remote,
                     account=account_flow(knowledge, expected_company),
+                    **linked,
                 )
             )
             outcome = session.run()
-            return finalize_application_outcome(
+            result = finalize_application_outcome(
                 api,
                 run=run,
                 run_id=run_id,
                 outcome=outcome,
                 page=page,
             )
+            return result
     except KeyboardInterrupt:
+        result = "stopped"
         if run_id is not None:
             api.stop_autofill_run(run_id, status="abandoned")
         raise
-    except Exception:
+    except Exception as error:
+        if link is not None:
+            # The terminal hears this from the CLI; the page only through the link.
+            link.log([{"text": str(error), "style": ["red"]}])
         if run_id is not None:
             api.stop_autofill_run(run_id, status="failed")
         raise
     finally:
+        mirror.close()
+        if link is not None:
+            link.end(result)
+            link.close()
         api.close()
     return "stopped"
 

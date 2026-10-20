@@ -379,12 +379,16 @@ dependencies = [
     { name = "httpx" },
     { name = "playwright" },
     { name = "rich" },
+    { name = "starlette" },
+    { name = "uvicorn" },
+    { name = "websockets" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
     { name = "pytest" },
+    { name = "pytest-asyncio" },
     { name = "ruff" },
 ]
 
@@ -393,12 +397,16 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "playwright", specifier = ">=1.55,<2" },
     { name = "rich", specifier = ">=14,<15" },
+    { name = "starlette", specifier = ">=1,<2" },
+    { name = "uvicorn", specifier = ">=0.35,<1" },
+    { name = "websockets", specifier = ">=15,<18" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1.17,<2" },
     { name = "pytest", specifier = ">=8.4,<9" },
+    { name = "pytest-asyncio", specifier = ">=1.1,<2" },
     { name = "ruff", specifier = ">=0.12,<1" },
 ]
 

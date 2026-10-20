@@ -27,6 +27,8 @@ os hunt apply --ats greenhouse
 os hunt repair
 os hunt validate
 os hunt apply failures list
+os device install
+os device status
 ```
 
 The resume is the career record in the database. `os hunt resume` (= `resume
@@ -52,6 +54,58 @@ is both what identifies the posting and the context its drafts are written
 from. It never accesses Postgres directly and never submits an application.
 See `../docs/jobs-cli.md` for the deterministic mapping, contextual Claude, and
 failure-learning workflows.
+
+## The device agent
+
+`device/` makes this machine a Hunt device the Vercel page can see and drive.
+`os device install` does it once (the setup is in `../docs/deployment.md`);
+`os device serve` is the agent, which a Windows logon task starts hidden in this
+distro; `os device status` says what it is doing.
+
+- `identity.py` is who the device is: an id generated once and kept in
+  `~/.config/personal-os/device.json`, the Windows computer name, and the
+  `https://<machine>.<tailnet>.ts.net` address from `tailscale.exe status --json`.
+- `update.py` keeps the checkout current without touching work in progress. A
+  clean checkout of `main` that is behind fast-forwards (`git merge --ff-only
+  origin/main`) and runs `uv sync --all-packages --python 3.13`, and reinstalls
+  the `uv tool` installs when a dependency file changed. A checkout with edits,
+  commits of its own, or another branch is never stashed, reset, or merged: it runs
+  as it is and the device says "running local changes at <commit>". The fetch runs
+  with prompts off, so a passphrase never hangs the agent. It runs when the agent
+  starts and before every run the page starts.
+- `heartbeat.py` sends the device's row through the local API every 30 seconds.
+  Readiness is `os doctor`, run every ten minutes; a closed automation Chrome does
+  not count against it, because the agent starts Chrome itself when a page connects
+  or a run starts.
+- `server.py` is the agent: Starlette on uvicorn, on 127.0.0.1:9340 only, published
+  to the tailnet by Windows `tailscale serve`. Every request carries the user's
+  Supabase token, which the agent checks by asking the local API for `/v1/me`; a
+  browser request must also come from the Vercel origin (preflights answer
+  Chrome's private-network check), and websockets from any other origin never
+  open. `GET /status` is the device and its run; `POST /runs` starts `os hunt apply
+  <reference> --remote` (409 while a run is active; a reference is a board number,
+  an id prefix, or a URL, never a flag); `WS /session` is the live session, one
+  viewer at a time. The agent never runs a command it was sent. It re-executes
+  itself when its own source changes, between runs only.
+- `stream.py` is the live view: a raw CDP connection to the browser endpoint,
+  separate from the run's Playwright. It attaches only to the tab being shown,
+  screencasts it as JPEG (each frame acknowledged once delivered, which is Chrome's
+  own flow control), follows the run's tab and any popup the shown tab opens
+  (Google sign-in), un-minimizes the window, and maps the page's fractional
+  positions and DOM key fields to CDP input against the last frame's metadata.
+- `runs.py` holds the one run the agent knows about. A page run's output is the log
+  until the run says hello on the socket; from then its console arrives there.
+- `link.py` is that socket: JSON lines over `state_dir()/device.sock`, and the
+  ANSI-to-styled-spans conversion the page draws from.
+
+On the apply side, `jobs/remote.py` registers `os hunt apply` with the agent when
+one is listening, in any terminal: its console is teed to the page line by line,
+it reports its tab's CDP target id, the audit's gaps go out as structured items,
+the page's Save, Submitted, and Skip join the terminal keys, and Stop is the same
+KeyboardInterrupt as Ctrl+C. `--remote` is the agent's own run: the page edits its
+cover letter instead of VS Code, and its fact gaps are answered on the page;
+`AutofillSession.set_fact_and_fill` is the one body behind both that and
+`--ask-facts`. With no agent listening a run behaves exactly as it always has.
 
 ## What it learns, and the archive
 

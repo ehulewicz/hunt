@@ -74,6 +74,12 @@ os hunt apply failures apply-fix 1
 os hunt apply failures verify 1 7
 ```
 
+```bash
+os device install    # once per machine: identity, tailscale serve, logon task, doctor
+os device status     # this device: address, commit, agent, and its run
+os device serve      # the agent itself; the logon task runs it
+```
+
 Displayed listing titles are clickable when the terminal supports hyperlinks.
 A listing's `#` is assigned by the database over one canonical board. Every
 eligible open listing is numbered, whatever its role family, technical families
@@ -233,6 +239,25 @@ Facts are the single source the apply run fills from. `os hunt facts review`
 shows each unverified fact beside what the archived answers said to similar
 questions, so a contradiction such as a second graduation date is settled once,
 on the fact.
+
+## From the Hunt page
+
+The Vercel Hunt page is the primary Hunt control. Every device that ran `os device
+install` lists itself there while its agent is up; pick one, then apply to a board
+number, an id prefix, or a posting URL, or press "Next on board". The agent brings
+the checkout current first (a clean checkout of `main` fast-forwards; one with
+local changes runs as it is, and the page says so), then runs `os hunt apply <ref>
+--remote`. Its Chrome tab is beside the run, live and clickable: you sign in, solve
+a captcha, and press Submit there, then press Submitted. Save, Submitted, Skip, and
+Stop on the page are Ctrl+S, Ctrl+A, Ctrl+D, and Ctrl+C. The cover letter opens on
+the page instead of VS Code, and a "Left for you" fact gap takes its value on the
+page: the run stores the fact and fills the field, exactly as `--ask-facts` would.
+
+`os hunt apply` in a terminal works as before. When the device's agent is running,
+the run registers with it, so it appears on the page too and the page's controls
+work; its letter stays in VS Code. A device runs one application at a time: the
+page cannot start a run while one is active, and a second terminal run while the
+page shows one just runs unmirrored.
 
 ## Repair
 

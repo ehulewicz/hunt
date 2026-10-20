@@ -16,6 +16,8 @@
   --ui-danger-soft: #f8ecea;
   --ui-success: #35654f;
   --ui-success-soft: #eaf2ee;
+  --ui-warning: #8a5a12;
+  --ui-warning-soft: #f7efe1;
   --ui-overlay: rgba(16, 20, 18, 0.55);
   --ui-focus: rgba(30, 58, 74, 0.18);
   --ui-shadow-modal: 0 16px 40px rgba(16, 20, 18, 0.18);
@@ -48,6 +50,8 @@
     --ui-danger-soft: #3a2624;
     --ui-success: #86c3a5;
     --ui-success-soft: #1e2f27;
+    --ui-warning: #d9b26f;
+    --ui-warning-soft: #352a19;
     --ui-overlay: rgba(6, 8, 9, 0.66);
     --ui-focus: rgba(95, 156, 187, 0.34);
     --ui-shadow-modal: 0 16px 40px rgba(0, 0, 0, 0.5);

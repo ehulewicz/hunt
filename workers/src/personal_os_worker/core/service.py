@@ -7,6 +7,7 @@ commands that need it start it on demand and leave it running for the next one.
 from __future__ import annotations
 
 import contextlib
+import functools
 import hashlib
 import json
 import os
@@ -33,8 +34,9 @@ TASKKILL = "/mnt/c/Windows/System32/taskkill.exe"
 # CDP port from WSL needs networkingMode=mirrored in .wslconfig, because Chrome
 # binds remote debugging to loopback only.
 CHROME_EXE = "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
-CHROME_PROFILE = r"C:\Users\eahtr\personal-os-chrome"
+CHROME_PROFILE_NAME = "personal-os-chrome"
 CHROME_TIMEOUT_SECONDS = 30.0
+CMD = "/mnt/c/Windows/System32/cmd.exe"
 
 
 class ApiUnavailable(RuntimeError):
@@ -43,6 +45,39 @@ class ApiUnavailable(RuntimeError):
 
 class ChromeUnavailable(RuntimeError):
     """Raised when the automation browser is neither running nor startable."""
+
+
+@functools.cache
+def windows_home() -> str:
+    """The Windows %USERPROFILE% of whoever runs this, resolved once.
+
+    Every device has its own Windows user, so the dedicated Chrome profile is
+    found from it rather than spelled out. `PERSONAL_OS_WINDOWS_HOME` names it
+    outright where cmd.exe cannot be asked.
+    """
+    named = os.environ.get("PERSONAL_OS_WINDOWS_HOME", "").strip()
+    if named:
+        return named.rstrip("\\")
+    if not Path(CMD).exists():
+        raise ChromeUnavailable("This is not WSL on Windows, so there is no Windows profile")
+    # cmd.exe complains about a WSL working directory, so ask it from C:.
+    result = subprocess.run(
+        [CMD, "/d", "/c", "echo %USERPROFILE%"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        cwd="/mnt/c",
+    )
+    home = result.stdout.strip()
+    if result.returncode != 0 or not home or "%" in home:
+        raise ChromeUnavailable("Could not read the Windows %USERPROFILE% through cmd.exe")
+    return home.rstrip("\\")
+
+
+def chrome_profile() -> str:
+    """The automation Chrome's dedicated user-data directory, a Windows path."""
+    return f"{windows_home()}\\{CHROME_PROFILE_NAME}"
 
 
 def open_external_url(url: str) -> None:
@@ -250,9 +285,14 @@ def ensure_chrome(cdp_url: str, *, quiet: bool = False) -> bool:
             f"--remote-debugging-port={port}",
             # A dedicated profile is required: Chrome 136+ serves 404 on /json/*
             # when remote debugging points at the default user data directory.
-            f"--user-data-dir={CHROME_PROFILE}",
+            f"--user-data-dir={chrome_profile()}",
             "--no-first-run",
             "--no-default-browser-check",
+            # The Hunt page streams this window from another machine, so it must
+            # keep painting while covered, minimized, or behind a locked screen.
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
+            "--disable-background-timer-throttling",
         ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -334,7 +374,7 @@ def windows_chrome_pids() -> list[int]:
         return []
     script = (
         "Get-CimInstance Win32_Process -Filter \"name='chrome.exe'\" | "
-        f"Where-Object {{ $_.CommandLine -like '*{Path(CHROME_PROFILE).name}*' }} | "
+        f"Where-Object {{ $_.CommandLine -like '*{CHROME_PROFILE_NAME}*' }} | "
         "Select-Object -ExpandProperty ProcessId"
     )
     result = subprocess.run(

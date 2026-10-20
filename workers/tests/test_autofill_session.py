@@ -247,7 +247,7 @@ class FakeBrowser:
 
 def state_machine_session() -> AutofillSession:
     page = SimpleNamespace(url="https://jobs.ashbyhq.com/acme/role/application")
-    context = SimpleNamespace(page=page, browser=FakeBrowser(page))
+    context = SimpleNamespace(page=page, browser=FakeBrowser(page), link=None)
     return AutofillSession(cast(Any, context))
 
 
@@ -1461,6 +1461,7 @@ def audit_session(
     prompt: Any = None,
     api: Any = None,
     patterns: list[dict[str, Any]] | None = None,
+    link: Any = None,
 ) -> AutofillSession:
     context = SessionContext(
         api=cast(Any, api or FakeApi()),
@@ -1479,6 +1480,7 @@ def audit_session(
         short_drafter=short_drafter or (lambda *_, **__: {}),
         ask_facts=ask_facts,
         prompt=prompt or (lambda _: ""),
+        link=link,
     )
     return AutofillSession(context)
 
@@ -1566,6 +1568,92 @@ def test_the_audit_asks_for_a_missing_fact_and_fills_it_in(
         str(item.get("label")): item.get("filled") for item in inspect_fields(browser_page)
     }
     assert held[question] is True
+
+
+class FakeLink:
+    """The agent link: what the session told the page, and facts the page sent."""
+
+    def __init__(self, answers: list[dict[str, Any]] | None = None) -> None:
+        self.sent: list[tuple[Any, ...]] = []
+        self.answers = list(answers or [])
+        self.tabs: list[Any] = []
+
+    def gaps(self, items: list[dict[str, Any]]) -> None:
+        self.sent.append(("gaps", items))
+
+    def fact_result(self, question: str, *, ok: bool, message: str) -> None:
+        self.sent.append(("fact_result", question, ok, message))
+
+    def fact_answers(self) -> list[dict[str, Any]]:
+        answers, self.answers = self.answers, []
+        return answers
+
+    def tab(self, page: Any) -> None:
+        self.tabs.append(page)
+
+
+def test_the_audit_sends_its_gaps_to_the_page(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(AUDIT_FORM)
+    link = FakeLink()
+    session = audit_session(browser_page, facts={}, link=link)
+    question = "Do you hold a security clearance?"
+    session.state.needed[question] = "security clearance status"
+
+    session.audit_and_repair(inspect_fields(browser_page), {"failures": []})
+
+    kind, items = link.sent[-1]
+    assert kind == "gaps"
+    item = next(entry for entry in items if entry["question"] == question)
+    assert item["cause"] == "fact_gap" and item["settable"] is True
+    assert item["missing_fact"] == "security clearance status"
+
+
+def test_a_fact_the_page_sends_is_set_and_filled_in(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(AUDIT_FORM)
+    question = "Do you hold a security clearance?"
+    api = FakeApi()
+    link = FakeLink([
+        {"type": "fact", "question": question, "key": "work_auth.clearance",
+         "label": "Security clearance", "value_type": "text", "value": "Active Secret"},
+    ])
+    session = audit_session(browser_page, facts={}, api=api, link=link)
+
+    session.answer_remote_facts(inspect_fields(browser_page))
+
+    assert api.facts_set == [("work_auth.clearance", "Active Secret")]
+    held = {
+        str(item.get("label")): item.get("filled") for item in inspect_fields(browser_page)
+    }
+    assert held[question] is True
+    assert link.sent[-1][:3] == ("fact_result", question, True)
+
+
+def test_a_fact_the_page_cannot_set_is_refused_with_the_reason(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(AUDIT_FORM)
+    api = FakeApi()
+    link = FakeLink([
+        {"type": "fact", "question": "Who referred you?", "key": "referral.referrer_name",
+         "value": "Jane Doe"},
+        {"type": "fact", "question": "Date of birth", "key": "identity.birth_date",
+         "value": "next spring"},
+        {"type": "fact", "question": "Odd", "key": "odd.fact", "label": "", "value": "x"},
+    ])
+    session = audit_session(browser_page, facts={}, api=api, link=link)
+
+    session.answer_remote_facts(inspect_fields(browser_page))
+
+    assert api.facts_set == []
+    results = [entry for entry in link.sent if entry[0] == "fact_result"]
+    assert [entry[2] for entry in results] == [False, False, False]
+    assert "--referred" in results[0][3]
+    assert "YYYY-MM-DD" in results[1][3]
+    assert "label and a type" in results[2][3]
 
 
 def test_the_audit_reports_what_no_lane_could_fix(

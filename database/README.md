@@ -18,7 +18,8 @@ a request body. There is no RLS, by design, because the product is single-user.
 
 ### What the Jobs tables hold
 
-Facts, the career record, source listings, recoverably archived applications with
+Facts, the career record, the devices that run the Hunt agent, source listings,
+recoverably archived applications with
 a lifecycle status (`queued`, `applied`, `oa`, `oa_completed`, `interview`, `offer`,
 `rejected`, `archived`), learned questions, patterns, and prose, the archive,
 application-question event history, synchronous autofill runs, deduplicated failure
@@ -65,6 +66,16 @@ as a dimension only, a value hash, and `stopped_at` (`pattern`, `format`,
 `strategy`, or null) with `operated_ok` (true read back, false failed, null not
 attempted). `question_key` and `resolver_id` stand in until `jobs_questions` and
 `jobs_patterns` exist and add real foreign keys.
+
+`jobs_devices` is one row per machine that runs the Hunt agent, keyed by an id
+the device generates once and keeps in `~/.config/personal-os/device.json`. It
+holds the Windows machine name, the `https://….ts.net` address `tailscale serve`
+publishes it at, the commit it runs and whether it has local changes, whether `os
+doctor` passes there (`problem` is the first failing check, present exactly when
+not `ready`), the run in progress (`active_run_id`, cleared if the run is
+deleted), and `last_seen_at`, which the API sets from its own clock on each
+30-second heartbeat. The page treats a device seen in the last 90 seconds as
+online. The API role can insert, update, and read rows, not delete them.
 
 `jobs_education`, `jobs_resume_entries`, `jobs_resume_bullets`, and `jobs_skills`
 are the career record, the canonical resume. Dates are month-precision `date`s

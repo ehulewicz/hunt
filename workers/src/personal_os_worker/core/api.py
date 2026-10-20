@@ -408,3 +408,12 @@ class WorkerApi:
     def doctor(self) -> None:
         response = self._client.get("/v1/jobs/worker/doctor")
         response.raise_for_status()
+
+    def put_device(self, device_id: str, heartbeat: dict[str, Any]) -> dict[str, Any]:
+        """List this device as up; the hosted row is keyed by the device's own id."""
+        response = self._client.put(f"/v1/jobs/devices/{device_id}", json=heartbeat)
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Device response was invalid")
+        return payload

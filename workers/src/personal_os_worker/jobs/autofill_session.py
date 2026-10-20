@@ -122,6 +122,7 @@ from personal_os_worker.jobs.registry.events import (
     unresolved_events,
 )
 from personal_os_worker.jobs.registry.kinds import question_of
+from personal_os_worker.jobs.remote import FACT_KEY, LinkedKeys, RunLink, gap_items
 from personal_os_worker.jobs.repair.repairer import find_field, repair_format, repair_strategy
 from personal_os_worker.jobs.resolve import Knowledge, Miss, Resolver, VerdictResolver
 from personal_os_worker.jobs.short_answers import ShortQuestion, Verdict, draft_short_answers
@@ -183,8 +184,10 @@ class SessionContext:
     # Signs in past an ATS account wall; None without a contact.email fact.
     account: AccountFlow | None = None
     poll_seconds: float = 1.0
-    keys: KeyWatcher | NoKeys = field(default_factory=KeyWatcher)
+    keys: KeyWatcher | NoKeys | LinkedKeys = field(default_factory=KeyWatcher)
     prompt: Callable[[str], str] = input
+    # This device's agent, when one is listening: the Hunt page sees and drives the run.
+    link: RunLink | None = None
 
 
 @dataclass
@@ -372,6 +375,21 @@ def _claude_questions(fields: list[dict[str, Any]]) -> list[ShortQuestion]:
     return list(questions.values())
 
 
+def derived_refusal(key: str) -> str | None:
+    """Why a fact is not asked for: the career record or the posting decides it.
+
+    Storing it would freeze it, and a referrer named here would follow every
+    application after.
+    """
+    from personal_os_worker.jobs.facts.catalog import entry
+
+    known = entry(key)
+    if known is None or known.source == "stored":
+        return None
+    hint = " (apply --referred NAME)" if key.startswith("referral.") else ""
+    return f"{key} is derived, not asked for{hint}"
+
+
 def content_type_for(name: str) -> str:
     if name.endswith(".png"):
         return "image/png"
@@ -445,6 +463,8 @@ class AutofillSession:
             self.state.warnings.add(key)
 
     def sleep(self) -> None:
+        if self.ctx.link is not None:
+            self.ctx.link.tab(self.page)
         pressed = self.ctx.keys.wait(self.ctx.poll_seconds)
         if "save" in pressed:
             self.save_now()
@@ -1425,6 +1445,8 @@ class AutofillSession:
                 break
             findings = self.audit(fields, failures)
         self.report_open(findings)
+        if self.ctx.link is not None:
+            self.ctx.link.gaps(gap_items(findings))
 
     def remediate(self, fields: list[dict[str, Any]], findings: list[Finding]) -> bool:
         """Run each finding's repair path; True when anything on the page changed."""
@@ -1665,7 +1687,7 @@ class AutofillSession:
     def ask_for_fact(self, fields: list[dict[str, Any]], finding: Finding) -> bool:
         """Ask at the terminal for the fact this question needs, then fill it in."""
         from personal_os_worker.jobs.facts.catalog import entry
-        from personal_os_worker.jobs.facts.commands import VALUE_TYPES, parse_value
+        from personal_os_worker.jobs.facts.commands import VALUE_TYPES
 
         key = str(finding.fact_key or "")
         console.print()
@@ -1675,13 +1697,11 @@ class AutofillSession:
             key = self.ctx.prompt("  fact key (blank to skip): ").strip()
             if not key:
                 return False
-        known = entry(key)
-        if known is not None and known.source != "stored":
-            # A derived fact comes from others; storing it would freeze it, and a
-            # referrer named here would follow every application after.
-            hint = " (apply --referred NAME)" if key.startswith("referral.") else ""
-            console.print(f"  {key} is derived, not asked for{hint}", style="dim")
+        refusal = derived_refusal(key)
+        if refusal is not None:
+            console.print(f"  {refusal}", style="dim")
             return False
+        known = entry(key)
         label = known.label if known else self.ctx.prompt("  label: ").strip()
         value_type = (
             known.value_type
@@ -1694,27 +1714,89 @@ class AutofillSession:
         raw = self.ctx.prompt(f"  value ({value_type}), blank to skip: ").strip()
         if not raw:
             return False
+        ok, message = self.set_fact_and_fill(
+            fields, finding.question, key, label=label, value_type=str(value_type), raw=raw
+        )
+        if not ok:
+            console.print(f"  {message}", style="red")
+        return ok
+
+    def answer_remote_facts(self, fields: list[dict[str, Any]]) -> None:
+        """Facts the Hunt page sent for this step's gaps: set each, then fill its question."""
+        link = self.ctx.link
+        if link is None:
+            return
+        for answer in link.fact_answers():
+            question = str(answer.get("question") or "")
+            key = str(answer.get("key") or "").strip()
+            ok, message = (
+                self.set_fact_and_fill(
+                    fields,
+                    question,
+                    key,
+                    label=str(answer.get("label") or "").strip(),
+                    value_type=str(answer.get("value_type") or "").strip(),
+                    raw=str(answer.get("value") or ""),
+                )
+                if key
+                else (False, "name the fact this question needs")
+            )
+            if not ok:
+                echo("left", question, note=message)
+            link.fact_result(question, ok=ok, message=message)
+
+    def set_fact_and_fill(
+        self,
+        fields: list[dict[str, Any]],
+        question: str,
+        key: str,
+        *,
+        label: str,
+        value_type: str,
+        raw: str,
+    ) -> tuple[bool, str]:
+        """Store the fact a question needs, then fill the question from it.
+
+        The terminal's --ask-facts and the Hunt page both end here; they differ
+        only in where the key, label, type, and value come from. True once the
+        fact is stored, with what was filled; False with the reason it was not.
+        """
+        from personal_os_worker.jobs.facts.catalog import entry
+        from personal_os_worker.jobs.facts.commands import VALUE_TYPES, parse_value
+
+        if not FACT_KEY.fullmatch(key):
+            return False, f"{key!r} is not a fact key; use dotted lowercase words"
+        refusal = derived_refusal(key)
+        if refusal is not None:
+            return False, refusal
+        known = entry(key)
+        label = known.label if known else label
+        value_type = known.value_type if known else value_type
+        if not label or value_type not in VALUE_TYPES:
+            return False, "a fact needs a label and a type"
         try:
-            value = parse_value(str(value_type), raw)
+            value = parse_value(value_type, raw)
         except ValueError as error:
-            console.print(f"  {error}", style="red")
-            return False
-        self.ctx.api.set_fact(key, value, label=label, value_type=str(value_type))
+            return False, str(error)
+        try:
+            self.ctx.api.set_fact(key, value, label=label, value_type=value_type)
+        except httpx.HTTPStatusError as error:
+            return False, f"the API refused {key} (HTTP {error.response.status_code})"
         self.refresh_knowledge()
-        echo("fact", finding.question, str(value), note=f"set {key}")
-        field = find_field(fields, finding.question)
+        echo("fact", question, str(value), note=f"set {key}")
+        field = find_field(fields, question)
         if field is None:
-            return True
+            return True, f"set {key}"
         rendering = render(
             key,
             self.ctx.knowledge.facts.get(key),
-            self.ctx.knowledge.types.get(key, str(value_type)),
+            self.ctx.knowledge.types.get(key, value_type),
             field=dict(field) | {"options": self.options_for(fields, field)},
-            question=finding.question,
+            question=question,
             seed=self.ctx.knowledge.seed,
         )
         if rendering is None:
-            return True
+            return True, f"set {key}"
         shown = self.apply_value(
             fields,
             field,
@@ -1725,8 +1807,8 @@ class AutofillSession:
             formatter=rendering.formatter,
         )
         if shown is not None:
-            echo("claude", finding.question, shown, note=key)
-        return True
+            echo("claude", question, shown, note=key)
+        return True, shown or f"set {key}"
 
     def refresh_knowledge(self) -> None:
         """Rebuild what the run knows after a fact was set, keeping its preferences."""
@@ -2062,6 +2144,7 @@ class AutofillSession:
                     )
                 self.sleep()
                 continue
+            self.answer_remote_facts(current)
             self.record_snapshot(current)
             if has_submit_control(self.page) and not submit_reported:
                 console.print()

@@ -128,6 +128,7 @@ def test_running_chrome_is_not_relaunched(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_chrome_launches_with_a_dedicated_profile(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(service.Path, "exists", lambda _: True)
+    monkeypatch.setattr(service, "chrome_profile", lambda: r"C:\Users\someone\personal-os-chrome")
     spawned: list[list[str]] = []
     monkeypatch.setattr(
         service.subprocess, "Popen", lambda cmd, **k: spawned.append(cmd) or object()
@@ -140,7 +141,53 @@ def test_chrome_launches_with_a_dedicated_profile(monkeypatch: pytest.MonkeyPatc
     command = spawned[0]
     assert "--remote-debugging-port=9333" in command
     # Chrome 136+ serves 404 on /json/* for the default profile, so this is required.
-    assert any(arg.startswith("--user-data-dir=") for arg in command)
+    assert r"--user-data-dir=C:\Users\someone\personal-os-chrome" in command
+    # The page streams this window; a covered, minimized or locked one must keep painting.
+    assert "--disable-backgrounding-occluded-windows" in command
+    assert "--disable-renderer-backgrounding" in command
+    assert "--disable-background-timer-throttling" in command
+
+
+def test_the_profile_lives_in_the_windows_home_of_whoever_runs_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service.windows_home.cache_clear()
+    monkeypatch.delenv("PERSONAL_OS_WINDOWS_HOME", raising=False)
+    monkeypatch.setattr(service.Path, "exists", lambda _: True)
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **_: object) -> object:
+        calls.append(cmd)
+        return type("R", (), {"stdout": "C:\\Users\\Parent\r\n", "returncode": 0})()
+
+    monkeypatch.setattr(service.subprocess, "run", fake_run)
+    try:
+        assert service.chrome_profile() == r"C:\Users\Parent\personal-os-chrome"
+        assert service.chrome_profile() == r"C:\Users\Parent\personal-os-chrome"
+        assert len(calls) == 1  # resolved once
+        assert "%USERPROFILE%" in calls[0][-1]
+    finally:
+        service.windows_home.cache_clear()
+
+
+def test_the_windows_home_can_be_named_outright(monkeypatch: pytest.MonkeyPatch) -> None:
+    service.windows_home.cache_clear()
+    monkeypatch.setenv("PERSONAL_OS_WINDOWS_HOME", r"D:\Home\me")
+    try:
+        assert service.chrome_profile() == r"D:\Home\me\personal-os-chrome"
+    finally:
+        service.windows_home.cache_clear()
+
+
+def test_without_windows_there_is_no_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    service.windows_home.cache_clear()
+    monkeypatch.delenv("PERSONAL_OS_WINDOWS_HOME", raising=False)
+    monkeypatch.setattr(service.Path, "exists", lambda _: False)
+    try:
+        with pytest.raises(service.ChromeUnavailable, match="Windows"):
+            service.chrome_profile()
+    finally:
+        service.windows_home.cache_clear()
 
 
 def test_missing_chrome_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
