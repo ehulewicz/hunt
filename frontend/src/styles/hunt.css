@@ -46,10 +46,6 @@
 .hunt-notice { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; margin: 0; border-bottom: 1px solid var(--ui-border); padding: 10px 30px; color: var(--ui-warning); background: var(--ui-warning-soft); font-size: 12px; }
 .hunt-notice .text-button { margin-left: auto; flex: 0 0 auto; }
 .hunt-dashboard { flex: 1; min-height: 0; width: 100%; max-width: 1580px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; padding: 32px 36px 18px; }
-.dashboard-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-.dashboard-heading h2 { margin: 0; font-size: clamp(25px, 2.2vw, 34px); line-height: 1.15; font-weight: 550; letter-spacing: -.035em; }
-.dashboard-heading p { margin: 8px 0 0; color: var(--ui-muted); font-size: 13px; }
-.overview-label { display: flex; align-items: center; gap: 7px; color: var(--ui-muted); font-size: 11px; }
 .hunt-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-panel); background: var(--ui-surface); }
 .hunt-metric { min-width: 0; padding: 18px 24px; }
 .hunt-metric + .hunt-metric { border-left: 1px solid var(--ui-border); }
@@ -209,7 +205,6 @@ input::placeholder, textarea::placeholder { color: var(--ui-faint); opacity: 1; 
   .hunt-dashboard { gap: 18px; padding-top: 22px; }
   .hunt-metric { padding: 15px 22px; }
   .application-start { padding-block: 18px; }
-  .dashboard-heading h2 { font-size: 28px; }
 }
 @media (max-width: 1150px) {
   .hunt-dashboard { padding-inline: 24px; gap: 20px; }
@@ -231,7 +226,6 @@ input::placeholder, textarea::placeholder { color: var(--ui-faint); opacity: 1; 
   .hunt-layout .run-panel { max-height: 760px; }
   .hunt-live-column { order: 0; min-height: 640px; max-height: 760px; }
   .run-job-heading strong { font-size: 18px; }
-  .overview-label { display: none; }
 }
 @media (max-width: 760px) {
   .sidebar { padding-inline: 10px; }
@@ -243,8 +237,6 @@ input::placeholder, textarea::placeholder { color: var(--ui-faint); opacity: 1; 
   .hunt-toolbar > .icon-button { display: none; }
   .device-switcher > summary { gap: 6px; max-width: 145px; padding-inline: 7px; font-size: 10px; }
   .device-switcher > summary > svg:not(:last-child), .layout-toggle span { display: none; }
-  .dashboard-heading h2 { font-size: 26px; }
-  .dashboard-heading p { max-width: 240px; line-height: 1.6; font-size: 12px; }
   .hunt-dashboard { gap: 20px; padding: 26px 16px 16px; }
   .hunt-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hunt-metric { padding: 16px; }
@@ -260,7 +252,7 @@ input::placeholder, textarea::placeholder { color: var(--ui-faint); opacity: 1; 
   .start-options { align-items: center; gap: 8px; }
   .start-options .run-fresh, .start-options .text-button { font-size: 10px; }
   .dashboard-columns { grid-template-columns: minmax(0, 1fr); gap: 20px; }
-  .dashboard-panel { min-height: 340px; max-height: 480px; }
+  .dashboard-panel { min-height: 380px; max-height: 520px; }
   .application-row { gap: 9px; padding-inline: 16px; }
   .company-avatar { width: 28px; height: 28px; border-radius: 7px; }
   .application-description > span { white-space: normal; line-height: 1.5; }

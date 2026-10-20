@@ -53,7 +53,6 @@ export function HuntDashboard({ overview, devices, device, starting, startError,
 
   return (
     <div className="hunt-dashboard">
-      <div className="dashboard-heading"><div><h2>Make your next move.</h2><p>Your applications, answers, and next steps. All here.</p></div><span className="overview-label"><span className="status-dot" />Your workspace</span></div>
       <div aria-label="Application totals" className="hunt-metrics" role="group">
         {metrics.map(({ label, value, note, icon: Icon }) => <div aria-label={label} className="hunt-metric" key={label}><div><span>{label}</span><Icon aria-hidden="true" /></div><strong>{overview ? value.toLocaleString() : "—"}</strong><small>{note}</small></div>)}
       </div>

@@ -86,8 +86,10 @@ can take over a session. Run controls and answer submission are disabled while
 disconnected. The console uses token classes for its styled spans, follows new
 lines at the bottom, and holds still when scrolled up.
 
-On desktop, Hunt fits the viewport; application lists, the inbox, the answer
-panel, the log, and Chrome have bounded scrolling. Narrow screens use document
+The overview starts with its totals and application launcher; the Applications
+and Needs attention panels fill the remaining height. On desktop, Hunt fits the
+viewport; application lists, the inbox, the answer panel, the log, and Chrome have
+bounded scrolling. Narrow screens use document
 scrolling and stack the workspace panels on phones. The rest of the app uses the
 same compact icon rail and ember theme.
 
