@@ -26,17 +26,17 @@ export function AppShell({
       <aside className="sidebar">
         <Link aria-label="Personal OS home" className="sidebar-brand" href="/hunt">
           <span className="brand-mark brand-mark-small"><Database aria-hidden="true" /></span>
-          <div><strong>Personal OS</strong><span>Hosted workspace</span></div>
+          <div className="rail-label"><strong>Personal OS</strong></div>
         </Link>
         <nav aria-label="Primary navigation">
-          <Link aria-current={pathname === "/hunt" ? "page" : undefined} className={pathname === "/hunt" ? "nav-link active" : "nav-link"} href="/hunt">
-            <Briefcase aria-hidden="true" /><span>Hunt</span>
+          <Link aria-current={pathname === "/hunt" ? "page" : undefined} aria-label="Hunt" className={pathname === "/hunt" ? "nav-link active" : "nav-link"} href="/hunt" title="Hunt">
+            <Briefcase aria-hidden="true" /><span className="rail-label">Hunt</span>
           </Link>
         </nav>
         <div className="sidebar-spacer" />
         <div className="account-block"><AccountMenu account={account} onSignOut={onSignOut} /></div>
       </aside>
-      <main className="main-content">{children}</main>
+      <main className={pathname === "/hunt" ? "main-content main-content-hunt" : "main-content"}>{children}</main>
     </div>
   );
 }

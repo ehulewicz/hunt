@@ -96,7 +96,8 @@ test("a run starts from a reference or the top of the board", () => {
 test("the controls drive a running run, and nothing starts over it", () => {
   const { onControl } = renderRun({ run: RUN });
   expect(screen.getByRole("button", { name: "Next on board" })).toBeDisabled();
-  expect(screen.getByText("Acme — Software Engineer Intern")).toBeInTheDocument();
+  expect(screen.getByText("Acme")).toBeInTheDocument();
+  expect(screen.getByText("Software Engineer Intern")).toBeInTheDocument();
   for (const label of ["Save", "Submitted", "Skip", "Stop"]) fireEvent.click(screen.getByRole("button", { name: label }));
   expect(onControl.mock.calls.map(([action]) => action)).toEqual(["save", "done", "skip", "stop"]);
 });
@@ -152,6 +153,38 @@ test("a fact gap is answered inline", () => {
   expect(within(clearance).getByRole("alert")).toHaveTextContent("a fact needs a label and a type");
   expect(within(gaps).queryByRole("form", { name: "Fact for Pronouns" })).not.toBeInTheDocument();
   expect(within(gaps).getByText(/no pattern answers it yet/)).toBeInTheDocument();
+});
+
+test("unsent fact answers survive switching application panels", () => {
+  renderRun({ run: RUN, workspace: true, letter: "Dear Acme", gaps: GAPS });
+  fireEvent.change(screen.getByLabelText("Date of birth"), { target: { value: "2004-05-06" } });
+  fireEvent.click(screen.getByRole("button", { name: "Cover letter" }));
+  fireEvent.click(screen.getByRole("button", { name: /To finish/ }));
+  expect(screen.getByLabelText("Date of birth")).toHaveValue("2004-05-06");
+});
+
+test("a new run cannot inherit edits to an identical cover letter from an earlier run", () => {
+  const props = {
+    connected: true, deviceName: "DESKTOP-HOME", gaps: [], letter: "Dear Acme", log: [],
+    results: {}, run: RUN, onControl: vi.fn(), onFact: vi.fn(), onLetter: vi.fn(),
+  };
+  const { rerender } = render(<HuntRun {...props} />);
+  fireEvent.change(screen.getByRole("textbox", { name: /Cover letter/ }), { target: { value: "My old application" } });
+  rerender(<HuntRun {...props} run={{ ...RUN, key: "another-run" }} />);
+  expect(screen.getByRole("textbox", { name: /Cover letter/ })).toHaveValue("Dear Acme");
+});
+
+test("disconnected application controls and fact forms cannot send changes", () => {
+  const { onControl, onFact } = renderRun({ connected: false, run: RUN, gaps: GAPS });
+  for (const name of ["Save", "Submitted", "Skip", "Stop"]) {
+    const button = screen.getByRole("button", { name });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+  }
+  const birth = screen.getByLabelText("Date of birth");
+  expect(birth).toBeDisabled();
+  expect(onControl).not.toHaveBeenCalled();
+  expect(onFact).not.toHaveBeenCalled();
 });
 
 function renderLive(overrides: Partial<Parameters<typeof HuntLive>[0]> = {}) {

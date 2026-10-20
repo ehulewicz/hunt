@@ -42,32 +42,54 @@ this page.
 
 ### Hunt
 
-`/hunt` is the primary Hunt control. It lists your devices from Cloud Run
-(`GET /v1/jobs/devices`, refreshed every 30 seconds): name, online or last seen,
-ready or the failing doctor check, "running local changes at <commit>" when the
-checkout has its own edits, and the run a device is busy with. Picking an online
-device opens its session (`use-device-session.ts`): the run on the left, its Chrome
-on the right.
+`/hunt` opens an overview, without connecting to a device or streaming Chrome.
+It reads application history, the answer inbox, facts, and the board total through
+FastAPI. Totals show applications sent (including later outcomes), pending
+applications, current interviews, and listings on the board. Failed overview
+loads show an unavailable state, or the last successful overview, rather than
+zero counts. Overview data and devices refresh every 30 seconds and on return
+from an application.
 
-The left pane starts a run (a board number, an id prefix, or a posting URL; or
-"Next on board"), and drives it with Save, Submitted, Skip, and Stop, the page's
-Ctrl+S, Ctrl+A, Ctrl+D, and Ctrl+C. The run's console arrives as styled spans and
-is drawn with token classes (`log-green`, `log-dim`, …), never a raw color. The log
-scrolls in its own box like a terminal, following new lines while you are at its
-bottom and holding still while you scroll up to read. A run
-the page started sends its drafted cover letter here to edit; "Use this letter"
-sends it back and the run continues. The audit's "Left for you" list arrives as
-structured gaps, and a fact gap takes its value inline: the run stores the fact and
-fills the field. A run started in a terminal shows here with working controls; its
-letter stays in VS Code.
+The overview starts an application by board number, posting id prefix, or direct
+posting URL, or chooses "Next on board". A ready online device is selected by
+default; the header's device picker shows readiness, local changes, and current
+runs. A pending application's Resume action uses its stored posting id. A run
+already active on a device opens without starting another one, including runs
+started in a terminal. Starting a busy or unready device is disabled.
 
-The right pane is the device's Chrome tab, sticky beside the run while the document
-scrolls. Frames are JPEGs over the session's WebSocket; a click, wheel turn, or key
-on the focused view is sent as fractions of the frame and the DOM's own key fields,
-and the agent does the mapping. Ctrl+V pastes this computer's clipboard. A tab
-strip switches tabs. A device this browser cannot reach says "Can't reach <name>.
-Is this browser on your tailnet?"; a second window takes the session over from the
-first.
+"Needs attention" keeps facts, prose, and suggested patterns on the same page.
+Unbound questions can be linked to an existing fact or a new typed fact; facts
+awaiting verification can be edited and confirmed. Prose can be edited and
+explicitly approved for reuse, or discarded. Candidate patterns show their fact's
+current value and require acceptance or rejection. These actions use the existing
+FastAPI endpoints; editing a draft alone never approves it. Pattern change history
+and comparisons between generated and submitted prose are not exposed by the
+current API and are not represented as working features.
+
+A successful start or an explicit Open action replaces the overview with an
+application workspace. Its default split gives answers one third and Chrome two
+thirds; the header can switch to equal widths. The left panel holds the current
+application's Save, Submitted, Skip, and Stop controls, "To finish" questions,
+a cover letter tab, and a collapsible run log. Fact gaps accept a value inline,
+which the run stores and fills. The cover letter is edited here and "Use this
+letter" sends it back; a terminal run's letter stays in VS Code. Unsent letter
+edits and unsent fact inputs survive a trip to the overview during the page's
+lifetime and remain scoped to their run. Returning to the
+overview closes only the browser's device session, not the application run.
+
+The device's Chrome occupies the right panel. Its tabs scroll horizontally;
+frames are JPEGs over an authenticated WebSocket. Clicks, wheel turns, and keys on
+the focused view go to Chrome, and Ctrl+V pastes this computer's clipboard.
+Resizing asks for a stream matching the available panel. A device this browser
+cannot reach explains the tailnet connection and offers a retry. A second window
+can take over a session. Run controls and answer submission are disabled while
+disconnected. The console uses token classes for its styled spans, follows new
+lines at the bottom, and holds still when scrolled up.
+
+On desktop, Hunt fits the viewport; application lists, the inbox, the answer
+panel, the log, and Chrome have bounded scrolling. Narrow screens use document
+scrolling and stack the workspace panels on phones. The rest of the app uses the
+same compact icon rail and ember theme.
 
 Jobs otherwise runs through the `os hunt` CLI, see
 [`../docs/jobs-cli.md`](../docs/jobs-cli.md).
@@ -76,13 +98,13 @@ Jobs otherwise runs through the `os hunt` CLI, see
 
 These are binding, not suggestions.
 
-- Use the governed grayscale and blue-gray tokens in `src/styles/tokens.css`. No
+- Use the governed charcoal and ember tokens in `src/styles/tokens.css`. No
   raw hex colors and no gradients outside that file — `npm run check:ui` fails the
   build on either.
-- Prefer flat bordered lists and 2–4px corners. Shadows belong only on transient
-  overlays.
-- The document owns vertical scrolling; avoid nested vertical scroll regions. The Hunt run
-  log is the one exception: a console that scrolls on its own.
+- Use flat bordered lists, 6px control corners, and 12px panel corners. The active
+  application card owns the ember gradient. Shadows belong only on transient overlays.
+- The document owns vertical scrolling outside Hunt. Hunt is a desktop viewport
+  workspace with bounded, independently scrollable lists, answers, log, and Chrome.
 - Next.js and TypeScript are presentation and browser-auth concerns only. Business
   logic belongs in Python.
 - Reuse the persistent workspace layout for Hunt, Settings, and Integrations.
@@ -117,14 +139,17 @@ Individual steps are `npm run lint`, `npm run typecheck`, `npm test`, and
 ```text
 src/app/              App Router. (workspace)/ is the authenticated shell group;
                       login/ and auth/callback/ are the unauthenticated OAuth pair.
+                      fonts/ holds the self-hosted Instrument Sans Latin subset
+                      from the supplied design reference and its OFL license.
 src/components/       workspace.tsx is the auth gate, app-shell.tsx the sidebar
-                      layout, plus account-menu and empty-page. hunt-devices,
-                      hunt-run, and hunt-live are the Hunt page's three parts;
+                      layout, plus account-menu and empty-page. hunt-dashboard and
+                      hunt-inbox own the overview; hunt-devices, hunt-run, and
+                      hunt-live own device selection and the application workspace;
                       use-device-session.ts is its connection state.
 src/lib/              api.ts (the Cloud Run fetch layer), device.ts (the device
                       fetch and WebSocket layer), and supabase.ts (browser client).
 src/styles/           tokens.css is the single source of color and spacing values;
-                      base.css and app.css consume it.
+                      base.css, app.css, and hunt.css consume it.
 tests/                Vitest + Testing Library component tests (jsdom).
 e2e/                  Playwright specs for auth, shell, and the Hunt page, whose
                       device socket is stubbed with routeWebSocket.

@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Globe2, Radio } from "lucide-react";
 
 import type { Frame, SessionStatus } from "@/components/use-device-session";
 import { keyMessage, pointerMessage, type Tab, type View, wheelMessage } from "@/lib/device";
 
 export function viewOf(element: HTMLElement | null): View {
   const width = element?.clientWidth || 960;
-  return { width, height: Math.round(width * 0.625), dpr: typeof window === "undefined" ? 1 : window.devicePixelRatio || 1 };
+  const height = element?.clientHeight || Math.round(width * 0.625);
+  return { width, height, dpr: typeof window === "undefined" ? 1 : window.devicePixelRatio || 1 };
 }
 
 function statusMessage(status: SessionStatus, deviceName: string): string | null {
@@ -97,6 +99,7 @@ export function HuntLive({
   return (
     <section aria-label="Live view" className="live-view">
       <div aria-label="Chrome tabs" className="tab-strip" role="toolbar">
+        {tabs.length === 0 && <span className="browser-tab-placeholder">Application Chrome</span>}
         {tabs.map((tab) => (
           <button
             aria-pressed={tab.id === currentTab}
@@ -110,6 +113,7 @@ export function HuntLive({
           </button>
         ))}
       </div>
+      <div className="browser-location"><Globe2 aria-hidden="true" /><span>{current?.url ?? deviceName}</span><span className={status === "open" && stream === "live" ? "browser-live" : "browser-state"}><Radio aria-hidden="true" />{status === "open" ? stream === "live" ? "Live" : "Waiting for Chrome" : status === "connecting" || status === "restarting" ? "Connecting" : "Disconnected"}</span></div>
       <div
         aria-label={`Chrome on ${deviceName}${current ? `: ${current.title}` : ""}. Click to control.`}
         className={focused ? "live-surface focused" : "live-surface"}

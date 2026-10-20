@@ -1,149 +1,259 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test, type WebSocketRoute } from "@playwright/test";
 
 const DEVICE_URL = "https://desktop-home.tail1234.ts.net";
-// A 1x1 grey JPEG, enough for the browser to decode a real frame.
-const JPEG = Buffer.from(
-  "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/yQALCAABAAEBAREA/8wABgAQEAX/2gAIAQEAAD8A0s8g/9k=",
-  "base64",
-);
 const ACCOUNT = {
-  user_id: "c3c8d239-162d-4e5e-a2a1-4ac0d1b3695f",
-  email: "eahtree@gmail.com",
-  display_name: "Eah Tree",
-  avatar_url: null,
+  user_id: "c3c8d239-162d-4e5e-a2a1-4ac0d1b3695f", email: "eahtree@gmail.com",
+  display_name: "Eah Tree", avatar_url: null,
 };
 const RUN = {
-  key: "k", origin: "page", reference: null, phase: "running", note: "up to date at 4c1946d",
+  key: "k", origin: "page", reference: null, phase: "running", note: "Ready for your review",
   run_id: "r1", company: "Acme", title: "Software Engineer Intern", remote: true, outcome: null,
-  letter: null, gaps: [], tab: "T2",
+  letter: null as string | null, gaps: [] as object[], tab: "T2",
 };
+const APPLICATION = {
+  id: "a1", posting_id: "p1", company_name: "Acme", title: "Software Engineer Intern",
+  location: "New York, NY", application_url: "https://jobs.example/apply", status: "applying",
+  applied_at: null, next_action: null, next_action_at: null, notes: null,
+  unanswered_required_questions: ["Date of birth"], created_at: "2026-10-20T12:00:00Z", updated_at: "2026-10-20T12:00:00Z",
+};
+const FACTS = [
+  { key: "contact.email", label: "Email", value: "alex.example@example.com", value_type: "text", verified_at: "2026-10-20T12:00:00Z" },
+  { key: "work_auth.us_citizen", label: "US citizen", value: true, value_type: "boolean", verified_at: "2026-10-20T12:00:00Z" },
+  { key: "availability.start_date", label: "Available start date", value: "2027-05-17", value_type: "date", verified_at: null },
+];
+const GAP = { question: "Date of birth", cause: "fact_gap", required: true, note: "Add your date of birth to finish this field.", fact_key: "identity.birth_date", missing_fact: null, label: "Date of birth", value_type: "date", settable: true };
+let jpeg: Buffer;
 
-async function signedIn(page: Page) {
+test.beforeAll(async ({ browser }) => {
+  const remote = await browser.newPage({ viewport: { width: 960, height: 820 } });
+  await remote.setContent(`<!doctype html><html lang="en"><body style="margin:0;background:#fff;color:#222;font:15px/1.6 Arial,sans-serif"><header style="padding:22px 55px;border-bottom:1px solid #eee;font-weight:700;font-size:20px">acme<span style="float:right;font-size:12px;font-weight:400;color:#666">Careers</span></header><main style="max-width:680px;margin:48px auto"><div style="font-size:12px;color:#737373">Engineering / New York, NY</div><h1 style="font-size:30px;line-height:1.2;margin:12px 0 6px">Software Engineer Intern</h1><p style="color:#737373;margin:0 0 30px">Summer 2027 · New York · Internship</p><div style="border-bottom:1px solid #ddd;padding-bottom:15px;margin-bottom:30px;font-size:13px"><span style="color:#737373;margin-right:28px">Overview</span><strong>Application</strong></div><h2 style="font-size:20px;margin-bottom:4px">Let's get to know you</h2><p style="color:#737373;font-size:13px;margin-top:0">Fields marked with * are required.</p><label style="display:block;margin:24px 0 7px">Full name *</label><div style="border:1px solid #ddd;border-radius:5px;padding:11px 14px">Alex Example</div><label style="display:block;margin:22px 0 7px">Email address *</label><div style="border:1px solid #ddd;border-radius:5px;padding:11px 14px">alex.example@example.com</div><label style="display:block;margin:22px 0 7px">Date of birth *</label><div style="border:1px solid #e9a257;border-radius:5px;padding:11px 14px;color:#888">MM / DD / YYYY</div><label style="display:block;margin:22px 0 7px">Resume *</label><div style="border:1px solid #ddd;border-radius:5px;padding:11px 14px;font-size:13px">Alex_Example.pdf <span style="float:right;color:#647b69">Uploaded</span></div><button style="margin-top:30px;background:#262626;border:0;border-radius:5px;color:white;padding:12px 24px">Submit application</button></main></body></html>`);
+  jpeg = await remote.screenshot({ type: "jpeg", quality: 90 });
+  await remote.close();
+});
+
+function frame(target: string): Buffer {
+  const header = Buffer.from(JSON.stringify({ type: "frame", target, width: 960, height: 820 }));
+  const size = Buffer.alloc(4);
+  size.writeUInt32BE(header.length);
+  return Buffer.concat([size, header, jpeg]);
+}
+
+async function setup(page: Page, busy = false) {
+  let activeRun: typeof RUN | null = busy ? { ...RUN } : null;
+  let socket: WebSocketRoute | null = null;
+  let sockets = 0;
+  const fromPage: Record<string, unknown>[] = [];
+  const runs: unknown[] = [];
+  const writes: { url: string; body: unknown }[] = [];
   const expiresAt = Math.floor(Date.now() / 1000) + 3600;
-  await page.addInitScript(({ session }) => {
-    localStorage.setItem("sb-test-auth-token", JSON.stringify(session));
-  }, {
+  await page.addInitScript(({ session }) => localStorage.setItem("sb-test-auth-token", JSON.stringify(session)), {
     session: {
-      access_token: "approved",
-      refresh_token: "refresh",
-      expires_in: 3600,
-      expires_at: expiresAt,
-      token_type: "bearer",
-      user: {
+      access_token: "approved", refresh_token: "refresh", expires_in: 3600, expires_at: expiresAt,
+      token_type: "bearer", user: {
         id: ACCOUNT.user_id, aud: "authenticated", role: "authenticated", email: ACCOUNT.email,
         app_metadata: { provider: "google" }, user_metadata: { full_name: "Eah Tree" },
-        identities: [], created_at: new Date().toISOString(),
+        identities: [], created_at: "2026-10-20T12:00:00Z",
       },
     },
   });
   await page.route("https://api.test/v1/**", (route) => {
-    if (route.request().url().endsWith("/v1/jobs/devices")) {
-      return route.fulfill({
-        json: [{
-          id: "33333333-3333-4333-8333-333333333333", name: "DESKTOP-HOME", url: DEVICE_URL,
-          commit: "4c1946d0a1b2c3d4e5f60718293a4b5c6d7e8f90", local_changes: true, ready: true,
-          problem: null, active_run_id: null, run: null, last_seen_at: new Date().toISOString(),
-          online: true,
-        }],
-      });
+    const url = route.request().url();
+    if (["PATCH", "PUT", "POST", "DELETE"].includes(route.request().method()) && !url.endsWith("/bootstrap")) {
+      writes.push({ url, body: route.request().postDataJSON() });
+      return route.fulfill({ json: {} });
     }
+    if (url.endsWith("/jobs/devices")) return route.fulfill({ json: [{
+      id: "d1", name: "DESKTOP-HOME", url: DEVICE_URL, commit: "4c1946d0a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      local_changes: true, ready: true, problem: null, active_run_id: activeRun ? "r1" : null,
+      run: activeRun ? { company_name: "Acme", title: "Software Engineer Intern" } : null,
+      last_seen_at: "2026-10-20T12:00:00Z", online: true,
+    }] });
+    if (url.endsWith("/jobs/applications")) return route.fulfill({ json: [
+      APPLICATION,
+      { ...APPLICATION, id: "a2", posting_id: "p2", company_name: "Figma", title: "Product Engineer Intern", unanswered_required_questions: [] },
+      { ...APPLICATION, id: "a3", posting_id: "p3", company_name: "Ramp", title: "Software Engineer, Intern", unanswered_required_questions: ["Why Ramp?", "Start date"] },
+      { ...APPLICATION, id: "a4", posting_id: "p4", company_name: "Notion", title: "Software Engineer Intern", status: "interview", applied_at: "2026-10-10T12:00:00Z" },
+      { ...APPLICATION, id: "a5", posting_id: "p5", company_name: "Linear", title: "Software Engineer Intern", status: "applied", applied_at: "2026-10-15T12:00:00Z" },
+    ] });
+    if (url.endsWith("/jobs/facts")) return route.fulfill({ json: FACTS });
+    if (url.includes("/jobs/listings?")) return route.fulfill({ json: { total: 284, items: [], limit: 1, offset: 0 } });
+    if (url.endsWith("/jobs/inbox")) return route.fulfill({ json: {
+      questions: [{ question: { id: "q1", sample_label: "Will you need visa sponsorship?" }, answers: [] }],
+      prose: [{ id: "pr1", question_label: "Why do you want to work at Acme?", company_name: "Acme", text: "I enjoy building tools that make complicated work feel simple.", approved: false }],
+      candidates: [{ pattern: { id: "pat1", question_label: "Are you a US citizen?", fact_key: "work_auth.us_citizen", status: "candidate" }, answers: [] }],
+    } });
     return route.fulfill({ json: ACCOUNT });
   });
-}
-
-function frame(target: string): Buffer {
-  const header = Buffer.from(JSON.stringify({ type: "frame", target, width: 1280, height: 720 }));
-  const size = Buffer.alloc(4);
-  size.writeUInt32BE(header.length);
-  return Buffer.concat([size, header, JPEG]);
-}
-
-test("the Hunt page drives a device: run, live tab, letter, and a fact", async ({ page }) => {
-  await signedIn(page);
-  const fromPage: Record<string, unknown>[] = [];
-  const runs: unknown[] = [];
-  let sockets = 0;
   await page.route(`${DEVICE_URL}/runs`, async (route) => {
-    const cors = {
-      "access-control-allow-origin": "http://localhost:3000",
-      "access-control-allow-headers": "Authorization, Content-Type",
-      "access-control-allow-methods": "GET, POST, OPTIONS",
-    };
+    const cors = { "access-control-allow-origin": "http://localhost:3000", "access-control-allow-headers": "Authorization, Content-Type", "access-control-allow-methods": "GET, POST, OPTIONS" };
     if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors });
     expect(route.request().headers().authorization).toBe("Bearer approved");
     runs.push(route.request().postDataJSON());
-    return route.fulfill({ status: 202, headers: cors, json: { run: { ...RUN, phase: "updating" } } });
+    activeRun = { ...RUN };
+    return route.fulfill({ status: 202, headers: cors, json: { run: activeRun } });
   });
-  await page.routeWebSocket(`wss://desktop-home.tail1234.ts.net/session`, (socket) => {
+  await page.routeWebSocket("wss://desktop-home.tail1234.ts.net/session", (current) => {
+    socket = current;
     sockets += 1;
-    socket.onMessage((raw) => {
+    current.onMessage((raw) => {
       const message = JSON.parse(String(raw)) as Record<string, unknown>;
       fromPage.push(message);
       if (message.type === "auth") {
-        socket.send(JSON.stringify({
-          type: "hello",
-          device: { id: "d", name: "DESKTOP-HOME", commit: "4c1946d", local_changes: true, ready: true, problem: null },
-          run: null,
-          log: [[{ text: "agent started", style: ["dim"] }]],
-        }));
-        socket.send(JSON.stringify({
-          type: "tabs",
-          tabs: [{ id: "T1", title: "Board", url: "https://jobs.example/" }, { id: "T2", title: "Apply", url: "https://jobs.example/apply" }],
-          current: "T2",
-        }));
-        socket.send(frame("T2"));
+        current.send(JSON.stringify({ type: "hello", device: { id: "d1", name: "DESKTOP-HOME", commit: "4c1946d", local_changes: true, ready: true, problem: null }, run: activeRun, log: [[{ text: "Application opened", style: ["green"] }], [{ text: "Waiting for your review", style: ["dim"] }]] }));
+        current.send(JSON.stringify({ type: "tabs", tabs: [{ id: "T1", title: "Job board", url: "https://jobs.example/" }, { id: "T2", title: "Acme application", url: "https://jobs.example/apply" }], current: "T2" }));
+        current.send(frame("T2"));
       }
     });
-    (page as unknown as { huntSocket: typeof socket }).huntSocket = socket;
   });
+  return {
+    fromPage, runs, writes, sockets: () => sockets,
+    send(message: Record<string, unknown>) {
+      if (activeRun && message.type === "letter") activeRun = { ...activeRun, letter: message.text as string };
+      if (activeRun && message.type === "gaps") activeRun = { ...activeRun, gaps: message.items as object[] };
+      socket?.send(JSON.stringify(message));
+    },
+  };
+}
 
+async function noHorizontalOverflow(page: Page) {
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+}
+
+test("the overview fits one desktop screen and connects only after starting an application", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const agent = await setup(page);
   await page.goto("/hunt");
-  await expect(page.getByRole("heading", { name: "Hunt" })).toBeVisible();
-  await expect(page.getByText("Running local changes at 4c1946d")).toBeVisible();
-  const surface = page.getByRole("application", { name: /Chrome on DESKTOP-HOME: Apply/ });
-  await expect(surface.locator("img")).toHaveAttribute("src", /^blob:/);
-  await expect(page.getByRole("list", { name: "Run log" })).toContainText("agent started");
-  expect(fromPage[0]).toMatchObject({ type: "auth", token: "approved" });
-  // One session, held: a page that reconnects on every hello never shows a frame for
-  // long, and the agent tears its stream down each time.
-  const settled = sockets;
-  await page.waitForTimeout(2000);
-  expect(sockets).toBe(settled);
+  await expect(page.getByRole("group", { name: "Application totals" }).getByLabel("Applied", { exact: true })).toContainText("2");
+  await expect(page.getByRole("region", { name: "Applications", exact: true }).getByRole("button", { name: /Resume/ })).toHaveCount(3);
+  expect(agent.sockets()).toBe(0);
+  await expect(page.getByRole("region", { name: "Live view" })).toHaveCount(0);
+  await noHorizontalOverflow(page);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await expect(page).toHaveScreenshot("hunt-overview.png", { animations: "disabled" });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
+  await expect(page.getByRole("heading", { name: "Needs attention" })).toBeInViewport();
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   await page.getByRole("button", { name: "Next on board" }).click();
-  await expect.poll(() => runs).toEqual([{ reference: null, fresh: false }]);
-
-  const socket = (page as unknown as { huntSocket: { send: (data: string) => void } }).huntSocket;
-  socket.send(JSON.stringify({ type: "run", run: RUN }));
-  socket.send(JSON.stringify({ type: "letter", text: "Dear Acme,\n[hook]\n" }));
-  socket.send(JSON.stringify({
-    type: "gaps",
-    items: [{ question: "Date of birth", cause: "fact_gap", required: true, note: "no fact identity.birth_date yet", fact_key: "identity.birth_date", missing_fact: null, label: "Date of birth", value_type: "date", settable: true }],
-  }));
-  await expect(page.getByText("Acme — Software Engineer Intern")).toBeVisible();
+  await expect.poll(() => agent.runs).toEqual([{ reference: null, fresh: false }]);
+  const surface = page.getByRole("application", { name: /Chrome on DESKTOP-HOME: Acme application/ });
+  await expect(surface.locator("img")).toHaveAttribute("src", /^blob:/);
+  expect(agent.fromPage[0]).toMatchObject({ type: "auth", token: "approved" });
+  const settled = agent.sockets();
+  await page.waitForTimeout(1500);
+  expect(agent.sockets()).toBe(settled);
+  agent.send({ type: "gaps", items: [GAP] });
+  agent.send({ type: "letter", text: "Dear Acme,\n[hook]\n" });
+  await expect(page.getByRole("textbox", { name: "Date of birth" })).toBeVisible();
+  await expect(page).toHaveScreenshot("hunt-application.png", { animations: "disabled" });
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
+  await page.getByRole("button", { name: "Use 50/50 layout" }).click();
+  const sizes = await page.locator(".hunt-layout").evaluate((element) => Array.from(element.children).map((child) => child.getBoundingClientRect().width));
+  expect(Math.abs(sizes[0] - sizes[1])).toBeLessThan(2);
 
-  await page.getByRole("textbox", { name: /Cover letter/ }).fill("Dear Acme,\nI build things.\n");
-  await page.getByRole("button", { name: "Use this letter" }).click();
   await page.getByRole("textbox", { name: "Date of birth" }).fill("2004-05-06");
+  await page.getByRole("button", { name: "Cover letter", exact: true }).click();
+  await page.getByRole("textbox", { name: /Cover letter/ }).fill("Dear Acme,\nI build things.\n");
+  await page.getByRole("button", { name: "Back to overview" }).click();
+  await expect(page.getByRole("region", { name: "Live view" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Open application at Acme" }).click();
+  await page.getByRole("button", { name: "Cover letter", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: /Cover letter/ })).toHaveValue("Dear Acme,\nI build things.\n");
+  await page.getByRole("button", { name: "Use this letter" }).click();
+  await page.getByRole("button", { name: /To finish/ }).click();
+  await expect(page.getByRole("textbox", { name: "Date of birth" })).toHaveValue("2004-05-06");
   await page.getByRole("button", { name: "Set and fill" }).click();
-  await page.getByRole("button", { name: "Board", exact: true }).click();
+  await page.getByRole("button", { name: "Job board", exact: true }).click();
   await surface.click({ position: { x: 5, y: 5 } });
   await page.keyboard.press("a");
-  await page.getByRole("button", { name: "Submitted" }).click();
-
-  await expect.poll(() => fromPage.map((message) => message.type)).toEqual(
-    expect.arrayContaining(["letter", "fact", "tab", "pointer", "key", "control"]),
-  );
-  expect(fromPage.find((message) => message.type === "letter")).toMatchObject({ text: "Dear Acme,\nI build things.\n" });
-  expect(fromPage.find((message) => message.type === "fact")).toMatchObject({ key: "identity.birth_date", value: "2004-05-06" });
-  expect(fromPage.find((message) => message.type === "control")).toMatchObject({ action: "done" });
+  await page.mouse.wheel(0, 300);
+  await page.getByRole("button", { name: "Submitted", exact: true }).click();
+  await expect.poll(() => agent.fromPage.map((message) => message.type)).toEqual(expect.arrayContaining(["letter", "fact", "tab", "pointer", "key", "wheel", "control"]));
+  expect(agent.fromPage.find((message) => message.type === "letter")).toMatchObject({ text: "Dear Acme,\nI build things.\n" });
+  expect(agent.fromPage.find((message) => message.type === "fact")).toMatchObject({ key: "identity.birth_date", value: "2004-05-06" });
+  expect(agent.fromPage.find((message) => message.type === "control")).toMatchObject({ action: "done" });
+  await page.locator(".run-log-drawer > summary").click();
+  await expect(page.getByRole("list", { name: "Run log" })).toContainText("Application opened");
 });
 
-test("a device this browser cannot reach says so", async ({ page }) => {
-  await signedIn(page);
-  await page.routeWebSocket(`wss://desktop-home.tail1234.ts.net/session`, (socket) => socket.close({ code: 1006 }));
+test("an existing terminal application opens without starting another run", async ({ page }) => {
+  const agent = await setup(page, true);
   await page.goto("/hunt");
-  await expect(page.getByRole("status")).toContainText(/DESKTOP-HOME/);
+  await page.getByRole("button", { name: "Open application at Acme" }).click();
+  await expect(page.getByRole("application")).toBeVisible();
+  expect(agent.runs).toEqual([]);
+});
+
+test("an unreachable device explains the tailnet connection and can retry", async ({ page }) => {
+  await setup(page, true);
+  await page.routeWebSocket("wss://desktop-home.tail1234.ts.net/session", (socket) => socket.close({ code: 1006 }));
+  await page.goto("/hunt");
+  await page.getByRole("button", { name: "Open application at Acme" }).click();
+  await expect(page.getByRole("status")).toContainText("Can't reach DESKTOP-HOME");
+  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
+});
+
+test("facts, prose and patterns are reviewed in place with explicit writes", async ({ page }) => {
+  const agent = await setup(page);
+  await page.goto("/hunt");
+  await page.getByRole("button", { name: "Review Available start date" }).click();
+  await page.getByRole("textbox", { name: "Value", exact: true }).fill("2027-05-24");
+  await page.getByRole("button", { name: "Save verified fact" }).click();
+  await expect.poll(() => agent.writes).toContainEqual({ url: "https://api.test/v1/jobs/facts/availability.start_date", body: { value: "2027-05-24", verified: true } });
+  await page.getByRole("button", { name: /Prose 1/ }).click();
+  await page.getByRole("button", { name: "Review Why do you want to work at Acme?" }).click();
+  await page.getByRole("textbox", { name: "Answer", exact: true }).fill("I build tools people use.");
+  expect(agent.writes).toHaveLength(1);
+  await page.getByRole("button", { name: "Approve for reuse" }).click();
+  await expect.poll(() => agent.writes.length).toBe(2);
+  await page.getByRole("button", { name: /Patterns 1/ }).click();
+  await page.getByRole("button", { name: "Review Are you a US citizen?" }).click();
+  await expect(page.getByText("true", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Accept pattern" }).click();
+  await expect.poll(() => agent.writes).toContainEqual({ url: "https://api.test/v1/jobs/patterns/pat1", body: { status: "active" } });
+  expect(agent.sockets()).toBe(0);
+});
+
+test("a new typed fact is saved before its question is linked", async ({ page }) => {
+  const agent = await setup(page);
+  await page.goto("/hunt");
+  await page.getByRole("button", { name: "Review Will you need visa sponsorship?" }).click();
+  await page.getByRole("button", { name: "Add a new fact" }).click();
+  await page.getByRole("textbox", { name: "Fact key", exact: true }).fill("work_auth.needs_sponsorship");
+  await page.getByRole("textbox", { name: "Label", exact: true }).fill("Needs sponsorship");
+  await page.getByRole("combobox", { name: "Type", exact: true }).selectOption("boolean");
+  await page.getByRole("textbox", { name: "Value", exact: true }).fill("false");
+  await page.getByRole("button", { name: "Save fact and link" }).click();
+  await expect.poll(() => agent.writes).toEqual([
+    { url: "https://api.test/v1/jobs/facts/work_auth.needs_sponsorship", body: { value: false, label: "Needs sponsorship", value_type: "boolean", verified: true } },
+    { url: "https://api.test/v1/jobs/patterns", body: { kind: "binding", question_id: "q1", fact_key: "work_auth.needs_sponsorship", status: "active", origin: "inbox" } },
+  ]);
+});
+
+test("a suggested pattern can be rejected without approving it", async ({ page }) => {
+  const agent = await setup(page);
+  await page.goto("/hunt");
+  await page.getByRole("button", { name: /Patterns 1/ }).click();
+  await page.getByRole("button", { name: "Review Are you a US citizen?" }).click();
+  await page.getByRole("button", { name: "Reject", exact: true }).click();
+  await expect.poll(() => agent.writes).toEqual([{ url: "https://api.test/v1/jobs/patterns/pat1", body: { status: "rejected" } }]);
+});
+
+test("the dashboard and application stay usable on a phone", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  await page.goto("/hunt");
+  await expect(page.getByRole("button", { name: "Resume application at Acme" })).toBeVisible();
+  await noHorizontalOverflow(page);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await expect(page).toHaveScreenshot("hunt-overview-mobile.png", { fullPage: true, animations: "disabled" });
+  await page.getByRole("button", { name: "Resume application at Acme" }).click();
+  await expect(page.getByRole("application").locator("img")).toHaveAttribute("src", /^blob:/);
+  await noHorizontalOverflow(page);
+  await expect(page).toHaveScreenshot("hunt-application-mobile.png", { fullPage: true, animations: "disabled" });
 });

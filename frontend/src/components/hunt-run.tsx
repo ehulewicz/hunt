@@ -1,6 +1,7 @@
 "use client";
 
 import { type FormEvent, memo, useLayoutEffect, useRef, useState } from "react";
+import { CheckCheck, ChevronDown, FileText, ListChecks, Terminal } from "lucide-react";
 
 import type { Gap, LogLine, RunSnapshot, Span } from "@/lib/device";
 
@@ -15,6 +16,8 @@ const VALUE_TYPES = ["text", "boolean", "number", "date", "choice", "list", "obj
 const STYLES = new Set(["bold", "dim", "italic", "underline", "red", "green", "yellow", "blue", "magenta", "cyan"]);
 
 export type FactAnswer = { question: string; key: string; label: string; value_type: string; value: string };
+export type GapDraft = { key: string; label: string; valueType: string; value: string };
+export type LetterDraft = { runKey: string | null; draft: string; text: string };
 
 function LogSpan({ span }: { span: Span }) {
   const className = (span.style ?? []).filter((name) => STYLES.has(name)).map((name) => `log-${name}`).join(" ") || undefined;
@@ -62,11 +65,18 @@ function phaseLabel(run: RunSnapshot): string {
   return run.outcome ? `Ended: ${run.outcome}` : "Ended";
 }
 
-function GapForm({ gap, result, onFact }: { gap: Gap; result?: { ok: boolean; message: string }; onFact: (answer: FactAnswer) => void }) {
-  const [key, setKey] = useState(gap.fact_key ?? "");
-  const [label, setLabel] = useState(gap.label ?? "");
-  const [valueType, setValueType] = useState(gap.value_type ?? "text");
-  const [value, setValue] = useState("");
+function GapForm({ gap, result, onFact, draft, onDraft }: {
+  gap: Gap; result?: { ok: boolean; message: string }; onFact: (answer: FactAnswer) => void;
+  draft?: GapDraft; onDraft?: (draft: GapDraft) => void;
+}) {
+  const [local, setLocal] = useState<GapDraft>({ key: gap.fact_key ?? "", label: gap.label ?? "", valueType: gap.value_type ?? "text", value: "" });
+  const values = draft ?? local;
+  const { key, label, valueType, value } = values;
+  function edit(changes: Partial<GapDraft>) {
+    const updated = { ...values, ...changes };
+    if (onDraft) onDraft(updated);
+    else setLocal(updated);
+  }
   const named = gap.fact_key !== null;
   const known = gap.label !== null;
 
@@ -79,13 +89,13 @@ function GapForm({ gap, result, onFact }: { gap: Gap; result?: { ok: boolean; me
   return (
     <form aria-label={`Fact for ${gap.question}`} className="gap-form" onSubmit={submit}>
       {!named && (
-        <label>Fact key<input onChange={(event) => setKey(event.target.value)} placeholder="work_auth.clearance" value={key} /></label>
+        <label>Fact key<input onChange={(event) => edit({ key: event.target.value })} placeholder="work_auth.clearance" value={key} /></label>
       )}
       {!known && (
         <>
-          <label>Label<input onChange={(event) => setLabel(event.target.value)} value={label} /></label>
+          <label>Label<input onChange={(event) => edit({ label: event.target.value })} value={label} /></label>
           <label>Type
-            <select onChange={(event) => setValueType(event.target.value)} value={valueType}>
+            <select onChange={(event) => edit({ valueType: event.target.value, value: "" })} value={valueType}>
               {VALUE_TYPES.map((type) => <option key={type}>{type}</option>)}
             </select>
           </label>
@@ -93,11 +103,11 @@ function GapForm({ gap, result, onFact }: { gap: Gap; result?: { ok: boolean; me
       )}
       <label>{known ? gap.label : "Value"}
         {valueType === "boolean" ? (
-          <select onChange={(event) => setValue(event.target.value)} value={value}>
+          <select onChange={(event) => edit({ value: event.target.value })} value={value}>
             <option value="">Choose</option><option value="yes">Yes</option><option value="no">No</option>
           </select>
         ) : (
-          <input onChange={(event) => setValue(event.target.value)} type={valueType === "date" ? "date" : valueType === "number" ? "number" : "text"} value={value} />
+          <input onChange={(event) => edit({ value: event.target.value })} type={valueType === "date" ? "date" : valueType === "number" ? "number" : "text"} value={value} />
         )}
       </label>
       <button className="button button-secondary" type="submit">Set and fill</button>
@@ -121,6 +131,11 @@ export const HuntRun = memo(function HuntRun({
   onControl,
   onLetter,
   onFact,
+  workspace = false,
+  draft,
+  onDraft,
+  gapDrafts,
+  onGapDraft,
 }: {
   deviceName: string;
   connected: boolean;
@@ -129,28 +144,37 @@ export const HuntRun = memo(function HuntRun({
   letter: string | null;
   gaps: Gap[];
   results: Record<string, { ok: boolean; message: string }>;
-  starting: boolean;
-  startError: string | null;
-  onStart: (reference: string | null, fresh: boolean) => void;
+  starting?: boolean;
+  startError?: string | null;
+  onStart?: (reference: string | null, fresh: boolean) => void;
   onControl: (action: string) => void;
   onLetter: (text: string) => void;
   onFact: (answer: FactAnswer) => void;
+  workspace?: boolean;
+  draft?: LetterDraft | null;
+  onDraft?: (value: LetterDraft) => void;
+  gapDrafts?: Record<string, GapDraft>;
+  onGapDraft?: (key: string, draft: GapDraft) => void;
 }) {
   const [reference, setReference] = useState("");
   const [fresh, setFresh] = useState(false);
-  const [edited, setEdited] = useState<{ draft: string; text: string } | null>(null);
+  const [edited, setEdited] = useState<LetterDraft | null>(null);
+  const [pane, setPane] = useState<"facts" | "letter">("facts");
   const active = run !== null && run.phase !== "ended";
   const linked = active && run.phase === "running";
-  const text = edited && edited.draft === letter ? edited.text : letter ?? "";
+  const currentDraft = onDraft ? draft : edited;
+  const text = currentDraft && currentDraft.runKey === (run?.key ?? null) && currentDraft.draft === letter ? currentDraft.text : letter ?? "";
+  const showLetter = !workspace || pane === "letter" && letter !== null;
+  const showGaps = !workspace || !showLetter;
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (reference.trim()) onStart(reference.trim(), fresh);
+    if (reference.trim()) onStart?.(reference.trim(), fresh);
   }
 
   return (
     <section aria-label="Run" className="run-panel">
-      <form aria-label={`Start a run on ${deviceName}`} className="run-start" onSubmit={submit}>
+      {!workspace && <form aria-label={`Start a run on ${deviceName}`} className="run-start" onSubmit={submit}>
         <label className="run-reference">
           <span>Apply to</span>
           <input
@@ -166,24 +190,25 @@ export const HuntRun = memo(function HuntRun({
             New tab
           </label>
           <button className="button button-primary" disabled={!connected || active || starting || !reference.trim()} type="submit">Apply</button>
-          <button className="button button-secondary" disabled={!connected || active || starting} onClick={() => onStart(null, fresh)} type="button">Next on board</button>
+          <button className="button button-secondary" disabled={!connected || active || starting} onClick={() => onStart?.(null, fresh)} type="button">Next on board</button>
         </div>
         {startError && <p className="gap-error" role="alert">{startError}</p>}
-      </form>
+      </form>}
 
       {run && (
         <div aria-label="Current run" className="run-status" role="group">
           <div className="run-heading">
-            <strong>{run.company ? `${run.company} — ${run.title ?? ""}` : run.reference ? `Reference ${run.reference}` : "Top of the board"}</strong>
             <span className={run.phase === "ended" ? "status-pill status-pill-muted" : "status-pill"}>{phaseLabel(run)}</span>
+            <span>{deviceName}</span>
           </div>
+          <div className="run-job-heading"><small>{run.company ?? "Your next application"}</small><strong>{run.title ?? (run.reference ? `Reference ${run.reference}` : "Next on the board")}</strong></div>
           {run.origin === "terminal" && <p className="muted">Started in a terminal on {deviceName}; the controls work here too.</p>}
           {run.note && <p className="muted">{run.note}</p>}
           <div className="run-controls">
             {CONTROLS.map((control) => (
               <button
                 className={control.action === "stop" ? "button button-secondary run-stop" : "button button-secondary"}
-                disabled={control.action === "stop" ? !active : !linked}
+                disabled={!connected || (control.action === "stop" ? !active : !linked)}
                 key={control.action}
                 onClick={() => onControl(control.action)}
                 title={control.help}
@@ -196,6 +221,14 @@ export const HuntRun = memo(function HuntRun({
         </div>
       )}
 
+      {workspace && !run && <div className="run-connecting"><span className="spinner" /><strong>Opening your application</strong><p>The current run and its answers will appear here.</p></div>}
+
+      {workspace && <div aria-label="Application panels" className="run-panel-tabs">
+        <button aria-pressed={!showLetter} onClick={() => setPane("facts")} type="button"><ListChecks aria-hidden="true" />To finish<span>{gaps.length}</span></button>
+        <button aria-pressed={showLetter} disabled={letter === null} onClick={() => setPane("letter")} type="button"><FileText aria-hidden="true" />Cover letter{letter !== null && <span className="draft-dot" />}</button>
+      </div>}
+      <div className="run-content">
+      <div hidden={!showLetter}>
       {letter !== null && (
         <form
           aria-label="Cover letter"
@@ -203,28 +236,35 @@ export const HuntRun = memo(function HuntRun({
           onSubmit={(event) => { event.preventDefault(); onLetter(text); }}
         >
           <label htmlFor="cover-letter"><strong>Cover letter</strong> <span className="muted">The run waits for it.</span></label>
-          <textarea id="cover-letter" onChange={(event) => setEdited({ draft: letter, text: event.target.value })} rows={16} value={text} />
-          <button className="button button-primary" type="submit">Use this letter</button>
+          <textarea id="cover-letter" onChange={(event) => { const value = { runKey: run?.key ?? null, draft: letter, text: event.target.value }; if (onDraft) onDraft(value); else setEdited(value); }} rows={16} value={text} />
+          <button className="button button-primary" disabled={!connected || !linked} type="submit">Use this letter</button>
         </form>
       )}
+      </div>
 
+      <div hidden={!showGaps}>
       {gaps.length > 0 && (
         <section aria-label="Left for you" className="gap-list">
           <h2>Left for you</h2>
           {gaps.map((gap) => (
-            <div className="gap-row" key={gap.question}>
+            <div className="gap-row" key={`${run?.key}:${gap.question}`}>
               <div className="gap-question">
                 <strong>{gap.question}</strong>
                 <span className={gap.required ? "status-pill status-pill-warning" : "status-pill status-pill-muted"}>{gap.required ? "Required" : "Optional"}</span>
               </div>
               <p className="muted">{gap.cause.replace(/_/g, " ")}{gap.note ? `: ${gap.note}` : ""}{gap.hint ? ` (${gap.hint})` : ""}</p>
-              {gap.settable && <GapForm gap={gap} onFact={onFact} result={results[gap.question]} />}
+              {gap.settable && <fieldset className="gap-fields" disabled={!connected || !linked}><GapForm draft={gapDrafts?.[`${run?.key}:${gap.question}`]} gap={gap} onDraft={onGapDraft ? (draft) => onGapDraft(`${run?.key}:${gap.question}`, draft) : undefined} onFact={onFact} result={results[gap.question]} /></fieldset>}
             </div>
           ))}
         </section>
       )}
-
-      <RunLog lines={log} />
+      {workspace && showGaps && gaps.length === 0 && <div className="panel-empty run-clear"><CheckCheck aria-hidden="true" /><h3>{active ? "Nothing needs your input yet" : run ? "Application recorded" : "Getting things ready"}</h3><p>{active ? "Questions that need an answer will appear here. You can also work directly in Chrome." : run ? "Return to the overview to choose your next application." : "Your application will open beside this panel."}</p></div>}
+      </div>
+      </div>
+      <details className="run-log-drawer" open={workspace ? undefined : true}>
+        <summary><Terminal aria-hidden="true" />Run log<span>{log.length} lines</span><ChevronDown aria-hidden="true" /></summary>
+        <RunLog lines={log} />
+      </details>
     </section>
   );
 });

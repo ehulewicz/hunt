@@ -97,7 +97,75 @@ export function listDevices(accessToken: string): Promise<Device[]> {
   return apiRequest<Device[]>("/v1/jobs/devices", accessToken);
 }
 
-type Fact = { key: string; value: unknown };
+export type Fact = {
+  key: string;
+  label: string;
+  value: unknown;
+  value_type: "text" | "boolean" | "number" | "date" | "choice" | "list" | "object";
+  verified_at: string | null;
+  updated_at: string;
+};
+
+export type JobApplication = {
+  id: string;
+  posting_id: string;
+  company_name: string;
+  title: string;
+  location: string | null;
+  application_url: string | null;
+  status: string;
+  applied_at: string | null;
+  next_action: string | null;
+  next_action_at: string | null;
+  unanswered_required_questions: string[];
+  updated_at: string;
+};
+
+export type Prose = {
+  id: string;
+  question_label: string | null;
+  company_name: string | null;
+  text: string;
+  approved: boolean;
+};
+
+export type Pattern = {
+  id: string;
+  question_id: string | null;
+  question_label: string | null;
+  expression: string | null;
+  fact_key: string;
+  formatter: string | null;
+  status: string;
+};
+
+export type AnswerSeen = { company_name: string; title: string; answer_text: string; submitted: boolean };
+export type InboxQuestion = {
+  question: { id: string; sample_label: string };
+  answers: AnswerSeen[];
+};
+export type Inbox = {
+  candidates: { pattern: Pattern; answers: AnswerSeen[] }[];
+  questions: InboxQuestion[];
+  prose: Prose[];
+};
+
+export type HuntOverview = {
+  applications: JobApplication[];
+  inbox: Inbox;
+  facts: Fact[];
+  available: number;
+};
+
+export async function loadHuntOverview(accessToken: string): Promise<HuntOverview> {
+  const [applications, inbox, facts, listings] = await Promise.all([
+    apiRequest<JobApplication[]>("/v1/jobs/applications", accessToken),
+    apiRequest<Inbox>("/v1/jobs/inbox", accessToken),
+    apiRequest<Fact[]>("/v1/jobs/facts", accessToken),
+    apiRequest<{ total: number }>("/v1/jobs/listings?limit=1", accessToken),
+  ]);
+  return { applications, inbox, facts, available: listings.total };
+}
 
 // The address the worker signs into ATS accounts and reads their mail with.
 export async function contactEmail(accessToken: string): Promise<string | null> {
