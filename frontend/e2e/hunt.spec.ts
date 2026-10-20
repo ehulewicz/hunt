@@ -188,6 +188,23 @@ test("an existing terminal application opens without starting another run", asyn
   expect(agent.runs).toEqual([]);
 });
 
+test("capture requests preserve native aspect ratio when the viewer pane resizes", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const agent = await setup(page, true);
+  await page.goto("/hunt");
+  await page.getByRole("button", { name: "Open application at Acme" }).click();
+  const surface = page.getByRole("application");
+  await expect(surface.locator("img")).toHaveAttribute("src", /^blob:/);
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 720 }]) {
+    await page.setViewportSize(viewport);
+    const expected = await surface.evaluate((element) => ({
+      type: "view", width: element.clientWidth, height: Math.ceil(element.clientWidth * 820 / 960), dpr: window.devicePixelRatio,
+    }));
+    await expect.poll(() => agent.fromPage.filter((message) => message.type === "view").at(-1)).toEqual(expected);
+  }
+  expect(agent.sockets()).toBe(1);
+});
+
 test("an unreachable device explains the tailnet connection and can retry", async ({ page }) => {
   await setup(page, true);
   await page.routeWebSocket("wss://desktop-home.tail1234.ts.net/session", (socket) => socket.close({ code: 1006 }));
