@@ -117,4 +117,4 @@ gh run watch --exit-status
 The workflow reads the two secrets, runs `supabase config push`, and then
 deploys the API. Do not consider the bootstrap complete until hosted Auth
 reports Google enabled and global signup disabled, and the login/bootstrap/
-Dashboard/logout acceptance pass succeeds for the approved account.
+Hunt/logout acceptance pass succeeds for the approved account.

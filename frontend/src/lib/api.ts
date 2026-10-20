@@ -96,3 +96,12 @@ export type Device = {
 export function listDevices(accessToken: string): Promise<Device[]> {
   return apiRequest<Device[]>("/v1/jobs/devices", accessToken);
 }
+
+type Fact = { key: string; value: unknown };
+
+// The address the worker signs into ATS accounts and reads their mail with.
+export async function contactEmail(accessToken: string): Promise<string | null> {
+  const facts = await apiRequest<Fact[]>("/v1/jobs/facts", accessToken);
+  const value = facts.find((fact) => fact.key === "contact.email")?.value;
+  return typeof value === "string" ? value : null;
+}

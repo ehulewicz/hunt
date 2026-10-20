@@ -21,7 +21,7 @@ function LoginContent() {
 
   useEffect(() => {
     void getSupabase().auth.getSession().then(({ data }) => {
-      if (data.session) router.replace("/dashboard");
+      if (data.session) router.replace("/hunt");
     });
   }, [router]);
 

@@ -26,9 +26,19 @@ the token travels with every request.
 Required browser environment: `NEXT_PUBLIC_SUPABASE_URL`,
 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_API_URL`.
 
-Current scope is deliberately small: Dashboard and Hunt are the pages with
-content, while Settings and Integrations are routed placeholders and are not yet in
-the sidebar nav.
+Current scope is deliberately small: Hunt and Integrations are the pages in the
+sidebar, and `/` lands on Hunt. Settings is a routed placeholder that is not yet in
+the nav.
+
+### Integrations
+
+`/integrations` lists each account Personal OS uses, with columns for the
+account, what access it has, and its status: the Google identity that signs into
+this workspace, the Cloud Run API, and the Gmail inbox the worker uses for ATS
+account walls. The inbox address is the `contact.email` fact, read from
+`GET /v1/jobs/facts`. Its access, read-only IMAP over an app password plus Google
+sign-in in the automation Chrome, is checked per device by `os doctor`, not by
+this page.
 
 ### Hunt
 
@@ -72,8 +82,7 @@ These are binding, not suggestions.
 - The document owns vertical scrolling; avoid nested vertical scroll regions.
 - Next.js and TypeScript are presentation and browser-auth concerns only. Business
   logic belongs in Python.
-- Reuse the persistent workspace layout for Dashboard, Jobs, Settings, and
-  Integrations.
+- Reuse the persistent workspace layout for Hunt, Settings, and Integrations.
 
 ## Run and verify
 

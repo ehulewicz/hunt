@@ -2,8 +2,8 @@
 
 import {
   Briefcase,
+  Cable,
   Database,
-  LayoutDashboard,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -25,16 +25,16 @@ export function AppShell({
   return (
     <div className="app-layout">
       <aside className="sidebar">
-        <Link aria-label="Personal OS dashboard" className="sidebar-brand" href="/dashboard">
+        <Link aria-label="Personal OS home" className="sidebar-brand" href="/hunt">
           <span className="brand-mark brand-mark-small"><Database aria-hidden="true" /></span>
           <div><strong>Personal OS</strong><span>Hosted workspace</span></div>
         </Link>
         <nav aria-label="Primary navigation">
-          <Link aria-current={pathname === "/dashboard" ? "page" : undefined} className={pathname === "/dashboard" ? "nav-link active" : "nav-link"} href="/dashboard">
-            <LayoutDashboard aria-hidden="true" /><span>Dashboard</span>
-          </Link>
           <Link aria-current={pathname === "/hunt" ? "page" : undefined} className={pathname === "/hunt" ? "nav-link active" : "nav-link"} href="/hunt">
             <Briefcase aria-hidden="true" /><span>Hunt</span>
+          </Link>
+          <Link aria-current={pathname === "/integrations" ? "page" : undefined} className={pathname === "/integrations" ? "nav-link active" : "nav-link"} href="/integrations">
+            <Cable aria-hidden="true" /><span>Integrations</span>
           </Link>
         </nav>
         <div className="sidebar-spacer" />

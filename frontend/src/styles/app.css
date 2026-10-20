@@ -57,10 +57,12 @@
 .page-header h1 { margin: 0; font-size: 28px; font-weight: 650; letter-spacing: -.02em; }
 .page-header p { max-width: 640px; margin: var(--ui-space-2) 0 0; color: var(--ui-muted); }
 .status-list { border: 1px solid var(--ui-border); border-radius: var(--ui-radius-panel); background: var(--ui-surface); }
-.status-row { display: grid; grid-template-columns: minmax(140px, .45fr) minmax(0, 1fr) auto; align-items: center; gap: var(--ui-space-4); border-bottom: 1px solid var(--ui-border); padding: var(--ui-space-4); }
+.status-row { display: grid; grid-template-columns: minmax(140px, .45fr) minmax(0, .8fr) minmax(0, 1.2fr) auto; align-items: center; gap: var(--ui-space-4); border-bottom: 1px solid var(--ui-border); padding: var(--ui-space-4); }
 .status-row:last-child { border-bottom: 0; }
 .status-row strong { font-size: 12px; }
 .status-row span:not(.status-pill) { min-width: 0; overflow: hidden; color: var(--ui-muted); font-size: 12px; text-overflow: ellipsis; }
+.status-head { padding-block: var(--ui-space-2); }
+.status-row.status-head span { color: var(--ui-muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
 .status-pill { border: 1px solid var(--ui-success); border-radius: var(--ui-radius-control); padding: 2px 6px; color: var(--ui-success); background: var(--ui-success-soft); font-size: 10px; font-weight: 700; }
 .empty-state { margin-top: var(--ui-space-6); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-panel); padding: var(--ui-space-6); background: var(--ui-surface); }
 .empty-state h2 { margin: 0 0 var(--ui-space-2); font-size: 18px; }
@@ -77,7 +79,9 @@
   .nav-link { justify-content: center; }
   .main-content { padding: var(--ui-space-6) var(--ui-space-4); }
   .status-row { grid-template-columns: 1fr auto; }
-  .status-row > span:not(.status-pill) { grid-column: 1 / -1; grid-row: 2; }
+  .status-row > .status-pill { grid-column: 2; grid-row: 1; }
+  .status-row > span:not(.status-pill) { grid-column: 1 / -1; }
+  .status-head { display: none; }
 }
 
 .status-pill-muted { border-color: var(--ui-border-strong); color: var(--ui-muted); background: var(--ui-surface-subtle); }

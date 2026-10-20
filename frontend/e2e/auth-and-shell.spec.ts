@@ -50,10 +50,15 @@ test("authenticated shell has no Jobs navigation and logs out", async ({ page })
     avatar_url: null,
   };
   await page.route("https://api.test/v1/**", (route) => route.fulfill({ json: account }));
+  await page.route("https://api.test/v1/jobs/facts", (route) => route.fulfill({
+    json: [{ key: "contact.email", value: "alex.example@example.com" }],
+  }));
   await page.route("https://test.supabase.co/auth/v1/logout**", (route) => route.fulfill({ status: 204 }));
 
-  await page.goto("/dashboard");
-  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await page.goto("/integrations");
+  await expect(page.getByRole("heading", { name: "Integrations" })).toBeVisible();
+  await expect(page.getByText("alex.example@example.com")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Dashboard" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Jobs" })).toHaveCount(0);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 

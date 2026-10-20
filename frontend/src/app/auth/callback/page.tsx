@@ -36,7 +36,7 @@ export default function AuthCallbackPage() {
       try {
         setMessage("Verifying your Personal OS account…");
         await authenticateAndBootstrap(data.session.access_token);
-        router.replace("/dashboard");
+        router.replace("/hunt");
       } catch (error) {
         await supabase.auth.signOut({ scope: "local" });
         router.replace(
