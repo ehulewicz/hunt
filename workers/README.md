@@ -166,8 +166,9 @@ patterns (exactly one fact among those that match). The engine
 answers its own fields first: consent and attestation take the agreeing option,
 the resume and transcript upload, "how did you hear" ranks the employer's site,
 a job board, then Other (a referral first under `--referred`; a free-text box
-gets "Company website"), a required "If you answered No…" follow-up gets "N/A"
-when the choice above was answered the other way, and no value that declines to
+gets "Company website"), a typed follow-up — "If yes…", "If you answered No…",
+"If so…", required or optional — gets "N/A" when the question just above it
+holds or is planned to hold the other answer, and no value that declines to
 answer is ever chosen.
 
 **Posting facts.** Some facts belong to the posting, not to you, and are derived
@@ -208,11 +209,20 @@ terminal under `--ask-facts`. `jobs/answer_check.py` is the other half: it reads
 back the answers the page already holds and asks whether a fact contradicts one,
 because an answer can be confidently filled and wrong. A wrong answer the worker
 filled is re-rendered from the fact the model named; a wrong answer you typed is
-reported and left alone. The audit looks, repairs, and looks again at most
-twice, budgeted at 25 operations a question and 150 a run, then outlines and
-lists only what no lane could fix, each line naming its cause. You own Next and
-Submit; what you type is captured as `manual` and, once the application goes in,
-waits in the Inbox.
+reported and left alone. Before and after each repair the audit squares every
+follow-up with the answer just above it as the page holds it: an N/A the worker
+wrote is taken back once that answer no longer rules the follow-up out (it says
+otherwise, or its fill never landed), and an empty follow-up it rules out gets
+N/A; an N/A you typed is yours. The audit looks, repairs, and looks again at most
+twice, budgeted at 25 operations a question and 150 a run, then outlines exactly
+the questions it lists — only what no lane could fix, each line naming its cause.
+You own Next and Submit; what you type is captured as `manual` and, once the
+application goes in, waits in the Inbox. A choice you make that a fact
+contradicts — the fact an active pattern names, else the one the worker filled
+it from — is said at once (`review`), outlined, and never saved, since it is
+most often a stray click: put it back, or set the fact if it is right. An answer
+you change that makes a follow-up the worker answered N/A apply is said the same
+way.
 
 **How it is explained.** `jobs/explain.py` is `apply --explain` and `--step`:
 the planner records a reason for every control (`AutofillPlan.reasons`), each
@@ -228,7 +238,11 @@ state, not by any site's class names. `strategies.py` lists each kind's candidat
 strategies in order, and `browser.OPERATIONS` performs them: candidates are tried
 until one operates, then the value is read back: a select by its chosen
 option's text (or the value attribute it was set by), a phone by its digits,
-since masks reformat it. A captcha's own response box is never captured as a
+since masks reformat it, and an upload by whether you can see it — the input
+sits in a rendered part of the page, or the file's name shows. A file input in a
+panel nobody opened (JazzHR's "Attach resume") is opened first by the one
+attach or upload control in its field, and a file dialog that control raises is
+answered with the file, so none waits in your window. A captcha's own response box is never captured as a
 control. `events.py` turns every attempt
 into a fill event (control, strategy, resolver, fact, formatter, the active
 pattern, value hash, whether the question wants prose, and where it stopped)

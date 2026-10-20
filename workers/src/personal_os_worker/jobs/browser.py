@@ -508,8 +508,65 @@ def _button_group(control: Any) -> tuple[Any, list[str]]:
     return buttons, texts
 
 
+# Whether a file control's upload is something you can see: its file is chosen,
+# and the control sits in a rendered part of the page (a styled-over input in a
+# visible dropzone counts) or the file's name shows. A file in a panel nobody
+# opened — JazzHR's "Attach resume" — is not shown to you, whatever the input holds.
+UPLOAD_SHOWN = """
+element => {
+  const files = [...(element.files || [])];
+  if (!files.length) return false;
+  if (element.parentElement && element.parentElement.getClientRects().length) return true;
+  const text = element.ownerDocument.body ? element.ownerDocument.body.innerText : '';
+  return files.some(file => text.includes(file.name));
+}
+"""
+
+# The one control that opens a file input's closed panel: a visible link or
+# button saying attach or upload in the field around it, which holds no other
+# file input. Never one that navigates, submits, pastes, or reaches a cloud drive.
+UPLOAD_OPENER = """
+element => {
+  if (element.parentElement && element.parentElement.getClientRects().length) return null;
+  let block = element.parentElement;
+  while (block && !block.getClientRects().length) block = block.parentElement;
+  if (!block || block === document.body || block === document.documentElement) return null;
+  if (block.querySelectorAll('input[type="file"]').length !== 1) return null;
+  const openers = [...block.querySelectorAll('a, button, [role="button"]')].filter(node => {
+    if (!node.getClientRects().length) return false;
+    const text = (node.textContent || '').trim();
+    if (!/\\b(attach|upload|browse|choose|select)\\b/i.test(text)) return false;
+    if (/paste|remove|delete|linkedin|dropbox|drive|indeed|submit|apply/i.test(text)) return false;
+    if (node.tagName === 'BUTTON' && node.type === 'submit') return false;
+    const href = (node.getAttribute('href') || '').trim();
+    return !(node.tagName === 'A' && href && !/^(#|javascript:)/i.test(href));
+  });
+  return openers.length === 1 ? openers[0] : null;
+}
+"""
+FILE_CHOOSER_WAIT_MS = 1_000
+
+
+def upload_into(page: Page, control: Any, document: Path) -> None:
+    """Choose a file the way you would: open the field's panel first when it is shut.
+
+    An opener that raises the browser's file dialog is answered with the file,
+    so no dialog ever waits in your window.
+    """
+    opener = control.evaluate_handle(UPLOAD_OPENER, timeout=CONTROL_TIMEOUT_MS).as_element()
+    if opener is not None:
+        try:
+            with page.expect_file_chooser(timeout=FILE_CHOOSER_WAIT_MS) as chooser:
+                opener.click(timeout=CONTROL_TIMEOUT_MS)
+            chooser.value.set_files(str(document), timeout=CONTROL_TIMEOUT_MS)
+            return
+        except Error:
+            pass  # no dialog came (the panel opened, or the click did not take)
+    control.set_input_files(str(document), timeout=CONTROL_TIMEOUT_MS)
+
+
 def _upload_file(attempt: Attempt) -> str | None:
-    attempt.control.set_input_files(str(attempt.document), timeout=CONTROL_TIMEOUT_MS)
+    upload_into(attempt.page, attempt.control, cast(Path, attempt.document))
     attempt.page.wait_for_timeout(750)
     return None
 
@@ -1060,14 +1117,12 @@ def _verify_upload(page: Page, field: dict[str, Any], filename: str | None) -> b
     control now sits at that stale index instead of raising, so a real
     success reads as an empty, unrelated control. When the direct file-count
     check comes back empty, look for the uploaded filename rendered anywhere
-    on the page before calling it a failure.
+    on the page before calling it a failure. A file the input holds in a panel
+    nobody opened is not shown to you, so it does not count (`UPLOAD_SHOWN`).
     """
     try:
         control = fresh_control(page, field)
-        files = control.evaluate(
-            "element => element.files?.length || 0", timeout=CONTROL_TIMEOUT_MS
-        )
-        if int(files) > 0:
+        if control.evaluate(UPLOAD_SHOWN, timeout=CONTROL_TIMEOUT_MS) is True:
             return True
     except (Error, RuntimeError):
         pass
@@ -1251,7 +1306,9 @@ def looks_like_application_form(fields: list[dict[str, str | bool | None]]) -> b
 def inspect_fields(page: Page) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     script = """
-        elements => elements.filter(element => {
+        elements => {
+        const uploadShown = """ + UPLOAD_SHOWN.strip() + """;
+        return elements.filter(element => {
           const type = (element.getAttribute('type') || '').toLowerCase();
           // React-select mirrors the chosen value into an aria-hidden input that
           // carries the required flag; the visible combobox is the real control.
@@ -1561,7 +1618,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
             filled: yesnoContainer
               ? Boolean(yesnoPressed)
               : element.type === 'file'
-                ? (element.files?.length || 0) > 0
+                ? uploadShown(element)
                 : ['checkbox', 'radio'].includes(element.type)
                   ? element.checked === true
                   // A phone box prefilled with its dial code ("+1") or a mask
@@ -1570,8 +1627,13 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
                     ? String(element.value || '').replace(/\\D/g, '').length >= 7
                     : String(element.value || '').trim().length > 0
                       || (isCombobox && (mirroredValue.length > 0 || chosenText.length > 0)),
+            // The option a select or a typeahead shows, read for the follow-up below it.
+            selected: element.tagName === 'SELECT'
+              ? (element.value ? (element.selectedOptions[0]?.textContent || '').trim() : null)
+              : isCombobox ? (chosenText || mirroredValue || null) : null,
           };
-        })
+        });
+        }
         """
     for frame_index, frame in enumerate(page.frames):
         try:
@@ -1829,22 +1891,41 @@ def audit_filled_form(
     }
 
 
-HIGHLIGHT_SCRIPT = """
+CLEAR_OUTLINES_SCRIPT = """
 () => {
-  for (const element of document.querySelectorAll('input, textarea, select, [role=combobox]')) {
-    const type = (element.getAttribute('type') || '').toLowerCase();
-    if (['hidden', 'submit', 'button', 'reset', 'file'].includes(type)) continue;
-    if (element.getAttribute('aria-hidden') === 'true' || element.offsetParent === null) continue;
-    const empty = ['checkbox', 'radio'].includes(type)
-      ? !document.querySelector(`input[name="${CSS.escape(element.name || '')}"]:checked`)
-      : !String(element.value || '').trim();
-    element.style.outline = empty ? '2px solid #f59e0b' : '';
-    element.style.outlineOffset = empty ? '2px' : '';
+  for (const node of document.querySelectorAll('[data-personal-os-outline]')) {
+    node.style.outline = '';
+    node.style.outlineOffset = '';
+    node.removeAttribute('data-personal-os-outline');
   }
+}
+"""
+# A control nobody can see (a hidden input styled over, a file in a closed
+# panel) is outlined by the nearest part of the field that shows.
+OUTLINE_SCRIPT = """
+element => {
+  let node = element;
+  while (node && !node.getClientRects().length) node = node.parentElement;
+  if (!node || node === document.body || node === document.documentElement) return;
+  node.style.outline = '2px solid #f59e0b';
+  node.style.outlineOffset = '2px';
+  node.setAttribute('data-personal-os-outline', '');
 }
 """
 
 
-def highlight_unfilled(page: Page) -> None:
-    """Outline every visible empty control, so what is left is easy to find."""
-    page.evaluate(HIGHLIGHT_SCRIPT)
+def highlight_unfilled(page: Page, fields: list[dict[str, Any]], questions: set[str]) -> None:
+    """Outline exactly the questions left for you, and nothing the audit did not list.
+
+    A choice is outlined option by option. Emptiness is the audit's call, never
+    the page's: JazzHR names each Yes/No box apart, so a box can be unchecked
+    on a question that is answered.
+    """
+    for frame in page.frames:
+        with contextlib.suppress(Error):
+            frame.evaluate(CLEAR_OUTLINES_SCRIPT)
+    for field in fields:
+        if question_of(field) not in questions:
+            continue
+        with contextlib.suppress(Error, RuntimeError):
+            fresh_control(page, field).evaluate(OUTLINE_SCRIPT, timeout=CONTROL_TIMEOUT_MS)

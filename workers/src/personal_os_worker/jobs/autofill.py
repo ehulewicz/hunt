@@ -86,11 +86,15 @@ AFFIRMATION = re.compile(
 JOB_BOARD = re.compile(r"\b(job\s+boards?|linkedin|indeed|handshake|glassdoor|wellfound|dice)\b")
 
 # A follow-up that applies only after one answer: "If you answered No to the
-# above, ...", "If yes, please ...".
+# above, ...", "If yes, please ...", "If so, ...". "If not" counts only as a whole
+# clause, so "If not already provided" is no condition.
 CONDITIONAL = re.compile(
-    r"^\s*if\s+(?:you\s+(?:answered|selected|chose|said)\s+)?[\"'\u201c\u2018]?(yes|no)\b",
+    r"^\s*if\s+(?:(?:you\s+(?:answered|selected|chose|said)\s+)?[\"'\u201c\u2018]?(yes|no)\b"
+    r"|(so|not)\s*[,.:;\u2013\u2014-])",
     re.IGNORECASE,
 )
+# What the engine writes into a follow-up the answer above rules out.
+NOT_APPLICABLE = AnswerResolution("N/A", "pattern", "engine:not_applicable")
 HOW_HEARD = re.compile(
     r"\bhow did you (?:first )?hear\b|\bwhere did you (?:first )?hear\b|"
     r"\bhow did you (?:first )?(?:find|learn about)\b",
@@ -265,6 +269,74 @@ def choice_group_key(field: dict[str, Any]) -> str:
     return group
 
 
+BUTTON_TYPES = frozenset({"submit", "button", "reset", "hidden"})
+
+
+def follow_up_condition(question: str) -> bool | None:
+    """The answer the question above needs for this one to apply: "If yes, ..." is True."""
+    condition = CONDITIONAL.match(question)
+    if condition is None:
+        return None
+    return (condition.group(1) or condition.group(2)).casefold() in {"yes", "so"}
+
+
+def is_follow_up_box(field: dict[str, Any]) -> bool:
+    """A box a follow-up is typed into; a choice or an upload is never answered N/A."""
+    field_type = str(field.get("type") or "").casefold()
+    return (
+        field_type not in {"radio", "checkbox", "file", "yesno"}
+        and str(field.get("tag") or "").casefold() != "select"
+        and field.get("role") != "combobox"
+    )
+
+
+def _question_key(field: dict[str, Any]) -> str:
+    if str(field.get("type") or "").casefold() in {"radio", "checkbox"}:
+        return choice_group_key(field)
+    return normalize_question(str(field.get("label") or ""))
+
+
+def held_answer(field: dict[str, Any]) -> bool | None:
+    """The yes or no a choice control already holds on the page, if it holds one."""
+    field_type = str(field.get("type") or "").casefold()
+    if field_type in {"radio", "checkbox"}:
+        if field.get("filled") is not True:
+            return None
+        return polarity(str(field.get("label") or field.get("value") or ""))
+    if field_type == "yesno" and field.get("value"):
+        return polarity(str(field["value"]))
+    if field.get("selected"):
+        return polarity(str(field["selected"]))
+    return None
+
+
+def answer_above(fields: list[dict[str, Any]], target: dict[str, Any]) -> bool | None:
+    """The yes or no the page holds for the question just above this control.
+
+    None when that question is not a yes/no choice, is unanswered, or holds
+    both (two Yes/No boxes ticked).
+    """
+    above: set[bool] = set()
+    current: set[bool] = set()
+    current_key: str | None = None
+    frame = target.get("frame_index") or 0
+    for field in fields:
+        field_type = str(field.get("type") or "").casefold()
+        if (field.get("frame_index") or 0) != frame or field_type in BUTTON_TYPES or (
+            str(field.get("tag") or "").casefold() == "button"
+        ):
+            continue
+        key = _question_key(field)
+        if key != current_key:
+            above, current, current_key = current, set(), key
+        if field.get("index") == target.get("index"):
+            return next(iter(above)) if len(above) == 1 else None
+        held = held_answer(field)
+        if held is not None:
+            current.add(held)
+    return None
+
+
 def build_autofill_plan(
     fields: list[dict[str, Any]],
     *,
@@ -282,8 +354,11 @@ def build_autofill_plan(
     reasons: dict[int, str] = {}
     knowledge = getattr(resolver, "knowledge", None)
     referred = bool(knowledge is not None and knowledge.facts.get("referral.referred"))
-    # The yes or no of the last choice question planned, for its follow-up.
-    last_choice: bool | None = None
+    # The yes or no each question holds or is planned to hold, for the follow-up
+    # just below it: the one above, and the one being read now.
+    above: set[bool] = set()
+    current: set[bool] = set()
+    current_key: str | None = None
     answered_groups: set[str] = set()
     pending_choices: list[tuple[str, str]] = []
     resume_candidates = {
@@ -323,9 +398,14 @@ def build_autofill_plan(
         required = field.get("required") is True
         index = int(field["index"])
 
-        if field_type in {"submit", "button", "reset", "hidden"} or tag == "button":
+        if field_type in BUTTON_TYPES or tag == "button":
             reasons[index] = "a button: never operated"
             continue
+        if normalized != current_key:
+            above, current, current_key = current, set(), normalized
+        held = held_answer(field)
+        if held is not None:
+            current.add(held)
         if field.get("filled") is True:
             reasons[index] = "already has a value: left as it is"
             continue
@@ -437,17 +517,17 @@ def build_autofill_plan(
                     if chosen is None or chosen != own:
                         value = None
 
-        condition = CONDITIONAL.match(question_label)
+        condition = follow_up_condition(question_label)
         if (
-            value is None and chooser is None and required and condition is not None
-            and field_type not in {"radio", "checkbox", "file"} and tag != "select"
-            and last_choice is not None and (condition.group(1).casefold() == "yes") != last_choice
+            value is None and chooser is None and condition is not None
+            and is_follow_up_box(field) and len(above) == 1 and condition not in above
         ):
-            # "If you answered No to the above, ..." after a Yes: it does not apply.
-            resolution = AnswerResolution("N/A", "pattern", "engine:not_applicable")
+            # "If you answered No to the above, ..." after a Yes: it does not apply,
+            # required or not.
+            resolution = NOT_APPLICABLE
             value = resolution.value
             reasons[index] = (
-                f"engine: the question above was answered {'Yes' if last_choice else 'No'}, "
+                f"engine: the question above was answered {'No' if condition else 'Yes'}, "
                 "so this follow-up does not apply"
             )
         if kind in FILE_KINDS or value is not None or chooser is not None:
@@ -455,10 +535,10 @@ def build_autofill_plan(
                 index=index, kind=kind, value=value, chooser=chooser, resolution=resolution,
                 referred=referred,
             ))
-            if value is not None and (field_type in {"radio", "checkbox"} or tag == "select"):
+            if value is not None and not is_follow_up_box(field):
                 answer = polarity(value)
                 if answer is not None:
-                    last_choice = answer
+                    current.add(answer)
             if field_type in {"radio", "checkbox"} and group:
                 answered_groups.add(normalized)
         elif required and label:

@@ -51,15 +51,21 @@ from personal_os_worker.jobs.audit import (
     summarize,
 )
 from personal_os_worker.jobs.autofill import (
+    MULTI,
+    NOT_APPLICABLE,
     AnswerResolution,
     FormFill,
+    answer_above,
+    follow_up_condition,
     is_cover_letter_field,
+    is_follow_up_box,
     is_long_form_field,
     is_resume_field,
     is_sensitive_field,
 )
 from personal_os_worker.jobs.autofill_timing import AutofillTimings
 from personal_os_worker.jobs.browser import (
+    CONTROL_TIMEOUT_MS,
     BrowserClosedError,
     VisibleBrowser,
     apply_autofill,
@@ -75,6 +81,7 @@ from personal_os_worker.jobs.browser import (
     reveal_application_form,
     set_registered_value,
     snapshot_entries,
+    upload_into,
     verify_control,
 )
 from personal_os_worker.jobs.cover_letter import (
@@ -89,7 +96,7 @@ from personal_os_worker.jobs.cover_letter import (
 )
 from personal_os_worker.jobs.drafts import similar_answers
 from personal_os_worker.jobs.explain import Explainer, group_options
-from personal_os_worker.jobs.formatters import render
+from personal_os_worker.jobs.formatters import polarity, render
 from personal_os_worker.jobs.gateway import (
     click_gateway,
     form_appeared,
@@ -195,6 +202,7 @@ class SessionState:
     tier_answers: dict[str, str] = field(default_factory=dict)  # question -> pattern/model answer
     tier_source: dict[str, str] = field(default_factory=dict)  # question -> "pattern" | "model"
     tier_resolver: dict[str, str] = field(default_factory=dict)
+    tier_fact: dict[str, str] = field(default_factory=dict)  # question -> fact it came from
     seed_resolver: dict[str, str] = field(default_factory=dict)  # question -> prose/model id
     asked_claude: dict[str, int] = field(default_factory=dict)  # question -> times asked
     judged: set[str] = field(default_factory=set)  # answers already checked against the facts
@@ -202,6 +210,10 @@ class SessionState:
     budget: Budget = field(default_factory=Budget)
     misses: dict[str, Miss] = field(default_factory=dict)  # answer key -> why unanswered
     needed: dict[str, str] = field(default_factory=dict)  # question -> fact the model named
+    # A choice you made that a fact contradicts: control key -> the value, never saved.
+    withheld: dict[str, str] = field(default_factory=dict)
+    na_flagged: set[str] = field(default_factory=set)  # N/A follow-ups that now apply
+    outlined: set[str] = field(default_factory=set)  # questions the audit left for you
     gates_tried: set[str] = field(default_factory=set)  # gate questions already answered once
     gate_pending: dict[str, Any] | None = None  # a gate left for you, watched for your click
     account_tried: set[str] = field(default_factory=set)  # account page URLs already tried
@@ -765,9 +777,12 @@ class AutofillSession:
         if not self.ctx.dry_run:
             # Prose controls are seeded by fill_long_form, which knows their source,
             # unless a pattern names the fact a big box is asking for ("the school
-            # you will attend", in a textarea): a fact beats a draft.
+            # you will attend", in a textarea): a fact beats a draft. So does the
+            # N/A of a follow-up the answer above rules out.
             def from_a_fact(fill: FormFill) -> bool:
-                return fill.resolution is not None and fill.resolution.fact_key is not None
+                return fill.resolution is not None and (
+                    fill.resolution.fact_key is not None or fill.resolution == NOT_APPLICABLE
+                )
 
             plan = type(plan)(
                 tuple(
@@ -843,6 +858,8 @@ class AutofillSession:
                     self.state.tier_answers[question] = applied
                     self.state.tier_source[question] = fill.resolution.source
                     self.state.tier_resolver[question] = fill.resolution.resolver_id
+                    if fill.resolution.fact_key:
+                        self.state.tier_fact[question] = fill.resolution.fact_key
                     if fill.resolution.resolver_id.startswith("engine:"):
                         echo("source", question, applied)
                     else:
@@ -1045,6 +1062,8 @@ class AutofillSession:
                 self.state.tier_answers[question] = applied
                 self.state.tier_source[question] = "model"
                 self.state.tier_resolver[question] = fill.resolution.resolver_id
+                if fill.resolution.fact_key:
+                    self.state.tier_fact[question] = fill.resolution.fact_key
                 control = claude_fields[fill.index]
                 key = f"{self.state.step}:{control.get('fingerprint') or ''}#{fill.index}"
                 self.state.resolutions[key] = AnswerResolution(
@@ -1246,7 +1265,7 @@ class AutofillSession:
             shown = ""
             try:
                 if pdf is not None:
-                    fresh_control(self.page, item).set_input_files(str(pdf))
+                    upload_into(self.page, fresh_control(self.page, item), pdf)
                     self.page.wait_for_timeout(750)
                     ok = verify_control(self.page, item, None, resume=True, filename=pdf.name)
                     shown = pdf.name
@@ -1397,6 +1416,7 @@ class AutofillSession:
         what no lane could fix is listed for you at the end.
         """
         failures = list(result.get("failures") or [])
+        self.reconcile_follow_ups(fields)
         findings = self.audit(fields, failures)
         for _round in range(max(1, self.ctx.audit_rounds)):
             if not findings:
@@ -1417,7 +1437,73 @@ class AutofillSession:
                 acted = self.correct_answer(fields, finding) or acted
             elif finding.cause == "fact_gap" and self.ctx.ask_facts:
                 acted = self.ask_for_fact(fields, finding) or acted
+        # A repair above may have changed the answer a follow-up depends on.
+        return self.reconcile_follow_ups(fields) or acted
+
+    def reconcile_follow_ups(self, fields: list[dict[str, Any]]) -> bool:
+        """Make every "If yes…" follow-up agree with the answer just above it, as the page holds it.
+
+        An N/A the worker wrote is cleared once the answer above no longer rules
+        the follow-up out (it was answered the other way, or the fill above never
+        landed), so the follow-up is answered from a fact or left for you. An
+        empty follow-up the answer above rules out gets N/A. An N/A you typed is
+        yours. True when anything on the page changed.
+        """
+        try:
+            current = inspect_fields(self.page)
+        except Error:
+            return False
+        acted = False
+        for item in current:
+            question = _question_for(item)
+            condition = follow_up_condition(question)
+            if condition is None or not is_follow_up_box(item) or is_sensitive_field(item):
+                continue
+            above = answer_above(current, item)
+            ruled_out = above is not None and above != condition
+            try:
+                value = str(fresh_control(self.page, item).input_value(
+                    timeout=CONTROL_TIMEOUT_MS
+                )).strip()
+            except (Error, RuntimeError):
+                continue
+            ours = (
+                self.state.tier_resolver.get(question) == NOT_APPLICABLE.resolver_id
+                and value == NOT_APPLICABLE.value
+            )
+            if ours and not ruled_out:
+                acted = self.clear_not_applicable(item, above=above) or acted
+            elif not value and ruled_out:
+                shown = self.apply_value(
+                    fields, item, NOT_APPLICABLE.value,
+                    source=NOT_APPLICABLE.source, resolver_id=NOT_APPLICABLE.resolver_id,
+                )
+                if shown is not None:
+                    echo("source", question, shown, note="the answer above rules it out")
+                    acted = True
         return acted
+
+    def clear_not_applicable(self, field: dict[str, Any], *, above: bool | None) -> bool:
+        """Take back an N/A the worker wrote into a follow-up that does apply."""
+        question = _question_for(field)
+        try:
+            control = fresh_control(self.page, field)
+            set_registered_value(control, "")
+            cleared = not str(control.input_value(timeout=CONTROL_TIMEOUT_MS)).strip()
+        except (Error, RuntimeError):
+            cleared = False
+        if not cleared:
+            echo("failed", question, NOT_APPLICABLE.value, note="could not take back N/A")
+            return False
+        for answers in (self.state.tier_answers, self.state.tier_source,
+                        self.state.tier_resolver, self.state.tier_fact):
+            answers.pop(question, None)
+        why = (
+            f"the question above was answered {'Yes' if above else 'No'}, so it applies"
+            if above is not None else "nothing above rules it out"
+        )
+        echo("repaired", question, note=f"{why}: N/A taken back")
+        return True
 
     def queue_repairs(self, fields: list[dict[str, Any]], findings: list[Finding]) -> bool:
         """Record the audit's own failures, then let the repair lane retry them here.
@@ -1725,6 +1811,10 @@ class AutofillSession:
         self.state.tier_answers[question] = shown
         self.state.tier_source[question] = source
         self.state.tier_resolver[question] = resolver_id
+        if fact_key:
+            self.state.tier_fact[question] = fact_key
+        else:
+            self.state.tier_fact.pop(question, None)
         return shown
 
     def report_open(self, findings: list[Finding]) -> None:
@@ -1733,11 +1823,12 @@ class AutofillSession:
         Optional fields count: nothing is left blank unless you leave it. Each
         line says the cause, so what you do about it is never a guess.
         """
+        self.state.outlined = {item.question for item in findings}
+        with contextlib.suppress(Error):
+            highlight_unfilled(self.page, inspect_fields(self.page), self.state.outlined)
         if not findings:
             console.print("  [dim]every field is filled, and no fact disagrees[/dim]")
             return
-        with contextlib.suppress(Error):
-            highlight_unfilled(self.page)
         empty = [item for item in findings if item.cause != "wrong_answer"]
         wrong = [item for item in findings if item.cause == "wrong_answer"]
         required = sum(1 for item in empty if item.required)
@@ -1773,10 +1864,67 @@ class AutofillSession:
 
     # ----- manual completion, capture, and advance --------------------------
 
+    def contradiction(
+        self, fields: list[dict[str, Any]], question: str, value: str
+    ) -> tuple[str, str] | None:
+        """The fact a choice on the page disagrees with, and the option it says.
+
+        Only a choice is judged, since a click can land by accident and typing
+        cannot. The fact is the one an active pattern names, else the one the
+        worker filled this question from. None when no fact speaks to it.
+        """
+        field = find_field(fields, question)
+        if field is None or is_follow_up_box(field) or is_sensitive_field(field):
+            return None
+        options = self.options_for(fields, field)
+        target = dict(field) | {"label": question, "options": options}
+        resolution = Resolver(self.ctx.knowledge).resolve(target)
+        key = self.state.tier_fact.get(question)
+        if resolution is None and key is not None:
+            verdict = Verdict(question, "fits_fact", fact_key=key)
+            resolution = VerdictResolver({question: verdict}, self.ctx.knowledge).resolve(target)
+        if resolution is None or resolution.fact_key is None or MULTI in resolution.value:
+            return None
+        wanted = choose_option(options, resolution.value) if options else None
+        if wanted is not None:
+            same = normalize_answer_question(wanted) == normalize_answer_question(value)
+            return None if same else (resolution.fact_key, wanted)
+        held, expected = polarity(value), polarity(resolution.value)
+        if held is not None and expected is not None and held != expected:
+            return resolution.fact_key, resolution.value
+        return None
+
+    def flag_follow_ups(self, fields: list[dict[str, Any]], held: dict[str, str]) -> None:
+        """Say when an answer you changed makes a follow-up the worker answered N/A apply."""
+        flagged: set[str] = set()
+        for item in fields:
+            question = _question_for(item)
+            condition = follow_up_condition(question)
+            if (
+                condition is None
+                or not is_follow_up_box(item)
+                or self.state.tier_resolver.get(question) != NOT_APPLICABLE.resolver_id
+                or held.get(question) != NOT_APPLICABLE.value
+                or answer_above(fields, item) != condition
+            ):
+                continue
+            flagged.add(question)
+            if question not in self.state.na_flagged:
+                echo("review", question, NOT_APPLICABLE.value,
+                     note=f"you answered {'Yes' if condition else 'No'} above, so this applies "
+                          "now: replace N/A")
+        self.state.na_flagged = flagged
+
     def record_snapshot(self, fields: list[dict[str, Any]]) -> None:
+        withheld = dict(self.state.withheld)
+        flagged = self.state.na_flagged
+        held: dict[str, str] = {}  # question -> what the page shows for it
+        contradicted: set[str] = set()
         for index, item in enumerate(snapshot_entries(self.page, fields)):
             question = str(item["question"])
             value = str(item["answer_text"])
+            if value:
+                held[question] = value.strip()
             seed, seed_source = self.state.seeds.get(question, ("", "empty"))
             if question in self.state.tier_answers and value == self.state.tier_answers[question]:
                 source = self.state.tier_source[question]
@@ -1787,6 +1935,24 @@ class AutofillSession:
             fingerprint = str(item.get("field_fingerprint") or f"control-{index}")
             control_key = f"{self.state.step}:{fingerprint}"
             previous = self.state.collected.get(control_key)
+            if value and source == "manual":
+                # A choice a fact contradicts is said at once and never saved:
+                # it is most often a stray click. Put it back, or set the fact.
+                if self.state.withheld.get(control_key) == value:
+                    contradicted.add(question)
+                    continue
+                self.state.withheld.pop(control_key, None)
+                against = self.contradiction(fields, question, value)
+                if against is not None:
+                    self.state.withheld[control_key] = value
+                    contradicted.add(question)
+                    fact_key, says = against
+                    echo("review", question, value,
+                         note=f"{fact_key} says {says}; not saved. Put it back, or set "
+                              "the fact if this is right")
+                    value = ""  # the page no longer holds an answer worth saving
+            else:
+                self.state.withheld.pop(control_key, None)
             if not value:
                 if previous is not None:
                     self.state.collected.pop(control_key)
@@ -1845,6 +2011,12 @@ class AutofillSession:
             if source == "manual" and self.state.announced.get(control_key) != value:
                 self.state.announced[control_key] = value
                 echo("picked up", question, value)
+        self.flag_follow_ups(fields, held)
+        if self.state.withheld != withheld or self.state.na_flagged != flagged:
+            with contextlib.suppress(Error):
+                highlight_unfilled(
+                    self.page, fields, self.state.outlined | self.state.na_flagged | contradicted
+                )
 
     def wait_and_advance(self, fields: list[dict[str, Any]]) -> ApplicationPageState:
         """Collect manual answers while the user owns page navigation and submission."""

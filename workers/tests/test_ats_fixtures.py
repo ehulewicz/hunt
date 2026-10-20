@@ -1458,6 +1458,177 @@ def test_jazzhr_address_parts_yes_no_boxes_and_hidden_mirrors(browser_page) -> N
     assert browser_page.is_checked("#q1-2") and not browser_page.is_checked("#q1-1")
 
 
+# JazzHR keeps its resume input in a panel that opens only from "Attach resume";
+# its own submit check reads the input, but nothing on screen shows the file.
+JAZZHR_RESUME = """
+<style>.none { display: none; }</style>
+<form>
+  <div id="resumator-resume" class="form-group">
+    <label id="resumator-resume-label" for="resumator-resume-value"
+      class="control-label">Resume<i class="asterisk">*</i></label>
+    <div id="resumator-resume-options" class="resumator-resume-text">
+      <a id="resumator-choose-upload" href="#">Attach resume</a> or
+      <a id="resumator-choose-paste" href="#">Paste resume</a>
+    </div>
+    <div id="resumator-resume-upload-wrapper" class="none">
+      <div class="resumator-input" id="resumator-resume-field">
+        <input type="file" id="resumator-resume-value" name="resumator-resume-value">
+      </div>
+    </div>
+    <div id="resumator-resume-paste-wrapper" class="none">
+      <textarea id="resumator-resumetext-value"></textarea>
+    </div>
+  </div>
+  <div class="form-group">
+    <label for="first" class="control-label">First Name<i class="asterisk">*</i></label>
+    <input type="text" id="first" name="resumator-firstname-value">
+  </div>
+</form>
+<script>
+for (const [link, panel] of [['#resumator-choose-upload', '#resumator-resume-upload-wrapper'],
+                             ['#resumator-choose-paste', '#resumator-resume-paste-wrapper']]) {
+  document.querySelector(link).addEventListener('click', event => {
+    event.preventDefault();
+    document.querySelector(panel).classList.remove('none');
+    document.querySelector('#resumator-resume-options').style.display = 'none';
+  });
+}
+</script>
+"""
+
+
+def test_a_file_in_a_panel_nobody_opened_is_not_uploaded(  # type: ignore[no-untyped-def]
+    browser_page, tmp_path: Path
+) -> None:
+    browser_page.set_content(JAZZHR_RESUME)
+    resume = tmp_path / "Alex_Example.pdf"
+    resume.write_bytes(b"%PDF-1.4\n%%EOF")
+    browser_page.set_input_files("#resumator-resume-value", str(resume))
+
+    fields = inspect_fields(browser_page)
+    [upload] = [field for field in fields if field.get("type") == "file"]
+    assert upload["filled"] is False
+    assert "Resume" in audit_filled_form(fields)["required_unfilled"]
+
+
+def test_a_resume_upload_opens_its_own_attach_panel_first(  # type: ignore[no-untyped-def]
+    browser_page, tmp_path: Path
+) -> None:
+    browser_page.set_content(JAZZHR_RESUME)
+    resume = tmp_path / "Alex_Example.pdf"
+    resume.write_bytes(b"%PDF-1.4\n%%EOF")
+    fields = inspect_fields(browser_page)
+    plan = build_autofill_plan(fields)
+
+    result = apply_autofill(
+        browser_page, fields, plan, resume_path=resume, assert_active=lambda: None
+    )
+
+    assert result["failures"] == []
+    assert "Resume" in result["filled_fields"]
+    assert browser_page.is_visible("#resumator-resume-value")
+    assert browser_page.locator("#resumator-resume-value").evaluate(
+        "element => element.files[0].name"
+    ) == "Alex_Example.pdf"
+    assert not browser_page.is_visible("#resumator-resumetext-value")  # paste stays shut
+    [upload] = [field for field in inspect_fields(browser_page) if field.get("type") == "file"]
+    assert upload["filled"] is True
+
+
+def test_an_attach_button_that_opens_a_file_dialog_gets_the_file_without_one(  # type: ignore[no-untyped-def]
+    browser_page, tmp_path: Path
+) -> None:
+    browser_page.set_content(
+        """
+        <div class="form-group">
+          <label for="cv">Resume*</label>
+          <button type="button" id="attach">Upload resume</button>
+          <span id="shown"></span>
+          <div style="display: none"><input type="file" id="cv"></div>
+        </div>
+        <script>
+        document.querySelector('#attach').addEventListener('click',
+          () => document.querySelector('#cv').click());
+        document.querySelector('#cv').addEventListener('change',
+          event => { document.querySelector('#shown').textContent = event.target.files[0].name; });
+        </script>
+        """
+    )
+    resume = tmp_path / "Alex_Example.pdf"
+    resume.write_bytes(b"%PDF-1.4\n%%EOF")
+    fields = inspect_fields(browser_page)
+
+    result = apply_autofill(
+        browser_page, fields, build_autofill_plan(fields), resume_path=resume,
+        assert_active=lambda: None,
+    )
+
+    assert result["failures"] == []
+    assert browser_page.inner_text("#shown") == "Alex_Example.pdf"
+
+
+def test_a_file_left_in_a_closed_panel_fails_its_readback(  # type: ignore[no-untyped-def]
+    browser_page, tmp_path: Path
+) -> None:
+    browser_page.set_content(
+        '<div class="form-group"><label for="cv">Resume*</label>'
+        '<div style="display: none"><input type="file" id="cv"></div></div>'
+        '<label for="first">First Name</label><input id="first">'
+    )
+    resume = tmp_path / "Alex_Example.pdf"
+    resume.write_bytes(b"%PDF-1.4\n%%EOF")
+    fields = inspect_fields(browser_page)
+
+    result = apply_autofill(
+        browser_page, fields, build_autofill_plan(fields), resume_path=resume,
+        assert_active=lambda: None,
+    )
+
+    assert [failure["category"] for failure in result["failures"]] == ["readback_mismatch"]
+    assert "Resume" in result["unanswered_required_questions"]
+
+
+def test_only_the_questions_left_open_are_outlined(browser_page) -> None:  # type: ignore[no-untyped-def]
+    """JazzHR names every Yes/No box apart, so an answered question's Yes box is not empty."""
+    from personal_os_worker.jobs.browser import highlight_unfilled
+
+    follow_up = "If Yes, please provide the name of the team member who referred you."
+    browser_page.set_content(
+        JAZZHR_RESUME.replace(
+            "</form>",
+            """
+            <div class="form-group">
+              <label for="q1" class="control-label">Were you referred by a current
+                employee?<i class="asterisk">*</i></label>
+              <input type="checkbox" id="q1-1" name="resumator-checkbox-1-1" value="Yes">
+              <label for="q1-1">Yes</label>
+              <input type="checkbox" id="q1-2" name="resumator-checkbox-1-2" value="No" checked>
+              <label for="q1-2">No</label>
+            </div>
+            <div class="form-group">
+              <label for="q2" class="control-label">""" + follow_up + """</label>
+              <input type="text" id="q2">
+            </div>
+            </form>""",
+        )
+    )
+    fields = inspect_fields(browser_page)
+
+    highlight_unfilled(browser_page, fields, {follow_up, "Resume", "First Name"})
+
+    def outline(selector: str) -> str:
+        return str(browser_page.locator(selector).evaluate("element => element.style.outline"))
+
+    assert outline("#q1-1") == "" and outline("#q1-2") == ""
+    assert "solid" in outline("#q2") and "solid" in outline("#first")
+    # The resume input is in a closed panel: the field around it is what you can see.
+    assert "solid" in outline("#resumator-resume")
+
+    browser_page.fill("#q2", "N/A")
+    highlight_unfilled(browser_page, inspect_fields(browser_page), {"Resume"})
+    assert outline("#q2") == "" and outline("#first") == ""
+
+
 def test_a_pair_of_identical_apply_buttons_is_one_action(browser_page) -> None:  # type: ignore[no-untyped-def]
     browser_page.set_content(
         """

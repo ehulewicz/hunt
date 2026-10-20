@@ -4,6 +4,7 @@ from personal_os_worker.jobs.autofill import (
     AnswerResolution,
     affirmative_option,
     build_autofill_plan,
+    follow_up_condition,
     is_long_form_field,
 )
 from personal_os_worker.jobs.browser import audit_filled_form
@@ -680,3 +681,61 @@ def test_a_follow_up_the_answer_above_rules_out_is_not_applicable() -> None:
     plan = build_autofill_plan(fields, resolver=Stub({question: "No"}))
     assert [(fill.index, fill.value) for fill in plan.fills] == [(1, "No")]
     assert follow_up in plan.unanswered_required_questions
+
+
+def test_an_optional_follow_up_the_answer_above_rules_out_is_not_applicable() -> None:
+    """Healthpeak (JazzHR): every Yes/No box has its own name, and the name box is optional."""
+    question = "Were you referred to Healthpeak by a current employee?"
+    follow_up = "If Yes, please provide the name of the Healthpeak team member who referred you."
+    fields = [
+        {"index": 0, "tag": "input", "type": "checkbox", "name": "c-1", "label": "Yes",
+         "value": "Yes", "group": question, "required": True},
+        {"index": 1, "tag": "input", "type": "checkbox", "name": "c-2", "label": "No",
+         "value": "No", "group": question, "required": True},
+        {"index": 2, "tag": "input", "type": "text", "label": follow_up, "required": False},
+    ]
+    plan = build_autofill_plan(fields, resolver=Stub({question: "No"}))
+    assert [(fill.index, fill.value) for fill in plan.fills] == [(1, "No"), (2, "N/A")]
+
+
+def test_a_follow_up_reads_an_answer_already_on_the_page() -> None:
+    """A re-run, or a pass over revealed questions, finds the choice above already made."""
+    question = "Do you have any relatives working at Acme?"
+    fields = [
+        {"index": 0, "tag": "input", "type": "radio", "name": "r", "label": "Yes",
+         "group": question, "required": True, "filled": False},
+        {"index": 1, "tag": "input", "type": "radio", "name": "r", "label": "No",
+         "group": question, "required": True, "filled": True},
+        {"index": 2, "tag": "input", "type": "text", "label": "If yes, please list them.",
+         "required": True},
+    ]
+    plan = build_autofill_plan(fields, resolver=Stub())
+    assert [(fill.index, fill.value) for fill in plan.fills] == [(2, "N/A")]
+
+
+def test_a_follow_up_is_judged_by_the_question_just_above_it() -> None:
+    """A yes further up says nothing about a follow-up to the question in between."""
+    authorized = "Are you authorized to work in the US?"
+    fields = [
+        {"index": 0, "tag": "input", "type": "radio", "name": "a", "label": "Yes",
+         "group": authorized, "required": True},
+        {"index": 1, "tag": "input", "type": "radio", "name": "a", "label": "No",
+         "group": authorized, "required": True},
+        {"index": 2, "tag": "input", "type": "text", "label": "Current employer",
+         "required": True},
+        {"index": 3, "tag": "input", "type": "text",
+         "label": "If no, please explain why you are not currently employed.", "required": True},
+    ]
+    plan = build_autofill_plan(
+        fields, resolver=Stub({authorized: "Yes", "Current employer": "Acme"})
+    )
+    assert [fill.index for fill in plan.fills] == [0, 2]
+
+
+def test_a_follow_up_names_the_answer_it_needs() -> None:
+    assert follow_up_condition("If Yes, please provide the name of the referrer.") is True
+    assert follow_up_condition("If you answered “No” to the above, explain.") is False
+    assert follow_up_condition("If so, please describe the arrangement.") is True
+    assert follow_up_condition("If not, please explain.") is False
+    assert follow_up_condition("If not already provided, list your skills.") is None
+    assert follow_up_condition("Please provide your LinkedIn profile.") is None

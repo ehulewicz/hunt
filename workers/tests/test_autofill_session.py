@@ -1460,6 +1460,7 @@ def audit_session(
     ask_facts: bool = False,
     prompt: Any = None,
     api: Any = None,
+    patterns: list[dict[str, Any]] | None = None,
 ) -> AutofillSession:
     context = SessionContext(
         api=cast(Any, api or FakeApi()),
@@ -1468,7 +1469,7 @@ def audit_session(
         browser=cast(Any, FakeBrowser(page)),
         page=page,
         console_errors=[],
-        knowledge=known(facts),
+        knowledge=known(facts, patterns=patterns),
         resume_json={},
         resume_pdf=Path("missing.pdf"),
         company="Acme",
@@ -1600,6 +1601,185 @@ def test_the_budget_stops_a_question_from_spending_the_run(
 
     assert first == "once"
     assert second is None
+
+
+REFERRAL = "Were you referred by a current employee?"
+WHO = "If yes, who referred you?"
+
+
+def follow_up_form(answer: str, who: str = "") -> str:
+    checked = {"Yes": "", "No": ""} | ({answer: "checked"} if answer else {})
+    return f"""
+    <form>
+      <fieldset><legend>{REFERRAL}</legend>
+        <label><input type="radio" name="ref" value="Yes" {checked["Yes"]}> Yes</label>
+        <label><input type="radio" name="ref" value="No" {checked["No"]}> No</label>
+      </fieldset>
+      <label for="who">{WHO}</label><input id="who" name="who" value="{who}">
+    </form>
+    """
+
+
+REFERRAL_PATTERN = {"id": "e1", "kind": "expression", "expression": r"\breferred by\b",
+                    "fact_key": "referral.referred", "resolver_id": "expression:e1",
+                    "status": "active"}
+
+
+def test_the_audit_clears_an_na_the_answer_above_no_longer_rules_out(
+    browser_page,  # type: ignore[no-untyped-def]
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    browser_page.set_content(follow_up_form("No"))
+    session = audit_session(browser_page, facts={})
+    fields = inspect_fields(browser_page)
+    session.fill_deterministic(fields)
+    assert browser_page.input_value("#who") == "N/A"
+    # You answer the referral Yes before the audit looks.
+    browser_page.check("input[value=Yes]")
+
+    session.audit_and_repair(inspect_fields(browser_page), {"failures": []})
+
+    assert browser_page.input_value("#who") == ""
+    printed = capsys.readouterr().out
+    assert "Left for you" in printed and WHO in printed
+
+
+def test_the_audit_answers_na_once_the_answer_above_rules_a_follow_up_out(
+    browser_page,  # type: ignore[no-untyped-def]
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The answer above came from a later tier than the planner's pass."""
+    browser_page.set_content(follow_up_form("No"))
+    session = audit_session(browser_page, facts={})
+
+    session.audit_and_repair(inspect_fields(browser_page), {"failures": []})
+
+    assert browser_page.input_value("#who") == "N/A"
+    assert "every field is filled" in capsys.readouterr().out
+
+
+def test_the_audit_leaves_an_na_you_typed(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(follow_up_form("Yes", who="N/A"))
+    session = audit_session(browser_page, facts={})
+
+    session.audit_and_repair(inspect_fields(browser_page), {"failures": []})
+
+    assert browser_page.input_value("#who") == "N/A"
+
+
+def test_a_ruled_out_follow_up_in_a_big_box_gets_na_not_a_draft(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(
+        follow_up_form("No").replace(
+            f'<label for="who">{WHO}</label><input id="who" name="who" value="">',
+            '<label for="why">If yes, please explain.</label><textarea id="why"></textarea>',
+        )
+    )
+    drafted: list[str] = []
+    session = audit_session(browser_page, facts={})
+    session.ctx.drafter = lambda **kwargs: drafted.append(kwargs["question"]) or "A draft."
+    fields = inspect_fields(browser_page)
+
+    session.fill_deterministic(fields)
+    session.fill_long_form(fields)
+
+    assert browser_page.input_value("#why") == "N/A"
+    assert drafted == []
+
+
+SPONSORSHIP = "Do you require sponsorship?"
+SPONSOR_FORM = f"""
+<form>
+  <fieldset><legend>{SPONSORSHIP}</legend>
+    <label><input type="radio" name="sponsor" value="Yes"> Yes</label>
+    <label><input type="radio" name="sponsor" value="No"> No</label>
+  </fieldset>
+</form>
+"""
+SPONSOR_PATTERN = {"id": "e2", "kind": "expression", "expression": r"\bsponsorship\b",
+                   "fact_key": "work_auth.requires_sponsorship", "resolver_id": "expression:e2",
+                   "status": "active"}
+
+
+def recorded(session: AutofillSession, question: str) -> list[str]:
+    """Every answer to this question the run would save: observed or final."""
+    return [
+        str(item["answer_text"])
+        for item in [*session.state.observations, *session.state.collected.values()]
+        if item["question"] == question and item["answer_text"]
+    ]
+
+
+def test_a_click_a_fact_contradicts_is_reported_and_not_saved(
+    browser_page,  # type: ignore[no-untyped-def]
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    browser_page.set_content(SPONSOR_FORM)
+    session = audit_session(
+        browser_page, facts={"work_auth.requires_sponsorship": False},
+        patterns=[SPONSOR_PATTERN],
+    )
+    session.fill_deterministic(inspect_fields(browser_page))
+    capsys.readouterr()
+
+    browser_page.check("input[value=Yes]")  # the accidental click
+    session.record_snapshot(inspect_fields(browser_page))
+
+    assert "Yes" not in recorded(session, SPONSORSHIP)
+    printed = capsys.readouterr().out
+    assert "picked up" not in printed
+    assert "review" in printed and "work_auth.requires_sponsorship" in printed
+
+    browser_page.check("input[value=No]")  # put back
+    session.record_snapshot(inspect_fields(browser_page))
+    final = [item for item in session.state.collected.values()
+             if item["question"] == SPONSORSHIP]
+    assert [(item["answer_text"], item["source"]) for item in final] == [("No", "pattern")]
+
+
+def test_a_click_against_the_fact_the_model_named_is_not_saved(
+    browser_page,  # type: ignore[no-untyped-def]
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    browser_page.set_content(SPONSOR_FORM)
+    session = audit_session(
+        browser_page, facts={"work_auth.requires_sponsorship": False},
+        short_drafter=lambda *_, **__: {
+            SPONSORSHIP: Verdict(SPONSORSHIP, "fits_fact",
+                                 fact_key="work_auth.requires_sponsorship")
+        },
+    )
+    session.fill_with_claude(inspect_fields(browser_page), {"failures": []})
+    assert browser_page.is_checked("input[value=No]")
+
+    browser_page.check("input[value=Yes]")
+    session.record_snapshot(inspect_fields(browser_page))
+
+    assert "Yes" not in recorded(session, SPONSORSHIP)
+    assert "work_auth.requires_sponsorship" in capsys.readouterr().out
+
+
+def test_flipping_the_answer_above_says_the_na_below_now_applies(
+    browser_page,  # type: ignore[no-untyped-def]
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    browser_page.set_content(follow_up_form(""))
+    session = audit_session(
+        browser_page, facts={}, patterns=[REFERRAL_PATTERN],
+    )
+    session.fill_deterministic(inspect_fields(browser_page))
+    assert browser_page.input_value("#who") == "N/A"
+    session.record_snapshot(inspect_fields(browser_page))
+    capsys.readouterr()
+
+    browser_page.check("input[value=Yes]")  # you were referred after all
+    session.record_snapshot(inspect_fields(browser_page))
+
+    printed = capsys.readouterr().out
+    assert "review" in printed and WHO in printed and "applies" in printed
 
 
 def test_a_failed_evidence_upload_is_skipped_not_fatal(capsys: pytest.CaptureFixture[str]) -> None:
