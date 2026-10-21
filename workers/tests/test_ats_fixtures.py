@@ -22,6 +22,7 @@ from personal_os_worker.jobs.page_state import (
     capture_tab_navigation,
     classify_application_page,
 )
+from personal_os_worker.jobs.registry.kinds import question_of
 from personal_os_worker.jobs.resolve import Knowledge, Resolver
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -1736,3 +1737,88 @@ def test_shadow_dom_resume_dropzone_and_typeahead(browser_page, tmp_path: Path) 
         browser_page, fresh_control(browser_page, city), "Atlanta, Georgia"
     )
     assert chosen == "Atlanta, GA, USA"
+
+
+SECTION_BODY = """
+  <div><label>Have you worked for Acme before?</label>
+    <label><input type="radio" name="worked" value="yes">Yes</label>
+    <label><input type="radio" name="worked" value="no">No</label></div>
+  <div><label>Are you at least 18 years old?</label>
+    <label><input type="radio" name="adult" value="yes">Yes</label>
+    <label><input type="radio" name="adult" value="no">No</label></div>
+"""
+
+
+@pytest.mark.parametrize(
+    "section",
+    [
+        "<fieldset><legend>Job specific questions</legend>{body}</fieldset>",
+        '<div role="group" aria-label="Job specific questions">{body}</div>',
+        '<div data-testid="questions"><h3>Job specific questions</h3>{body}</div>',
+    ],
+)
+def test_a_section_heading_is_never_a_choice_groups_question(
+    browser_page,  # type: ignore[no-untyped-def]
+    section: str,
+) -> None:
+    browser_page.set_content(section.format(body=SECTION_BODY))
+    fields = inspect_fields(browser_page)
+    assert [(field["label"], field["group"]) for field in fields] == [
+        ("Yes", "Have you worked for Acme before?"),
+        ("No", "Have you worked for Acme before?"),
+        ("Yes", "Are you at least 18 years old?"),
+        ("No", "Are you at least 18 years old?"),
+    ]
+
+
+def test_a_fieldset_holding_one_question_keeps_its_legend(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(
+        """
+        <fieldset><legend><label id="q">Have you previously been employed by Axiom?</label>
+        </legend>
+          <div aria-labelledby="q">
+            <div><input id="y" type="radio" name="prev" value="true">
+              <label for="y">Yes</label></div>
+            <div><input id="n" type="radio" name="prev" value="false">
+              <label for="n">No</label></div>
+          </div>
+        </fieldset>
+        """
+    )
+    assert {field["group"] for field in inspect_fields(browser_page)} == {
+        "Have you previously been employed by Axiom?"
+    }
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        # The question is plain text before its options.
+        """<form><label for="e">Email</label><input id="e">
+           <div><p>Do you require sponsorship?</p>
+             <label><input type="radio" name="s" value="y">Yes</label>
+             <label><input type="radio" name="s" value="n">No</label></div></form>""",
+        # The group names its question by aria-labelledby.
+        """<form><span id="sq">Do you require sponsorship?</span>
+           <div role="radiogroup" aria-labelledby="sq">
+             <label><input type="radio" name="s" value="y">Yes</label>
+             <label><input type="radio" name="s" value="n">No</label></div></form>""",
+    ],
+)
+def test_a_yes_no_radio_keeps_the_question_it_answers(
+    browser_page,  # type: ignore[no-untyped-def]
+    markup: str,
+) -> None:
+    browser_page.set_content(markup)
+    radios = [field for field in inspect_fields(browser_page) if field["type"] == "radio"]
+    assert [(field["label"], question_of(field)) for field in radios] == [
+        ("Yes", "Do you require sponsorship?"),
+        ("No", "Do you require sponsorship?"),
+    ]
+    plan = build_autofill_plan(
+        inspect_fields(browser_page), resolver=Stub({"Do you require sponsorship?": "No"})
+    )
+    planned = {fill.index for fill in plan.fills}
+    assert [field["label"] for field in radios if field["index"] in planned] == ["No"]

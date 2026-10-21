@@ -62,9 +62,11 @@ vector, unique per user, and never includes the ATS or the question. A strategy
 is a named way of operating a kind, with a precedence and a lifecycle status; the
 ten that exist in code are seeded `active`. A fill event is one attempt: the
 question's normalized key, the resolver id, the control, the strategy, the ATS
-as a dimension only, a value hash, and `stopped_at` (`pattern`, `format`,
+as a dimension only, a value hash, `stopped_at` (`pattern`, `format`,
 `strategy`, or null) with `operated_ok` (true read back, false failed, null not
-attempted). `question_key` and `resolver_id` stand in until `jobs_questions` and
+attempted), and `options`, the JSON array of what the control offered (null
+when it offered nothing or its menu was never read), so a learned change can be
+replayed against what the page showed. `question_key` and `resolver_id` stand in until `jobs_questions` and
 `jobs_patterns` exist and add real foreign keys.
 
 `jobs_devices` is one row per machine that runs the Hunt agent, keyed by an id

@@ -63,6 +63,7 @@ from personal_os_worker.jobs.autofill import (
     is_long_form_field,
     is_resume_field,
     is_sensitive_field,
+    offered_options,
 )
 from personal_os_worker.jobs.autofill_timing import AutofillTimings
 from personal_os_worker.jobs.browser import (
@@ -96,7 +97,7 @@ from personal_os_worker.jobs.cover_letter import (
     render_letter,
 )
 from personal_os_worker.jobs.drafts import similar_answers
-from personal_os_worker.jobs.explain import Explainer, group_options
+from personal_os_worker.jobs.explain import Explainer
 from personal_os_worker.jobs.formatters import polarity, render
 from personal_os_worker.jobs.gateway import (
     click_gateway,
@@ -685,6 +686,7 @@ class AutofillSession:
                         value=clicked,
                         resolution=resolution,
                         source=None if resolution is not None else "manual",
+                        options=[str(option) for option in gate.get("options") or []],
                     )
                 ],
             },
@@ -1324,7 +1326,7 @@ class AutofillSession:
 
     def options_for(self, fields: list[dict[str, Any]], field: dict[str, Any]) -> list[str]:
         """The options the question offers, gathered the way the planner gathers them."""
-        return group_options(fields, field)
+        return offered_options(fields, field)
 
     def filled_answers(self, fields: list[dict[str, Any]]) -> list[FilledAnswer]:
         """Every short answer the page holds, with who put it there.
@@ -1906,6 +1908,7 @@ class AutofillSession:
                         operated_ok=candidate is not None,
                         value=shown or value,
                         resolution=resolution,
+                        options=offered_options(fields, field),
                     )
                 ],
             },

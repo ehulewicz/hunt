@@ -104,6 +104,8 @@ def test_unresolved_events_count_a_choice_group_once() -> None:
     assert [(event["question"], event["kind"], event["stopped_at"]) for event in events] == [
         ("Shift", "choice_group", "pattern"),
     ]
+    # The group's options are kept with the sighting, for replaying what was learned.
+    assert events[0]["options"] == ["Day", "Night"]
 
 
 def test_planned_events_describe_a_dry_run_without_attempting() -> None:
@@ -127,7 +129,7 @@ def test_planned_events_describe_a_dry_run_without_attempting() -> None:
         "resolver_id": "archive:label:email", "fact_key": "contact.email",
         "formatter": "text_as_is", "pattern_id": None, "source": "archive",
         "value_hash": value_hash("a@b.co"), "stopped_at": None, "operated_ok": None,
-        "form": "short",
+        "form": "short", "options": None,
     }
     # A miss the resolver explained keeps its stage and the fact it named.
     assert (events[1]["stopped_at"], events[1]["fact_key"]) == ("format", "identity.middle_name")
@@ -203,6 +205,11 @@ def test_every_control_kind_is_operated_and_measured(browser_page, tmp_path: Pat
         ("dynamic_choice", "combobox_type_and_select"): True,
     }
     assert all(event["stopped_at"] is None for event in result["events"])
+    # Each attempt keeps what its control offered; a text box offered nothing.
+    offered = {event["kind"]: event["options"] for event in result["events"]}
+    assert offered["text_entry"] is None
+    assert offered["native_select"] and "Bachelor of Science" in offered["native_select"]
+    assert offered["choice_group"] is not None
 
 
 def test_a_value_no_option_fits_stops_at_format_then_falls_back(browser_page) -> None:  # type: ignore[no-untyped-def]

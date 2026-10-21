@@ -273,6 +273,21 @@ def choice_group_key(field: dict[str, Any]) -> str:
     return group
 
 
+def offered_options(fields: list[dict[str, Any]], field: dict[str, Any]) -> list[str]:
+    """The options a control's question offers: a choice group's labels, else its own."""
+    if str(field.get("type") or "").casefold() not in {"radio", "checkbox"} or not field.get(
+        "group"
+    ):
+        return [str(option) for option in field.get("options") or []]
+    group = choice_group_key(field)
+    return [
+        str(item.get("label") or item.get("value") or "")
+        for item in fields
+        if str(item.get("type") or "").casefold() in {"radio", "checkbox"}
+        and choice_group_key(item) == group
+    ]
+
+
 BUTTON_TYPES = frozenset({"submit", "button", "reset", "hidden"})
 
 

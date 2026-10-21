@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from psycopg import AsyncConnection
@@ -58,6 +58,10 @@ class FillEventCreate(BaseModel):
     # The active pattern that produced the value, and whether the question wants prose.
     pattern_id: UUID | None = None
     form: Literal["short", "long"] | None = None
+    # What the control offered, as the page showed it; None when it offered nothing.
+    options: list[Annotated[str, Field(max_length=1000)]] | None = Field(
+        default=None, max_length=1000
+    )
 
     @field_validator("strategy")
     @classmethod
@@ -158,10 +162,10 @@ async def record_fill_events(
             insert into app.jobs_fill_events (
               user_id, run_id, step, question_key, resolver_id, fact_key, formatter,
               source, control_id, strategy_id, ats, value_hash, stopped_at, operated_ok,
-              question_id, pattern_id
+              question_id, pattern_id, options
             ) values (
               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-              (select id from app.jobs_patterns where id = %s and user_id = %s)
+              (select id from app.jobs_patterns where id = %s and user_id = %s), %s
             )
             """,
             (
@@ -182,6 +186,7 @@ async def record_fill_events(
                 question_id,
                 event.pattern_id,
                 user_id,
+                Jsonb(event.options) if event.options is not None else None,
             ),
         )
         if (

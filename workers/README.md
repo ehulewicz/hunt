@@ -314,9 +314,16 @@ sits in a rendered part of the page, or the file's name shows. A file input in a
 panel nobody opened (JazzHR's "Attach resume") is opened first by the one
 attach or upload control in its field, and a file dialog that control raises is
 answered with the file, so none waits in your window. A captcha's own response box is never captured as a
-control. `events.py` turns every attempt
+control. A choice's question comes from its fieldset's legend, its group's
+`aria-label` or `aria-labelledby`, its field container, or the block holding
+its options, and only from a container that holds that one question (its
+radios share one name, and at most one label or legend in it is no option's
+own): a section heading such as "Job specific questions" is never a question,
+and a radio group whose question is plain text before its options keeps it, so
+a lone "Yes" is never recorded as one. `events.py` turns every attempt
 into a fill event (control, strategy, resolver, fact, formatter, the active
-pattern, value hash, whether the question wants prose, and where it stopped)
+pattern, value hash, whether the question wants prose, where it stopped, and the
+options the control offered)
 that the step sends to FastAPI; a dry run sends one not-attempted event per
 question. A choice is refused, and left to you, only while a captcha challenge
 is open (its image or puzzle frame showing); a checkbox widget or an

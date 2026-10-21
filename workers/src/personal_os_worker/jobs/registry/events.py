@@ -17,11 +17,14 @@ from personal_os_worker.jobs.autofill import (
     AutofillPlan,
     is_cover_letter_field,
     is_long_form_field,
+    offered_options,
 )
 from personal_os_worker.jobs.options import normalize_answer_question, normalize_question
 from personal_os_worker.jobs.registry.kinds import classify, control_attributes, question_of
 
 SKIPPED_TYPES = frozenset({"submit", "button", "reset", "hidden"})
+# What the API keeps of the options a control offered.
+OPTIONS_KEPT = 1000
 
 
 def value_hash(value: str | None) -> str | None:
@@ -47,7 +50,10 @@ def fill_event(
     fact_key: str | None = None,
     resolver_id: str | None = None,
     formatter: str | None = None,
+    options: list[str] | None = None,
 ) -> dict[str, Any]:
+    """One attempt. `options` is what the control offered, kept so a learned change
+    can be replayed against what the page showed; None when it offered nothing."""
     return {
         "question": question_of(field) or str(field.get("fingerprint") or "unlabeled"),
         "kind": classify(field),
@@ -62,6 +68,8 @@ def fill_event(
         "stopped_at": stopped_at,
         "operated_ok": operated_ok,
         "form": form_of(field),
+        "options": [option[:OPTIONS_KEPT] for option in options[:OPTIONS_KEPT]]
+        if options else None,
     }
 
 
@@ -116,6 +124,7 @@ def unresolved_events(
                 fact_key=getattr(miss, "fact_key", None),
                 resolver_id=getattr(miss, "resolver_id", None),
                 formatter=getattr(miss, "formatter", None),
+                options=offered_options(fields, field),
             )
         )
     return events
@@ -137,6 +146,7 @@ def planned_events(
             value=fill.value,
             resolution=fill.resolution,
             source=fill.chooser,
+            options=offered_options(fields, fields[fill.index]),
         )
         for fill in plan.fills
     ] + unresolved_events(fields, plan, misses=misses)

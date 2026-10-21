@@ -47,6 +47,8 @@ def test_a_step_carries_fill_events() -> None:
         {"stopped_at": "strategy", "operated_ok": True},
         {"question": ""},
         {"unexpected": 1},
+        {"options": "Yes, No"},
+        {"options": ["x" * 1001]},
     ],
 )
 def test_malformed_events_are_rejected(overrides: dict[str, Any]) -> None:
@@ -201,3 +203,23 @@ async def test_only_a_read_back_model_fill_proposes_a_candidate(
         query, params = proposals[0]
         assert "'candidate'" in query and "active" not in query
         assert "work_auth.requires_sponsorship" in params
+
+
+async def test_an_event_keeps_the_options_its_control_offered() -> None:
+    connection = FakeConnection()
+    await record_fill_events(
+        connection,  # type: ignore[arg-type]
+        user_id=USER_ID,
+        run_id=uuid4(),
+        step=0,
+        ats="greenhouse",
+        events=[
+            FillEventCreate.model_validate(event(options=["Yes", "No"])),
+            FillEventCreate.model_validate(event(question="First name")),
+        ],
+    )
+    inserts = [
+        params for query, params in connection.statements if "insert into app.jobs_fill" in query
+    ]
+    assert inserts[0][17].obj == ["Yes", "No"]
+    assert inserts[1][17] is None

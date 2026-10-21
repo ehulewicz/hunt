@@ -26,6 +26,7 @@ from personal_os_worker.jobs.autofill import (
     build_autofill_plan,
     choice_group_key,
     is_sensitive_field,
+    offered_options,
     preferred_source_option,
 )
 from personal_os_worker.jobs.formatters import choose_date_range, yes_no_option
@@ -758,10 +759,11 @@ def _attempt_event(
     strategy: str | None,
     stopped_at: str | None,
     operated_ok: bool | None,
+    options: list[str],
 ) -> dict[str, Any]:
     return fill_event(
         field, strategy=strategy, stopped_at=stopped_at, operated_ok=operated_ok,
-        value=fill.value, resolution=fill.resolution, source=fill.chooser,
+        value=fill.value, resolution=fill.resolution, source=fill.chooser, options=options,
     )
 
 
@@ -806,17 +808,18 @@ def apply_autofill(
     for fill in ordered_fills:
         assert_active()
         field = fields[fill.index]
+        offered = offered_options(fields, field)
         label = str(field.get("label") or field.get("name") or fill.index)
         document = documents.get(fill.kind)
         if fill.kind == BLANK_KIND:
             # A none fact: the answer is to leave it blank, so nothing is operated.
-            events.append(_attempt_event(field, fill, None, None, None))
+            events.append(_attempt_event(field, fill, None, None, None, offered))
             if observer is not None:
                 observer.after(field, fill, {"skipped": "left blank on purpose"})
             continue
         if fill.kind in FILE_KINDS and document is None:
             skipped.append(f"{label} (no {fill.kind} provided)")
-            events.append(_attempt_event(field, fill, None, None, None))
+            events.append(_attempt_event(field, fill, None, None, None, offered))
             if observer is not None:
                 observer.after(field, fill, {"skipped": f"no {fill.kind} provided"})
             continue
@@ -839,7 +842,9 @@ def apply_autofill(
                 first_error = first_error or error
                 attempts.append((name, str(error).splitlines()[0][:200] if str(error) else
                                  type(error).__name__))
-                events.append(_attempt_event(field, fill, name, stopped_stage(error), False))
+                events.append(
+                    _attempt_event(field, fill, name, stopped_stage(error), False, offered)
+                )
                 continue
             attempts.append((name, None))
             operated = name
@@ -877,9 +882,9 @@ def apply_autofill(
                 resume=is_upload,
                 filename=document.name if is_upload and document is not None else None,
             )
-        events.append(
-            _attempt_event(field, fill, operated, None if verified else "strategy", verified)
-        )
+        events.append(_attempt_event(
+            field, fill, operated, None if verified else "strategy", verified, offered
+        ))
         if verified:
             filled_labels.append(label)
             if expected is not None and not is_upload:
@@ -1352,21 +1357,52 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
             || !(home.getElementById ? home.getElementById(node.htmlFor)
               : document.getElementById(node.htmlFor));
           const wrapping = element.closest('label');
+          const choice = ['radio', 'checkbox'].includes(element.type);
+          // A container a choice's question is read from must hold that one
+          // question: every radio in it shares this one's name, and at most
+          // one label or legend in it is no option's own. A section ("Job
+          // specific questions") holds several, and its heading asks nothing.
+          const oneQuestion = container => {
+            if (!choice || !container) return true;
+            const options = [...container.querySelectorAll(`input[type="${element.type}"]`)];
+            if (element.type === 'radio' && options.some(option => option.name !== element.name)) {
+              return false;
+            }
+            const nodes = [...container.querySelectorAll('label, legend')].filter(node => (
+              (node.textContent || '').trim() && !options.some(
+                option => node.contains(option) || (node.htmlFor && node.htmlFor === option.id)
+              )
+            ));
+            return nodes.filter(
+              node => !nodes.some(other => other !== node && other.contains(node))
+            ).length <= 1;
+          };
           const fieldset = element.closest('fieldset');
           // Ashby writes the group question as a heading label, not a legend.
-          const legend = fieldset?.querySelector(':scope > legend, :scope > label');
+          const legend = oneQuestion(fieldset)
+            ? fieldset?.querySelector(':scope > legend, :scope > label') : null;
           const groupRequired = Boolean(
             legend && (/required/i.test(legend.className) || /\\*\\s*$/.test(legend.textContent))
           );
           const group = element.closest('[role="group"], [role="radiogroup"]');
+          // A group names its question by aria-label, or by the element its
+          // aria-labelledby points at.
+          const groupNames = group?.getAttribute('aria-labelledby');
+          const groupLabel = group && oneQuestion(group)
+            ? (group.getAttribute('aria-label') || (choice && groupNames
+                ? groupNames.split(/\\s+/)
+                    .map(id => document.getElementById(id)?.textContent || '').join(' ').trim()
+                : '')) || null
+            : null;
           const nearby = element.closest('[class*="field"], [class*="question"], [data-testid]');
-          const nearbyQuestion = nearby
+          const nearbyChild = nearby
             ? [...nearby.children].find(child => {
                 const text = String(child.textContent || '').trim();
                 return text && !child.contains(element)
                   && !child.querySelector('input, textarea, select, [role="combobox"]');
               }) || null
             : null;
+          const nearbyQuestion = oneQuestion(nearby) ? nearbyChild : null;
           // Composite controls (notably Ashby's Education History widget) do
           // not associate every nested input with its label. Walk outward for
           // the nearest label that is a direct child of a control-local
@@ -1495,8 +1531,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           // that is not an option's own.
           let blockOptions = [];
           let blockQuestion = null;
-          if (['radio', 'checkbox'].includes(element.type) && !legend && !group
-              && !yesnoContainer) {
+          if (choice && !legend && !groupLabel && !yesnoContainer) {
             let ancestor = element.parentElement;
             for (let depth = 0; ancestor && depth < 5; depth += 1) {
               const options = [...ancestor.querySelectorAll(`input[type="${element.type}"]`)];
@@ -1513,6 +1548,18 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
                     & Node.DOCUMENT_POSITION_FOLLOWING)) {
                   blockOptions = options;
                   blockQuestion = questions[0];
+                } else if (questions.length === 0 && element.type === 'radio'
+                    && options.every(option => option.name === element.name)) {
+                  // A radio group whose question is plain text before its
+                  // options ("<p>Are you 18?</p>"): the block's first child
+                  // that holds text and no control. A lone Yes is no question.
+                  blockQuestion = [...ancestor.children].find(child => (
+                    (child.textContent || '').trim()
+                    && !child.querySelector('input, textarea, select, [role="combobox"]')
+                    && !optionLabel(child)
+                    && (child.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING)
+                  )) || null;
+                  if (blockQuestion) blockOptions = options;
                 }
                 break;
               }
@@ -1580,7 +1627,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
             label,
             group: (
               legend?.textContent
-              || group?.getAttribute('aria-label')
+              || groupLabel
               || nearbyQuestion?.textContent
               || (['radio', 'checkbox'].includes(element.type) ? leverQuestionText : null)
               || blockQuestion?.textContent

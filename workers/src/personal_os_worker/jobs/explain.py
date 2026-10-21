@@ -36,6 +36,7 @@ from personal_os_worker.jobs.autofill import (
     is_consent_field,
     is_long_form_field,
     is_sensitive_field,
+    offered_options,
 )
 from personal_os_worker.jobs.browser import fresh_control
 from personal_os_worker.jobs.keys import read_key
@@ -54,21 +55,6 @@ def _line(what: str, detail: str, style: str = "") -> None:
     text = escape(detail)
     styled = f"[{style}]{text}[/{style}]" if style else text
     console.print(f"    [dim]{what:<{LABEL_WIDTH}}[/dim] {styled}")
-
-
-def group_options(fields: list[dict[str, Any]], field: dict[str, Any]) -> list[str]:
-    """The options a choice control's question offers, gathered as the planner does."""
-    if str(field.get("type") or "").casefold() not in {"radio", "checkbox"} or not field.get(
-        "group"
-    ):
-        return [str(option) for option in field.get("options") or []]
-    group = choice_group_key(field)
-    return [
-        str(item.get("label") or item.get("value") or "")
-        for item in fields
-        if str(item.get("type") or "").casefold() in {"radio", "checkbox"}
-        and choice_group_key(item) == group
-    ]
 
 
 def control_lines(fields: list[dict[str, Any]], field: dict[str, Any]) -> None:
@@ -91,7 +77,7 @@ def control_lines(fields: list[dict[str, Any]], field: dict[str, Any]) -> None:
         if on
     ]
     _line("flags", ", ".join(flags) or "none")
-    options = group_options(fields, field)
+    options = offered_options(fields, field)
     if options:
         shown = " | ".join(options[:OPTION_PREVIEW])
         more = f"  (+{len(options) - OPTION_PREVIEW} more)" if len(options) > OPTION_PREVIEW else ""
@@ -147,7 +133,7 @@ class Explainer:
         through_resolver = reason.startswith("resolver") or "declines to answer" in reason
         if explain is not None and through_resolver:
             for what, detail in explain(
-                dict(field) | {"label": question, "options": group_options(self.fields, field)}
+                dict(field) | {"label": question, "options": offered_options(self.fields, field)}
             ):
                 _line(what, detail)
         if fill is None:
