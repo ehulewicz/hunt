@@ -1,3 +1,4 @@
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -16,9 +17,12 @@ from personal_os_backend.jobs_answers import (
     Pattern,
     PatternCreate,
     PatternUpdate,
+    PostgresAnswerStore,
     ProseUpdate,
     Question,
     QuestionUpdate,
+    answered_by_expression,
+    asks_a_question,
     get_answer_store,
     normalize_answer_key,
 )
@@ -35,6 +39,43 @@ def test_question_keys_ignore_case_spacing_and_harmless_punctuation() -> None:
     assert normalize_answer_key("  Why this   company?! ") == "why this company"
     assert normalize_answer_key("C++ / C# experience") == "c++ c# experience"
     assert normalize_answer_key("?!") == ""
+
+
+@pytest.mark.parametrize(
+    ("label", "kind", "asks"),
+    [
+        ("Will you require sponsorship?", None, True),
+        ("Preferred Last Name", "text_entry", True),
+        ("Do you have any questions for us?", None, True),
+        ("Yes", None, False),
+        ("  No ", "choice_group", False),
+        ("Search", None, False),
+        ("Zoom level", None, False),
+        ("Page number", None, False),
+        ("Job specific questions", None, False),
+        ("Resume/CV", "file", False),
+        ("input|file|||", None, False),
+        ("unlabeled", None, False),
+        ("?!", None, False),
+    ],
+)
+def test_only_a_label_that_asks_something_is_a_question(
+    label: str, kind: str | None, asks: bool
+) -> None:
+    assert asks_a_question(label, kind) is asks
+
+
+def test_expressions_decide_a_label_only_when_they_name_one_fact() -> None:
+    expressions = [
+        (re.compile(r"\bsponsor(ship)?\b", re.IGNORECASE), "work_auth.requires_sponsorship"),
+        (re.compile(r"\bvisa\b", re.IGNORECASE), "work_auth.requires_sponsorship"),
+        (re.compile(r"\bgit\s*hub\b", re.IGNORECASE), "contact.github_url"),
+        (re.compile(r"\blinked\s*in\b", re.IGNORECASE), "contact.linkedin_url"),
+    ]
+    assert answered_by_expression("Will you need visa sponsorship?", expressions)
+    assert answered_by_expression("  GitHub URL ", expressions)
+    assert not answered_by_expression("Employed by LinkedIn or GitHub?", expressions)
+    assert not answered_by_expression("Preferred Last Name", expressions)
 
 
 def test_a_binding_names_a_question_and_an_expression_compiles() -> None:
@@ -236,3 +277,67 @@ async def test_inbox_questions_and_archive_are_readable(client: httpx.AsyncClien
         archive = await client.get("/v1/jobs/archive/answers", headers=HEADERS)
         assert archive.json()[0]["answer_text"] == "Yes"
         assert (await client.get("/v1/jobs/answers", headers=HEADERS)).status_code == 404
+
+
+class InboxConnection:
+    """Serves the Inbox's reads: expressions, unbound questions, and nothing else."""
+
+    def __init__(self, expressions: list[dict[str, Any]], rows: list[dict[str, Any]]) -> None:
+        self.expressions = expressions
+        self.rows = rows
+        self._result: list[dict[str, Any]] = []
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator["InboxConnection"]:
+        yield self
+
+    async def execute(self, query: str, params: Any = None) -> "InboxConnection":
+        if "kind = 'expression'" in query:
+            self._result = self.expressions
+        elif "from app.jobs_questions" in query:
+            self._result = self.rows
+        else:
+            self._result = []
+        return self
+
+    async def fetchall(self) -> list[dict[str, Any]]:
+        return self._result
+
+
+class InboxPool:
+    def __init__(self, connection: InboxConnection) -> None:
+        self.inbox = connection
+
+    @asynccontextmanager
+    async def connection(self, **_: Any) -> AsyncIterator[InboxConnection]:
+        yield self.inbox
+
+
+async def test_the_inbox_leaves_out_what_a_run_already_fills_and_what_asks_nothing() -> None:
+    def row(label: str, *, uploads: bool = False) -> dict[str, Any]:
+        return question().model_dump() | {
+            "id": uuid4(), "normalized_key": normalize_answer_key(label),
+            "sample_label": label, "uploads": uploads,
+        }
+
+    rows = [
+        row("Will you require sponsorship?"),
+        row("Preferred Last Name"),
+        row("Yes"),
+        row("Resume"),
+        row("Resume", uploads=True),
+        row("Employed by LinkedIn or GitHub?"),
+    ]
+    expressions = [
+        {"expression": r"\bsponsor", "fact_key": "work_auth.requires_sponsorship"},
+        {"expression": r"\bgit\s*hub\b", "fact_key": "contact.github_url"},
+        {"expression": r"\blinked\s*in\b", "fact_key": "contact.linkedin_url"},
+        {"expression": "unbalanced (", "fact_key": "a.b"},
+    ]
+    store = PostgresAnswerStore(InboxPool(InboxConnection(expressions, rows)), 5)  # type: ignore[arg-type]
+
+    inbox = await store.inbox(USER_ID)
+
+    assert [item.question.sample_label for item in inbox.questions] == [
+        "Preferred Last Name", "Resume", "Employed by LinkedIn or GitHub?",
+    ]

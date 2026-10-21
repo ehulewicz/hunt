@@ -850,7 +850,8 @@ class PostgresJobsStore:
             for observation in item.observations:
                 source = observation.source if observation.source in ANSWER_SOURCES else "manual"
                 question_id = await upsert_question(
-                    connection, user_id=user_id, label=observation.question, form=observation.form
+                    connection, user_id=user_id, label=observation.question,
+                    form=observation.form, kind=observation.control_kind,
                 )
                 # A retried step re-sends the same events; the (run_id, event_index)
                 # key makes the replay a no-op instead of duplicate history.
@@ -942,7 +943,8 @@ class PostgresJobsStore:
                 normalized_key = normalize_answer_key(question)
                 source = answer.source
                 question_id = await upsert_question(
-                    connection, user_id=user_id, label=question, form=answer.form
+                    connection, user_id=user_id, label=question, form=answer.form,
+                    kind=answer.control_kind,
                 )
                 await connection.execute(
                     """

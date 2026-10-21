@@ -148,6 +148,27 @@ async def test_every_event_records_its_question_once_per_run() -> None:
     assert inserts[0][14] == inserts[1][14] != inserts[2][14]  # question_id
 
 
+async def test_an_upload_or_a_label_that_asks_nothing_is_written_without_a_question() -> None:
+    connection = FakeConnection()
+    events = [
+        FillEventCreate.model_validate(event(question="Resume/CV", kind="file")),
+        FillEventCreate.model_validate(event(question="Yes")),
+        FillEventCreate.model_validate(event(question="input|text|||")),
+        FillEventCreate.model_validate(event()),
+    ]
+    written = await record_fill_events(
+        connection,  # type: ignore[arg-type]
+        user_id=USER_ID, run_id=uuid4(), step=0, ats="greenhouse", events=events,
+    )
+    assert written == 4
+    upserts = [params for query, params in connection.statements if "jobs_questions" in query]
+    assert [params[1] for params in upserts] == ["will you require sponsorship"]
+    inserts = [
+        params for query, params in connection.statements if "insert into app.jobs_fill" in query
+    ]
+    assert [params[14] is None for params in inserts] == [True, True, True, False]
+
+
 @pytest.mark.parametrize(
     ("overrides", "proposed"),
     [

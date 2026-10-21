@@ -99,7 +99,8 @@ async def record_fill_events(
             continue
         if question_key not in questions or event.form == "long":
             questions[question_key] = await upsert_question(
-                connection, user_id=user_id, label=event.question, form=event.form
+                connection, user_id=user_id, label=event.question, form=event.form,
+                kind=event.kind,
             )
         question_id = questions[question_key]
         attributes = Jsonb(event.attributes)

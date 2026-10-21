@@ -36,20 +36,54 @@ def normalize_answer_key(value: str) -> str:
     return " ".join(re.sub(r"[^a-z0-9+#]+", " ", value.casefold()).split())
 
 
+# Labels a page puts on controls that ask nothing: a choice option standing
+# alone, a document viewer's own tools, a site search box, the event fallback.
+NOT_QUESTIONS = frozenset({"yes", "no", "search", "page number", "zoom level", "unlabeled"})
+# A section heading taken for a control's question, e.g. "Job specific questions".
+SECTION_HEADING = re.compile(r"(?:[a-z0-9+#]+ ){0,3}questions")
+# An unlabeled control's fingerprint, `tag|type|name|label|role`, standing in for a label.
+FINGERPRINT = re.compile(r"^[a-z][a-z0-9-]*\|[a-z-]*\|")
+
+
+def asks_a_question(label: str, kind: str | None = None) -> bool:
+    """Whether a control's label is a question worth recording (R44).
+
+    An upload is answered by a document, never a fact, so a `file` control
+    asks nothing the Inbox could bind.
+    """
+    key = normalize_answer_key(label)
+    if not key or kind == "file" or FINGERPRINT.match(label.strip()):
+        return False
+    return key not in NOT_QUESTIONS and not SECTION_HEADING.fullmatch(key)
+
+
+def answered_by_expression(label: str, expressions: list[tuple[re.Pattern[str], str]]) -> bool:
+    """Whether active expressions decide this label: they match it and name one fact.
+
+    The worker's resolver decides the same way, so the Inbox never asks for a
+    question a run already fills. Expressions that name different facts decide
+    nothing and leave it waiting.
+    """
+    question = label.strip()
+    return len({fact for regex, fact in expressions if regex.search(question)}) == 1
+
+
 async def upsert_question(
     connection: AsyncConnection[Any],
     *,
     user_id: UUID,
     label: str,
     form: Literal["short", "long"] | None = None,
+    kind: str | None = None,
 ) -> UUID | None:
     """The question's id, recording it the first time it is met (R44).
 
     A later sighting refreshes `last_seen_at`; a long-form sighting marks it
-    long, since the control that shows it as prose is the better evidence.
+    long, since the control that shows it as prose is the better evidence. A
+    label that asks nothing is never recorded.
     """
     key = normalize_answer_key(label)
-    if not key:
+    if not asks_a_question(label, kind):
         return None
     cursor = await connection.execute(
         """
@@ -608,7 +642,11 @@ class PostgresAnswerStore:
             return await archived_answers(connection, user_id)
 
     async def inbox(self, user_id: UUID) -> Inbox:
-        """Everything waiting on the user: candidate patterns, unbound questions, new prose."""
+        """Everything waiting on the user: candidate patterns, unbound questions, new prose.
+
+        An unbound question an active expression already decides, or one that
+        asks nothing, is not waiting on anyone.
+        """
         async with (
             self._pool.connection(timeout=self._timeout) as connection,
             connection.transaction(),
@@ -629,8 +667,27 @@ class PostgresAnswerStore:
                 for pattern in (Pattern.model_validate(row) for row in await cursor.fetchall())
             ]
             cursor = await connection.execute(
+                "select expression, fact_key from app.jobs_patterns where user_id = %s "
+                "and kind = 'expression' and status = 'active'",
+                (user_id,),
+            )
+            expressions: list[tuple[re.Pattern[str], str]] = []
+            for row in await cursor.fetchall():
+                try:
+                    regex = re.compile(str(row["expression"]), re.IGNORECASE | re.DOTALL)
+                except re.error:
+                    continue
+                expressions.append((regex, str(row["fact_key"])))
+            # `uploads`: met on a file control, for rows recorded before
+            # `upsert_question` stopped recording uploads.
+            cursor = await connection.execute(
                 f"""
-                select {QUESTION_COLUMNS} from app.jobs_questions question
+                select {QUESTION_COLUMNS}, exists (
+                  select 1 from app.jobs_fill_events event
+                  join app.jobs_controls control on control.id = event.control_id
+                  where event.question_id = question.id and control.kind = 'file'
+                ) as uploads
+                from app.jobs_questions question
                 where question.user_id = %s and question.disposition = 'unbound'
                   and question.form = 'short'
                   and not exists (
@@ -646,7 +703,12 @@ class PostgresAnswerStore:
                     question=question,
                     answers=await _answers_for(connection, user_id, question.id),
                 )
-                for question in (Question.model_validate(row) for row in await cursor.fetchall())
+                for question in (
+                    Question.model_validate(row)
+                    for row in await cursor.fetchall()
+                    if asks_a_question(row["sample_label"], "file" if row["uploads"] else None)
+                    and not answered_by_expression(row["sample_label"], expressions)
+                )
             ]
             cursor = await connection.execute(
                 f"{PROSE_SELECT} where prose.user_id = %s and not prose.approved "
