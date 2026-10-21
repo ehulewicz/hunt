@@ -69,6 +69,8 @@ CONSENT_WORDS = frozenset(
         "agree",
         "agreement",
         "acknowledge",
+        "acknowledgment",
+        "acknowledgement",
         "certification",
         "consent",
         "certify",

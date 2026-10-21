@@ -190,6 +190,11 @@ CATALOG = _entries(
         "Has relatives or close relationships at the posting's company",
         "boolean",
     ),
+    CatalogEntry(
+        "employment.restrictive_agreement",
+        "Bound by a non-compete or non-disclosure agreement that could restrict a new job",
+        "boolean",
+    ),
     CatalogEntry("identity.other_languages", "Languages spoken besides English", "text"),
     CatalogEntry("education.class_standing", "Class standing (year in school)", "text"),
     CatalogEntry("education.start_date", "When you started your degree", "date"),

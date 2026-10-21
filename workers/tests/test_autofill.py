@@ -66,6 +66,22 @@ def test_autofill_affirms_consent_and_leaves_non_exact_answers_empty() -> None:
     assert plan.unanswered_required_questions == ("Gender", "Why do you want this role?")
 
 
+def test_an_acknowledgment_box_is_consent() -> None:
+    # Microsoft names its required attestation by the noun alone.
+    fields = [
+        {"index": 0, "tag": "input", "type": "checkbox", "label": "Acknowledgment",
+         "required": True},
+        {"index": 1, "tag": "input", "type": "checkbox", "label": "Acknowledgement",
+         "required": True},
+    ]
+
+    plan = build_autofill_plan(fields, resolver=Stub())
+
+    assert [(fill.index, fill.value) for fill in plan.fills] == [
+        (0, "Acknowledgment"), (1, "Acknowledgement")
+    ]
+
+
 def test_consent_controls_take_the_affirmative_option_and_signatures_stay_manual() -> None:
     assert affirmative_option(["Select...", "Yes, I have read and agree", "No"]) == (
         "Yes, I have read and agree"
