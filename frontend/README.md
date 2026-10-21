@@ -30,6 +30,23 @@ Current scope is deliberately small: Hunt is the only sidebar page, and `/` land
 on it. Integrations and Settings open from the account menu; Settings is still a
 routed placeholder.
 
+### Public resume
+
+`/resume` serves the published resume PDF directly, without Google sign-in or
+API access. A Next.js rewrite keeps `/resume` in the address bar while serving
+`public/Alex_Example.pdf`; the inline disposition opens the browser's PDF viewer
+with the applicant's name as the download filename. Workspace routes remain
+authenticated.
+
+The public PDF is a committed deployment copy of the career record's generated
+export, never an editable resume source. To refresh it, run from the repository
+root, then commit and deploy the updated public file:
+
+```bash
+os hunt resume build
+cp artifacts/career/Alex_Example.pdf frontend/public/Alex_Example.pdf
+```
+
 ### Integrations
 
 `/integrations` lists each account Personal OS uses, with columns for the
@@ -171,4 +188,5 @@ tests/                Vitest + Testing Library component tests (jsdom).
 e2e/                  Playwright specs for auth, shell, and the Hunt page, whose
                       device socket is stubbed with routeWebSocket.
 scripts/              check-ui-policy.mjs — the raw-color and gradient ban.
+public/               Site icon and the published resume PDF.
 ```
