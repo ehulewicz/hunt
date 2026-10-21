@@ -362,7 +362,17 @@ that is still empty is a `control_error`, never a `pattern_gap`.
 Empty prose is a `draft_error` and returns to the prose drafter, with at most
 two drafting attempts per question per run; it never goes to the fact selector.
 A radio whose question was not captured is a `detection_error`, including a
-selected radio: Yes and No alone cannot identify a question. A model outage
+selected radio: Yes and No alone cannot identify a question. A widget no control
+kind captures — an ARIA slider, spinbutton, radio group, listbox, switch, or
+an editable box with no form input of its own, outside the site's navigation
+and any combobox's popup — is found by `inspect_unknown_controls` and is an
+`unknown_control` when it is empty, with its role, markup and frame kept as
+evidence. A wall between the run and its form (no Apply control, gate, or
+account page led to one, or the account flow gave up) is a `wall` finding,
+stored with what the page offered (`report_wall`) and sent to the page's gaps.
+Missing facts, unknown controls and unreadable questions left open are stored
+once a run as failure issues (`persist_open`), with page evidence for the ones
+only code can settle, so they outlive the run. A model outage
 (including a subscription usage limit) is reported once and stops further model
 calls for that run. An answer check that returns no judgement remains a
 `model_error` on subsequent audits, so it cannot become a successful check by

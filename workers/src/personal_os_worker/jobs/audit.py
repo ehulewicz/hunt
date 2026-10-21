@@ -11,6 +11,9 @@ turns each into a `Finding` naming the cause. The cause decides the repair:
 | `format_error`  | the fact is known, no option fits it        | other renderings      |
 | `control_error` | the value is right, the widget refused it   | other strategies      |
 | `wrong_answer`  | a fact says the answer on the page is wrong | bind it to that fact  |
+| `unknown_control` | a widget no control kind captures         | code (`jobs/fix/`)    |
+| `wall`          | the run cannot reach the form or its next page | navigation, then code |
+| `posting_not_found` | the page is not the posting, and no search found it | a route, in code |
 
 A model only ever names a fact; what it names is saved as a pattern and the
 pattern pass fills the field (R67). A question a pattern answers that is still
@@ -30,7 +33,8 @@ from personal_os_worker.jobs.options import normalize_answer_question
 
 Cause = Literal[
     "fact_gap", "pattern_gap", "format_error", "control_error", "wrong_answer",
-    "detection_error", "draft_error", "model_error",
+    "detection_error", "draft_error", "model_error", "unknown_control", "wall",
+    "posting_not_found",
 ]
 # Repaired on the page by the existing repair lane, which stores a candidate
 # rule that `os hunt validate` can promote.
@@ -53,6 +57,9 @@ class Finding:
     answer: str | None = None
     source: str | None = None
     intended_value: str | None = None
+    # What a fix needs to find the thing again: an unknown control's role,
+    # selector, frame and markup, or what a wall offered.
+    evidence: dict[str, Any] | None = None
 
 
 @dataclass
@@ -152,6 +159,37 @@ def classify_empty(
     return Finding(question, "pattern_gap", required, "no pattern answers it yet")
 
 
+def classify_unknown(
+    controls: list[dict[str, Any]], captured: set[str]
+) -> list[Finding]:
+    """An empty widget no kind captures is an unknown control, once per question.
+
+    `captured` holds the normalized questions `inspect_fields` already sees, so
+    a custom widget that mirrors a captured input is not reported twice.
+    """
+    findings: dict[str, Finding] = {}
+    for control in controls:
+        if control.get("filled") is True:
+            continue
+        role = str(control.get("role") or "control")
+        question = str(control.get("question") or "").strip() or f"An unlabelled {role}"
+        key = normalize_answer_question(question)
+        if key in captured or key in findings:
+            continue
+        findings[key] = Finding(
+            question,
+            "unknown_control",
+            control.get("required") is True,
+            f"a {role} that no control kind operates yet",
+            evidence={
+                name: control.get(name)
+                for name in ("role", "tag", "selector", "options", "frame_index",
+                             "frame_url", "fingerprint", "html")
+            },
+        )
+    return list(findings.values())
+
+
 def order(findings: list[Finding]) -> list[Finding]:
     """Required questions first, then the causes a repair can act on."""
     rank = {
@@ -160,6 +198,7 @@ def order(findings: list[Finding]) -> list[Finding]:
         "wrong_answer": 2,
         "pattern_gap": 3,
         "fact_gap": 4,
+        "unknown_control": 5,
     }
     return sorted(
         findings, key=lambda item: (not item.required, rank.get(item.cause, 9), item.question)

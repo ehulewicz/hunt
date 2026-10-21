@@ -326,7 +326,7 @@ def test_temporary_empty_application_rerender_does_not_report_a_wall(
     session.sleep = lambda: None  # type: ignore[method-assign]
     session.record_snapshot = lambda _: None  # type: ignore[method-assign]
     session.report_page_failure = (  # type: ignore[method-assign]
-        lambda category, message: failures.append(category)
+        lambda category, message, **_: failures.append(category)
     )
 
     assert session.wait_and_advance(fields) == ApplicationPageState.SUBMITTED
@@ -365,7 +365,7 @@ def test_unrelated_foreground_tab_stands_by_until_the_form_returns(
     session.sleep = lambda: None  # type: ignore[method-assign]
     session.record_snapshot = lambda _: None  # type: ignore[method-assign]
     session.report_page_failure = (  # type: ignore[method-assign]
-        lambda category, message: failures.append(category)
+        lambda category, message, **_: failures.append(category)
     )
 
     assert session.wait_and_advance(fields) == ApplicationPageState.SUBMITTED
@@ -2178,7 +2178,7 @@ def test_account_parked_reports_once(
     session = account_session(browser_page, tmp_path, account)
     failures: list[tuple[str, str]] = []
     session.report_page_failure = (  # type: ignore[method-assign]
-        lambda category, message: failures.append((category, message))
+        lambda category, message, **_: failures.append((category, message))
     )
     bounded(session, 3)
 
@@ -2197,7 +2197,7 @@ def test_account_flow_never_runs_on_a_dry_run(
     browser_page.set_content(SIGN_IN_WALL)
     account = FakeAccount("signed_in")
     session = account_session(browser_page, tmp_path, account, dry_run=True)
-    session.report_page_failure = lambda *_: None  # type: ignore[method-assign]
+    session.report_page_failure = lambda *_, **__: None  # type: ignore[method-assign]
     bounded(session, 2)
 
     with pytest.raises(KeyboardInterrupt):
@@ -2213,7 +2213,7 @@ def test_account_page_without_an_email_says_so(
 ) -> None:
     browser_page.set_content(SIGN_IN_WALL)
     session = account_session(browser_page, tmp_path, None)
-    session.report_page_failure = lambda *_: None  # type: ignore[method-assign]
+    session.report_page_failure = lambda *_, **__: None  # type: ignore[method-assign]
     bounded(session, 2)
 
     with pytest.raises(KeyboardInterrupt):
@@ -2233,7 +2233,7 @@ def test_account_flow_never_runs_on_google(
     browser_page.goto("https://accounts.google.com/signin/v2/identifier")
     account = FakeAccount("signed_in")
     session = account_session(browser_page, tmp_path, account)
-    session.report_page_failure = lambda *_: None  # type: ignore[method-assign]
+    session.report_page_failure = lambda *_, **__: None  # type: ignore[method-assign]
     bounded(session, 2)
 
     with pytest.raises(KeyboardInterrupt):

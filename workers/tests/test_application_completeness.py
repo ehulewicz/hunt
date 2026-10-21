@@ -247,3 +247,77 @@ def test_radio_covered_by_its_label_is_checked_with_real_keyboard_events(
                             resume_path=Path('missing.pdf'), assert_active=lambda: None)
     assert result['failures'] == []
     assert browser_page.locator('#y').is_checked()
+
+
+UNKNOWN_WIDGETS = """
+<nav><div role="listbox" aria-label="Language"><div role="option">English</div></div></nav>
+<div class="field">
+  <label id="years-label">Years of programming experience *</label>
+  <div role="slider" aria-labelledby="years-label" aria-valuemin="0" aria-valuemax="10"
+       aria-valuenow="0" aria-required="true" tabindex="0" style="width:200px;height:10px"></div>
+</div>
+<div class="field">
+  <p>Preferred shift</p>
+  <div role="radiogroup">
+    <div role="radio" aria-checked="false">Morning</div>
+    <div role="radio" aria-checked="false">Evening</div>
+  </div>
+</div>
+<div class="field">
+  <p>Team you would join</p>
+  <div role="radiogroup">
+    <div role="radio" aria-checked="true">Platform</div>
+    <div role="radio" aria-checked="false">Games</div>
+  </div>
+</div>
+<label for="city">City</label>
+<input id="city" role="combobox" aria-controls="city-menu">
+<div id="city-menu" role="listbox"><div role="option">Atlanta</div></div>
+"""
+
+
+def test_widgets_no_kind_captures_are_unknown_controls(browser_page: Any) -> None:
+    browser_page.set_content(UNKNOWN_WIDGETS)
+    session = audit_session(browser_page, facts={})
+    session.ctx.use_claude = False
+    findings = session.audit(inspect_fields(browser_page), [])
+    unknown = [(f.question, f.required, (f.evidence or {}).get('role'))
+               for f in findings if f.cause == 'unknown_control']
+    # Not the site's language menu, not the chosen radio group, not the city
+    # combobox's own popup.
+    assert unknown == [
+        ('Years of programming experience', True, 'slider'),
+        ('Preferred shift', False, 'radiogroup'),
+    ]
+    slider = next(f for f in findings if f.cause == 'unknown_control')
+    assert 'role="slider"' in str((slider.evidence or {}).get('html'))
+
+
+def test_an_unknown_control_already_captured_is_not_reported_twice() -> None:
+    from personal_os_worker.jobs.audit import classify_unknown
+
+    controls = [{'question': 'City', 'role': 'listbox', 'filled': False},
+                {'question': '', 'role': 'slider', 'filled': False},
+                {'question': '', 'role': 'slider', 'filled': False}]
+    findings = classify_unknown(controls, {'city'})
+    assert [(f.question, f.cause) for f in findings] == [
+        ('An unlabelled slider', 'unknown_control'),
+    ]
+
+
+def test_open_gaps_only_people_or_code_can_settle_are_stored_once(browser_page: Any) -> None:
+    browser_page.set_content(UNKNOWN_WIDGETS)
+    session = audit_session(browser_page, facts={})
+    session.ctx.use_claude = False
+    stored: list[dict[str, Any]] = []
+    session.persist_step = lambda _run, payload: stored.extend(  # type: ignore[method-assign]
+        payload.get('failures') or []) or []
+    session.upload_evidence = lambda _evidence: {'frame-0.html': 'path'}  # type: ignore[method-assign]
+    for _ in range(2):
+        session.persist_open(session.audit(inspect_fields(browser_page), []))
+    assert [(item['category'], item['question']) for item in stored] == [
+        ('unknown_control', 'Years of programming experience'),
+        ('unknown_control', 'Preferred shift'),
+    ]
+    assert stored[0]['artifact_paths'] == {'frame-0.html': 'path'}
+    assert 'html' not in stored[0]['dom_signals']

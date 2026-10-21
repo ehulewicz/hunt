@@ -1757,6 +1757,147 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
     return results
 
 
+VISIBLE_ACTIONS_SCRIPT = r"""
+() => [...document.querySelectorAll('a[href], button, [role="button"], [role="link"]')]
+  .filter(node => node.offsetWidth || node.offsetHeight || node.getClientRects().length)
+  .map(node => (node.innerText || node.getAttribute('aria-label') || '')
+    .replace(/\s+/g, ' ').trim())
+  .filter(text => text && text.length <= 80)
+"""
+
+
+def visible_actions(page: Page, *, limit: int = 40) -> list[str]:
+    """The distinct links and buttons a page shows, in order: what a wall offered."""
+    seen: dict[str, None] = {}
+    for frame in page.frames:
+        try:
+            texts = cast(list[str], frame.evaluate(VISIBLE_ACTIONS_SCRIPT))
+        except Error:
+            continue
+        for text in texts:
+            seen.setdefault(text, None)
+    return list(seen)[:limit]
+
+
+# Widgets `inspect_fields` cannot see: interactive by ARIA role or by being
+# editable, with no form input of their own. Site chrome (navigation, header,
+# footer), captchas, hidden elements, and a combobox's own popup are not.
+UNKNOWN_CONTROLS_SCRIPT = r"""
+() => {
+  const roles = ['slider', 'spinbutton', 'radiogroup', 'listbox', 'textbox', 'switch',
+                 'checkbox', 'radio', 'option'];
+  const candidates = [...document.querySelectorAll(
+    roles.map(role => `[role="${role}"]`).join(', ')
+    + ', [contenteditable=""], [contenteditable="true"], button[aria-haspopup="listbox"]'
+  )];
+  const chrome = 'nav, header, footer, [role="navigation"], [role="banner"], '
+    + '[role="contentinfo"], [data-sitekey], .g-recaptcha, .h-captcha, .cf-turnstile';
+  const native = 'input, textarea, select';
+  const visible = node => Boolean(node.offsetWidth || node.offsetHeight
+    || node.getClientRects().length);
+  // A popup a captured combobox or input names is that control's, never another.
+  const owned = new Set();
+  document.querySelectorAll('[aria-controls], [aria-owns]').forEach(node => {
+    `${node.getAttribute('aria-controls') || ''} ${node.getAttribute('aria-owns') || ''}`
+      .split(/\s+/).filter(Boolean).forEach(id => owned.add(id));
+  });
+  const ownedPopup = node => {
+    for (let at = node; at; at = at.parentElement) {
+      if (at.id && owned.has(at.id)) return true;
+    }
+    return false;
+  };
+  const questionOf = node => {
+    const labelledBy = node.getAttribute('aria-labelledby');
+    const referenced = labelledBy
+      ? labelledBy.split(/\s+/).map(id => document.getElementById(id)?.textContent || '')
+          .join(' ').trim()
+      : '';
+    const explicit = node.id
+      ? document.querySelector(`label[for="${CSS.escape(node.id)}"]`)?.textContent || '' : '';
+    let nearby = '';
+    let wrapper = node.parentElement;
+    for (let depth = 0; wrapper && !nearby && depth < 5; depth += 1) {
+      const heading = [...wrapper.children].find(child => (
+        ['LABEL', 'LEGEND', 'P', 'SPAN', 'DIV', 'H3', 'H4'].includes(child.tagName)
+        && !child.contains(node) && (child.textContent || '').trim()
+        && !child.querySelector(native + ', [role]')
+        && (child.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)
+      ));
+      nearby = heading ? heading.textContent : '';
+      wrapper = wrapper.parentElement;
+    }
+    return (node.getAttribute('aria-label') || referenced || explicit || nearby || '')
+      .replace(/\s+/g, ' ').trim().replace(/\s*\*\s*$/, '');
+  };
+  const filledOf = node => {
+    const role = node.getAttribute('role');
+    if (['checkbox', 'radio', 'switch', 'option'].includes(role)) {
+      return ['true', 'mixed'].includes(node.getAttribute('aria-checked') || '')
+        || node.getAttribute('aria-selected') === 'true';
+    }
+    if (role === 'radiogroup' || role === 'listbox') {
+      return Boolean(node.querySelector('[aria-checked="true"], [aria-selected="true"]'));
+    }
+    if (role === 'slider' || role === 'spinbutton') {
+      const now = node.getAttribute('aria-valuenow');
+      return now !== null && now !== node.getAttribute('aria-valuemin');
+    }
+    if (node.tagName === 'BUTTON') return false;
+    return Boolean((node.textContent || '').trim());
+  };
+  const found = [];
+  for (const node of candidates) {
+    if (!visible(node) || node.closest(chrome) || node.closest('[aria-hidden="true"]')) continue;
+    if (node.matches(native) || node.querySelector(native) || node.closest(native)) continue;
+    if (node.closest('[role="combobox"]') || ownedPopup(node)) continue;
+    const role = node.getAttribute('role') || (node.isContentEditable ? 'textbox' : 'button');
+    // An option, radio, or checkbox inside a group is that group, reported once.
+    const parentGroup = node.parentElement?.closest('[role="radiogroup"], [role="listbox"]');
+    if (['option', 'radio', 'checkbox'].includes(role) && parentGroup) continue;
+    if (role === 'option') continue;
+    const options = [...node.querySelectorAll('[role="radio"], [role="option"], [role="checkbox"]')]
+      .map(option => (option.getAttribute('aria-label') || option.textContent || '').trim())
+      .filter(Boolean).slice(0, 40);
+    found.push({
+      question: questionOf(node),
+      role,
+      tag: node.tagName.toLowerCase(),
+      required: node.getAttribute('aria-required') === 'true'
+        || /\*\s*$/.test(questionOf(node) || ''),
+      filled: filledOf(node),
+      options,
+      selector: node.id ? `#${CSS.escape(node.id)}` : '',
+      html: (node.parentElement || node).outerHTML.slice(0, 4000),
+    });
+  }
+  return found;
+}
+"""
+
+
+def inspect_unknown_controls(page: Page) -> list[dict[str, Any]]:
+    """Every widget on the page that no control kind captures, with its question.
+
+    An empty unknown control is an `unknown_control` finding: no strategy can
+    operate it until code is written for it (`jobs/fix/`).
+    """
+    results: list[dict[str, Any]] = []
+    for frame_index, frame in enumerate(page.frames):
+        try:
+            raw = frame.evaluate(UNKNOWN_CONTROLS_SCRIPT)
+        except Error:
+            continue
+        for item in cast(list[dict[str, Any]], raw):
+            item["frame_index"] = frame_index
+            item["frame_url"] = frame.url
+            item["fingerprint"] = "|".join(
+                ["unknown", str(item.get("role") or ""), str(item.get("question") or "")]
+            ).casefold()
+            results.append(item)
+    return results
+
+
 def page_evidence(
     page: Page,
     fields: list[dict[str, Any]],

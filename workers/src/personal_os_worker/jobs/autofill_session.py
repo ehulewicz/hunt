@@ -49,6 +49,7 @@ from personal_os_worker.jobs.audit import (
     Budget,
     Finding,
     classify_empty,
+    classify_unknown,
     order,
     summarize,
 )
@@ -80,6 +81,7 @@ from personal_os_worker.jobs.browser import (
     has_submit_control,
     highlight_unfilled,
     inspect_fields,
+    inspect_unknown_controls,
     is_browser_closed_error,
     page_evidence,
     plan_autofill,
@@ -88,6 +90,7 @@ from personal_os_worker.jobs.browser import (
     snapshot_entries,
     upload_into,
     verify_control,
+    visible_actions,
 )
 from personal_os_worker.jobs.cover_letter import (
     LetterSlots,
@@ -238,6 +241,10 @@ class SessionState:
     step: int = 0
     form_seen: bool = False
     navigation: TabNavigation | None = None
+    # What stood between the run and its form, this run: the fixer's to work on.
+    walls: list[Finding] = field(default_factory=list)
+    # (cause, question) already stored as a failure issue this run.
+    persisted_gaps: set[tuple[str, str]] = field(default_factory=set)
     # The accepted answers a learned change is replayed against, read once a run;
     # None when they could not be read.
     sightings: list[Sighting] | None = None
@@ -248,6 +255,10 @@ class SessionState:
     # each long-form answer's provenance.
     origins: dict[str, tuple[str, tuple[str, ...]]] = field(default_factory=dict)
     similar_prose: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+
+
+# Open causes stored as failure issues by the audit itself.
+PERSISTED_CAUSES = frozenset({"fact_gap", "unknown_control", "detection_error"})
 
 
 def page_signature(page: Page, fields: list[dict[str, Any]]) -> tuple[str, tuple[str, ...]]:
@@ -477,7 +488,12 @@ class AutofillSession:
         return paths
 
     def report_page_failure(
-        self, category: str, message: str, *, artifact_paths: dict[str, str] | None = None
+        self,
+        category: str,
+        message: str,
+        *,
+        artifact_paths: dict[str, str] | None = None,
+        offered: list[str] | None = None,
     ) -> None:
         if artifact_paths is None:
             captured = inspect_fields(self.page)
@@ -499,6 +515,7 @@ class AutofillSession:
                         "field_fingerprint": fingerprint,
                         "error_message": message,
                         "artifact_paths": artifact_paths,
+                        "dom_signals": {"offered": offered} if offered else {},
                     }
                 ],
             },
@@ -607,9 +624,9 @@ class AutofillSession:
             elif self.pass_the_gate():
                 continue
             if not wall_reported:
-                self.report_page_failure(
+                self.report_wall(
                     "navigation_wall",
-                    "No unambiguous Apply control revealed a recognizable form",
+                    "No unambiguous Apply control, gate, or account page led to a form",
                 )
                 wall_reported = True
                 console.print(
@@ -650,7 +667,7 @@ class AutofillSession:
             f"[yellow]Account wall:[/yellow] {result.reason}. "
             "Finish it in the open browser; I am watching the page."
         )
-        self.report_page_failure("account_wall", result.reason)
+        self.report_wall("account_wall", result.reason)
         return result
 
     # ----- the gate between the posting and its form ------------------------
@@ -1785,6 +1802,9 @@ class AutofillSession:
             and is_long_form_field(control) else item
             for item in findings
         ]
+        captured = {normalize_answer_question(_question_for(item)) for item in current}
+        with contextlib.suppress(Error):
+            findings += classify_unknown(inspect_unknown_controls(self.page), captured)
         return order(findings + self.wrong_answers(current))
 
     def audit_and_repair(
@@ -1807,6 +1827,7 @@ class AutofillSession:
             self.pattern_pass(fields, failures)
             findings = self.audit(fields, failures)
         self.report_open(findings)
+        self.persist_open(findings)
         if self.ctx.link is not None:
             self.ctx.link.gaps(gap_items(findings))
 
@@ -2314,6 +2335,85 @@ class AutofillSession:
             console.print("  [bold]Answer audit incomplete[/bold]:")
             for item in unchecked:
                 echo("review", item.question, item.answer, note=item.note)
+
+    def persist_open(self, findings: list[Finding]) -> None:
+        """Store what the audit left that only you or new code can settle, once a run.
+
+        A missing fact, a widget no kind operates, and a question that could not
+        be read become failure issues, so the Inbox and the fixer find them after
+        the run as well as during it. Format and control errors are stored by
+        `queue_repairs`, and walls by `report_wall`.
+        """
+        failures: list[dict[str, Any]] = []
+        needs_evidence = False
+        for finding in findings:
+            if finding.cause not in PERSISTED_CAUSES:
+                continue
+            key = (finding.cause, normalize_answer_question(finding.question))
+            if key in self.state.persisted_gaps:
+                continue
+            self.state.persisted_gaps.add(key)
+            evidence = dict(finding.evidence or {})
+            fingerprint = str(evidence.get("fingerprint") or finding.question)
+            needs_evidence = needs_evidence or finding.cause != "fact_gap"
+            failures.append(
+                {
+                    "signature": failure_signature(self.ctx.ats, finding.cause, fingerprint),
+                    "category": finding.cause,
+                    "question": finding.question,
+                    "field_label": finding.question,
+                    "control_kind": evidence.get("role"),
+                    "field_fingerprint": fingerprint,
+                    "fact_key": finding.fact_key,
+                    "error_message": finding.note,
+                    "dom_signals": {
+                        name: value for name, value in (
+                            evidence | {"missing_fact": finding.missing_fact,
+                                        "required": finding.required}
+                        ).items()
+                        if name != "html" and value is not None
+                    },
+                }
+            )
+        if not failures:
+            return
+        if needs_evidence:
+            with contextlib.suppress(Error):
+                paths = self.upload_evidence(
+                    page_evidence(self.page, inspect_fields(self.page),
+                                  console_errors=self.ctx.console_errors)
+                )
+                for failure in failures:
+                    if failure["category"] != "fact_gap":
+                        failure["artifact_paths"] = paths
+        with contextlib.suppress(httpx.HTTPError):
+            self.persist_step(
+                self.ctx.run_id,
+                {"step_number": self.state.step, "url": self.page.url, "failures": failures},
+            )
+
+    def report_wall(self, category: str, message: str) -> Finding:
+        """A wall between the run and its form is a finding, like an empty field.
+
+        It is stored with the page as evidence and what the page offered, and
+        goes to the page's gaps, so the fixer and you both see what blocked it.
+        """
+        offered: list[str] = []
+        with contextlib.suppress(Error):
+            offered = visible_actions(self.page)
+        finding = Finding(
+            "Reach the application form",
+            "wall",
+            True,
+            message,
+            evidence={"category": category, "url": self.page.url, "step": self.state.step,
+                      "offered": offered},
+        )
+        self.state.walls.append(finding)
+        self.report_page_failure(category, message, offered=offered)
+        if self.ctx.link is not None:
+            self.ctx.link.gaps(gap_items([finding]))
+        return finding
 
     def report_review(self) -> None:
         """List the long-form answers that came from a draft, once per step."""
