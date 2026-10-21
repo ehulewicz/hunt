@@ -110,10 +110,46 @@ def test_start_gives_up_and_points_at_the_log(
         ("http://127.0.0.1:8000", "8000"),
         ("http://127.0.0.1:9999/", "9999"),
         ("http://localhost:8123", "8123"),
+        ("http://127.0.0.1", "8000"),
     ],
 )
 def test_port_is_taken_from_the_configured_url(url: str, expected: str) -> None:
     assert service._port_of(url) == expected
+
+
+def test_hosted_api_is_checked_but_never_started_or_restarted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(service, "state_dir", lambda: tmp_path)
+    # The stale record a failed local start used to leave behind.
+    service.record_service("api", 4242, "//api.example.run.app", source="before-pull")
+    monkeypatch.setattr(service, "is_running", lambda *a, **k: True)
+    monkeypatch.setattr(service, "stop_api", lambda *a, **k: pytest.fail("must not stop"))
+    monkeypatch.setattr(
+        service.subprocess, "Popen", lambda *a, **k: pytest.fail("must not spawn")
+    )
+
+    assert service.ensure_running("https://api.example.run.app", quiet=True) is False
+
+
+def test_unreachable_hosted_api_is_reported_not_started(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(service, "is_running", lambda *a, **k: False)
+    monkeypatch.setattr(
+        service.subprocess, "Popen", lambda *a, **k: pytest.fail("must not spawn")
+    )
+    with pytest.raises(service.ApiUnavailable, match="hosted API"):
+        service.ensure_running("https://api.example.run.app")
+
+
+def test_stopping_a_hosted_api_only_forgets_the_stale_record(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(service, "state_dir", lambda: tmp_path)
+    service.record_service("api", 4242, "//api.example.run.app")
+    monkeypatch.setattr(service.os, "kill", lambda *a: pytest.fail("must not signal"))
+
+    assert service.stop_api("https://api.example.run.app", force=True) is False
+    assert service.read_service("api") is None
 
 
 def test_running_chrome_is_not_relaunched(monkeypatch: pytest.MonkeyPatch) -> None:

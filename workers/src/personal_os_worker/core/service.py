@@ -189,8 +189,13 @@ def is_running(api_url: str, *, timeout: float = 2.0) -> bool:
 
 
 def _port_of(api_url: str) -> str:
-    _, _, tail = api_url.rstrip("/").rpartition(":")
-    return tail or "8000"
+    port = urlparse(api_url).port
+    return str(port) if port is not None else "8000"
+
+
+def is_local(api_url: str) -> bool:
+    """Whether the URL names an API on this machine, the only kind the CLI can manage."""
+    return urlparse(api_url).hostname in {"127.0.0.1", "localhost", "::1"}
 
 
 def ensure_running(api_url: str, *, quiet: bool = False) -> bool:
@@ -199,7 +204,14 @@ def ensure_running(api_url: str, *, quiet: bool = False) -> bool:
     An API we started from older source is restarted: it runs the checked-out
     backend, so after a pull the old process would query tables and columns
     that no longer exist.
+
+    A hosted API is only checked, never started or stopped: its deploy is not
+    this machine's to manage.
     """
+    if not is_local(api_url):
+        if is_running(api_url):
+            return False
+        raise ApiUnavailable(f"The hosted API at {api_url} is not answering its health check.")
     source = backend_source_fingerprint()
     if is_running(api_url):
         record = read_service("api")
@@ -375,6 +387,11 @@ def _pid_on_port(port: str) -> int | None:
 
 def stop_api(api_url: str, *, force: bool = False) -> bool:
     """Stop the API we started. With force, also stop whatever holds the port."""
+    if not is_local(api_url):
+        # A record next to a hosted URL is left over from a failed local start,
+        # and its PID may since belong to an unrelated process.
+        forget_service("api")
+        return False
     record = read_service("api")
     pid = record.pid if record else None
     if pid is None and force:
