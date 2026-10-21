@@ -333,6 +333,26 @@ def test_temporary_empty_application_rerender_does_not_report_a_wall(
     assert failures == []
 
 
+def test_an_account_wall_after_the_first_page_is_the_next_steps_to_pass(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = state_machine_session()
+    fields = [{"fingerprint": "email"}]
+    states = iter([ApplicationPageState.ACCOUNT, ApplicationPageState.ACCOUNT])
+    times = iter([1.0, 7.0])
+    monkeypatch.setattr("personal_os_worker.jobs.autofill_session.inspect_fields", lambda _: fields)
+    monkeypatch.setattr(
+        "personal_os_worker.jobs.autofill_session.classify_application_page",
+        lambda *_: next(states),
+    )
+    monkeypatch.setattr(
+        "personal_os_worker.jobs.autofill_session.time.monotonic", lambda: next(times)
+    )
+    session.sleep = lambda: None  # type: ignore[method-assign]
+
+    assert session.wait_and_advance(fields) == ApplicationPageState.ACCOUNT
+
+
 def test_unrelated_foreground_tab_stands_by_until_the_form_returns(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

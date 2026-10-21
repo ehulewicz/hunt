@@ -85,6 +85,7 @@ from personal_os_worker.jobs.browser import (
     is_browser_closed_error,
     page_evidence,
     plan_autofill,
+    registrable_site,
     reveal_application_form,
     set_registered_value,
     snapshot_entries,
@@ -240,6 +241,7 @@ class SessionState:
     account_parked: bool = False  # the account flow gave the wall to you; it stays yours
     step: int = 0
     form_seen: bool = False
+    form_site: str | None = None  # the registrable site the form was first seen on
     navigation: TabNavigation | None = None
     # What stood between the run and its form, this run: the fixer's to work on.
     walls: list[Finding] = field(default_factory=list)
@@ -589,6 +591,7 @@ class AutofillSession:
             if page_state == ApplicationPageState.FORM:
                 self.note_observed_gate()
                 self.state.form_seen = True
+                self.state.form_site = self.state.form_site or registrable_site(self.page.url)
                 for item in fields:
                     item["ats"] = self.ctx.ats
                 return fields
@@ -706,6 +709,16 @@ class AutofillSession:
             echo(resolution.source, question, clicked, note=resolution.fact_key)
             self.state.gate_pending = None
         return opened
+
+    def gate_in_front(self) -> bool:
+        """Whether the tab in front shows a gate on the application's own site."""
+        if self.state.form_site is None:
+            return False
+        try:
+            same = registrable_site(self.page.url) == self.state.form_site
+            return same and bool(inspect_gateways(self.page))
+        except Error:
+            return False
 
     def gate_from_claude(self, gate: dict[str, Any]) -> AnswerResolution | None:
         """One bounded pass: which fact says how you start an application.
@@ -2634,6 +2647,10 @@ class AutofillSession:
                 transition_since = transition_since or time.monotonic()
                 if time.monotonic() - transition_since >= 5:
                     if page_state == ApplicationPageState.FORM:
+                        return page_state
+                    # A wall or a gate after the first page is the next step's
+                    # to pass, as it was before the form.
+                    if page_state == ApplicationPageState.ACCOUNT or self.gate_in_front():
                         return page_state
                     # The foreground tab is not the form: the user switched
                     # tabs or the page is mid-navigation. Only the user ends a

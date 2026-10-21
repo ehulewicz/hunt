@@ -492,10 +492,12 @@ def apply_posting(
         VisibleBrowser,
         identifies_posting,
         inspect_fields,
+        looks_like_application_form,
         page_evidence,
         rendered_body_text,
     )
     from personal_os_worker.jobs.keys import KeyWatcher
+    from personal_os_worker.jobs.navigate import Target, is_posting, reach_posting
     from personal_os_worker.jobs.remote import LinkedKeys, RunLink, mirrored
     from personal_os_worker.jobs.sites import adapter_version, failure_signature
 
@@ -574,7 +576,11 @@ def apply_posting(
                 link.tab(page)
 
             def report_page_failure(
-                category: str, message: str, *, step_number: int = 0
+                category: str,
+                message: str,
+                *,
+                step_number: int = 0,
+                offered: list[str] | None = None,
             ) -> None:
                 captured_fields = inspect_fields(page)
                 evidence = page_evidence(
@@ -608,6 +614,7 @@ def apply_posting(
                                 "field_fingerprint": fingerprint,
                                 "error_message": message,
                                 "artifact_paths": paths,
+                                "dom_signals": {"offered": offered} if offered else {},
                             }
                         ],
                     },
@@ -628,14 +635,23 @@ def apply_posting(
             if posting_closed(body):
                 report_page_failure("closed_posting", "The live posting appears closed")
                 raise RuntimeError("The live posting appears closed; nothing was filled")
-            if not identifies_posting(body, company=expected_company, title=expected_title):
-                report_page_failure(
-                    "form_role_mismatch",
-                    "The live page did not visibly match the intended company or role",
+            # A careers home names the company everywhere; only the role says
+            # this is the posting. A form already open with the company on it is.
+            on_form = looks_like_application_form(inspect_fields(page))
+            if not is_posting(page, expected_title, text=body) and not (
+                on_form and expected_company.casefold() in body.casefold()
+            ):
+                page = reach_posting(
+                    browser, page, Target(expected_title, expected_company),
+                    report_page_failure=report_page_failure,
                 )
-                raise RuntimeError(
-                    "The live page does not visibly match the intended company or role; "
-                    "nothing was filled"
+                if link is not None:
+                    link.tab(page)
+                body = rendered_body_text(
+                    page,
+                    accept=lambda text: identifies_posting(
+                        text, company=expected_company, title=expected_title
+                    ),
                 )
             console.print(
                 f"[bold]{expected_company}[/bold] — {expected_title}  [dim]({ats})[/dim]"
