@@ -5,13 +5,30 @@ the map across boundaries. How each piece works is documented once, in the
 README linked under [Where the details are](#where-the-details-are).
 
 ```
-label on the page → QUESTION → PATTERN → FACT → FORMATTER → value to enter
-                    what's     which     what's   how to write it
-                    asked      fact      true     for this control
-                                                        │
-                    CONTROL (which widget) → STRATEGY (how to operate it) → page → read-back
-                                                                                     │
-                                                          FILL EVENT + ANSWER HISTORY
+WHAT TO ENTER                                   HOW TO ENTER IT
+
+label on the page                               the same field's widget
+  │                                               │
+  ▼                                               ▼
+QUESTION    what's asked                        CONTROL     which widget
+  │                                               │
+  ▼                                               │
+PATTERN     which fact answers it                 │
+  │                                               │
+  ▼                                               │
+FACT        what's true                           │
+  │                                               │
+  ▼                                               │
+FORMATTER   how to write it for this control ◄────┤
+  │                                               │
+  │                                               ▼
+  └──────────── value ────────────────────────► STRATEGY    how to operate it
+                                                  │
+                                                  ▼
+                                                the page, then read back
+                                                  │
+                                                  ▼
+                                                FILL EVENT + ANSWER HISTORY
 ```
 
 | Piece | What it is | Where it lives | How it counts as verified |
