@@ -243,13 +243,10 @@ def build_parser() -> argparse.ArgumentParser:
     autofill.add_argument(
         "failure_action",
         nargs="?",
-        choices=["list", "show", "diagnose", "draft-fix", "apply-fix", "verify"],
+        choices=["list", "show"],
         help="Failure command when ref is 'failures'",
     )
     autofill.add_argument("failure_ref", nargs="?", help="Failure row or id prefix")
-    autofill.add_argument(
-        "verify_listing_ref", nargs="?", help="Saved listing used for live verification"
-    )
     autofill.add_argument(
         "--dry-run",
         action="store_true",
@@ -462,12 +459,8 @@ def _dispatch(args: argparse.Namespace) -> int:
             return knowledge.run_replay(question=args.question, fact_key=args.fact_key)
         if args.hunt_command == "apply":
             if args.ref == "failures":
-                return hunt.run_autofill_failure_command(
-                    args.failure_action,
-                    args.failure_ref,
-                    args.verify_listing_ref,
-                )
-            if args.failure_action or args.failure_ref or args.verify_listing_ref:
+                return hunt.run_autofill_failure_command(args.failure_action, args.failure_ref)
+            if args.failure_action or args.failure_ref:
                 raise RuntimeError("Unexpected autofill arguments")
             if args.done:
                 if (args.dry_run or args.no_claude or args.ats or not args.repair

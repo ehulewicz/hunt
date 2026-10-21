@@ -31,9 +31,10 @@ RoleFamily = Literal[
 ]
 # A label for querying runs and fill events, never behavior.
 AutofillAts = Literal["greenhouse", "ashby", "lever", "workday", "generic"]
+# Open, being fixed by the fixer now, fixed by a commit, or unsolved once its
+# attempts ran out; repaired and validated belong to the data repair lane.
 FailureStatus = Literal[
-    "open", "diagnosed", "patch_ready", "replay_passed", "live_verified", "fixed", "archived",
-    "repaired", "validated",
+    "open", "fixing", "fixed", "unsolved", "archived", "repaired", "validated",
 ]
 
 
@@ -202,6 +203,8 @@ class AutofillStepCreate(BaseModel):
     failures: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
     observations: list[AutofillObservation] = Field(default_factory=list, max_length=500)
     fill_events: list[FillEventCreate] = Field(default_factory=list, max_length=500)
+    # The model calls the run has made so far; a run's count only grows.
+    model_calls: int | None = Field(default=None, ge=0)
 
 
 class AutofillRunComplete(BaseModel):

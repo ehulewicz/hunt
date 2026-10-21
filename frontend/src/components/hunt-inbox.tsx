@@ -15,7 +15,9 @@ export function HuntInbox({ inbox, facts, onRefresh }: { inbox: Inbox | null; fa
   const [review, setReview] = useState<Review | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const toVerify = facts.filter((fact) => !fact.verified_at || isNoneValue(fact.value));
-  const counts = inbox ? { Questions: inbox.questions.length, "Facts to verify": toVerify.length, Writing: inbox.prose.length, "Pattern checks": inbox.candidates.length } : null;
+  // Failed checks first: each would change an answer you accepted.
+  const patterns = inbox ? [...(inbox.checks ?? []), ...inbox.candidates] : [];
+  const counts = inbox ? { Questions: inbox.questions.length, "Facts to verify": toVerify.length, Writing: inbox.prose.length, "Pattern checks": patterns.length } : null;
   const total = counts ? Object.values(counts).reduce((sum, count) => sum + count, 0) : null;
 
   return (
@@ -42,7 +44,7 @@ export function HuntInbox({ inbox, facts, onRefresh }: { inbox: Inbox | null; fa
                     {section === "Questions" && inbox.questions.map((item) => <button aria-label={`Review ${item.question.sample_label}`} className="review-row" key={item.question.id} onClick={() => setReview({ kind: "question", item })} type="button"><span className="review-icon"><Link2 aria-hidden="true" /></span><span><strong>{item.question.sample_label}</strong><small>{item.answers.length > 0 ? `${item.answers.length} previous answers` : "No previous answers"}</small></span><ChevronRight aria-hidden="true" /></button>)}
                     {section === "Facts to verify" && toVerify.map((item) => <button aria-label={`Review ${item.label}`} className="review-row" key={item.key} onClick={() => setReview({ kind: "fact", item })} type="button"><span className="review-icon"><Check aria-hidden="true" /></span><span><strong>{item.label}</strong><small>{factDisplayValue(item.value)}</small></span><ChevronRight aria-hidden="true" /></button>)}
                     {section === "Writing" && inbox.prose.map((item) => <button aria-label={`Review ${item.question_label ?? "Written answer"}`} className="review-row" key={item.id} onClick={() => setReview({ kind: "prose", item })} type="button"><span className="review-icon"><FileText aria-hidden="true" /></span><span><strong>{item.question_label ?? "Written answer"}</strong><small>{item.company_name ?? "Application answer"}</small></span><ChevronRight aria-hidden="true" /></button>)}
-                    {section === "Pattern checks" && inbox.candidates.map(({ pattern }) => <button aria-label={`Review ${pattern.question_label ?? pattern.expression}`} className="review-row" key={pattern.id} onClick={() => setReview({ kind: "pattern", item: pattern })} type="button"><span className="review-icon"><Link2 aria-hidden="true" /></span><span><strong>{pattern.question_label ?? pattern.expression}</strong><small>Suggested pattern: {pattern.fact_key}</small></span><ChevronRight aria-hidden="true" /></button>)}
+                    {section === "Pattern checks" && patterns.map(({ pattern }) => <button aria-label={`Review ${pattern.question_label ?? pattern.expression}`} className="review-row" key={pattern.id} onClick={() => setReview({ kind: "pattern", item: pattern })} type="button"><span className="review-icon"><Link2 aria-hidden="true" /></span><span><strong>{pattern.question_label ?? pattern.expression}</strong><small>Suggested pattern: {pattern.fact_key}</small></span><ChevronRight aria-hidden="true" /></button>)}
                   </div>}
               </>}
         </div>

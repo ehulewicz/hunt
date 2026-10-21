@@ -1,11 +1,14 @@
 """Changes and sightings: the history of what Jobs knows, and what it is checked against.
 
-A change records a pattern or fact before and after, who made it, and the
-failure it answered. The pattern and fact writes record theirs in the same
-transaction (`record_change`), so the history misses none. A change that was
-learned arrives with its verification: how many recorded sightings the worker
-replayed offline, and how many the change made wrong. A code change the
-maintenance path lands is posted here with its commit.
+A change records a pattern, fact, prose, question disposition, validated
+strategy, or code change before and after, who made it (you, the Inbox, a
+model, the repair lane, or the worker itself), and the failure it answered:
+the run, its question, and the failure issue. Each write records its change in
+the same transaction (`record_change`), so the history misses none. A change
+that was learned arrives with its verification: how many recorded sightings
+the worker replayed offline, and how many the change made wrong. A code change
+the fixer keeps is posted here with its commit, its diff, and how it was
+verified; a change recorded pending is resolved once its replay reports.
 
 A sighting is a short question answered in an application that went in: its
 label, the control, the options it offered when they were kept, what the
@@ -22,7 +25,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal, Protocol, Self
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
@@ -31,17 +34,19 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from personal_os_backend.auth import CurrentPrincipal
 from personal_os_backend.config import Settings
 
-Subject = Literal["pattern", "fact", "code"]
+Subject = Literal["pattern", "fact", "code", "prose", "question", "strategy"]
 Action = Literal["create", "update", "retire", "reject", "delete"]
-Origin = Literal["you", "inbox", "model", "repair"]
+Origin = Literal["you", "inbox", "model", "repair", "worker"]
 ChangeStatus = Literal["pending", "passed", "failed"]
 COMMIT = re.compile(r"^[0-9a-f]{7,64}$")
 # A question key as `normalize_answer_key` writes one.
 QUESTION_KEY = r"^[a-z0-9+#]+(?: [a-z0-9+#]+)*$"
 CHANGE_COLUMNS = """
     id, subject, subject_id, action, before, after, origin, run_id, question_key,
-    status, sampled, failed, created_at, verified_at
+    failure_issue_id, status, sampled, failed, created_at, verified_at
 """
+# The same columns from a table aliased `change`, for a join.
+CHANGE_SELECT = ", ".join(f"change.{column.strip()}" for column in CHANGE_COLUMNS.split(","))
 # The most sightings one request returns; the worker samples from them.
 SIGHTINGS_LIMIT = 2000
 
@@ -62,7 +67,8 @@ class Verification(BaseModel):
 
 
 class Failure(BaseModel):
-    """The failure a change answered: the run, and the question that failed in it."""
+    """The failure a change answered: the run, the question that failed in it,
+    and the failure issue it was recorded as."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -70,6 +76,7 @@ class Failure(BaseModel):
     question_key: str | None = Field(
         default=None, min_length=1, max_length=1000, pattern=QUESTION_KEY
     )
+    issue_id: UUID | None = None
 
 
 class Change(BaseModel):
@@ -82,6 +89,7 @@ class Change(BaseModel):
     origin: Origin
     run_id: UUID | None
     question_key: str | None
+    failure_issue_id: UUID | None = None
     status: ChangeStatus | None
     sampled: int | None
     failed: int | None
@@ -90,13 +98,17 @@ class Change(BaseModel):
 
 
 class CodeChangeCreate(BaseModel):
-    """A code change the maintenance path landed, with its commit."""
+    """A code change that landed, with its commit: the fixer's, or yours."""
 
     model_config = ConfigDict(extra="forbid")
 
     commit: str = Field(pattern=COMMIT.pattern)
-    origin: Literal["repair", "you"] = "repair"
+    origin: Literal["repair", "you", "worker"] = "repair"
     failure: Failure | None = None
+    # The commit it followed, and what it changed and how it was checked: the
+    # diff, the files, the attempts, the tests, the replay, the live readback.
+    parent: str | None = Field(default=None, pattern=COMMIT.pattern)
+    detail: dict[str, Any] | None = None
     # None records it pending: its replay has not reported.
     verification: Verification | None = None
 
@@ -154,11 +166,13 @@ async def record_change(
         f"""
         insert into app.jobs_changes (
           user_id, subject, subject_id, action, before, after, origin, run_id, question_key,
-          status, sampled, failed, verified_at
+          failure_issue_id, status, sampled, failed, verified_at
         ) values (
           %s, %s, %s, %s, %s, %s, %s,
           (select id from app.jobs_autofill_runs where id = %s and user_id = %s),
-          %s, %s, %s, %s, case when %s then now() end
+          %s,
+          (select id from app.jobs_autofill_failure_issues where id = %s and user_id = %s),
+          %s, %s, %s, case when %s then now() end
         )
         returning {CHANGE_COLUMNS}
         """,
@@ -169,6 +183,7 @@ async def record_change(
             origin,
             failure.run_id if failure is not None else None, user_id,
             failure.question_key if failure is not None else None,
+            failure.issue_id if failure is not None else None, user_id,
             status_value,
             verification.sampled if verification is not None else None,
             verification.failed if verification is not None else None,
@@ -212,6 +227,10 @@ class ChangeStore(Protocol):
     ) -> list[Change]: ...
 
     async def create_code_change(self, user_id: UUID, item: CodeChangeCreate) -> Change: ...
+
+    async def resolve_change(
+        self, user_id: UUID, change_id: UUID, verification: Verification
+    ) -> Change | None: ...
 
     async def sightings(self, user_id: UUID, *, limit: int) -> list[Sighting]: ...
 
@@ -262,13 +281,38 @@ class PostgresChangeStore:
                 subject="code",
                 subject_id=item.commit,
                 action="create",
-                before=None,
-                after=None,
+                before={"commit": item.parent} if item.parent else None,
+                after={"commit": item.commit} | (item.detail or {}),
                 origin=item.origin,
                 failure=item.failure,
                 verification=item.verification,
                 pending=item.verification is None,
             )
+
+    async def resolve_change(
+        self, user_id: UUID, change_id: UUID, verification: Verification
+    ) -> Change | None:
+        """Record the replay a pending change was waiting for; None when there is
+        no such pending change, since a verified change is never rewritten."""
+        async with (
+            self._pool.connection(timeout=self._timeout) as connection,
+            connection.transaction(),
+        ):
+            await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                f"""
+                update app.jobs_changes
+                set status = %s, sampled = %s, failed = %s, verified_at = now()
+                where user_id = %s and id = %s and status = 'pending'
+                returning {CHANGE_COLUMNS}
+                """,
+                (
+                    "failed" if verification.failed else "passed",
+                    verification.sampled, verification.failed, user_id, change_id,
+                ),
+            )
+            row = await cursor.fetchone()
+        return Change.model_validate(row) if row else None
 
     async def sightings(self, user_id: UUID, *, limit: int) -> list[Sighting]:
         """Short answers submitted with an application, newest first.
@@ -349,6 +393,16 @@ async def create_code_change(
     item: CodeChangeCreate, principal: CurrentPrincipal, store: Store
 ) -> Change:
     return await store.create_code_change(principal.user_id, item)
+
+
+@router.patch("/changes/{change_id}/verification", response_model=Change)
+async def resolve_change(
+    change_id: UUID, verification: Verification, principal: CurrentPrincipal, store: Store
+) -> Change:
+    change = await store.resolve_change(principal.user_id, change_id, verification)
+    if change is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No pending change with that id")
+    return change
 
 
 @router.get("/sightings", response_model=list[Sighting])

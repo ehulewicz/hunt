@@ -14,12 +14,14 @@ from personal_os_backend.jobs_answers import (
     PatternCreate,
     PatternUpdate,
     PostgresAnswerStore,
+    ProseUpdate,
     QuestionUpdate,
 )
 from personal_os_backend.jobs_changes import (
     Change,
     CodeChangeCreate,
     Failure,
+    PostgresChangeStore,
     Sighting,
     Verification,
     get_change_store,
@@ -33,13 +35,15 @@ USER_ID = UUID("c3c8d239-162d-4e5e-a2a1-4ac0d1b3695f")
 HEADERS = {"Authorization": "Bearer approved"}
 NOW = datetime(2026, 10, 21, tzinfo=UTC)
 RUN_ID = uuid4()
+PENDING_ID = uuid4()
 
 
 def change_row(**fields: Any) -> dict[str, Any]:
     return {
         "id": uuid4(), "subject": "pattern", "subject_id": "x", "action": "create",
         "before": None, "after": None, "origin": "you", "run_id": None, "question_key": None,
-        "status": None, "sampled": None, "failed": None, "created_at": NOW, "verified_at": None,
+        "failure_issue_id": None, "status": None, "sampled": None, "failed": None,
+        "created_at": NOW, "verified_at": None,
     } | fields
 
 
@@ -62,13 +66,13 @@ class ScriptConnection:
         self.queries.append((query, params))
         if "insert into app.jobs_changes" in query:
             (_, subject, subject_id, action, before, after, origin, run_id, _, question_key,
-             status, sampled, failed, verified) = params
+             issue_id, _, status, sampled, failed, verified) = params
             row = change_row(
                 subject=subject, subject_id=subject_id, action=action,
                 before=before.obj if before is not None else None,
                 after=after.obj if after is not None else None, origin=origin, run_id=run_id,
-                question_key=question_key, status=status, sampled=sampled, failed=failed,
-                verified_at=NOW if verified else None,
+                question_key=question_key, failure_issue_id=issue_id, status=status,
+                sampled=sampled, failed=failed, verified_at=NOW if verified else None,
             )
             self.changes.append(row)
             self._rows = [row]
@@ -300,6 +304,16 @@ class FakeChangeStore:
             subject="code", subject_id=item.commit, origin=item.origin, status="pending",
         ))
 
+    async def resolve_change(
+        self, user_id: UUID, change_id: UUID, verification: Verification
+    ) -> Change | None:
+        if change_id != PENDING_ID:
+            return None
+        return Change.model_validate(change_row(
+            id=change_id, status="failed" if verification.failed else "passed",
+            sampled=verification.sampled, failed=verification.failed, verified_at=NOW,
+        ))
+
     async def sightings(self, user_id: UUID, *, limit: int) -> list[Sighting]:
         return [Sighting(
             question="Phone Extension", question_key="phone extension", kind="text_entry",
@@ -367,3 +381,82 @@ async def test_history_code_changes_and_sightings_are_served(
         sightings = await client.get("/v1/jobs/sightings", headers=HEADERS)
         assert sightings.json()[0]["answer"] == "12"
         assert (await client.get("/v1/jobs/changes")).status_code == 401
+
+
+
+async def test_a_fixers_commit_carries_its_detail_and_a_pending_change_resolves_once(
+    client: httpx.AsyncClient, changes: FakeChangeStore
+) -> None:
+    issue = uuid4()
+    async with client:
+        made = await client.post("/v1/jobs/changes", headers=HEADERS, json={
+            "commit": "abc1234", "origin": "worker", "parent": "5f666c2",
+            "failure": {"run_id": str(RUN_ID), "question_key": "years", "issue_id": str(issue)},
+            "detail": {"files": ["workers/src/x.py"], "attempts": 2, "probe": "read back"},
+        })
+        assert made.status_code == 201
+        assert changes.code[0].failure is not None and changes.code[0].failure.issue_id == issue
+        resolved = await client.patch(
+            f"/v1/jobs/changes/{PENDING_ID}/verification", headers=HEADERS,
+            json={"sampled": 30, "failed": 0},
+        )
+        assert resolved.status_code == 200 and resolved.json()["status"] == "passed"
+        gone = await client.patch(
+            f"/v1/jobs/changes/{uuid4()}/verification", headers=HEADERS,
+            json={"sampled": 30, "failed": 0},
+        )
+        assert gone.status_code == 404
+
+
+async def test_a_code_change_records_its_parent_detail_and_failure_issue() -> None:
+    connection = ScriptConnection(nothing)
+    store = PostgresChangeStore(ScriptPool(connection), 5)  # type: ignore[arg-type]
+    issue = uuid4()
+    change = await store.create_code_change(USER_ID, CodeChangeCreate(
+        commit="abc1234", origin="worker", parent="5f666c2",
+        failure=Failure(run_id=RUN_ID, issue_id=issue), detail={"attempts": 1},
+    ))
+    assert change.before == {"commit": "5f666c2"}
+    assert change.after == {"commit": "abc1234", "attempts": 1}
+    assert change.failure_issue_id == issue and change.status == "pending"
+    insert = next(query for query, _ in connection.queries if "jobs_changes" in query)
+    # The issue is linked only when it is this user's.
+    assert "from app.jobs_autofill_failure_issues where id = %s and user_id = %s" in insert
+
+
+async def test_prose_and_question_dispositions_are_changes_too() -> None:
+    prose_id, question_id = uuid4(), uuid4()
+    texts = iter(["First draft.", "First draft, edited."])
+
+    def prose_row() -> dict[str, Any]:
+        return {"id": prose_id, "question_id": question_id, "question_label": "Why us?",
+                "application_id": None, "company_name": None, "text": next(texts),
+                "approved": False, "origin": "model", "provenance": None, "submitted": False,
+                "created_at": NOW, "updated_at": NOW}
+
+    def answer(query: str, params: Any) -> list[dict[str, Any]]:
+        if "from app.jobs_prose prose" in query:
+            return [prose_row()]
+        if "update app.jobs_prose" in query:
+            return [{"id": prose_id}]
+        if "select disposition from app.jobs_questions" in query:
+            return [{"disposition": "unbound"}]
+        if "update app.jobs_questions" in query:
+            return [{"id": question_id, "normalized_key": "why us", "sample_label": "Why us?",
+                     "form": "short", "disposition": "long_form", "pattern_id": None,
+                     "first_seen_at": NOW, "last_seen_at": NOW}]
+        return []
+
+    connection = ScriptConnection(answer)
+    store = PostgresAnswerStore(ScriptPool(connection), 5)  # type: ignore[arg-type]
+    await store.update_prose(USER_ID, prose_id, ProseUpdate(text="First draft, edited.",
+                                                            origin="inbox"))
+    await store.update_question(USER_ID, question_id, QuestionUpdate(disposition="long_form"))
+
+    prose, question = connection.changes
+    assert (prose["subject"], prose["action"], prose["origin"]) == ("prose", "update", "inbox")
+    assert (prose["before"]["text"], prose["after"]["text"]) == (
+        "First draft.", "First draft, edited.")
+    assert (question["subject"], question["subject_id"]) == ("question", str(question_id))
+    assert (question["before"], question["after"]) == (
+        {"disposition": "unbound"}, {"disposition": "long_form"})

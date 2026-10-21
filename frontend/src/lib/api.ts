@@ -144,8 +144,11 @@ export type InboxQuestion = {
   question: { id: string; sample_label: string };
   answers: AnswerSeen[];
 };
+export type InboxCandidate = { pattern: Pattern; answers: AnswerSeen[] };
 export type Inbox = {
-  candidates: { pattern: Pattern; answers: AnswerSeen[] }[];
+  candidates: InboxCandidate[];
+  // Learned patterns whose replay changed an answer you accepted.
+  checks?: InboxCandidate[];
   questions: InboxQuestion[];
   prose: Prose[];
 };

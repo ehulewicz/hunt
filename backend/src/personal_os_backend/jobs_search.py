@@ -1,7 +1,9 @@
 """Question similarity, using cached OpenAI vectors in the private Jobs schema.
 
-Only question labels are embedded. FastAPI owns both the provider credential
-and database access; neither answers nor fact values go to the embedding API.
+Only question labels and fact labels are embedded. FastAPI owns both the
+provider credential and database access; neither answers nor fact values go to
+the embedding API. Ranking facts for a question orders the facts a model is
+shown, closest first; it never hides one.
 """
 
 from __future__ import annotations
@@ -159,7 +161,77 @@ async def search_questions(
     return matches
 
 
+class FactLabel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=3, max_length=200, pattern=r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
+    label: str = Field(min_length=1, max_length=300)
+
+
+class FactRanking(BaseModel):
+    """Questions to rank facts for, by the facts' labels: never their values."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    questions: list[str] = Field(min_length=1, max_length=50)
+    facts: list[FactLabel] = Field(min_length=1, max_length=1000)
+    limit: int = Field(default=15, ge=1, le=100)
+
+
+class RankedFacts(BaseModel):
+    question: str
+    keys: list[str]
+
+
+# Label vectors, kept in memory: a fact catalog's labels rarely change, and a
+# page step asks for the same ones again. Bounded so it cannot grow unchecked.
+_VECTORS: dict[str, list[float]] = {}
+VECTOR_CACHE_LIMIT = 5000
+
+
+async def rank_facts(request: Request, item: FactRanking) -> list[RankedFacts]:
+    settings = request.app.state.settings
+    if settings.openai_api_key is None:
+        raise HTTPException(503, "Fact ranking is not configured")
+    texts = list(dict.fromkeys([*item.questions, *(fact.label for fact in item.facts)]))
+    pending = [text for text in texts if text not in _VECTORS]
+    async with httpx.AsyncClient(timeout=30) as client:
+        for start in range(0, len(pending), BATCH_SIZE):
+            batch = pending[start:start + BATCH_SIZE]
+            vectors = await embed_questions(
+                client, settings.openai_api_key.get_secret_value(), batch
+            )
+            if len(_VECTORS) + len(batch) > VECTOR_CACHE_LIMIT:
+                _VECTORS.clear()
+            _VECTORS.update(zip(batch, vectors, strict=True))
+
+    def similarity(left: list[float], right: list[float]) -> float:
+        # The provider's vectors are unit length: their dot product is the cosine.
+        return sum(a * b for a, b in zip(left, right, strict=True))
+
+    rankings: list[RankedFacts] = []
+    for question in item.questions:
+        target = _VECTORS[question]
+        scored = sorted(
+            item.facts, key=lambda fact: (-similarity(target, _VECTORS[fact.label]), fact.key)
+        )
+        rankings.append(RankedFacts(
+            question=question, keys=[fact.key for fact in scored[:item.limit]]
+        ))
+    return rankings
+
+
 router = APIRouter(prefix="/v1/jobs/questions", tags=["questions"])
+
+
+@router.post("/rank-facts", response_model=list[RankedFacts])
+async def rank_facts_for_questions(
+    item: FactRanking, principal: CurrentPrincipal, request: Request,
+) -> list[RankedFacts]:
+    try:
+        return await rank_facts(request, item)
+    except (httpx.HTTPError, ValueError, KeyError) as error:
+        raise HTTPException(503, "Fact ranking is temporarily unavailable") from error
 
 
 @router.post("/similar", response_model=list[SimilarQuestion])

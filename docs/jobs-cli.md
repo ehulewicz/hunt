@@ -71,10 +71,6 @@ os hunt repair                # retry queued failures from runs with --no-repair
 os hunt validate              # watch each repaired rule fill, then accept or reject it
 os hunt apply failures list
 os hunt apply failures show 1
-os hunt apply failures diagnose 1
-os hunt apply failures draft-fix 1
-os hunt apply failures apply-fix 1
-os hunt apply failures verify 1 7
 ```
 
 ```bash
@@ -307,10 +303,5 @@ fact, so they go to the Inbox. On account-gated boards (Workday) the isolated
 retry cannot reach the form; apply's own retry can, because it works on your
 signed-in page.
 
-Failure diagnosis and fix drafting use subscription-authenticated local Claude.
-`apply-fix` requires the literal confirmation `apply`, changes only worker or
-worker-test paths, runs the replay suite and then `os hunt replay` on the patched
-code, and never commits. Commit the reviewed fix yourself before `verify`;
-`verify` replays the commit against the answers you accepted and records it as a
-code change with that result, stops if the fix changes one for the worse, and
-marks the issue fixed only after live headed confirmation.
+`os hunt apply failures list` and `show` read what runs could not settle, with
+its evidence. Fixing is the run's own job, during the run.

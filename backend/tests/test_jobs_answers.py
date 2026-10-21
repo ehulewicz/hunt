@@ -278,7 +278,10 @@ async def test_a_candidate_is_accepted_and_then_listed_as_active(
 async def test_inbox_questions_and_archive_are_readable(client: httpx.AsyncClient) -> None:
     async with client:
         inbox = await client.get("/v1/jobs/inbox", headers=HEADERS)
-        assert inbox.json() == {"candidates": [], "questions": [], "prose": []}
+        assert inbox.json() == {
+            "candidates": [], "checks": [], "questions": [], "prose": [], "facts": [],
+            "unsolved": [],
+        }
         questions = await client.get("/v1/jobs/questions?disposition=unbound", headers=HEADERS)
         assert questions.json()[0]["sample_label"] == "Will you require sponsorship?"
         one_off = await client.patch(

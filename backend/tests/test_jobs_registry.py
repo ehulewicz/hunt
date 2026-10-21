@@ -41,7 +41,7 @@ def test_a_step_carries_fill_events() -> None:
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"kind": "checkbox"},
+        {"kind": "Check Box"},
         {"stopped_at": "readback"},
         {"strategy": "Check Control"},
         {"stopped_at": "strategy", "operated_ok": True},

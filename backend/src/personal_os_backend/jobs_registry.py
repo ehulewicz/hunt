@@ -21,15 +21,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from personal_os_backend.jobs_answers import normalize_answer_key, upsert_question
 from personal_os_backend.jobs_changes import ReplayKnowledge
 
-ControlKind = Literal[
-    "text_entry",
-    "native_select",
-    "choice_group",
-    "multi_choice_group",
-    "toggle",
-    "dynamic_choice",
-    "file",
-]
+# The seven kinds the registry started with, and any the fixer adds since: a
+# kind is a name the worker's code knows, not a fixed list.
+ControlKind = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{1,40}$")]
 StoppedAt = Literal["pattern", "format", "strategy"]
 STRATEGY_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 # A strategy the worker reports that the seed did not know sorts after every

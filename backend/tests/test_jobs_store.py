@@ -133,12 +133,12 @@ def test_lists_that_are_addressed_by_row_have_deterministic_order() -> None:
     assert "order by updated_at desc, id" in answers  # the archive, listed by row
 
 
-def test_a_repair_that_fails_again_goes_back_to_the_queue() -> None:
+def test_a_fix_that_fails_again_goes_back_to_the_queue() -> None:
     source = (
         Path(__file__).resolve().parents[1] / "src/personal_os_backend/jobs_store.py"
     ).read_text()
-    upsert = " ".join(source.split("on conflict (user_id, signature)", 1)[1].split()[:80])
-    assert "'archived', 'repaired', 'validated' ) then 'open'" in upsert
+    upsert = " ".join(source.split("on conflict (user_id, signature)", 1)[1].split()[:120])
+    assert "'fixed', 'archived', 'repaired', 'validated', 'unsolved' ) then 'open'" in upsert
     assert "stopped_at = coalesce( excluded.stopped_at" in upsert
 
 

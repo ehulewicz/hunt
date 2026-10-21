@@ -24,7 +24,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from personal_os_backend.auth import CurrentPrincipal
 from personal_os_backend.config import Settings
-from personal_os_backend.jobs_changes import Action, Failure, Origin, record_change
+from personal_os_backend.jobs_changes import (
+    Action,
+    Failure,
+    Origin,
+    Verification,
+    record_change,
+)
 
 FactType = Literal["text", "boolean", "number", "date", "choice", "list", "object"]
 FACT_KEY = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
@@ -89,6 +95,10 @@ class FactWrite(BaseModel):
     # Who set it, and the failure it answers: a fact given mid-run fills a gap.
     origin: Literal["you", "inbox"] = "you"
     failure: Failure | None = None
+    # The worker's replay of the new value against the answers you accepted:
+    # how many it sampled and how many now disagree. Your fact is saved either
+    # way; what disagrees is recorded with it and waits in the Inbox.
+    verification: Verification | None = None
 
 
 class FactStore(Protocol):
@@ -111,6 +121,7 @@ async def _record_fact(
     *,
     origin: Origin = "you",
     failure: Failure | None = None,
+    verification: Verification | None = None,
 ) -> None:
     def shown(row: dict[str, Any] | None) -> Any:
         return Fact.model_validate(row).model_dump(mode="json") if row else None
@@ -118,6 +129,7 @@ async def _record_fact(
     await record_change(
         connection, user_id, subject="fact", subject_id=key, action=action,
         before=shown(before), after=shown(after), origin=origin, failure=failure,
+        verification=verification,
     )
 
 
@@ -180,7 +192,7 @@ class PostgresFactStore:
                 raise RuntimeError("The fact write returned no row")
             await _record_fact(
                 connection, user_id, key, "update" if existing else "create", existing, row,
-                origin=item.origin, failure=item.failure,
+                origin=item.origin, failure=item.failure, verification=item.verification,
             )
         return Fact.model_validate(row)
 

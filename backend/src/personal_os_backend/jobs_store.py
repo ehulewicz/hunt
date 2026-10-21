@@ -18,6 +18,7 @@ from personal_os_backend.jobs_answers import (
     stripped_spans,
     upsert_question,
 )
+from personal_os_backend.jobs_changes import Failure, record_change
 from personal_os_backend.jobs_models import (
     DEFAULT_TECHNICAL_FAMILIES,
     ApplicationUpdate,
@@ -755,7 +756,8 @@ class PostgresJobsStore:
                 set current_step = greatest(current_step, %s), final_url = %s,
                     filled_count = filled_count + %s,
                     skipped_count = skipped_count + %s,
-                    failure_count = failure_count + %s
+                    failure_count = failure_count + %s,
+                    model_calls = greatest(model_calls, coalesce(%s, 0))
                 where id = %s and user_id = %s and status = 'running'
                 returning application_id, ats, adapter_version
                 """,
@@ -765,6 +767,7 @@ class PostgresJobsStore:
                     item.filled_count,
                     item.skipped_count,
                     len(item.failures),
+                    item.model_calls,
                     run_id,
                     user_id,
                 ),
@@ -792,11 +795,12 @@ class PostgresJobsStore:
                       stopped_at = coalesce(
                         excluded.stopped_at, app.jobs_autofill_failure_issues.stopped_at
                       ),
-                      -- A repair that fails again did not hold: back to the queue.
+                      -- A fix that fails again did not hold, and an unsolved issue
+                      -- is worth another try with today's code: back to the queue.
+                      -- One the fixer is working on stays with it.
                       status = case
                         when app.jobs_autofill_failure_issues.status in (
-                          'replay_passed', 'live_verified', 'fixed', 'archived',
-                          'repaired', 'validated'
+                          'fixed', 'archived', 'repaired', 'validated', 'unsolved'
                         ) then 'open'
                         else app.jobs_autofill_failure_issues.status
                       end
@@ -1125,16 +1129,16 @@ class PostgresJobsStore:
             if current is None:
                 return None
             next_status = values.get("status")
+            # The fixer takes an issue from wherever it stands; a fix it keeps
+            # is fixed, one it gives up on is unsolved and can be taken again.
             allowed = {
-                "open": {"open", "diagnosed", "repaired"},
-                "diagnosed": {"diagnosed", "patch_ready", "repaired"},
-                "patch_ready": {"patch_ready", "replay_passed"},
-                "replay_passed": {"replay_passed", "live_verified", "fixed"},
-                "live_verified": {"live_verified", "fixed"},
+                "open": {"open", "fixing", "fixed", "unsolved", "repaired"},
+                "fixing": {"fixing", "fixed", "unsolved", "open", "repaired"},
+                "unsolved": {"unsolved", "fixing", "fixed", "open", "repaired"},
                 "fixed": {"fixed"},
                 "archived": {"archived"},
                 # A repaired rule is validated by watching it work, or rejected back.
-                "repaired": {"repaired", "validated", "open"},
+                "repaired": {"repaired", "validated", "open", "fixing"},
                 "validated": {"validated"},
             }
             if next_status is not None and next_status not in allowed[str(current["status"])]:
@@ -1145,9 +1149,8 @@ class PostgresJobsStore:
                 raise ValueError("A fixed issue requires the verified Git commit")
             if next_status == "repaired" and not (values.get("candidate") or current["candidate"]):
                 raise ValueError("A repaired issue carries the rule that repaired it")
-            if next_status == "replay_passed":
-                values["replay_verified_at"] = datetime.now(UTC)
-            if next_status in {"live_verified", "fixed"}:
+            if next_status == "fixed":
+                # A fix is kept only once it read back on the live control.
                 values["live_verified_at"] = datetime.now(UTC)
             if next_status == "repaired":
                 values["repaired_at"] = datetime.now(UTC)
@@ -1175,6 +1178,15 @@ class PostgresJobsStore:
                 (*values.values(), user_id, issue_id),
             )
             row = await cursor.fetchone()
+            candidate = (row or {}).get("candidate") or {}
+            validated = row is not None and next_status == "validated"
+            if validated and candidate.get("kind") == "strategy":
+                # Watching it work makes it that control's first strategy from now on.
+                await record_change(
+                    connection, user_id, subject="strategy", subject_id=str(row["signature"]),
+                    action="create", before=None, after=candidate, origin="you",
+                    failure=Failure(issue_id=issue_id),
+                )
         return AutofillFailureIssue.model_validate(row) if row else None
 
     async def validation_target(

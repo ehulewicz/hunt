@@ -83,8 +83,12 @@ rejected or retired, a binding over the question's existing binding, a question
 you marked one-off or long-form, or an expression nesting one repetition in
 another; nor is an expression saved again while it waits in the Inbox. A fill
 event never proposes a pattern. `GET /v1/jobs/inbox` lists candidate and
-repaired patterns with the answers recorded for their question, unbound short
-questions you answered, and unapproved prose. An unbound question that active expressions already decide
+repaired patterns with the answers recorded for their question (`checks` holds
+those whose replay failed, apart from plain `candidates`), unbound short
+questions you answered, unapproved prose, `facts` waiting on you (never
+verified, named missing by a run's `fact_gap` issue, or contradicted by the
+replay of their latest change), and `unsolved` failure issues the fixer gave up
+on. An unbound question that active expressions already decide
 (they match it and name one fact, as the worker's resolver requires) is left
 out, and so is one recorded before the rule above that asks nothing. Accepting a binding (`PATCH /patterns/{id}` to `active`)
 retires the question's previous binding and marks the question `pattern`, and
@@ -128,8 +132,13 @@ Failure signatures deduplicate issues while occurrence rows preserve run/step
 evidence. The issues are also the repair queue: a failure records where the fill
 stopped (`format` or `strategy`), and its occurrence keeps the question, fact,
 and formatter. `open` → `repaired` requires the candidate rule that worked;
-`repaired` → `validated` once you watched it, or back to `open`; a repaired or
-validated signature that fails again reopens. `GET
+`repaired` → `validated` once you watched it, or back to `open`. The fixer
+moves an issue to `fixing` while it works on it, to `fixed` (which requires the
+commit, and dates the live readback) once a code fix is kept, or to `unsolved`
+when its attempts run out; an unsolved issue can be taken again. A fixed,
+validated, repaired, archived, or unsolved signature that fails again reopens;
+one being fixed stays with the fixer. Each step may carry the run's
+`model_calls` so far, and a run's count only grows. `GET
 /autofill/failures/{id}/target` names an unsubmitted application that showed the
 question, another posting before the one that failed (R26), and every run's
 context carries the validated strategy candidates as control preferences. FastAPI alone writes sanitized artifacts to the private autofill bucket
@@ -138,20 +147,29 @@ authorization. Submission and submitted status stay manual.
 
 ### Changes and sightings
 
-`jobs_changes.py` keeps the history of what Jobs knows (R69). Every pattern and
-fact write records a `jobs_changes` row in its own transaction: the subject
-(`pattern` by id, `fact` by key), the action, the row before and after as JSON,
-who made it (`you`, `inbox`, `model`), and, when the write names one, the
-failure it answered (a run of yours and the question's key). A binding that
+`jobs_changes.py` keeps the history of what Jobs knows (R69). Every pattern,
+fact, prose, and question-disposition write records a `jobs_changes` row in its
+own transaction, and validating a strategy records one too: the subject
+(`pattern`, `prose`, or `question` by id, `fact` by key, `strategy` by its
+issue's signature, `code` by commit), the action, the row before and after as
+JSON, who made it (`you`, `inbox`, `model`, `repair`, or `worker`), and, when
+the write names one, the failure it answered (a run of yours, the question's
+key, and the failure issue). A fact write may carry the worker's replay of the
+new value; your fact is saved either way, and a failed replay puts it in the
+Inbox as contradicted. A binding that
 replaces another records the one it retired too, as does marking its question
 one-off, long-form, or unbound. A pattern the worker learned
 arrives with its verification, the sightings it replayed and how many it made
 wrong; one that made any wrong cannot arrive active, so it waits in the Inbox,
 and `GET /v1/jobs/inbox` carries that failed change as the candidate's `check`.
 A change you make is recorded unverified. `POST /v1/jobs/changes` records a code
-change: its commit as the subject, origin `repair` by default, and its
-verification, or `pending` without one. `GET /v1/jobs/changes` filters by
-subject, subject id, and status, newest first.
+change: its commit as the subject, origin `repair` by default (`worker` for the
+fixer), the commit it followed as `before`, its detail (diff, files, attempts,
+tests, replay, live readback) in `after`, and its verification, or `pending`
+without one. `PATCH /v1/jobs/changes/{id}/verification` records the replay a
+pending change waited for, once; a verified change is never rewritten (404).
+`GET /v1/jobs/changes` filters by subject, subject id, and status, newest
+first.
 
 `GET /v1/jobs/sightings` serves what a change is replayed against: each short
 answer submitted with an application, newest first, with the input type or tag
@@ -178,6 +196,12 @@ comparisons scan this single user's small corpus; no approximate index is needed
 The model is pinned in code; replacing it requires clearing and rebuilding all
 cached vectors. The key is `PERSONAL_OS_API_OPENAI_API_KEY`, supplied from GCP
 Secret Manager; it is never sent to the worker or frontend.
+
+`POST /v1/jobs/questions/rank-facts` orders facts for each question by the
+cosine similarity of their labels, closest first, up to `limit` keys. The worker
+sends fact keys and labels, never values; label vectors are cached in memory
+(bounded) and never stored. The worker shows every fact to a model and only
+lists these first, so a poor ranking cannot hide the right one.
 
 ### Devices
 

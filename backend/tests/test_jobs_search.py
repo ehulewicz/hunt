@@ -33,3 +33,42 @@ async def test_malformed_embedding_responses_never_reach_the_database(data: list
     )) as client:
         with pytest.raises(ValueError, match="embedding"):
             await embed_questions(client, "test-key", ["Why this company?"])
+
+
+async def test_facts_are_ranked_by_label_and_never_send_a_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from pydantic import SecretStr
+
+    from personal_os_backend import jobs_search
+    from personal_os_backend.jobs_search import FactLabel, FactRanking, rank_facts
+
+    axes = {"How many years have you programmed?": 0, "Years of experience": 0,
+            "Graduation date": 1, "Phone number": 2}
+    sent: list[str] = []
+
+    async def embed(_client: object, _key: str, texts: list[str]) -> list[list[float]]:
+        sent.extend(texts)
+        return [[1.0 if index == axes[text] else 0.0 for index in range(3)] + [0.0] * 1533
+                for text in texts]
+
+    monkeypatch.setattr(jobs_search, "embed_questions", embed)
+    monkeypatch.setattr(jobs_search, "_VECTORS", {})
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        settings=SimpleNamespace(openai_api_key=SecretStr("test-key")))))
+    item = FactRanking(
+        questions=["How many years have you programmed?"],
+        facts=[FactLabel(key="education.graduation", label="Graduation date"),
+               FactLabel(key="experience.years", label="Years of experience"),
+               FactLabel(key="contact.phone", label="Phone number")],
+        limit=2,
+    )
+    [ranked] = await rank_facts(request, item)  # type: ignore[arg-type]
+    assert ranked.keys[0] == "experience.years" and len(ranked.keys) == 2
+    assert set(sent) == set(axes)
+    # Asked again, nothing is embedded twice.
+    sent.clear()
+    await rank_facts(request, item)  # type: ignore[arg-type]
+    assert sent == []

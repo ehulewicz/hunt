@@ -45,9 +45,12 @@ serves only the facts session and is dropped after it; no application reads it.
 Failure issues double as the repair queue: `stopped_at` (`format` or `strategy`)
 says whether Repair can retry one, `candidate` holds the rule a repair found, and
 `repaired_at` and `validated_at` date the two steps; a `repaired` or `validated`
-issue must carry its candidate. Failure issues the old dispatch left open are
-`archived`; a signature that
-fails again reopens.
+issue must carry its candidate. An issue the fixer works on is `fixing`, then
+`fixed` (with its commit) or `unsolved`. Failure issues the old dispatch left
+open are `archived`; a signature that fails again reopens. `jobs_changes` holds
+every change to a pattern, fact, prose, question disposition, validated strategy,
+or code, with who made it and the failure issue it fixed (`failure_issue_id`).
+`jobs_autofill_runs.model_calls` counts a run's model calls.
 
 An observed history row is identified by run and event index; final rows retain the
 submitted or drafted value with step and control context. Autofill activates only a
@@ -61,7 +64,8 @@ questions, and location overlap. The worker task queue and tailoring audit table
 were dropped when the task worker was retired.
 
 `jobs_controls`, `jobs_strategies`, and `jobs_fill_events` measure the fill
-path. A control is a kind (one of seven) plus a `jsonb` structural attribute
+path. A control is a kind (the seven seeded ones, or a name the fixer's code
+adds) plus a `jsonb` structural attribute
 vector, unique per user, and never includes the ATS or the question. A strategy
 is a named way of operating a kind, with a precedence and a lifecycle status; the
 ten that exist in code are seeded `active`. A fill event is one attempt: the

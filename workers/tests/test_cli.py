@@ -375,9 +375,12 @@ def test_autofill_no_claude_flag_defaults_off() -> None:
 
 def test_autofill_failure_commands_preserve_the_documented_syntax() -> None:
     listed = build_parser().parse_args(["hunt", "apply", "failures", "list"])
-    verified = build_parser().parse_args(["hunt", "apply", "failures", "verify", "2", "9"])
+    shown = build_parser().parse_args(["hunt", "apply", "failures", "show", "2"])
     assert (listed.ref, listed.failure_action) == ("failures", "list")
-    assert (verified.failure_ref, verified.verify_listing_ref) == ("2", "9")
+    assert (shown.failure_action, shown.failure_ref) == ("show", "2")
+    # Fixing is the run's own job now; the after-the-fact commands are gone.
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "apply", "failures", "verify", "2", "9"])
 
 
 def test_stop_defaults_to_everything_and_is_not_forced() -> None:

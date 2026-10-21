@@ -278,6 +278,33 @@ def review_prose(
         counts["skipped"] += 1
 
 
+def print_waiting_facts(facts: list[dict[str, Any]]) -> None:
+    """The facts a run named missing or a replay contradicts; 'facts review' settles them."""
+    missing = [item for item in facts if item.get("reason") == "missing"]
+    contradicted = [item for item in facts if item.get("reason") == "contradicted"]
+    for item in missing:
+        name = item.get("key") or item.get("missing_fact") or "a fact"
+        console.print(f"missing fact: {name} (asked by {item.get('question') or 'a question'!r});"
+                      " 'os hunt facts set' gives it")
+    for item in contradicted:
+        check = item.get("check") or {}
+        console.print(f"contradicted fact: {item.get('key')}: {check.get('failed')} of "
+                      f"{check.get('sampled')} accepted answer(s) disagree with its value")
+    unverified = sum(1 for item in facts if item.get("reason") == "unverified")
+    if unverified:
+        console.print(f"{unverified} unverified fact(s) wait for 'os hunt facts review'.")
+
+
+def print_unsolved(unsolved: list[dict[str, Any]]) -> None:
+    """What no lane and no code fix settled, with what the fixer last tried."""
+    for item in unsolved:
+        console.print(
+            f"unsolved {str(item.get('category') or '').replace('_', ' ')}: "
+            f"{item.get('question') or ''} x{item.get('occurrence_count')}"
+            + (f" — {item['note']}" if item.get("note") else "")
+        )
+
+
 def walk_inbox(api: WorkerApi, *, ask: Ask = input, today: date | None = None) -> dict[str, int]:
     """Walk every Inbox item; return what was decided."""
     day = today or date.today()
@@ -306,18 +333,22 @@ def walk_inbox(api: WorkerApi, *, ask: Ask = input, today: date | None = None) -
         )
     ]
     repaired = sum(1 for issue in api.autofill_failures() if issue.get("status") == "repaired")
-    total = len(inbox.get("candidates") or []) + len(questions) + len(inbox.get("prose") or [])
+    # Failed pattern checks first: each would change an answer you accepted.
+    candidates = [*(inbox.get("checks") or []), *(inbox.get("candidates") or [])]
+    total = len(candidates) + len(questions) + len(inbox.get("prose") or [])
     if repaired:
         console.print(
             f"{repaired} repaired rule(s) wait for 'os hunt validate', which shows each one "
             "working before it goes live."
         )
+    print_waiting_facts(inbox.get("facts") or [])
+    print_unsolved(inbox.get("unsolved") or [])
     if total == 0:
         console.print("The Inbox is empty." if not repaired else "Nothing else is waiting.")
         return counts
     console.print(f"{total} item(s) waiting.")
     try:
-        for candidate in inbox.get("candidates") or []:
+        for candidate in candidates:
             review_candidate(
                 api, candidate, values=values, ask=ask, counts=counts
             )

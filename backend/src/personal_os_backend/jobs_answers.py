@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from personal_os_backend.auth import CurrentPrincipal
 from personal_os_backend.config import Settings
 from personal_os_backend.jobs_changes import (
+    CHANGE_SELECT,
     Action,
     Change,
     Failure,
@@ -145,6 +146,7 @@ class QuestionUpdate(BaseModel):
 
     # `pattern` is reached by accepting a binding, not set directly.
     disposition: Literal["unbound", "one_off", "long_form"]
+    origin: Literal["you", "inbox"] = "inbox"
 
 
 class Pattern(BaseModel):
@@ -278,6 +280,7 @@ class ProseUpdate(BaseModel):
 
     text: str | None = Field(default=None, min_length=1, max_length=20000)
     approved: bool | None = None
+    origin: Literal["you", "inbox"] = "you"
 
     @model_validator(mode="after")
     def something_changes(self) -> ProseUpdate:
@@ -319,10 +322,43 @@ class InboxQuestion(BaseModel):
     answers: list[AnswerSeen]
 
 
+class InboxFact(BaseModel):
+    """A fact waiting on you: never verified, named missing by a run, or set to a
+    value the answers you accepted disagree with."""
+
+    reason: Literal["unverified", "missing", "contradicted"]
+    key: str | None
+    label: str | None
+    value: Any = None
+    value_type: str | None = None
+    # For a missing fact: the question that needed it, and what the model called it.
+    question: str | None = None
+    missing_fact: str | None = None
+    issue_id: UUID | None = None
+    # For a contradicted fact: the replay that found the disagreement.
+    check: Change | None = None
+
+
+class InboxUnsolved(BaseModel):
+    """A failure no lane and no code fix settled; what the fixer tried is in its notes."""
+
+    issue_id: UUID
+    category: str
+    question: str | None
+    control_kind: str | None
+    note: str | None
+    occurrence_count: int
+    last_seen_at: datetime
+
+
 class Inbox(BaseModel):
+    # Learned patterns waiting on you; `checks` are the ones whose replay failed.
     candidates: list[InboxCandidate]
+    checks: list[InboxCandidate] = Field(default_factory=list)
     questions: list[InboxQuestion]
     prose: list[Prose]
+    facts: list[InboxFact] = Field(default_factory=list)
+    unsolved: list[InboxUnsolved] = Field(default_factory=list)
 
 
 PATTERN_COLUMNS = """
@@ -571,6 +607,33 @@ async def _record_pattern(
     )
 
 
+async def _record_prose(
+    connection: AsyncConnection[Any],
+    user_id: UUID,
+    action: Action,
+    before: Prose | None,
+    after: Prose | None,
+    *,
+    origin: Origin,
+) -> None:
+    """Record a prose change: its text and whether it is approved, before and after."""
+    subject = after or before
+    if subject is None:
+        return
+
+    def shown(prose: Prose | None) -> dict[str, Any] | None:
+        if prose is None:
+            return None
+        return {"question": prose.question_label, "text": prose.text, "approved": prose.approved}
+
+    if shown(before) == shown(after):
+        return
+    await record_change(
+        connection, user_id, subject="prose", subject_id=str(subject.id), action=action,
+        before=shown(before), after=shown(after), origin=origin,
+    )
+
+
 async def _pattern(
     connection: AsyncConnection[Any], user_id: UUID, pattern_id: UUID
 ) -> Pattern | None:
@@ -631,6 +694,12 @@ class PostgresAnswerStore:
                     old.model_copy(update={"status": "retired"}), origin="inbox",
                 )
             cursor = await connection.execute(
+                "select disposition from app.jobs_questions where id = %s and user_id = %s "
+                "for update",
+                (question_id, user_id),
+            )
+            before = await cursor.fetchone()
+            cursor = await connection.execute(
                 f"""
                 update app.jobs_questions set disposition = %s, pattern_id = null
                 where id = %s and user_id = %s
@@ -639,6 +708,12 @@ class PostgresAnswerStore:
                 (item.disposition, question_id, user_id),
             )
             row = await cursor.fetchone()
+            if row is not None and before is not None and before["disposition"] != item.disposition:
+                await record_change(
+                    connection, user_id, subject="question", subject_id=str(question_id),
+                    action="update", before={"disposition": before["disposition"]},
+                    after={"disposition": item.disposition}, origin=item.origin,
+                )
         return Question.model_validate(row) if row else None
 
     async def list_patterns(
@@ -802,7 +877,9 @@ class PostgresAnswerStore:
                 f"{PROSE_SELECT} where prose.id = %s", (row["id"],)
             )
             created = await cursor.fetchone()
-        return Prose.model_validate(created)
+            prose = Prose.model_validate(created)
+            await _record_prose(connection, user_id, "create", None, prose, origin="you")
+        return prose
 
     async def update_prose(
         self, user_id: UUID, prose_id: UUID, item: ProseUpdate
@@ -812,6 +889,13 @@ class PostgresAnswerStore:
             connection.transaction(),
         ):
             await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                f"{PROSE_SELECT} where prose.id = %s and prose.user_id = %s",
+                (prose_id, user_id),
+            )
+            found = await cursor.fetchone()
+            if found is None:
+                return None
             cursor = await connection.execute(
                 """
                 update app.jobs_prose
@@ -824,7 +908,11 @@ class PostgresAnswerStore:
                 return None
             cursor = await connection.execute(f"{PROSE_SELECT} where prose.id = %s", (prose_id,))
             row = await cursor.fetchone()
-        return Prose.model_validate(row) if row else None
+            if row is None:
+                return None
+            before, after = Prose.model_validate(found), Prose.model_validate(row)
+            await _record_prose(connection, user_id, "update", before, after, origin=item.origin)
+        return after
 
     async def delete_prose(self, user_id: UUID, prose_id: UUID) -> bool:
         """Prose that should not be reused; the answer itself stays in the application history."""
@@ -834,9 +922,20 @@ class PostgresAnswerStore:
         ):
             await connection.execute("set local role personal_os_api")
             cursor = await connection.execute(
+                f"{PROSE_SELECT} where prose.id = %s and prose.user_id = %s",
+                (prose_id, user_id),
+            )
+            found = await cursor.fetchone()
+            cursor = await connection.execute(
                 "delete from app.jobs_prose where id = %s and user_id = %s", (prose_id, user_id)
             )
-        return bool(cursor.rowcount > 0)
+            deleted = bool(cursor.rowcount > 0)
+            if deleted and found is not None:
+                await _record_prose(
+                    connection, user_id, "delete", Prose.model_validate(found), None,
+                    origin="you",
+                )
+        return deleted
 
     async def list_archive(self, user_id: UUID) -> list[ArchivedAnswer]:
         async with (
@@ -866,7 +965,7 @@ class PostgresAnswerStore:
             checks = await latest_failed(
                 connection, user_id, [str(pattern.id) for pattern in waiting]
             )
-            candidates = [
+            waiting_on_you = [
                 InboxCandidate(
                     pattern=pattern,
                     answers=await _answers_for(connection, user_id, pattern.question_id)
@@ -876,6 +975,8 @@ class PostgresAnswerStore:
                 )
                 for pattern in waiting
             ]
+            candidates = [item for item in waiting_on_you if item.check is None]
+            failed_checks = [item for item in waiting_on_you if item.check is not None]
             cursor = await connection.execute(
                 "select expression, fact_key from app.jobs_patterns where user_id = %s "
                 "and kind = 'expression' and status = 'active'",
@@ -926,7 +1027,82 @@ class PostgresAnswerStore:
                 (user_id,),
             )
             prose = [Prose.model_validate(row) for row in await cursor.fetchall()]
-        return Inbox(candidates=candidates, questions=questions, prose=prose)
+            facts = await _facts_waiting(connection, user_id)
+            unsolved = await _unsolved(connection, user_id)
+        return Inbox(
+            candidates=candidates, checks=failed_checks, questions=questions, prose=prose,
+            facts=facts, unsolved=unsolved,
+        )
+
+
+async def _facts_waiting(connection: AsyncConnection[Any], user_id: UUID) -> list[InboxFact]:
+    """Facts never verified, facts a run named missing, and facts a replay contradicts."""
+    cursor = await connection.execute(
+        "select key, label, value, value_type from app.jobs_facts "
+        "where user_id = %s and verified_at is null order by key",
+        (user_id,),
+    )
+    facts = [
+        InboxFact(reason="unverified", key=row["key"], label=row["label"], value=row["value"],
+                  value_type=row["value_type"])
+        for row in await cursor.fetchall()
+    ]
+    cursor = await connection.execute(
+        """
+        select issue.id, issue.field_label, latest.dom_signals
+        from app.jobs_autofill_failure_issues issue
+        left join lateral (
+          select occurrence.dom_signals from app.jobs_autofill_failure_occurrences occurrence
+          where occurrence.issue_id = issue.id order by occurrence.created_at desc limit 1
+        ) latest on true
+        where issue.user_id = %s and issue.category = 'fact_gap'
+          and issue.status in ('open', 'unsolved')
+        order by issue.last_seen_at desc
+        """,
+        (user_id,),
+    )
+    for row in await cursor.fetchall():
+        signals = dict(row["dom_signals"] or {})
+        named = str(signals.get("fact_key") or signals.get("missing_fact") or "")
+        facts.append(InboxFact(
+            reason="missing", key=named if FACT_KEY.fullmatch(named) else None, label=None,
+            question=row["field_label"], missing_fact=signals.get("missing_fact"),
+            issue_id=row["id"],
+        ))
+    cursor = await connection.execute(
+        f"""
+        select distinct on (change.subject_id) {CHANGE_SELECT}, fact.label, fact.value,
+               fact.value_type
+        from app.jobs_changes change
+        join app.jobs_facts fact on fact.user_id = change.user_id and fact.key = change.subject_id
+        where change.user_id = %s and change.subject = 'fact'
+        order by change.subject_id, change.created_at desc
+        """,
+        (user_id,),
+    )
+    for row in await cursor.fetchall():
+        change = Change.model_validate(row)
+        if change.status == "failed":
+            facts.append(InboxFact(
+                reason="contradicted", key=change.subject_id, label=row["label"],
+                value=row["value"], value_type=row["value_type"], check=change,
+            ))
+    return facts
+
+
+async def _unsolved(connection: AsyncConnection[Any], user_id: UUID) -> list[InboxUnsolved]:
+    """Issues the fixer gave up on, newest first."""
+    cursor = await connection.execute(
+        """
+        select id as issue_id, category, field_label as question, control_kind,
+               verification_notes as note, occurrence_count, last_seen_at
+        from app.jobs_autofill_failure_issues
+        where user_id = %s and status = 'unsolved'
+        order by last_seen_at desc
+        """,
+        (user_id,),
+    )
+    return [InboxUnsolved.model_validate(row) for row in await cursor.fetchall()]
 
 
 async def get_answer_store(request: Request) -> AnswerStore:
