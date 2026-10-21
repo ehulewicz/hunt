@@ -228,6 +228,16 @@ class FakeApi:
     def facts(self) -> list[dict[str, Any]]:
         return list(self.rows.values())
 
+    # What a fact change is replayed against: no accepted answers here.
+    def career(self) -> dict[str, Any]:
+        raise RuntimeError("no career record")
+
+    def patterns(self, *statuses: str) -> list[dict[str, Any]]:
+        return []
+
+    def sightings(self) -> list[dict[str, Any]]:
+        return []
+
     def archive_answers(self) -> list[dict[str, Any]]:
         return []
 

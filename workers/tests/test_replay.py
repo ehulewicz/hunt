@@ -198,3 +198,28 @@ def test_legacy_context_drift_is_reported_as_unchecked_not_as_a_regression() -> 
     assert replay.verification() == {"sampled": 0, "failed": 0}
     assert "without original facts" in replay.summary()
     assert replay_pattern(past, knowledge(), start).passed
+
+
+def test_a_fact_change_is_replayed_against_the_answers_it_fills() -> None:
+    from personal_os_worker.jobs.replay import replay_fact
+
+    known = knowledge(*NAMES)
+    # Email is filled from contact.email; changing it disagrees with what went in.
+    changed = replay_fact(ACCEPTED, known, "contact.email", "a.example@example.com")
+    assert [outcome.sighting.question for outcome in changed.outcomes] == ["Email"]
+    assert not changed.passed and changed.verification() == {"sampled": 1, "failed": 1}
+    assert changed.failures[0].now == "a.example@example.com"
+    # The same value again changes nothing.
+    same = replay_fact(ACCEPTED, known, "contact.email", "alex.example@example.com")
+    assert same.passed and same.verification() == {"sampled": 1, "failed": 0}
+    # A sponsorship answer the pattern fills from the fact flips with it.
+    flipped = replay_fact(ACCEPTED, known, "work_auth.requires_sponsorship", True,
+                          value_type="boolean")
+    assert [outcome.now for outcome in flipped.failures] == ["Yes"]
+
+
+def test_a_fact_nothing_answers_from_touches_no_answer() -> None:
+    from personal_os_worker.jobs.replay import replay_fact
+
+    replay = replay_fact(ACCEPTED, knowledge(*NAMES), "identity.preferred_name", "E")
+    assert replay.outcomes == () and replay.passed

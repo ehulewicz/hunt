@@ -139,7 +139,13 @@ from personal_os_worker.jobs.registry.events import (
 from personal_os_worker.jobs.registry.kinds import question_of
 from personal_os_worker.jobs.remote import FACT_KEY, LinkedKeys, RunLink, gap_items
 from personal_os_worker.jobs.repair.repairer import find_field, repair_format, repair_strategy
-from personal_os_worker.jobs.replay import Replay, Sighting, replay_pattern, sightings_of
+from personal_os_worker.jobs.replay import (
+    Replay,
+    Sighting,
+    replay_fact,
+    replay_pattern,
+    sightings_of,
+)
 from personal_os_worker.jobs.resolve import Knowledge, Miss, Resolver
 from personal_os_worker.jobs.safety import armed
 from personal_os_worker.jobs.short_answers import ShortQuestion, Verdict, draft_short_answers
@@ -186,6 +192,9 @@ class SessionContext:
     dry_run: bool = False
     drafter: Drafter = draft_contextual_answer
     short_drafter: ShortDrafter = draft_short_answers
+    # Orders facts by how close their labels are to each question, for the
+    # short-answer pass; None runs it unranked.
+    fact_ranker: Callable[[list[str], list[dict[str, str]]], dict[str, list[str]]] | None = None
     checker: AnswerChecker = check_answers
     letter_drafter: LetterDrafter = draft_slots
     letter_template: Callable[[], LetterTemplate] = load_template
@@ -785,6 +794,20 @@ class AutofillSession:
             self.state.gate_pending = None
         return opened
 
+    def ranked_facts(self, questions: list[ShortQuestion]) -> dict[str, list[str]] | None:
+        """Each question's facts, closest by label first; None when ranking is not
+        available, which only leaves the model to look through every fact."""
+        if self.ctx.fact_ranker is None or not questions:
+            return None
+        labels = [
+            {"key": key, "label": (self.ctx.knowledge.labels.get(key) or key)[:300]}
+            for key in sorted(self.ctx.knowledge.facts)
+        ]
+        try:
+            return self.ctx.fact_ranker([item.question for item in questions], labels)
+        except (httpx.HTTPError, RuntimeError, ValueError):
+            return None
+
     def gate_in_front(self) -> bool:
         """Whether the tab in front shows a gate on the application's own site."""
         if self.state.form_site is None:
@@ -806,10 +829,12 @@ class AutofillSession:
             return None
         question = str(gate["label"])
         console.print("  [dim]asking Claude which fact says how to start this application[/dim]")
+        asked = [ShortQuestion(question, tuple(str(item) for item in gate["options"]))]
         verdicts = self.call_model(self.ctx.short_drafter,
-            [ShortQuestion(question, tuple(str(item) for item in gate["options"]))],
+            asked,
             posting={"company": self.ctx.company, "role": self.ctx.title},
             facts=self.ctx.knowledge.for_model(),
+            ranked=self.ranked_facts(asked),
         ) or {}
         for verdict in verdicts.values():
             if verdict.kind == "no_fact" and verdict.missing_fact:
@@ -1423,6 +1448,7 @@ class AutofillSession:
             questions,
             posting={"company": self.ctx.company, "role": self.ctx.title},
             facts=self.ctx.knowledge.for_model(),
+            ranked=self.ranked_facts(questions),
         ) or {}
         for verdict in verdicts.values():
             if verdict.kind == "no_fact" and verdict.missing_fact:
@@ -2104,6 +2130,7 @@ class AutofillSession:
             questions,
             posting={"company": self.ctx.company, "role": self.ctx.title},
             facts=self.ctx.knowledge.for_model(),
+            ranked=self.ranked_facts(questions),
         ) or {}
         for verdict in verdicts.values():
             if verdict.kind == "no_fact" and verdict.missing_fact:
@@ -2261,14 +2288,23 @@ class AutofillSession:
             value = parse_value(value_type, raw)
         except ValueError as error:
             return False, str(error)
+        sightings = self.sightings()
+        check = (
+            replay_fact(sightings, self.ctx.knowledge, key, value, value_type=value_type)
+            if sightings is not None else None
+        )
         try:
             self.ctx.api.set_fact(
-                key, value, label=label, value_type=value_type, failure=self.failure(question)
+                key, value, label=label, value_type=value_type, failure=self.failure(question),
+                verification=check.verification() if check is not None else None,
             )
         except httpx.HTTPStatusError as error:
             return False, f"the API refused {key} (HTTP {error.response.status_code})"
         self.refresh_knowledge()
         echo("fact", question, str(value), note=f"set {key}")
+        if check is not None and not check.passed:
+            # Yours to keep: what disagrees waits in the Inbox beside the fact.
+            echo("review", question, str(value), note=f"{key}: {check.summary()}")
         field = find_field(fields, question)
         if field is None:
             return True, f"set {key}"

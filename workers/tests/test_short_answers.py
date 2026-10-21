@@ -125,3 +125,26 @@ def test_each_question_is_its_own_call_and_the_verdicts_merge() -> None:
     }
     assert len(started) == 2
     assert elapsed < 0.35  # the two 0.2s calls overlapped
+
+
+def test_the_closest_facts_are_listed_first_and_every_fact_still_shown() -> None:
+    from personal_os_worker.jobs.short_answers import ShortQuestion, draft_short_answers
+
+    prompts: list[str] = []
+
+    def runner(argv: list[str]) -> str:
+        prompts.append(argv[-1])
+        return '{"structured_output": {"answers": []}}'
+
+    facts = [{"key": "experience.years", "label": "Years of experience", "type": "number",
+              "value": 3},
+             {"key": "contact.phone", "label": "Phone", "type": "text", "value": "555"}]
+    draft_short_answers(
+        [ShortQuestion("How many years have you programmed?", ())],
+        posting={}, facts=facts, runner=runner,
+        ranked={"How many years have you programmed?": ["experience.years"]},
+    )
+    assert 'LIKELY FACTS' in prompts[0] and '["experience.years"]' in prompts[0]
+    assert '"contact.phone"' in prompts[0]
+    draft_short_answers([ShortQuestion("Phone?", ())], posting={}, facts=facts, runner=runner)
+    assert "LIKELY FACTS" not in prompts[1]

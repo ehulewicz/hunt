@@ -58,6 +58,9 @@ class FakeApi:
     def career(self) -> dict[str, Any]:
         raise RuntimeError("No career record yet")
 
+    def sightings(self) -> list[dict[str, Any]]:
+        return []
+
     def patterns(self, *statuses: str) -> list[dict[str, Any]]:
         return [{"kind": "expression", "expression": pattern} for pattern in self._expressions]
 

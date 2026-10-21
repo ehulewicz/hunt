@@ -29,7 +29,7 @@ from personal_os_worker.jobs.archive.lookup import translate
 from personal_os_worker.jobs.archive.rules import RULES
 from personal_os_worker.jobs.options import normalize_answer_question
 from personal_os_worker.jobs.repair.commands import knowledge_for
-from personal_os_worker.jobs.replay import Replay, replay_code, sightings_of
+from personal_os_worker.jobs.replay import Replay, replay_code, replay_fact, sightings_of
 
 STATUS_STYLES = {"active": "green", "candidate": "yellow", "rejected": "red", "retired": "dim"}
 # Archived answers that are writing rather than a fact: a contextual row, or a long one.
@@ -99,6 +99,32 @@ def code_replay(
         sightings_of(api.sightings()), knowledge, question_key=key or None, fact_key=fact_key,
         seed=key,
     )
+
+
+def fact_replay(
+    api: WorkerApi, key: str, value: Any, *, value_type: str | None = None
+) -> Replay | None:
+    """A new fact value, replayed against the answers you accepted; None when they
+    cannot be read. The fact is yours either way: this only says what disagrees."""
+    try:
+        knowledge = replace(knowledge_for(api), patterns=tuple(api.patterns("active")))
+        sightings = sightings_of(api.sightings())
+    except (httpx.HTTPError, RuntimeError, ReferenceError):
+        return None
+    return replay_fact(sightings, knowledge, key, value, value_type=value_type)
+
+
+def report_fact_replay(key: str, replay: Replay | None) -> None:
+    """Say what a fact change makes disagree, when anything does."""
+    if replay is None or replay.passed:
+        return
+    console.print(f"{key}: {replay.summary()}", style="yellow", markup=False)
+    for outcome in replay.failures[:5]:
+        console.print(
+            f"  {outcome.sighting.question.strip()!r}: now {outcome.now!r}, "
+            f"you accepted {outcome.sighting.answer!r}",
+            markup=False,
+        )
 
 
 def print_replay(replay: Replay) -> None:

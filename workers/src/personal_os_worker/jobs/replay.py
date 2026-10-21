@@ -328,3 +328,40 @@ def replay_code(
         else:
             outcomes.append(Outcome(sighting, None, after, before_known=False))
     return Replay(tuple(outcomes))
+
+
+def replay_fact(
+    sightings: Sequence[Sighting], knowledge: Knowledge, key: str, value: Any,
+    *, value_type: str | None = None,
+) -> Replay:
+    """Replay the sightings a fact answers with its new value instead of its old one.
+
+    A sighting is touched when it was filled from the fact, or an active
+    pattern answers its question from it. Each is answered once with the
+    attempt's original facts and once with this fact changed, so only this
+    change can make an accepted answer differ; a fact you set is yours, and
+    what this finds is recorded beside it rather than refusing it.
+    """
+
+    def changed(context: Knowledge) -> Knowledge:
+        types = dict(context.types)
+        if value_type is not None:
+            types[key] = value_type
+        return replace(context, facts={**context.facts, key: value}, types=types)
+
+    def touches(sighting: Sighting) -> bool:
+        if sighting.fact_key == key:
+            return True
+        resolution = Resolver(sighting.context(knowledge)).resolve(sighting.field())
+        return resolution is not None and resolution.fact_key == key
+
+    outcomes: list[Outcome] = []
+    for sighting in select(sightings, touches, seed=key, recent=0, sample=0):
+        context = sighting.context(knowledge)
+        before = answer_of(Resolver(context), sighting)
+        after = answer_of(Resolver(changed(context)), sighting)
+        known = sighting.knowledge is not None or (
+            before is not None and before.says(sighting.answer, kind=sighting.kind)
+        )
+        outcomes.append(Outcome(sighting, before, after, before_known=known))
+    return Replay(tuple(outcomes))

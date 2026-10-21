@@ -732,6 +732,7 @@ def apply_posting(
                     account=account_flow(knowledge, expected_company),
                     fixes=fixes,
                     cdp_url=config.cdp_url,
+                    fact_ranker=api.rank_facts,
                     **linked,
                 )
             )

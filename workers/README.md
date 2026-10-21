@@ -165,7 +165,16 @@ fill events. Legacy sightings without snapshots can check a pattern only when
 the unchanged resolver still produces the accepted answer. Code replay lists
 them as unchecked; its summary reports unavailable baselines explicitly.
 The command exits 0 for a passing check, 1 for changed accepted answers, and 2
-when authentication, transport, or API errors prevent the check from completing.
+when authentication, transport, or API errors prevent the check from completing. `--json`
+ends the output with the counts as one JSON line, which the fixer records.
+
+A fact change is replayed too (`replay_fact`): the sightings filled from the
+fact, or answered by a pattern that names it, are answered with each attempt's
+original facts and again with the fact changed, so only the change can make an
+accepted answer differ. Your fact is saved either way; the counts go with it,
+what disagrees is printed, and a failed replay puts the fact in the Inbox as
+contradicted. `facts set`, `facts review`, the Inbox, and a fact given mid-run
+all replay what they set.
 
 **Prose attribution.** `jobs/provenance.py` marks matching stretches of a final
 long-form answer as `previous` or `model`; unmarked text is yours. Previous
@@ -368,7 +377,9 @@ twelve-week window from it, whether that window runs into your last semester
 (apply warns), and whether you were referred (`apply --referred [NAME]`).
 A pattern whose fact is missing or fits none of the options leaves the field,
 and the run remembers why (`Miss`). A question no pattern decides goes to one
-bounded model pass (`short_answers.py`) that only names a fact — `fits_fact`,
+bounded model pass (`short_answers.py`) — shown every fact, with the facts whose
+labels are closest to the question by embedding listed first (`rank-facts`;
+labels go to the API, never values) — that only names a fact — `fits_fact`,
 with an expression for every wording where one fits, `no_fact` with the
 missing fact's name, or `unsure`. The model never writes a value (R67):
 `jobs/learn.py` checks what it named — the fact must fit the control, and an

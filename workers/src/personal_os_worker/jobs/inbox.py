@@ -143,8 +143,13 @@ def new_fact(
     except ValueError as error:
         console.print(f"  {error}", style="red")
         return False
-    api.set_fact(key, value, label=label, value_type=value_type, origin="inbox")
+    from personal_os_worker.jobs.knowledge import fact_replay, report_fact_replay
+
+    check = fact_replay(api, key, value, value_type=value_type)
+    api.set_fact(key, value, label=label, value_type=value_type, origin="inbox",
+                 verification=check.verification() if check else None)
     console.print(f"  set {key}", style="dim")
+    report_fact_replay(key, check)
     return True
 
 

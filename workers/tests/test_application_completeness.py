@@ -321,3 +321,21 @@ def test_open_gaps_only_people_or_code_can_settle_are_stored_once(browser_page: 
     ]
     assert stored[0]['artifact_paths'] == {'frame-0.html': 'path'}
     assert 'html' not in stored[0]['dom_signals']
+
+
+def test_facts_are_ranked_by_label_and_no_value_leaves(browser_page: Any) -> None:
+    from personal_os_worker.jobs.short_answers import ShortQuestion
+
+    session = audit_session(browser_page, facts={'experience.years': 3, 'contact.phone': '555'})
+    sent: list[Any] = []
+
+    def ranker(questions: list[str], labels: list[dict[str, str]]) -> dict[str, list[str]]:
+        sent.append(labels)
+        return {questions[0]: ['experience.years']}
+
+    assert session.ranked_facts([ShortQuestion('Years?', ())]) is None
+    session.ctx.fact_ranker = ranker
+    assert session.ranked_facts([ShortQuestion('Years?', ())]) == {
+        'Years?': ['experience.years']}
+    assert all(set(label) == {'key', 'label'} for label in sent[0])
+    assert '555' not in str(sent) and "'value'" not in str(sent)

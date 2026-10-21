@@ -236,7 +236,12 @@ def review_facts(
                 except ValueError as error:
                     console.print(f"  {error}", style="red")
                     continue
-                api.set_fact(key, value, verified=True)
+                from personal_os_worker.jobs.knowledge import fact_replay, report_fact_replay
+
+                check = fact_replay(api, key, value)
+                api.set_fact(key, value, verified=True,
+                             verification=check.verification() if check else None)
+                report_fact_replay(key, check)
                 decided += 1
                 break
             if choice in {"d", "delete"}:
@@ -289,12 +294,17 @@ def run_facts_set(
         value = (
             none_value(str(resolved_type)) if raw is None else parse_value(str(resolved_type), raw)
         )
+        from personal_os_worker.jobs.knowledge import fact_replay, report_fact_replay
+
+        check = fact_replay(api, key, value, value_type=str(resolved_type))
         fact = api.set_fact(
             key,
             value,
             label=label,
             value_type=value_type or (None if existing else str(resolved_type)),
+            verification=check.verification() if check else None,
         )
+        report_fact_replay(key, check)
     finally:
         api.close()
     console.print(f"{fact['key']} = {display(fact['value'])}  (verified)", markup=False)

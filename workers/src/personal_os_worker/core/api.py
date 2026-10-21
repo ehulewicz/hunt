@@ -137,11 +137,14 @@ class WorkerApi:
         verified: bool = True,
         origin: str | None = None,
         failure: dict[str, Any] | None = None,
+        verification: dict[str, int] | None = None,
     ) -> dict[str, Any]:
-        """Set a fact. `origin` is "inbox" when you answer the Inbox, and `failure`
-        names the run and question a fact given mid-run answers."""
+        """Set a fact. `origin` is "inbox" when you answer the Inbox, `failure`
+        names the run and question a fact given mid-run answers, and
+        `verification` is the replay of the new value against accepted answers."""
         body: dict[str, Any] = {"value": value, "verified": verified}
-        optional = {"label": label, "value_type": value_type, "origin": origin, "failure": failure}
+        optional = {"label": label, "value_type": value_type, "origin": origin,
+                    "failure": failure, "verification": verification}
         body |= {name: item for name, item in optional.items() if item is not None}
         response = self._client.put(f"/v1/jobs/facts/{key}", json=body)
         response.raise_for_status()
@@ -149,6 +152,23 @@ class WorkerApi:
         if not isinstance(payload, dict):
             raise RuntimeError("Fact response was invalid")
         return payload
+
+    def rank_facts(
+        self, questions: list[str], facts: list[dict[str, str]]
+    ) -> dict[str, list[str]]:
+        """Each question's facts, closest by label first; labels go, never values."""
+        ranked: dict[str, list[str]] = {}
+        for start in range(0, len(questions), 50):
+            payload = self._json(
+                self._client.post(
+                    "/v1/jobs/questions/rank-facts",
+                    json={"questions": questions[start:start + 50], "facts": facts},
+                ),
+                "Fact ranking",
+            )
+            for row in payload if isinstance(payload, list) else []:
+                ranked[str(row.get("question"))] = [str(key) for key in row.get("keys") or []]
+        return ranked
 
     def verify_fact(self, key: str) -> dict[str, Any]:
         response = self._client.post(f"/v1/jobs/facts/{key}/verify")
