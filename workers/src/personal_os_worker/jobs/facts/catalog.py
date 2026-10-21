@@ -182,6 +182,10 @@ CATALOG = _entries(
         "experience.prior_internship", "Has completed an internship or co-op", "boolean", "derived"
     ),
     CatalogEntry("employment.current_employer", "Current employer", "text", "career"),
+    CatalogEntry("employment.current_title", "Job title at the current employer", "text", "career"),
+    CatalogEntry(
+        "employment.current_start_date", "When the current job started", "date", "career"
+    ),
     CatalogEntry(
         "employment.organizations", "Every organization you worked or researched at", "list",
         "career",

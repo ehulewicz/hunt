@@ -85,7 +85,11 @@ are the career record, the canonical resume. Dates are month-precision `date`s
 (the first of the month); an entry's `end_date` is null with a start date for
 "Present", and a single-month project stores only `end_date`. Only experience
 carries an `employment_type`, so research and projects can never count toward
-tenure. One education row per user is `is_primary`, and a bullet can never hold a
+tenure. An entry's place is `city`, `region` (a state or province as written),
+and `country` (a name); `location` is their rendering, written only for an API
+that still reads it, and is dropped once none does. `job_title` and `employer`,
+when set, are what a work-history form gets instead of `title` and `org`. One
+education row per user is `is_primary`, and a bullet can never hold a
 semicolon. `jobs_archive_documents` is the former `jobs_documents` — a 2026-08
 copy of the resume and two tailored resumes — renamed and frozen: the API role
 can only read it.

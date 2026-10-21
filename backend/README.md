@@ -42,7 +42,11 @@ the shape `artifacts/career/main.json` has always had; `PUT` replaces the whole
 record from such a document in one transaction; `POST /import` does the same only
 while the record is empty. Rendering keeps the authored text: "Middleware Engineer
 (Co-op)" is a title plus employment type `coop`, "May 2025 – Present" is a start
-date and no end. The document's contact block is not stored here — it is rendered
+date and no end. An entry's location is stored as city, region, and country, and
+rendered "Atlanta, GA" at home and "Metz, France" abroad; a document that gives
+only `location` is parsed into them, and one whose `location` disagrees with its
+parts is refused. `jobTitle` and `employer` are what a work-history form gets
+when the heading is not one (a research heading names the lab). The document's contact block is not stored here — it is rendered
 from the `identity`, `contact`, and `work_auth.us_citizen` facts, and a write
 whose header disagrees is refused with the fact to set instead. Writes refuse a
 semicolon or keyword emphasis in a bullet and an em dash in a heading.

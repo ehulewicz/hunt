@@ -140,6 +140,12 @@ CAREER_FACTS = (
     ),
     DerivedFact("employment.current_employer", "Current employer", ("career.experience",)),
     DerivedFact(
+        "employment.current_title", "Job title at the current employer", ("career.experience",)
+    ),
+    DerivedFact(
+        "employment.current_start_date", "When the current job started", ("career.experience",)
+    ),
+    DerivedFact(
         "employment.organizations",
         "Every organization you worked or researched at, labs included",
         ("career.experience", "career.research"),
@@ -419,18 +425,24 @@ def career_facts(record: dict[str, Any] | None, today: date) -> dict[str, Any]:
             if entry.get("section") == "experience"
             and entry.get("start_date")
             and not entry.get("end_date")
-            and entry.get("org")
+            and (entry.get("employer") or entry.get("org"))
         ),
         None,
     )
-    values["employment.current_employer"] = current.get("org") if current else None
+    # A form gets an entry's `employer` and `job_title` where they are set, since a
+    # heading need not be either; otherwise the heading's org and title.
+    if current is not None:
+        values["employment.current_employer"] = current.get("employer") or current.get("org")
+        values["employment.current_title"] = current.get("job_title") or current.get("title")
+        start = _date(current.get("start_date"))
+        values["employment.current_start_date"] = start.isoformat() if start else None
     organizations: list[str] = []
     for entry in entries:
         # Where you worked or researched: a project's "org" is an award, not an employer.
         if entry.get("section") == "project":
             continue
         # A lab's name is its research heading; its org spells out the acronym.
-        names = [entry.get("org")]
+        names = [entry.get("org"), entry.get("employer")]
         if entry.get("section") == "research":
             names.append(entry.get("title"))
         for name in names:

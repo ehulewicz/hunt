@@ -43,6 +43,9 @@ TITLE_SUFFIX = re.compile(
     r"^(?P<title>.*?)\s*\((?P<kind>co-?op|contract|intern(?:ship)?|part-?time)\)\s*$",
     re.IGNORECASE,
 )
+# A US location is rendered "City, ST"; the country is spelled as the address facts spell it.
+UNITED_STATES = "United States"
+US_STATE = re.compile(r"^[A-Z]{2}$")
 # A range separator is the authored en dash, or a plain hyphen typed in an editor.
 RANGE = re.compile(r"^(?P<start>.+?)\s+[\u2013-]\s+(?P<end>.+)$")
 # AGENTS.md: bullets carry no keyword emphasis, and headings never use an em dash.
@@ -123,6 +126,29 @@ def split_title(section: str, title: str) -> tuple[str, str | None]:
     return title.strip(), "founder" if "founder" in title.casefold() else "full_time"
 
 
+def parse_location(text: str) -> tuple[str | None, str | None, str | None]:
+    """A rendered location as (city, region, country).
+
+    "Atlanta, GA" is a US city and its state; otherwise the last part is the
+    country and a middle part the region: "Metz, France", "Toronto, ON, Canada".
+    """
+    parts = [part.strip() for part in text.split(",") if part.strip()]
+    if not parts:
+        return None, None, None
+    if len(parts) == 1:
+        return parts[0], None, None
+    if len(parts) == 2 and US_STATE.match(parts[1]):
+        return parts[0], parts[1], UNITED_STATES
+    return parts[0], ", ".join(parts[1:-1]) or None, parts[-1]
+
+
+def render_location(city: str | None, region: str | None, country: str | None) -> str:
+    """The resume's spelling: "Atlanta, GA" at home, "Metz, France" abroad."""
+    if country == UNITED_STATES and region:
+        country = None
+    return ", ".join(part for part in (city, region, country) if part)
+
+
 def render_title(title: str, employment_type: str | None) -> str:
     suffix = TITLE_SUFFIXES.get(employment_type or "")
     return f"{title} ({suffix})" if suffix else title
@@ -194,10 +220,17 @@ class CareerEntry(BaseModel):
     org: str | None = Field(default=None, max_length=300)
     location: str | None = Field(default=None, max_length=200)
     qualifier: str | None = Field(default=None, max_length=300)
+    # What work-history forms ask beyond the heading; `location` is rendered from
+    # the first three, and the last two stand in for `title` and `org` on a form.
+    city: str | None = Field(default=None, max_length=200)
+    region: str | None = Field(default=None, max_length=200)
+    country: str | None = Field(default=None, max_length=200)
+    jobTitle: str | None = Field(default=None, max_length=300)
+    employer: str | None = Field(default=None, max_length=300)
     date: str = Field(default="", max_length=100)
     bullets: list[str] = Field(min_length=1, max_length=20)
 
-    @field_validator("title", "org", "qualifier")
+    @field_validator("title", "org", "qualifier", "jobTitle", "employer")
     @classmethod
     def heading_has_no_em_dash(cls, value: str | None) -> str | None:
         return None if value is None else _no_em_dash(value)
@@ -258,8 +291,12 @@ class EntryRow(BaseModel):
     section: Literal["experience", "research", "project"]
     title: str
     org: str | None
-    location: str | None
+    city: str | None
+    region: str | None
+    country: str | None
     qualifier: str | None
+    job_title: str | None
+    employer: str | None
     employment_type: str | None
     start_date: date | None
     end_date: date | None
@@ -278,6 +315,28 @@ class CareerRecord(BaseModel):
     entries: list[EntryRow]
     skills: list[SkillRow]
     document: dict[str, Any]
+
+
+def _text(value: str | None) -> str | None:
+    return (value.strip() or None) if value else None
+
+
+def entry_location(entry: CareerEntry) -> tuple[str | None, str | None, str | None]:
+    """An entry's city, region, and country; `location` alone is parsed into them.
+
+    Given both, the location must be what the parts render to, so the document
+    never holds two places for one entry.
+    """
+    parts = (_text(entry.city), _text(entry.region), _text(entry.country))
+    location = _text(entry.location)
+    if not any(parts):
+        return parse_location(location or "")
+    if location is not None and location != render_location(*parts):
+        raise CareerError(
+            f"{entry.title}: location {location!r} is rendered from city, region, and "
+            f"country, which give {render_location(*parts)!r}; change those instead"
+        )
+    return parts
 
 
 def rows_from_document(
@@ -303,13 +362,18 @@ def rows_from_document(
         for entry in getattr(document, key):
             title, employment_type = split_title(section, entry.title)
             start, end = parse_range(entry.date)
+            city, region, country = entry_location(entry)
             entries.append(
                 EntryRow(
                     section=section,
                     title=title,
                     org=entry.org.strip() if entry.org else None,
-                    location=entry.location.strip() if entry.location else None,
+                    city=city,
+                    region=region,
+                    country=country,
                     qualifier=entry.qualifier.strip() if entry.qualifier else None,
+                    job_title=_text(entry.jobTitle),
+                    employer=_text(entry.employer),
                     employment_type=employment_type,
                     start_date=start,
                     end_date=end,
@@ -354,10 +418,17 @@ def document_from_rows(
         items: list[dict[str, Any]] = []
         for entry in (item for item in entries if item.section == section):
             item: dict[str, Any] = {"title": render_title(entry.title, entry.employment_type)}
-            for name in ("org", "location", "qualifier"):
-                value = getattr(entry, name)
-                if value:
-                    item[name] = value
+            fields = {
+                "org": entry.org,
+                "location": render_location(entry.city, entry.region, entry.country),
+                "city": entry.city,
+                "region": entry.region,
+                "country": entry.country,
+                "qualifier": entry.qualifier,
+                "jobTitle": entry.job_title,
+                "employer": entry.employer,
+            }
+            item.update({name: value for name, value in fields.items() if value})
             item["date"] = render_range(entry.start_date, entry.end_date)
             item["bullets"] = list(entry.bullets)
             items.append(item)
@@ -414,7 +485,8 @@ class PostgresCareerStore:
             return None
         cursor = await connection.execute(
             """
-            select entry.section, entry.title, entry.org, entry.location, entry.qualifier,
+            select entry.section, entry.title, entry.org, entry.city, entry.region,
+                   entry.country, entry.qualifier, entry.job_title, entry.employer,
                    entry.employment_type, entry.start_date, entry.end_date,
                    coalesce(
                      array_agg(bullet.text order by bullet.display_order)
@@ -500,15 +572,20 @@ class PostgresCareerStore:
                 cursor = await connection.execute(
                     """
                     insert into app.jobs_resume_entries (
-                      user_id, section, title, org, location, qualifier, employment_type,
+                      user_id, section, title, org, location, city, region, country,
+                      qualifier, job_title, employer, employment_type,
                       start_date, end_date, display_order
-                    ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     returning id
                     """,
                     (
-                        user_id, entry.section, entry.title, entry.org, entry.location,
-                        entry.qualifier, entry.employment_type, entry.start_date,
-                        entry.end_date, position,
+                        # `location` is written, rendered, only for an API still
+                        # reading it; nothing here reads it back.
+                        user_id, entry.section, entry.title, entry.org,
+                        render_location(entry.city, entry.region, entry.country) or None,
+                        entry.city, entry.region, entry.country, entry.qualifier,
+                        entry.job_title, entry.employer, entry.employment_type,
+                        entry.start_date, entry.end_date, position,
                     ),
                 )
                 row = await cursor.fetchone()

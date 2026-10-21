@@ -294,6 +294,7 @@ CAREER = {
          "employment_type": "contract", "start_date": "2023-05-01", "end_date": "2023-12-01"},
         {"section": "research", "title": "Example Lab @ Example University",
          "org": "Example Nuclear Group", "employment_type": None,
+         "job_title": "Undergraduate Researcher", "employer": "Example Lab @ Example University",
          "start_date": "2024-04-01", "end_date": "2024-09-01"},
         {"section": "project", "title": "AlphaResearch", "org": None, "employment_type": None,
          "start_date": None, "end_date": "2026-06-01"},
@@ -313,11 +314,27 @@ def test_career_facts_follow_the_resume() -> None:
     assert facts["education.graduation_date"] == "2027-12-01"
     assert facts["education.gpa"] == 3.78
     assert facts["employment.current_employer"] == "Northwind"
+    assert facts["employment.current_title"] == "Middleware Engineer"
+    assert facts["employment.current_start_date"] == "2025-05-01"
     assert facts["employment.organizations"] == [
         "Northwind", "Northhealth AI", "Example Public Schools",
         "Example Nuclear Group", "Example Lab @ Example University",
     ]
     assert facts["skills.all"] == ["Python", "Java", "Git"]
+
+
+def test_a_form_gets_the_entrys_employer_and_job_title_over_its_heading() -> None:
+    from personal_os_worker.jobs.facts.derived import career_facts
+
+    entries = [
+        {"section": "experience", "title": "Founding Engineer", "org": "Acme Labs",
+         "employer": "Acme Inc.", "job_title": "Software Engineer",
+         "employment_type": "full_time", "start_date": "2026-01-01", "end_date": None},
+    ]
+    facts = career_facts({"entries": entries}, date(2026, 10, 14))
+    assert facts["employment.current_employer"] == "Acme Inc."
+    assert facts["employment.current_title"] == "Software Engineer"
+    assert facts["employment.organizations"] == ["Acme Labs", "Acme Inc."]
 
 
 @pytest.mark.parametrize(

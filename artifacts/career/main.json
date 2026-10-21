@@ -22,6 +22,9 @@
       "title": "Middleware Engineer (Co-op)",
       "org": "Northwind",
       "location": "Atlanta, GA",
+      "city": "Atlanta",
+      "region": "GA",
+      "country": "United States",
       "qualifier": "Continuous Employment",
       "date": "May 2025 – Present",
       "bullets": [
@@ -35,6 +38,9 @@
       "title": "Technical Co-founder",
       "org": "Northhealth AI",
       "location": "Chicago, IL",
+      "city": "Chicago",
+      "region": "IL",
+      "country": "United States",
       "date": "October 2025 – May 2026",
       "bullets": [
         "Sole engineer on a gamified wellness tracker that scores patient-owned logs and generates clinician-ready reports",
@@ -46,6 +52,9 @@
       "title": "Software Engineer (Contract)",
       "org": "Example Public Schools",
       "location": "Chicago, IL",
+      "city": "Chicago",
+      "region": "IL",
+      "country": "United States",
       "date": "May 2023 – December 2023",
       "bullets": [
         "Unified 10+ leave-processing screens into one interface with workflow automation, cutting HR processing from 10 to <3 min",
@@ -59,6 +68,10 @@
       "title": "Sample Lab @ Example University Europe",
       "org": "Data-driven Robotics for Environment Assessment and Monitoring",
       "location": "Metz, France",
+      "city": "Metz",
+      "country": "France",
+      "jobTitle": "Undergraduate Researcher",
+      "employer": "Sample Lab @ Example University Europe",
       "date": "September 2024 – December 2024",
       "bullets": [
         "Fine-tuned MKDNet in PyTorch on shrimp tracking, improving NPR 39%, precision 33%, and success rate 30%",
@@ -70,6 +83,11 @@
       "title": "Example Lab @ Example University",
       "org": "Example Nuclear Group",
       "location": "Atlanta, GA",
+      "city": "Atlanta",
+      "region": "GA",
+      "country": "United States",
+      "jobTitle": "Undergraduate Researcher",
+      "employer": "Example Lab @ Example University",
       "date": "April 2024 – September 2024",
       "bullets": [
         "Built a Dockerized nuclear flow-loop simulation alongside ICSSIM to support repeatable cyberattack experiments",

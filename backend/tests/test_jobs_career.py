@@ -20,7 +20,9 @@ from personal_os_backend.jobs_career import (
     contact_from_facts,
     document_from_rows,
     get_career_store,
+    parse_location,
     parse_range,
+    render_location,
     render_range,
     rows_from_document,
     split_title,
@@ -97,6 +99,47 @@ def test_the_canonical_resume_round_trips_through_rows() -> None:
         "coop", "founder", "contract"
     }
     assert education.degree_type == "BS" and education.field_of_study == "Computer Science"
+
+
+@pytest.mark.parametrize(
+    ("text", "parts"),
+    [
+        ("Atlanta, GA", ("Atlanta", "GA", "United States")),
+        ("Metz, France", ("Metz", None, "France")),
+        ("Toronto, ON, Canada", ("Toronto", "ON", "Canada")),
+        ("Remote", ("Remote", None, None)),
+        ("", (None, None, None)),
+    ],
+)
+def test_a_location_splits_into_parts_and_renders_back(
+    text: str, parts: tuple[str | None, str | None, str | None]
+) -> None:
+    assert parse_location(text) == parts
+    assert render_location(*parts) == text
+
+
+def test_research_carries_the_title_and_employer_a_form_gets() -> None:
+    _, entries, _ = rows_from_document(CareerDocument.model_validate(canonical()))
+    research = [entry for entry in entries if entry.section == "research"]
+    assert {entry.job_title for entry in research} == {"Undergraduate Researcher"}
+    assert [entry.employer for entry in research] == [entry.title for entry in research]
+    assert all(entry.job_title is None for entry in entries if entry.section == "experience")
+
+
+def test_a_document_with_only_a_location_is_split_into_parts() -> None:
+    document = canonical()
+    for name in ("city", "region", "country"):
+        document["research"][0].pop(name, None)
+    _, entries, _ = rows_from_document(CareerDocument.model_validate(document))
+    lab = next(entry for entry in entries if entry.section == "research")
+    assert (lab.city, lab.region, lab.country) == ("Metz", None, "France")
+
+
+def test_a_location_that_disagrees_with_its_parts_is_refused() -> None:
+    document = canonical()
+    document["experience"][0]["location"] = "Austin, TX"
+    with pytest.raises(CareerError, match="city, region, and country"):
+        rows_from_document(CareerDocument.model_validate(document))
 
 
 def test_a_header_that_disagrees_with_the_facts_names_the_fact_to_set() -> None:
