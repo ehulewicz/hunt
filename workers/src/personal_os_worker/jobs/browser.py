@@ -16,6 +16,7 @@ from playwright.sync_api import Browser, Error, Page, Playwright, sync_playwrigh
 
 from personal_os_worker.core.secrets import loaded_values
 from personal_os_worker.jobs.autofill import (
+    BLANK_KIND,
     FILE_KINDS,
     MULTI,
     AutofillPlan,
@@ -807,6 +808,12 @@ def apply_autofill(
         field = fields[fill.index]
         label = str(field.get("label") or field.get("name") or fill.index)
         document = documents.get(fill.kind)
+        if fill.kind == BLANK_KIND:
+            # A none fact: the answer is to leave it blank, so nothing is operated.
+            events.append(_attempt_event(field, fill, None, None, None))
+            if observer is not None:
+                observer.after(field, fill, {"skipped": "left blank on purpose"})
+            continue
         if fill.kind in FILE_KINDS and document is None:
             skipped.append(f"{label} (no {fill.kind} provided)")
             events.append(_attempt_event(field, fill, None, None, None))

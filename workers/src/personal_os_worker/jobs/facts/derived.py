@@ -54,6 +54,11 @@ DERIVED_FACTS = (
         ("coop.anchor", "education.graduation_date"),
     ),
     DerivedFact("identity.first_name", "First name", ("identity.legal_name",)),
+    DerivedFact(
+        "identity.preferred_is_legal",
+        "The preferred first name is the legal first name",
+        ("identity.preferred_name", "identity.legal_name"),
+    ),
     DerivedFact("identity.age", "Age in whole years", ("identity.birth_date",)),
     DerivedFact(
         "education.degree_and_field",
@@ -207,6 +212,7 @@ def derive(facts: dict[str, Any], today: date) -> dict[str, Any]:
         else None
     )
     names = str(facts.get("identity.legal_name") or "").split()
+    preferred = str(facts.get("identity.preferred_name") or "").strip()
     place = [
         str(facts.get(key) or "").strip()
         for key in ("address.city", "address.state", "address.country")
@@ -218,6 +224,9 @@ def derive(facts: dict[str, Any], today: date) -> dict[str, Any]:
         "compensation.minimum_annual": annual_minimum(facts.get("compensation.minimum")),
         "experience.prior_internship": rotations > 0 if rotations is not None else None,
         "identity.first_name": names[0] if names else None,
+        "identity.preferred_is_legal": preferred.casefold() == names[0].casefold()
+        if preferred and names
+        else None,
         "identity.age": age,
         "education.degree_and_field": f"{facts['education.degree_type']} in "
         f"{facts['education.field_of_study']}"

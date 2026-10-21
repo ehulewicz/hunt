@@ -51,6 +51,7 @@ from personal_os_worker.jobs.audit import (
     summarize,
 )
 from personal_os_worker.jobs.autofill import (
+    BLANK_KIND,
     MULTI,
     NOT_APPLICABLE,
     AnswerResolution,
@@ -213,6 +214,8 @@ class SessionState:
     budget: Budget = field(default_factory=Budget)
     misses: dict[str, Miss] = field(default_factory=dict)  # answer key -> why unanswered
     needed: dict[str, str] = field(default_factory=dict)  # question -> fact the model named
+    # Questions a none fact leaves blank on purpose: question -> that fact.
+    blanks: dict[str, str] = field(default_factory=dict)
     # A choice you made that a fact contradicts: control key -> the value, never saved.
     withheld: dict[str, str] = field(default_factory=dict)
     na_flagged: set[str] = field(default_factory=set)  # N/A follow-ups that now apply
@@ -275,6 +278,7 @@ TAG_STYLES = {
     "saved": "green",
     "fact": "green",
     "kept": "dim",
+    "blank": "dim",
     "left": "yellow",
     "optional": "dim",
     "review": "yellow",
@@ -864,6 +868,10 @@ class AutofillSession:
         for fill in plan.fills:
             question = _question_for(fields[fill.index])
             applied = result["applied"].get(fill.index)
+            if fill.kind == BLANK_KIND and question and fill.resolution is not None:
+                fact = str(fill.resolution.fact_key or "")
+                self.state.blanks[question] = fact
+                echo("blank", question, note=f"{fact} is none")
             if applied is not None and question:
                 self.state.planned[question] = applied
                 if fill.resolution is not None:
@@ -1042,7 +1050,7 @@ class AutofillSession:
         questions = [
             question
             for question in _claude_questions(current)
-            if self.may_ask(question.question)
+            if self.may_ask(question.question) and question.question not in self.state.blanks
         ]
         if not questions:
             return
@@ -1168,7 +1176,7 @@ class AutofillSession:
             if item.get("filled") is True:
                 echo("kept", question, note="already has text")
                 continue
-            if question in self.state.tier_answers:
+            if question in self.state.tier_answers or question in self.state.blanks:
                 continue  # a pattern answered it from a fact this step
             limit = item.get("max_length")
             seed, source, resolver_id, note = self.seed_for(question, limit=limit)
@@ -1424,6 +1432,19 @@ class AutofillSession:
                 [(item, True) for item in open_questions["required_unfilled"]]
                 + [(item, False) for item in open_questions["optional_unfilled"]]
             )
+            if question not in self.state.blanks
+        ]
+        # A none fact the form will not accept blank: the fact is yours to change.
+        findings += [
+            Finding(
+                question,
+                "fact_gap",
+                True,
+                f"{fact} is none, and the form requires an answer",
+                fact_key=fact,
+            )
+            for question in open_questions["required_unfilled"]
+            if (fact := self.state.blanks.get(question)) is not None
         ]
         return order(findings + self.wrong_answers(fields))
 
@@ -1591,7 +1612,11 @@ class AutofillSession:
             if finding.cause not in {"pattern_gap", "fact_gap"}:
                 continue
             field = find_field(fields, finding.question)
-            if field is None or not self.may_ask(finding.question):
+            if (
+                field is None
+                or not self.may_ask(finding.question)
+                or finding.question in self.state.blanks
+            ):
                 continue
             targets[finding.question] = field
             questions.append(

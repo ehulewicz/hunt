@@ -2038,3 +2038,47 @@ def test_account_flow_never_runs_on_google(
         session.wait_for_form()
 
     assert account.calls == 0
+
+
+def test_a_none_fact_leaves_its_field_blank_and_asks_no_one(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
+    browser_page.set_content(
+        '<label for="a2">Address Line 2</label><input id="a2" name="a2" required>'
+        '<label for="mid">Middle Name</label><input id="mid" name="mid" required>'
+    )
+    asked: list[list[str]] = []
+
+    def short_drafter(questions: Any, **_: Any) -> dict[str, Verdict]:
+        asked.append([question.question for question in questions])
+        return {}
+
+    api = FakeApi()
+    session = audit_session(
+        browser_page,
+        facts={"address.line_2": ""},
+        patterns=[{"id": "e1", "kind": "expression", "status": "active",
+                   "expression": r"^address line 2$", "fact_key": "address.line_2",
+                   "resolver_id": "expression:e1"}],
+        short_drafter=short_drafter,
+        api=api,
+    )
+    session.ctx.title = "Intern"
+    fields = inspect_fields(browser_page)
+    result = session.fill_deterministic(fields)
+    session.fill_with_claude(fields, result)
+
+    events = [event for step in api.steps for event in step.get("fill_events") or []]
+    blank = next(event for event in events if event["question"] == "Address Line 2")
+    assert (blank["formatter"], blank["fact_key"], blank["stopped_at"], blank["operated_ok"]) == (
+        "none_as_blank", "address.line_2", None, None
+    )
+    assert asked == [["Middle Name"]]
+    assert session.state.blanks == {"Address Line 2": "address.line_2"}
+    # A form that will not take the blank says so, naming the fact to change.
+    findings = {item.question: (item.cause, item.fact_key) for item in session.audit(fields, [])}
+    assert findings == {
+        "Address Line 2": ("fact_gap", "address.line_2"),
+        "Middle Name": ("pattern_gap", None),
+    }

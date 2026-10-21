@@ -98,6 +98,9 @@ async def client(store: FakeFactStore) -> AsyncIterator[httpx.AsyncClient]:
     ("value_type", "value", "expected"),
     [
         ("text", "  Computer Science ", "Computer Science"),
+        # None is a fact: the empty value of its type leaves the field blank on purpose.
+        ("text", "", ""),
+        ("list", [], []),
         ("choice", "hybrid", "hybrid"),
         ("boolean", False, False),
         ("number", 3.78, 3.78),
@@ -116,7 +119,7 @@ def test_fact_values_matching_their_type_are_accepted(
 @pytest.mark.parametrize(
     ("value_type", "value"),
     [
-        ("text", ""),
+        ("choice", ""),
         ("text", 4),
         ("boolean", "true"),
         ("number", True),

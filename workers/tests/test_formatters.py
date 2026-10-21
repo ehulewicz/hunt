@@ -220,3 +220,69 @@ def test_of_several_yes_options_the_open_ended_one_is_chosen() -> None:
     assert yes_no_option(options, True) == "Yes- Either Somerville or Devens works for me"
     assert yes_no_option(options, False) == "No- I cannot work"
     assert yes_no_option(["Yes - Boston only", "Yes - Austin only", "No"], True) is None
+
+
+@pytest.mark.parametrize(("value", "value_type"), [("", "text"), ([], "list")])
+def test_a_none_fact_renders_as_a_deliberate_blank(value: Any, value_type: str) -> None:
+    assert rendered("address.line_2", value, value_type, "Address Line 2") == ("", "none_as_blank")
+    choices = {"tag": "select", "options": ["AWS", "GCP"]}
+    assert rendered("education.certifications", value, value_type, "Certifications", choices) == (
+        "", "none_as_blank"
+    )
+
+
+PHONE_COUNTRY = {"country": "United States", "calling_code": "+1"}
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ["+44", "+1", "+91"],
+        ["United Kingdom (+44)", "United States (+1)", "India (+91)"],
+        ["\U0001f1e8\U0001f1e6 (+1) Canada", "\U0001f1fa\U0001f1f8 (+1) United States of America",
+         "\U0001f1fa\U0001f1f2 (+1) United States Minor Outlying Islands",
+         "\U0001f1ec\U0001f1e7 (+44) United Kingdom"],
+        ["United States+1", "United Kingdom+44"],
+    ],
+)
+def test_a_menu_of_calling_codes_gets_the_phones_country(options: list[str]) -> None:
+    wanted = next(
+        option for option in options
+        if option == "+1" or ("United States" in option and "Minor" not in option)
+    )
+    field = {"tag": "select", "options": options}
+    assert rendered("contact.phone_country", PHONE_COUNTRY, "object", "Country code", field) == (
+        wanted, "calling_code_option"
+    )
+    # The same menu labelled "Country" beside a phone box asks the country of
+    # residence, which is the phone's country.
+    assert rendered(
+        "address.country", "United States", "text", "Country", field,
+        context={"contact.phone_country": PHONE_COUNTRY},
+    ) == (wanted, "calling_code_option")
+
+
+def test_a_country_that_is_not_the_phones_is_matched_by_its_name() -> None:
+    field = {"tag": "select", "options": ["United Kingdom (+44)", "United States (+1)"]}
+    assert rendered(
+        "address.country", "United Kingdom", "text", "Country", field,
+        context={"contact.phone_country": PHONE_COUNTRY},
+    ) == ("United Kingdom (+44)", "text_as_is_option")
+
+
+def test_the_phones_country_by_name_or_code_as_the_box_asks() -> None:
+    names = {"tag": "select", "options": ["Canada", "United States of America"]}
+    assert rendered(
+        "contact.phone_country", PHONE_COUNTRY, "object", "Phone number country", names
+    ) == ("United States of America", "country_name_option")
+    assert rendered("contact.phone_country", PHONE_COUNTRY, "object", "Country code") == (
+        "+1", "calling_code"
+    )
+    assert rendered("contact.phone_country", PHONE_COUNTRY, "object", "Phone number country") == (
+        "United States", "country_name"
+    )
+    # A typeahead is searched by name, since many countries share +1.
+    typeahead = {"tag": "input", "type": "text", "role": "combobox"}
+    assert rendered(
+        "contact.phone_country", PHONE_COUNTRY, "object", "Country Phone Code", typeahead
+    ) == ("United States", "country_name")

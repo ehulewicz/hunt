@@ -29,9 +29,14 @@ FACT_COLUMNS = "key, label, value, value_type, verified_at, updated_at"
 
 def validate_fact_value(value_type: str, value: Any) -> Any:
     """The value, if it has the shape its type declares; ValueError otherwise."""
-    if value_type in {"text", "choice"}:
+    if value_type == "text":
+        # An empty text is a fact too: the answer is none, and the field stays blank.
+        if not isinstance(value, str):
+            raise ValueError("A text fact needs a string")
+        return value.strip()
+    if value_type == "choice":
         if not isinstance(value, str) or not value.strip():
-            raise ValueError(f"A {value_type} fact needs a non-empty string")
+            raise ValueError("A choice fact needs a non-empty string")
         return value.strip()
     if value_type == "boolean":
         if not isinstance(value, bool):

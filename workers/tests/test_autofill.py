@@ -755,3 +755,35 @@ def test_a_follow_up_names_the_answer_it_needs() -> None:
     assert follow_up_condition("If not, please explain.") is False
     assert follow_up_condition("If not already provided, list your skills.") is None
     assert follow_up_condition("Please provide your LinkedIn profile.") is None
+
+
+class Blank:
+    """A none fact answering every question: blank on purpose."""
+
+    def resolve(self, field: dict[str, Any]) -> AnswerResolution | None:
+        return AnswerResolution(
+            "", "pattern", "expression:e1", fact_key="education.certifications",
+            formatter="none_as_blank", pattern_id="e1",
+        )
+
+
+def test_a_none_fact_plans_one_deliberate_blank_per_question() -> None:
+    question = "Which certifications do you hold?"
+    fields = [
+        {"index": 0, "tag": "input", "type": "text", "label": "Address Line 2", "required": True},
+        {"index": 1, "tag": "input", "type": "checkbox", "name": "c", "label": "AWS",
+         "group": question, "required": False, "group_size": 2},
+        {"index": 2, "tag": "input", "type": "checkbox", "name": "c", "label": "GCP",
+         "group": question, "required": False, "group_size": 2},
+        {"index": 3, "tag": "input", "type": "text", "label": "If yes, which ones?",
+         "required": True},
+    ]
+    plan = build_autofill_plan(fields, resolver=Blank())
+
+    # Nothing is operated, nothing is unanswered, and a blank never rules a follow-up out.
+    assert [(fill.index, fill.kind, fill.value) for fill in plan.fills] == [
+        (0, "blank", None), (1, "blank", None), (3, "blank", None),
+    ]
+    assert plan.unanswered_required_questions == ()
+    assert plan.reasons[2] == "its group stays blank on purpose"
+    assert "is none, so it stays blank on purpose" in plan.reasons[0]

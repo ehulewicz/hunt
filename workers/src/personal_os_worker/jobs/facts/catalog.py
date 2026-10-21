@@ -31,6 +31,13 @@ def _entries(*items: CatalogEntry) -> dict[str, CatalogEntry]:
 CATALOG = _entries(
     CatalogEntry("identity.legal_name", "Full legal name", "text"),
     CatalogEntry("identity.preferred_name", "Preferred first name", "text"),
+    CatalogEntry("identity.middle_name", "Middle name", "text"),
+    CatalogEntry(
+        "identity.preferred_is_legal",
+        "The preferred first name is the legal first name",
+        "boolean",
+        "derived",
+    ),
     CatalogEntry("identity.first_name", "First name, from the legal name", "text", "derived"),
     CatalogEntry("identity.last_name", "Last name, from the legal name", "text", "derived"),
     CatalogEntry("identity.birth_date", "Date of birth", "date"),
@@ -39,9 +46,17 @@ CATALOG = _entries(
     CatalogEntry("identity.pronouns", "Pronouns", "text"),
     CatalogEntry("contact.email", "Email address", "text"),
     CatalogEntry("contact.phone", "Phone number", "text"),
+    CatalogEntry(
+        "contact.phone_country",
+        "The phone number's country and calling code, as {country, calling_code}",
+        "object",
+    ),
+    CatalogEntry("contact.phone_extension", "Phone extension", "text"),
     CatalogEntry("contact.linkedin_url", "LinkedIn profile URL", "text"),
     CatalogEntry("contact.github_url", "GitHub profile URL", "text"),
     CatalogEntry("contact.portfolio_url", "Portfolio or personal website URL", "text"),
+    CatalogEntry("contact.x_url", "X (Twitter) profile URL", "text"),
+    CatalogEntry("contact.facebook_url", "Facebook profile URL", "text"),
     CatalogEntry("address.line_1", "Street address", "text"),
     CatalogEntry("address.line_2", "Second address line", "text"),
     CatalogEntry("address.city", "Current city", "text"),
@@ -67,6 +82,7 @@ CATALOG = _entries(
         "derived",
     ),
     CatalogEntry("education.gpa", "GPA", "number", "career"),
+    CatalogEntry("education.certifications", "Certifications held", "list"),
     CatalogEntry("education.graduation_term", "Graduation term", "text", "derived"),
     CatalogEntry(
         "education.currently_enrolled", "Currently enrolled as a student", "boolean", "derived"

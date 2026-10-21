@@ -21,7 +21,7 @@ from typing import Any
 from personal_os_worker.jobs.facts.derived import HOURS_PER_YEAR, graduation_term
 from personal_os_worker.jobs.office import choose_offices
 from personal_os_worker.jobs.office import parse as parse_place
-from personal_os_worker.jobs.options import choose_numeric_range, choose_option
+from personal_os_worker.jobs.options import CALLING_CODE, choose_numeric_range, choose_option
 from personal_os_worker.jobs.sites import is_non_answer_option
 
 MONTHS = (
@@ -36,6 +36,9 @@ ANNUAL = re.compile(r"\b(annual|annually|yearly|per year|a year|base salary)\b",
 NEGATIVE = re.compile(r"\b(no|not|don t|do not|never|none|neither)\b")
 AFFIRMATIVE = re.compile(r"^(yes|true|y)$")
 NEGATIVE_WORD = re.compile(r"^(no|false|n)$")
+# A fact whose value is the empty value of its type ("" or []) says the answer
+# is none: the field stays blank on purpose, and nothing counts it as a miss.
+BLANK = "none_as_blank"
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +201,8 @@ def _text_candidates(
     if value_type == "object":
         if key.startswith("compensation."):
             return _money(value, field, question)
+        if key == "contact.phone_country":
+            return _phone_country_candidates(value, field, question)
         return []
     text = str(value).strip()
     return [Rendering(text, "text_as_is")] if text else []
@@ -311,6 +316,75 @@ def _multiple(field: dict[str, Any]) -> bool:
         return False
 
 
+def is_blank(value: Any) -> bool:
+    """Whether a fact's value is the empty value of its type: the answer is none."""
+    return (isinstance(value, str) and not value.strip()) or value == []
+
+
+def _phone_country(
+    key: str, value: Any, context: Mapping[str, Any] | None
+) -> tuple[str, str] | None:
+    """(country, calling code digits) when this fact names the phone's country.
+
+    `contact.phone_country` does; so does the country of residence when it is
+    the same country, which is how a "Country" menu of calling codes beside a
+    phone box is answered.
+    """
+    if key not in {"contact.phone_country", "address.country"}:
+        return None
+    phone = value if key == "contact.phone_country" else (context or {}).get(
+        "contact.phone_country"
+    )
+    if not isinstance(phone, dict):
+        return None
+    country = str(phone.get("country") or "").strip()
+    code = re.sub(r"\D", "", str(phone.get("calling_code") or ""))
+    if not country or not code:
+        return None
+    if key == "address.country" and _words(str(value)) != _words(country):
+        return None
+    return country, code
+
+
+def calling_code_menu(options: list[str]) -> bool:
+    """Whether every option is a calling code, alone or beside its country's name."""
+    return len(options) >= 2 and all(CALLING_CODE.search(option) for option in options)
+
+
+def calling_code_option(options: list[str], country: str, code: str) -> str | None:
+    """The option with this calling code; of several (+1 is shared), the one naming the country."""
+    coded = [
+        option for option in options
+        if (found := CALLING_CODE.search(option)) is not None and found.group(1) == code
+    ]
+    if len(coded) == 1:
+        return coded[0]
+    names = {" ".join(CALLING_CODE.sub(" ", option).split()): option for option in coded}
+    chosen = choose_option(list(names), country)
+    return names[chosen] if chosen is not None else None
+
+
+def _phone_country_candidates(
+    value: Any, field: dict[str, Any], question: str
+) -> list[Rendering]:
+    """The phone's country as its name or its calling code, the wording's first.
+
+    A box asking for a code gets "+1"; a typeahead is searched by name, since
+    many countries share a code.
+    """
+    if not isinstance(value, dict):
+        return []
+    country = str(value.get("country") or "").strip()
+    code = re.sub(r"\D", "", str(value.get("calling_code") or ""))
+    found = ([Rendering(country, "country_name")] if country else []) + (
+        [Rendering(f"+{code}", "calling_code")] if code else []
+    )
+    asks_code = re.search(r"\b(code|dial\w*)\b", _hint(field, question)) is not None
+    if asks_code and str(field.get("role") or "") != "combobox":
+        found.reverse()
+    return found
+
+
 def _city_with_state(key: str, value: Any, context: Mapping[str, Any] | None) -> str | None:
     """"Atlanta, Georgia": a city with the state that tells it from its namesakes."""
     state = (context or {}).get("address.state")
@@ -358,11 +432,19 @@ def render(
     """The fact's value as this control needs it, or None when nothing fits.
 
     `context` is the run's other facts, for the few renderings that need one
-    (a city in a typeahead goes in with its state).
+    (a city in a typeahead goes in with its state, a country in a menu of
+    calling codes takes the phone's code). A value that is the empty value of
+    its type renders as a deliberate blank.
     """
     if value is None:
         return None
+    if is_blank(value):
+        return Rendering("", BLANK)
     options = _options(field)
+    phone = _phone_country(key, value, context)
+    if phone is not None and calling_code_menu(options):
+        chosen = calling_code_option(options, *phone)
+        return Rendering(chosen, "calling_code_option") if chosen is not None else None
     within = _notice_within(key, value, question)
     if within is not None:
         if options:

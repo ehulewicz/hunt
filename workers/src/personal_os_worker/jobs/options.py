@@ -12,6 +12,10 @@ from collections.abc import Callable
 
 from personal_os_worker.jobs.sites import option_match
 
+# A phone's country, as a menu of calling codes words it: "+1",
+# "United States (+1)", "🇺🇸 (+1) United States of America".
+CALLING_CODE = re.compile(r"\(?\+\s?(\d{1,4})\b\)?")
+
 
 def normalize_question(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip().casefold()
@@ -92,6 +96,9 @@ SYNONYM_GROUPS: tuple[frozenset[str], ...] = (
         }
     ),
     frozenset({"he him", "he him his", "he his", "him his", "he"}),
+    frozenset(
+        {"united states", "united states of america", "usa", "u s a", "us", "u s"}
+    ),
 )
 QUALIFIER_WORDS = frozenset(
     {"cis", "cisgender", "he", "him", "his", "she", "her", "hers", "they", "them"}
@@ -106,7 +113,9 @@ def choose_synonym(options: list[str], answer: str) -> str | None:
         return None
     hits: list[str] = []
     for option in options:
-        words = normalize_answer_question(option).split()
+        # A calling code beside a country's name ("United States of America (+1)")
+        # qualifies nothing.
+        words = normalize_answer_question(CALLING_CODE.sub(" ", option)).split()
         for length in range(len(words), 0, -1):
             head, tail = " ".join(words[:length]), words[length:]
             if head in group and all(word in QUALIFIER_WORDS for word in tail):

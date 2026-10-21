@@ -51,6 +51,8 @@ Application facts live in `jobs_facts`, one row per fact keyed by a dotted name
 (`education.graduation_date`), with a JSON value typed by `value_type`.
 `/v1/jobs/facts` lists, sets, verifies, and deletes them; a write is validated
 against its type here and by a database check. Setting a value marks it verified.
+An empty text or list is a fact too: the answer is none, and the worker leaves
+that field blank on purpose. A choice is never empty.
 Unknown or optional EEO values are not inferred.
 
 ### Jobs endpoints

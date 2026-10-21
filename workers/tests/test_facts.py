@@ -6,7 +6,12 @@ from typing import Any
 import pytest
 
 from personal_os_worker.cli import build_parser, expand_shorthand
-from personal_os_worker.jobs.facts.commands import library_conflicts, parse_value, review_facts
+from personal_os_worker.jobs.facts.commands import (
+    library_conflicts,
+    none_value,
+    parse_value,
+    review_facts,
+)
 from personal_os_worker.jobs.facts.derived import completed_rotations, derive, graduation_term
 
 ANCHOR = {"count": 4, "as_of": "2026-08-01"}
@@ -355,3 +360,30 @@ def test_a_stored_fact_shadows_the_career_value_and_is_named() -> None:
     assert knowledge.facts["education.degree_type"] == "Bachelor's"
     assert knowledge.facts["experience.years_professional"] == 4
     assert knowledge.facts["education.field_of_study"] == "Computer Science"  # the career decides
+
+
+@pytest.mark.parametrize(
+    ("preferred", "legal", "same"),
+    [("Ethan", "Alex Example", True), ("ethan", "Alex Quinn Example", True),
+     ("Eddie", "Alex Example", False)],
+)
+def test_whether_the_preferred_name_is_the_legal_one(
+    preferred: str, legal: str, same: bool
+) -> None:
+    facts = {"identity.preferred_name": preferred, "identity.legal_name": legal}
+    assert derive(facts, date(2026, 10, 20))["identity.preferred_is_legal"] is same
+    assert "identity.preferred_is_legal" not in derive(
+        {"identity.legal_name": legal}, date(2026, 10, 20)
+    )
+
+
+def test_a_none_fact_is_the_empty_value_of_its_type() -> None:
+    assert none_value("text") == ""
+    assert none_value("list") == []
+    with pytest.raises(ValueError):
+        none_value("boolean")
+
+
+def test_facts_set_takes_a_value_or_none() -> None:
+    args = build_parser().parse_args(["hunt", "facts", "set", "address.line_2", "--none"])
+    assert (args.key, args.value, args.none) == ("address.line_2", None, True)

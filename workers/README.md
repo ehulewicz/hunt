@@ -252,6 +252,15 @@ front of it and names the formatter it used: a date as "December 2027", "Fall
 type; the $40/hour minimum as `$40/hour`, `40`, `$83,200 USD`, or `83200`; yes
 and no as whichever option says them ("No, I am not a protected veteran");
 numbers into the range that contains them; lists as text, or one box per item.
+A fact whose value is the empty value of its type (`""` or `[]`, set with
+`facts set KEY --none`) says the answer is none: the planner records a
+deliberate blank, nothing is operated, the model is never asked about it, and
+the audit lists it only when the form requires an answer, as a fact gap.
+`contact.phone_country` is `{country, calling_code}`; a menu whose every option
+is a calling code ("+1", "United States (+1)", "🇺🇸 (+1) United States of
+America") gets the one with that code, and of several the one naming the
+country. A "Country" menu of calling codes beside a phone box is answered the
+same way from the country of residence when it is the phone's country.
 Against options, the first rendering that one option matches wins; none is a
 `format` failure. `jobs/office.py` is the §9 office policy, read from
 `preferences.location_strategy` when a question is bound to it, with draws

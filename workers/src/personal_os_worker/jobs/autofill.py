@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from personal_os_worker.jobs.formatters import polarity
+from personal_os_worker.jobs.formatters import BLANK, polarity
 from personal_os_worker.jobs.options import (
     choose_option,
     normalize_answer_question,
@@ -15,6 +15,8 @@ from personal_os_worker.jobs.options import (
 from personal_os_worker.jobs.sites import is_non_answer_option
 
 FILE_KINDS = frozenset({"resume", "transcript"})
+# A question a none fact answers: nothing is operated, and it stays blank on purpose.
+BLANK_KIND = "blank"
 # Several chosen options in one value, as the formatters join them.
 MULTI = "\n"
 
@@ -354,6 +356,8 @@ def build_autofill_plan(
     fills: list[FormFill] = []
     unanswered: list[str] = []
     reasons: dict[int, str] = {}
+    # Choice groups a none fact leaves blank: one blank fill answers the group.
+    blank_groups: set[str] = set()
     knowledge = getattr(resolver, "knowledge", None)
     referred = bool(knowledge is not None and knowledge.facts.get("referral.referred"))
     # The yes or no each question holds or is planned to hold, for the follow-up
@@ -413,6 +417,9 @@ def build_autofill_plan(
             continue
         if field_type in {"radio", "checkbox"} and normalized in filled_groups:
             reasons[index] = "its group already has a choice: left as it is"
+            continue
+        if field_type in {"radio", "checkbox"} and normalized in blank_groups:
+            reasons[index] = "its group stays blank on purpose"
             continue
 
         value: str | None = None
@@ -480,7 +487,14 @@ def build_autofill_plan(
             if resolution is not None and is_non_answer_option(resolution.value):
                 reasons[index] = f"{resolution.value!r} declines to answer: never chosen"
                 resolution = None
-            value = resolution.value if resolution is not None else None
+            if resolution is not None and resolution.formatter == BLANK:
+                kind = BLANK_KIND
+                reasons[index] += f"; {resolution.fact_key} is none, so it stays blank on purpose"
+                if field_type in {"radio", "checkbox"}:
+                    blank_groups.add(normalized)
+            value = (
+                resolution.value if resolution is not None and kind != BLANK_KIND else None
+            )
             if value is None and not options and HOW_HEARD.search(question_label):
                 if field.get("role") == "combobox":
                     chooser = "source"
@@ -521,7 +535,7 @@ def build_autofill_plan(
 
         condition = follow_up_condition(question_label)
         if (
-            value is None and chooser is None and condition is not None
+            value is None and chooser is None and kind != BLANK_KIND and condition is not None
             and is_follow_up_box(field) and len(above) == 1 and condition not in above
         ):
             # "If you answered No to the above, ..." after a Yes: it does not apply,
@@ -532,7 +546,7 @@ def build_autofill_plan(
                 f"engine: the question above was answered {'No' if condition else 'Yes'}, "
                 "so this follow-up does not apply"
             )
-        if kind in FILE_KINDS or value is not None or chooser is not None:
+        if kind in FILE_KINDS or kind == BLANK_KIND or value is not None or chooser is not None:
             fills.append(FormFill(
                 index=index, kind=kind, value=value, chooser=chooser, resolution=resolution,
                 referred=referred,

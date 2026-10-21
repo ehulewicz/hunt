@@ -32,6 +32,8 @@ os hunt facts        # = os hunt facts list; every stored and derived fact
 os hunt facts list --show
 os hunt facts review # accept, edit, or delete each unverified fact
 os hunt facts set education.gpa 3.78
+os hunt facts set identity.middle_name Alexander   # the catalog gives a known key its type and label
+os hunt facts set address.line_2 --none            # the answer is none: the field stays blank
 os hunt facts set work_auth.security_clearance no --type boolean --label "Holds a security clearance"
 
 os hunt resume build      # republish main.json and the PDF from the career record

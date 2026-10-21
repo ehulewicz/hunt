@@ -29,6 +29,7 @@ from rich.markup import escape
 
 from personal_os_worker.core.tables import console
 from personal_os_worker.jobs.autofill import (
+    BLANK_KIND,
     AutofillPlan,
     FormFill,
     choice_group_key,
@@ -151,7 +152,9 @@ class Explainer:
                 _line(what, detail)
         if fill is None:
             return
-        if fill.kind != "text":
+        if fill.kind == BLANK_KIND:
+            _line("fill", "leave it blank: the fact says none")
+        elif fill.kind != "text":
             _line("fill", f"upload the {fill.kind}")
         elif fill.chooser is not None:
             _line("fill", f"chosen against the live menu ({fill.chooser})")

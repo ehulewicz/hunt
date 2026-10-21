@@ -19,6 +19,7 @@ from rich.table import Table
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
 from personal_os_worker.core.tables import console
+from personal_os_worker.jobs.facts.catalog import entry
 from personal_os_worker.jobs.facts.derived import (
     CAREER_FACTS,
     DERIVED_FACTS,
@@ -57,6 +58,15 @@ LIBRARY_HINTS = {
     "eeo.veteran_status": r"\bveteran\b",
     "eeo.disability_status": r"\bdisabilit",
 }
+
+
+def none_value(value_type: str) -> Any:
+    """The empty value of a type: a fact that says the answer is none (blank on purpose)."""
+    if value_type == "text":
+        return ""
+    if value_type == "list":
+        return []
+    raise ValueError(f"A {value_type} fact cannot be none; only text and list facts can")
 
 
 def parse_value(value_type: str, raw: str) -> Any:
@@ -253,25 +263,37 @@ def run_facts_review() -> int:
 
 def run_facts_set(
     key: str,
-    raw: str,
+    raw: str | None,
     *,
     value_type: str | None,
     label: str | None,
 ) -> int:
+    """Set one fact; `raw` None stores the type's none value. The catalog names a new
+    fact's type and label unless they are given."""
     config, token = connected()
     api = WorkerApi(config, token)
+    known = entry(key)
     try:
         existing = {str(fact["key"]): fact for fact in api.facts()}.get(key)
-        resolved_type = value_type or (existing or {}).get("value_type")
+        resolved_type = (
+            value_type
+            or (existing or {}).get("value_type")
+            or (known.value_type if known else None)
+        )
         if resolved_type is None:
             raise RuntimeError(f"{key} is a new fact: give --type and --label")
         if existing is None and not label:
-            raise RuntimeError(f"{key} is a new fact: give --label")
+            if known is None:
+                raise RuntimeError(f"{key} is a new fact: give --label")
+            label = known.label
+        value = (
+            none_value(str(resolved_type)) if raw is None else parse_value(str(resolved_type), raw)
+        )
         fact = api.set_fact(
             key,
-            parse_value(str(resolved_type), raw),
+            value,
             label=label,
-            value_type=value_type,
+            value_type=value_type or (None if existing else str(resolved_type)),
         )
     finally:
         api.close()

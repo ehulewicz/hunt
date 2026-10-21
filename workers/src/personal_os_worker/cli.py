@@ -193,9 +193,16 @@ def build_parser() -> argparse.ArgumentParser:
     fact_commands.add_parser("review", help="Accept, edit, or delete each unverified fact")
     facts_set = fact_commands.add_parser("set", help="Set one fact; setting it verifies it")
     facts_set.add_argument("key", help="Dotted fact key, e.g. education.graduation_date")
-    facts_set.add_argument("value", help="Value; JSON for list and object facts")
+    facts_set.add_argument("value", nargs="?", help="Value; JSON for list and object facts")
+    facts_set.add_argument(
+        "--none",
+        action="store_true",
+        help="The answer is none: store the empty value of its type, so the field stays blank",
+    )
     facts_set.add_argument("--type", choices=VALUE_TYPES, dest="value_type")
-    facts_set.add_argument("--label", help="Plain-language description, required for a new fact")
+    facts_set.add_argument(
+        "--label", help="Plain-language description, required for a fact the catalog lacks"
+    )
 
     resume = jobs_commands.add_parser(
         "resume", help="Edit or build the one-page resume from the career record"
@@ -430,6 +437,8 @@ def _dispatch(args: argparse.Namespace) -> int:
             if args.fact_command == "review":
                 return facts.run_facts_review()
             if args.fact_command == "set":
+                if (args.value is None) != args.none:
+                    raise RuntimeError("'facts set' takes a value or --none, not both")
                 return facts.run_facts_set(
                     args.key,
                     args.value,
