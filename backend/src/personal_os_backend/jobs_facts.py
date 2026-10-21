@@ -5,6 +5,8 @@ One row per fact, keyed by a stable dotted name. Values are JSON typed by
 database check enforces the same shape. No fact is hidden: Jobs is single-user
 and full visibility is what makes a fill readable. Derived facts (completed co-op
 rotations, graduation term) are computed by the worker and never stored.
+Every set, verification, and deletion is recorded in `jobs_changes` in the same
+transaction, keyed by the fact's key.
 """
 
 from __future__ import annotations
@@ -15,12 +17,14 @@ from typing import Annotated, Any, Literal, Protocol
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel, ConfigDict, Field
 
 from personal_os_backend.auth import CurrentPrincipal
 from personal_os_backend.config import Settings
+from personal_os_backend.jobs_changes import Action, Failure, Origin, record_change
 
 FactType = Literal["text", "boolean", "number", "date", "choice", "list", "object"]
 FACT_KEY = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
@@ -82,6 +86,9 @@ class FactWrite(BaseModel):
     label: str | None = Field(default=None, min_length=1, max_length=200)
     value_type: FactType | None = None
     verified: bool = True
+    # Who set it, and the failure it answers: a fact given mid-run fills a gap.
+    origin: Literal["you", "inbox"] = "you"
+    failure: Failure | None = None
 
 
 class FactStore(Protocol):
@@ -92,6 +99,26 @@ class FactStore(Protocol):
     async def verify_fact(self, user_id: UUID, key: str) -> Fact | None: ...
 
     async def delete_fact(self, user_id: UUID, key: str) -> bool: ...
+
+
+async def _record_fact(
+    connection: AsyncConnection[Any],
+    user_id: UUID,
+    key: str,
+    action: Action,
+    before: dict[str, Any] | None,
+    after: dict[str, Any] | None,
+    *,
+    origin: Origin = "you",
+    failure: Failure | None = None,
+) -> None:
+    def shown(row: dict[str, Any] | None) -> Any:
+        return Fact.model_validate(row).model_dump(mode="json") if row else None
+
+    await record_change(
+        connection, user_id, subject="fact", subject_id=key, action=action,
+        before=shown(before), after=shown(after), origin=origin, failure=failure,
+    )
 
 
 class PostgresFactStore:
@@ -119,7 +146,7 @@ class PostgresFactStore:
         ):
             await connection.execute("set local role personal_os_api")
             cursor = await connection.execute(
-                "select label, value_type from app.jobs_facts "
+                f"select {FACT_COLUMNS} from app.jobs_facts "
                 "where user_id = %s and key = %s for update",
                 (user_id, key),
             )
@@ -143,8 +170,12 @@ class PostgresFactStore:
                 (user_id, key, label, Jsonb(value), value_type, item.verified),
             )
             row = await cursor.fetchone()
-        if row is None:
-            raise RuntimeError("The fact write returned no row")
+            if row is None:
+                raise RuntimeError("The fact write returned no row")
+            await _record_fact(
+                connection, user_id, key, "update" if existing else "create", existing, row,
+                origin=item.origin, failure=item.failure,
+            )
         return Fact.model_validate(row)
 
     async def verify_fact(self, user_id: UUID, key: str) -> Fact | None:
@@ -154,11 +185,19 @@ class PostgresFactStore:
         ):
             await connection.execute("set local role personal_os_api")
             cursor = await connection.execute(
+                f"select {FACT_COLUMNS} from app.jobs_facts "
+                "where user_id = %s and key = %s for update",
+                (user_id, key),
+            )
+            before = await cursor.fetchone()
+            cursor = await connection.execute(
                 f"update app.jobs_facts set verified_at = now() "
                 f"where user_id = %s and key = %s returning {FACT_COLUMNS}",
                 (user_id, key),
             )
             row = await cursor.fetchone()
+            if row is not None:
+                await _record_fact(connection, user_id, key, "update", before, row)
         return Fact.model_validate(row) if row else None
 
     async def delete_fact(self, user_id: UUID, key: str) -> bool:
@@ -168,10 +207,14 @@ class PostgresFactStore:
         ):
             await connection.execute("set local role personal_os_api")
             cursor = await connection.execute(
-                "delete from app.jobs_facts where user_id = %s and key = %s",
+                f"delete from app.jobs_facts where user_id = %s and key = %s "
+                f"returning {FACT_COLUMNS}",
                 (user_id, key),
             )
-        return bool(cursor.rowcount > 0)
+            before = await cursor.fetchone()
+            if before is not None:
+                await _record_fact(connection, user_id, key, "delete", before, None)
+        return before is not None
 
 
 async def get_fact_store(request: Request) -> FactStore:

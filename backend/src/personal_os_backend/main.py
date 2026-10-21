@@ -13,6 +13,7 @@ from personal_os_backend.config import Settings
 from personal_os_backend.database import create_pool, database_is_ready
 from personal_os_backend.jobs_answers import router as answers_router
 from personal_os_backend.jobs_career import router as career_router
+from personal_os_backend.jobs_changes import router as changes_router
 from personal_os_backend.jobs_devices import router as devices_router
 from personal_os_backend.jobs_facts import router as facts_router
 from personal_os_backend.jobs_router import router as jobs_router
@@ -92,6 +93,7 @@ def create_app(settings: Settings | None = None, *, lifespan: Lifespan | None = 
     application.include_router(facts_router)
     application.include_router(career_router)
     application.include_router(answers_router)
+    application.include_router(changes_router)
     application.include_router(devices_router)
 
     return application

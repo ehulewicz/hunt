@@ -24,12 +24,24 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from personal_os_backend.auth import CurrentPrincipal
 from personal_os_backend.config import Settings
+from personal_os_backend.jobs_changes import (
+    Action,
+    Change,
+    Failure,
+    Origin,
+    Verification,
+    latest_failed,
+    record_change,
+)
 
 FACT_KEY = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
 Disposition = Literal["unbound", "pattern", "one_off", "long_form"]
 PatternStatus = Literal["candidate", "repaired", "validated", "active", "rejected", "retired"]
 # A pattern that can still become active, or is.
 LIVE_STATUSES = ("candidate", "repaired", "validated", "active")
+# Who a new pattern's change is recorded as: an archive adoption is yours.
+PATTERN_ORIGINS: dict[str, Origin] = {"inbox": "inbox", "archive": "you", "model": "model"}
+STATUS_ACTIONS: dict[str, Action] = {"retired": "retire", "rejected": "reject"}
 
 
 def normalize_answer_key(value: str) -> str:
@@ -166,11 +178,16 @@ class PatternCreate(BaseModel):
     origin: Literal["inbox", "archive", "model"] = "inbox"
     archive_ref: str | None = Field(default=None, max_length=200)
     status: Literal["candidate", "active"] = "candidate"
+    # The failure this pattern answers, and what replaying it found (a learned one).
+    failure: Failure | None = None
+    verification: Verification | None = None
 
     @model_validator(mode="after")
     def shape_matches_kind(self) -> PatternCreate:
         if not FACT_KEY.fullmatch(self.fact_key):
             raise ValueError("fact_key is dotted lowercase words, e.g. work_auth.us_citizen")
+        if self.verification is not None and self.verification.failed and self.status == "active":
+            raise ValueError("a pattern that failed its replay waits in the Inbox, not active")
         if self.kind == "binding" and (
             (self.question_id is None) == (self.question is None) or self.expression is not None
         ):
@@ -193,6 +210,8 @@ class PatternUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: Literal["candidate", "active", "rejected", "retired"]
+    # Who decided: you in the Library, or you answering the Inbox.
+    origin: Literal["you", "inbox"] = "you"
 
 
 class Prose(BaseModel):
@@ -253,6 +272,8 @@ class AnswerSeen(BaseModel):
 class InboxCandidate(BaseModel):
     pattern: Pattern
     answers: list[AnswerSeen]
+    # A pattern check: the learned change that failed its replay, and so waits on you.
+    check: Change | None = None
 
 
 class InboxQuestion(BaseModel):
@@ -381,9 +402,15 @@ class AnswerStore(Protocol):
 
 
 async def _activate(
-    connection: AsyncConnection[Any], user_id: UUID, pattern_id: UUID
+    connection: AsyncConnection[Any],
+    user_id: UUID,
+    pattern_id: UUID,
+    *,
+    origin: Origin,
+    failure: Failure | None = None,
 ) -> None:
-    """Make a pattern the one that answers; a binding replaces its question's previous one."""
+    """Make a pattern the one that answers; a binding replaces its question's previous one,
+    and the binding it replaces is recorded retired by whoever replaced it."""
     cursor = await connection.execute(
         "select kind, question_id from app.jobs_patterns where id = %s and user_id = %s",
         (pattern_id, user_id),
@@ -392,6 +419,13 @@ async def _activate(
     if row is None:
         return
     if row["kind"] == "binding":
+        cursor = await connection.execute(
+            f"select {PATTERN_COLUMNS} {PATTERN_FROM} where pattern.user_id = %s "
+            "and pattern.question_id = %s and pattern.kind = 'binding' "
+            "and pattern.status = 'active' and pattern.id <> %s",
+            (user_id, row["question_id"], pattern_id),
+        )
+        displaced = [Pattern.model_validate(item) for item in await cursor.fetchall()]
         await connection.execute(
             """
             update app.jobs_patterns set status = 'retired'
@@ -400,6 +434,11 @@ async def _activate(
             """,
             (user_id, row["question_id"], pattern_id),
         )
+        for old in displaced:
+            await _record_pattern(
+                connection, user_id, "retire", old, old.model_copy(update={"status": "retired"}),
+                origin=origin, failure=failure,
+            )
     await connection.execute(
         "update app.jobs_patterns set status = 'active' where id = %s and user_id = %s",
         (pattern_id, user_id),
@@ -450,6 +489,41 @@ async def _model_refusal(
     if row["status"] == "active":
         return "the question is bound already, and a model never replaces a binding"
     return "you rejected or retired this binding"
+
+
+async def _record_pattern(
+    connection: AsyncConnection[Any],
+    user_id: UUID,
+    action: Action,
+    before: Pattern | None,
+    after: Pattern | None,
+    *,
+    origin: Origin,
+    failure: Failure | None = None,
+    verification: Verification | None = None,
+) -> None:
+    """Record a pattern change; one that changed nothing, and was not checked, is not one."""
+    subject = after or before
+    if subject is None:
+        return
+    shown = {"updated_at"}
+    if (
+        before is not None and after is not None and verification is None
+        and before.model_dump(exclude=shown) == after.model_dump(exclude=shown)
+    ):
+        return
+    await record_change(
+        connection,
+        user_id,
+        subject="pattern",
+        subject_id=str(subject.id),
+        action=action,
+        before=before.model_dump(mode="json") if before is not None else None,
+        after=after.model_dump(mode="json") if after is not None else None,
+        origin=origin,
+        failure=failure,
+        verification=verification,
+    )
 
 
 async def _pattern(
@@ -555,6 +629,16 @@ class PostgresAnswerStore:
                 refusal = await _model_refusal(connection, user_id, item)
                 if refusal is not None:
                     raise PatternRefused(refusal)
+            before: Pattern | None = None
+            if item.kind == "binding":
+                cursor = await connection.execute(
+                    f"select {PATTERN_COLUMNS} {PATTERN_FROM} where pattern.user_id = %s "
+                    "and pattern.question_id = %s and pattern.fact_key = %s "
+                    "and pattern.kind = 'binding'",
+                    (user_id, item.question_id, item.fact_key),
+                )
+                existing = await cursor.fetchone()
+                before = Pattern.model_validate(existing) if existing else None
             cursor = await connection.execute(
                 """
                 with new as (select gen_random_uuid() as id)
@@ -580,9 +664,17 @@ class PostgresAnswerStore:
             if row is None:
                 raise RuntimeError("Pattern insert returned no id")
             pattern_id = UUID(str(row["id"]))
+            origin = PATTERN_ORIGINS[item.origin]
             if item.status == "active":
-                await _activate(connection, user_id, pattern_id)
-            return await _pattern(connection, user_id, pattern_id)
+                await _activate(
+                    connection, user_id, pattern_id, origin=origin, failure=item.failure
+                )
+            after = await _pattern(connection, user_id, pattern_id)
+            await _record_pattern(
+                connection, user_id, "create" if before is None else "update", before, after,
+                origin=origin, failure=item.failure, verification=item.verification,
+            )
+            return after
 
     async def update_pattern(
         self, user_id: UUID, pattern_id: UUID, item: PatternUpdate
@@ -596,7 +688,7 @@ class PostgresAnswerStore:
             if current is None:
                 return None
             if item.status == "active":
-                await _activate(connection, user_id, pattern_id)
+                await _activate(connection, user_id, pattern_id, origin=item.origin)
             else:
                 await connection.execute(
                     "update app.jobs_patterns set status = %s where id = %s and user_id = %s",
@@ -610,7 +702,12 @@ class PostgresAnswerStore:
                     """,
                     (user_id, pattern_id),
                 )
-            return await _pattern(connection, user_id, pattern_id)
+            after = await _pattern(connection, user_id, pattern_id)
+            await _record_pattern(
+                connection, user_id, STATUS_ACTIONS.get(item.status, "update"), current, after,
+                origin=item.origin,
+            )
+            return after
 
     async def list_prose(self, user_id: UUID) -> list[Prose]:
         async with (
@@ -708,14 +805,19 @@ class PostgresAnswerStore:
                 "and pattern.status in ('candidate', 'repaired') order by pattern.created_at",
                 (user_id,),
             )
+            waiting = [Pattern.model_validate(row) for row in await cursor.fetchall()]
+            checks = await latest_failed(
+                connection, user_id, [str(pattern.id) for pattern in waiting]
+            )
             candidates = [
                 InboxCandidate(
                     pattern=pattern,
                     answers=await _answers_for(connection, user_id, pattern.question_id)
                     if pattern.question_id
                     else [],
+                    check=checks.get(str(pattern.id)),
                 )
-                for pattern in (Pattern.model_validate(row) for row in await cursor.fetchall())
+                for pattern in waiting
             ]
             cursor = await connection.execute(
                 "select expression, fact_key from app.jobs_patterns where user_id = %s "
