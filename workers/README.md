@@ -98,7 +98,10 @@ distro; `os device status` says what it is doing.
   A tab gets its own size back once the viewer leaves it or disconnects, so a
   run nobody watches fills at Chrome's size. It screencasts as quality-90 JPEG at
   the panel's device-pixel width, up to 2560 pixels. Each frame is acknowledged once delivered, which is
-  Chrome's own flow control. The stream follows the run's tab and any popup it opens
+  Chrome's own flow control. Neither websocket compresses: frames are already
+  JPEG. Chrome answers a wheel event only at its next paint, about 60 a second,
+  so turns that arrive while one is in Chrome are summed into the next rather
+  than queued behind it. The stream follows the run's tab and any popup it opens
   (Google sign-in), un-minimizes the window, and maps the page's fractional
   positions and DOM key fields to CDP input against the last frame's metadata.
 - `runs.py` holds the one run the agent knows about. A page run's output is the log

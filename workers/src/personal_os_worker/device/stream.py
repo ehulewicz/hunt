@@ -253,8 +253,9 @@ class CdpConnection:
             response = await client.get(f"{cdp_url.rstrip('/')}/json/version")
             response.raise_for_status()
             endpoint = str(response.json()["webSocketDebuggerUrl"])
-        # Frames are large; Chrome is on loopback, so no ping is needed.
-        websocket = await connect(endpoint, max_size=None, ping_interval=None)
+        # Frames are large and already JPEG; Chrome is on loopback, so neither
+        # compression nor a ping is worth its time.
+        websocket = await connect(endpoint, max_size=None, ping_interval=None, compression=None)
         return cls(websocket, on_event)
 
     async def _read(self) -> None:
@@ -333,6 +334,9 @@ class Stream:
         self.session: str | None = None
         self.meta: dict[str, Any] | None = None
         self.view: dict[str, Any] = {}
+        # Wheel turns not yet in Chrome, summed in pixels; see wheel().
+        self._wheel: dict[str, Any] | None = None
+        self._wheeling = False
         # Set once the first tab is shown: a switch asked for sooner waits for it, and
         # no tab list goes out while discovery is still reporting tabs one by one.
         self._ready = asyncio.Event()
@@ -392,7 +396,7 @@ class Stream:
                     await cdp.send("Emulation.clearDeviceMetricsOverride", {}, self.session)
                 with contextlib.suppress(CdpError):
                     await cdp.send("Target.detachFromTarget", {"sessionId": self.session})
-            self.session, self.meta = None, None
+            self.session, self.meta, self._wheel = None, None, None
             attached = await cdp.send(
                 "Target.attachToTarget", {"targetId": target_id, "flatten": True}
             )
@@ -549,10 +553,32 @@ class Stream:
             )
 
     async def wheel(self, message: dict[str, Any]) -> None:
-        if self._cdp is not None and self.session is not None and self.meta:
-            await self._cdp.send(
-                "Input.dispatchMouseEvent", wheel_params(message, self.meta), self.session
-            )
+        """Turn the wheel without waiting for Chrome.
+
+        Chrome answers each wheel event only at its next paint, so one at a time
+        it takes about 60 a second, no more than a 60 Hz viewer sends. Awaited in
+        the viewer's message loop, any hitch left a backlog that kept scrolling
+        after the hand stopped. Turns that arrive while one is in Chrome are
+        summed into the next instead.
+        """
+        if self._cdp is None or self.session is None or not self.meta:
+            return
+        params = wheel_params(message, self.meta)
+        if self._wheel is not None:
+            params["deltaX"] += self._wheel["deltaX"]
+            params["deltaY"] += self._wheel["deltaY"]
+        self._wheel = params
+        if not self._wheeling:
+            self._wheeling = True
+            self._spawn(self._turn())
+
+    async def _turn(self) -> None:
+        try:
+            while self._wheel is not None and self._cdp is not None and self.session is not None:
+                params, self._wheel = self._wheel, None
+                await self._cdp.send("Input.dispatchMouseEvent", params, self.session)
+        finally:
+            self._wheeling = False
 
     async def key(self, message: dict[str, Any]) -> None:
         if self._cdp is None or self.session is None:

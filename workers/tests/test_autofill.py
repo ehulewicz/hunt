@@ -275,6 +275,12 @@ def test_how_heard_uses_the_first_available_standing_source_preference() -> None
     # The employer's own site under its own name still counts as the company website.
     assert chosen(["LinkedIn", "Handshake", "DV Website", "Other"]) == "DV Website"
     assert chosen(["LinkedIn", "Careers page", "Other"]) == "Careers page"
+    # The site named by the company, as Nintendo's menu offers it.
+    assert chosen(
+        ["Handshake", "LinkedIn", "Nintendo Careers", "University Job Board", "Other"]
+    ) == "Nintendo Careers"
+    # A school's careers site is not the employer's.
+    assert chosen(["University Careers", "Other"]) == "Other"
     assert chosen(["LinkedIn", "Job site", "Other"]) == "Other"
     # A career fair or a campus career office is an event or a place, not the site.
     assert chosen(["Career Fair", "Career Office", "Point72 Website", "Other"]) == (

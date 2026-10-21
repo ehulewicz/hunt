@@ -57,11 +57,13 @@ AFFIRMATION = re.compile(
 # application was referred).
 JOB_BOARD = re.compile(r"\b(job\s+boards?|linkedin|indeed|handshake|glassdoor|wellfound|dice)\b")
 # A career fair, a campus career office or an info session is an event or a
-# place, never the employer's own site.
+# place, never the employer's own site; nor is a school's own careers site.
 NOT_A_SITE = frozenset(
     {"fair", "fairs", "office", "event", "events", "center", "centre", "services", "session",
-     "expo", "seminar", "conference"}
+     "expo", "seminar", "conference", "university", "college", "campus", "school"}
 )
+# "Careers", "Nintendo Careers", "Careers page": the employer's careers site by name.
+CAREERS_SITE = re.compile(r"\bcareers?(?:\s+(?:page|site|portal))?$")
 # Facts whose rendering against a typeahead nobody has opened is chosen against
 # the live menu instead: the planner's chooser for each.
 LIVE_MENU = {"consent.agrees": "consent", "preferences.application_source": "source"}
@@ -113,12 +115,11 @@ def affirmative_option(options: list[str]) -> str | None:
 
 
 def _is_company_site(value: str) -> bool:
-    """"Company Website", "Point72 Website", "Careers page": the employer's own site."""
+    """"Company Website", "Point72 Website", "Nintendo Careers": the employer's own site."""
     words = set(value.split())
     if JOB_BOARD.search(value) or words & NOT_A_SITE:
         return False
-    if not (words & {"website", "site", "webpage", "web"} or value in {"careers", "career page"}
-            or "careers page" in value or "career site" in value):
+    if not (words & {"website", "site", "webpage", "web"} or CAREERS_SITE.search(value)):
         return False
     return "job" not in words or "company" in words
 

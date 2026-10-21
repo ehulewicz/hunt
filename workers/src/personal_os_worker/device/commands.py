@@ -116,6 +116,8 @@ def run_serve() -> int:
         host="127.0.0.1",
         port=AGENT_PORT,
         ws="websockets-sansio",
+        # Frames are JPEG, which deflate cannot shrink; it only cost each one ~5 ms.
+        ws_per_message_deflate=False,
         log_level="warning",
     )
     return 0

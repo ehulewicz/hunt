@@ -286,6 +286,29 @@ async def test_keys_and_pasted_text_reach_the_shown_tab() -> None:
     assert key["text"] == "a"
 
 
+async def test_wheel_turns_made_while_chrome_is_busy_are_summed_into_one() -> None:
+    view, cdp, _, _ = await started(run_tab="T1")
+    view.meta = {"deviceWidth": 640, "deviceHeight": 400}
+    painted = asyncio.Event()
+    answer = cdp.send
+
+    async def slow(method: str, params: Any = None, session_id: Any = None) -> dict[str, Any]:
+        if method == "Input.dispatchMouseEvent":
+            await painted.wait()
+        return await answer(method, params, session_id)
+
+    cdp.send = slow  # type: ignore[method-assign]
+    await view.wheel({"x": 0.5, "y": 0.5, "dx": 0, "dy": 40, "mode": 0})
+    await asyncio.sleep(0)  # the first turn is in Chrome, waiting for its paint
+    for dy in (30, 20, 10):
+        await view.wheel({"x": 0.5, "y": 0.5, "dx": 0, "dy": dy, "mode": 0})
+    painted.set()
+    await asyncio.sleep(0.01)
+    turns = [params["deltaY"] for method, params, _ in cdp.sent
+             if method == "Input.dispatchMouseEvent"]
+    assert turns == [40, 60]
+
+
 def test_frame_headers_are_length_prefixed_json() -> None:
     packed = stream.pack_frame({"type": "frame", "target": "T1"}, b"jpeg")
     size = int.from_bytes(packed[:4], "big")
