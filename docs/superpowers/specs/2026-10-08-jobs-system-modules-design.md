@@ -232,6 +232,28 @@ and settling R51's shadows) happens with you after this lands.
 > its URL (recording it as a `manual` posting when it is not on the board) and
 > makes the referral a fact of that run only. *Decided by you.*
 
+### Revision 2026-10-21
+
+> **R67 — The model learns; it never fills.** A model verdict reaches the form
+> only as a pattern. The short-answer pass (and the gate's) names the fact that
+> answers a question nothing decides, with an expression for every wording
+> where one fits; the answer check names the fact a wrong answer contradicts.
+> The worker checks it — the fact must fit the control, and an expression must
+> compile, nest no repetition in another, match the question, decide it as that
+> fact among the active patterns, and leave every other recorded question it
+> matches answered as before, else the question alone is bound — and saves it
+> `active` with origin `model`, and the ordinary pattern pass fills the field in
+> the same run. A model never replaces a binding, never overrides a pattern you
+> made, and never revives one you rejected or a question you marked one-off; a
+> question a pattern decides never reaches the model, even when its fact is
+> missing; a fact you give a question mid-run binds it the way the Inbox would.
+> Before any model call the audit runs the pattern pass again, and a question
+> the current resolver answers that is still empty is a control error, not a
+> pattern gap. Fill events no longer propose candidates. Prose and the cover
+> letter's slots remain the only text a model drafts. *Decided by you: "Claude
+> should never fill anything."* Supersedes the fill half of §7.4's `fits_fact`,
+> §8's "a candidate waits in the Inbox", and the model lanes of §10.2's audit.
+
 ---
 
 ## 1. Why
@@ -749,7 +771,8 @@ The existing per-page model pass tells them apart without a new call site. Its
 output gains an explicit verdict per question:
 
 - `fits_fact` — names the fact used; the fill happens, and a pattern binding is
-  proposed to the Inbox
+  proposed to the Inbox. *Changed by R67: the pattern is checked and saved
+  active, and the pattern pass fills the field.*
 - `no_fact` — names the fact that *would* answer it ("security clearance
   status"); nothing is filled
 - `unsure` — nothing is filled
@@ -925,7 +948,8 @@ profile and the library: active question binding → active expression patterns
 (exactly one match wins; zero or several pass through) → model pass → you. The
 archive is never a tier (R54). Only `active` patterns are read; a `candidate`
 waits in the Inbox (R43), so the same question keeps reaching the model until
-you accept what it proposed.
+you accept what it proposed. *Changed by R67: what the model names is checked
+and saved active, so it reaches the model once.*
 
 ---
 
@@ -1069,7 +1093,7 @@ two rounds, then reports only what no lane could fix:
 | `pattern_gap` | no binding, no expression, nothing matched | put back to the model with the control's options |
 | `format_error` | a `format` miss, or a format failure | the fact's other renderings (§10.3) |
 | `control_error` | a failure that stopped at `strategy` | the control's other strategies (§10.3) |
-| `wrong_answer` | a fact contradicts what the page holds | re-render that fact |
+| `wrong_answer` | a fact contradicts what the page holds | re-render that fact (R67: bind the question to it, refill through the pattern) |
 
 > **R60 — Emptiness is not the only way a form is wrong.** An answer can be
 > confidently filled and contradict a fact. One bounded model pass per step

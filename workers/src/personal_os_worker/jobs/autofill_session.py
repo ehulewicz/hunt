@@ -1,7 +1,9 @@
 """The interactive part of `os hunt apply`, without any terminal prompts.
 
-The terminal only reports. A field fills from a fact: through the pattern you
-accepted for its question, else through the model naming the fact (design §8).
+The terminal only reports. A field fills from a fact, through an active
+pattern: one you accepted, or one a model verdict taught and the worker checked
+(design §8, R67). The model never writes a value; prose and the cover letter's
+slots are the only text it drafts.
 The archive is never consulted while applying. Every textarea is seeded with
 approved prose or a Claude draft, and drafts are listed for review. Everything
 still empty — required or optional — is outlined on the page and listed with why
@@ -57,6 +59,7 @@ from personal_os_worker.jobs.autofill import (
     AnswerResolution,
     FormFill,
     answer_above,
+    build_autofill_plan,
     follow_up_condition,
     is_cover_letter_field,
     is_follow_up_box,
@@ -98,7 +101,7 @@ from personal_os_worker.jobs.cover_letter import (
 )
 from personal_os_worker.jobs.drafts import similar_answers
 from personal_os_worker.jobs.explain import Explainer
-from personal_os_worker.jobs.formatters import polarity, render
+from personal_os_worker.jobs.formatters import BLANK, polarity
 from personal_os_worker.jobs.gateway import (
     click_gateway,
     form_appeared,
@@ -106,6 +109,7 @@ from personal_os_worker.jobs.gateway import (
     observed_choice,
 )
 from personal_os_worker.jobs.keys import KeyWatcher, NoKeys
+from personal_os_worker.jobs.learn import lesson_for
 from personal_os_worker.jobs.options import (
     choose_option,
     normalize_answer_question,
@@ -126,7 +130,7 @@ from personal_os_worker.jobs.registry.events import (
 from personal_os_worker.jobs.registry.kinds import question_of
 from personal_os_worker.jobs.remote import FACT_KEY, LinkedKeys, RunLink, gap_items
 from personal_os_worker.jobs.repair.repairer import find_field, repair_format, repair_strategy
-from personal_os_worker.jobs.resolve import Knowledge, Miss, Resolver, VerdictResolver
+from personal_os_worker.jobs.resolve import Knowledge, Miss, Resolver
 from personal_os_worker.jobs.short_answers import ShortQuestion, Verdict, draft_short_answers
 from personal_os_worker.jobs.sites import failure_signature
 
@@ -269,7 +273,7 @@ REVEAL_PASSES = 2
 
 TAG_STYLES = {
     "pattern": "green",
-    "claude": "magenta",
+    "learned": "magenta",
     "source": "dim",
     "consent": "dim",
     "long-form": "cyan",
@@ -626,8 +630,10 @@ class AutofillSession:
         if question in self.state.gates_tried:
             return False
         self.state.gates_tried.add(question)
-        resolution = Resolver(self.ctx.knowledge).resolve(gate)
-        if resolution is None and self.ctx.use_claude:
+        resolver = Resolver(self.ctx.knowledge)
+        resolution = resolver.resolve(gate)
+        # A gate a pattern decides is never the model's, even when its fact is missing.
+        if resolution is None and self.ctx.use_claude and resolver.decision(question) is None:
             resolution = self.gate_from_claude(gate)
         if resolution is None:
             console.print(
@@ -644,7 +650,14 @@ class AutofillSession:
         return opened
 
     def gate_from_claude(self, gate: dict[str, Any]) -> AnswerResolution | None:
-        """One bounded pass: which fact says how you start an application."""
+        """One bounded pass: which fact says how you start an application.
+
+        The model only names the fact. What it teaches is checked and saved as a
+        pattern, and the gate is answered through the resolver like any choice.
+        A dry run writes nothing, so it learns nothing and asks nothing.
+        """
+        if self.ctx.dry_run:
+            return None
         question = str(gate["label"])
         console.print("  [dim]asking Claude which fact says how to start this application[/dim]")
         verdicts = self.ctx.short_drafter(
@@ -652,15 +665,12 @@ class AutofillSession:
             posting={"company": self.ctx.company, "role": self.ctx.title},
             facts=self.ctx.knowledge.for_model(),
         )
-        fits = {
-            name: verdict for name, verdict in verdicts.items() if verdict.kind == "fits_fact"
-        }
         for verdict in verdicts.values():
             if verdict.kind == "no_fact" and verdict.missing_fact:
                 self.state.needed[verdict.question] = verdict.missing_fact
-        if not fits:
+        if not self.learn(verdicts, {question: gate}):
             return None
-        return VerdictResolver(fits, self.ctx.knowledge).resolve(gate)
+        return Resolver(self.ctx.knowledge).resolve(gate)
 
     def record_gate(
         self,
@@ -779,9 +789,13 @@ class AutofillSession:
                 result.setdefault(name, []).extend(more.get(name) or [])
 
     def fill_deterministic(
-        self, fields: list[dict[str, Any]], *, only: set[str] | None = None
+        self,
+        fields: list[dict[str, Any]],
+        *,
+        only: set[str] | None = None,
+        note: str = "appeared after answering",
     ) -> dict[str, Any]:
-        """One deterministic pass; `only` limits it to these question keys."""
+        """One deterministic pass; `only` limits it to these question keys, `note` says why."""
         resolver = Resolver(self.ctx.knowledge)
         fields[:], plan = plan_autofill(self.page, resolver=resolver)
         self.state.misses.update(resolver.misses)
@@ -830,13 +844,13 @@ class AutofillSession:
                 f"{len(plan.unanswered_required_questions)} required still open"
             )
         else:
-            console.print(f"  [dim]{len(only)} question(s) appeared after answering; "
+            console.print(f"  [dim]{len(only)} question(s) {note}; "
                           f"{len(plan.fills)} planned[/dim]")
         explainer = self.explainer()
         if explainer is not None:
             explainer.begin(
                 f"step {self.state.step + 1}, "
-                + ("patterns and engine" if only is None else "revealed questions"),
+                + ("patterns and engine" if only is None else f"questions that {note}"),
                 fields,
                 plan,
                 resolver,
@@ -1023,10 +1037,134 @@ class AutofillSession:
             rule = candidate.get("strategy") if stage == "strategy" else candidate.get("formatter")
             echo("repaired", question, str(candidate.get("value") or ""), note=f"{stage}: {rule}")
 
-    # ----- claude tier -------------------------------------------------------
+    # ----- learning from the model ---------------------------------------------
+
+    def bind(self, question: str, fact_key: str, *, origin: str) -> str | None:
+        """Bind one question to a fact and add it to what this run knows; why not, if not."""
+        return self.remember({"kind": "binding", "question": question}, fact_key, origin=origin)
+
+    def remember(self, shape: dict[str, Any], fact_key: str, *, origin: str) -> str | None:
+        """Save an active pattern and add it to this run's knowledge; why not, if not.
+
+        A binding replaces its question's binding here as it does in the API.
+        """
+        try:
+            created = self.ctx.api.create_pattern(
+                **shape, fact_key=fact_key, origin=origin, status="active"
+            )
+        except (httpx.HTTPError, ReferenceError, RuntimeError) as error:
+            return f"the pattern could not be saved ({error.__class__.__name__})"
+        key = normalize_answer_question(str(created.get("question_key") or ""))
+        kept = tuple(
+            pattern
+            for pattern in self.ctx.knowledge.patterns
+            if not (
+                created.get("kind") == "binding"
+                and pattern.get("kind") == "binding"
+                and normalize_answer_question(str(pattern.get("question_key") or "")) == key
+            )
+        )
+        self.ctx.knowledge = replace(self.ctx.knowledge, patterns=(*kept, created))
+        return None
+
+    def save_lesson(
+        self,
+        question: str,
+        fact_key: str,
+        expression: str | None,
+        questions: list[str] | None,
+        target: dict[str, Any],
+        *,
+        overriding: bool = False,
+    ) -> str | None:
+        """Check what a verdict teaches and save it active; why nothing was saved, if not.
+
+        The fact must be one this control can take (`target` is the field with
+        its label and options), or the lesson would only ever fail at format.
+        `questions` are the labels already met, which an expression must leave
+        answered as they are. Without them no expression can be checked, so
+        only the question itself is bound. `overriding` is for a question a
+        pattern answered wrongly.
+        """
+        if Resolver(self.ctx.knowledge).render_fact(fact_key, target, question) is None:
+            return f"{fact_key} fits none of this control's options"
+        lesson, refusal = lesson_for(
+            question,
+            fact_key,
+            expression if questions is not None else None,
+            patterns=list(self.ctx.knowledge.patterns),
+            questions=questions or [],
+            overriding=overriding,
+        )
+        if lesson is None:
+            return refusal
+        if lesson.kind == "expression":
+            shape: dict[str, Any] = {"kind": "expression", "expression": lesson.expression}
+        else:
+            shape = {"kind": "binding", "question": question}
+        failed = self.remember(shape, fact_key, origin="model")
+        if failed is not None:
+            return failed
+        what = f"/{lesson.expression}/" if lesson.kind == "expression" else "bound"
+        echo("learned", question, note=f"{what} -> {fact_key}"
+             + (f"; {lesson.note}" if lesson.note else ""))
+        return None
+
+    def learn(
+        self, verdicts: dict[str, Verdict], targets: dict[str, dict[str, Any]]
+    ) -> set[str]:
+        """Save a checked pattern for every question a verdict says a fact answers.
+
+        `targets` holds each asked question's field, labelled with the question
+        and carrying the options it was asked with. Returns the questions a
+        saved pattern now decides, for the pattern pass to fill. A dry run
+        writes nothing, so it learns nothing.
+        """
+        fits = [
+            verdict for verdict in verdicts.values()
+            if verdict.kind == "fits_fact" and verdict.fact_key and verdict.question in targets
+        ]
+        if not fits or self.ctx.dry_run:
+            return set()
+        questions: list[str] | None
+        try:
+            questions = [str(item.get("sample_label") or "") for item in self.ctx.api.questions()]
+        except (httpx.HTTPError, ReferenceError, RuntimeError):
+            questions = None
+        learned: set[str] = set()
+        for verdict in fits:
+            refusal = self.save_lesson(
+                verdict.question, str(verdict.fact_key), verdict.expression, questions,
+                targets[verdict.question],
+            )
+            if refusal is None:
+                learned.add(verdict.question)
+            else:
+                echo("left", verdict.question, note=f"{verdict.fact_key}: {refusal}")
+        return learned
+
+    def refill_learned(
+        self, fields: list[dict[str, Any]], learned: set[str], result: dict[str, Any]
+    ) -> bool:
+        """The pattern pass over the questions a lesson now decides; True when one filled."""
+        if not learned or self.form_is_gone():
+            return False
+        more = self.fill_deterministic(
+            fields,
+            only={normalize_answer_question(question) for question in learned},
+            note="answered by what was just learned",
+        )
+        for name in ("filled_fields", "skipped_fields", "failures"):
+            result.setdefault(name, []).extend(more.get(name) or [])
+        return bool(more.get("filled_fields"))
 
     def fill_with_claude(self, fields: list[dict[str, Any]], result: dict[str, Any]) -> None:
-        """One bounded pass asking Claude about whatever is still unfilled."""
+        """One bounded pass asking Claude which fact answers each question nothing decides.
+
+        Claude only names a fact; what it teaches is saved as a pattern, and the
+        pattern pass fills the field. A question an active pattern decides is
+        never put to it, even when its fact is missing or fits no option.
+        """
         current = inspect_fields(self.page)
         # A typeahead hides its choices until opened; Claude should pick from
         # them verbatim rather than guess at the wording.
@@ -1049,10 +1187,13 @@ class AutofillSession:
         # A question is put to the model at most ASK_LIMIT times in a run, so a
         # re-render that restarts the step does not ask again, while the audit
         # may ask a second time once a new fact has appeared.
+        decides = Resolver(self.ctx.knowledge).decision
         questions = [
             question
             for question in _claude_questions(current)
-            if self.may_ask(question.question) and question.question not in self.state.blanks
+            if self.may_ask(question.question)
+            and question.question not in self.state.blanks
+            and decides(question.question) is None
         ]
         if not questions:
             return
@@ -1067,50 +1208,18 @@ class AutofillSession:
         for verdict in verdicts.values():
             if verdict.kind == "no_fact" and verdict.missing_fact:
                 self.state.needed[verdict.question] = verdict.missing_fact
-        fits = {question: item for question, item in verdicts.items() if item.kind == "fits_fact"}
-        if not fits:
+        if not any(item.kind == "fits_fact" for item in verdicts.values()):
             console.print("  [dim]Claude found no fact that answers them[/dim]")
             return
         if self.form_is_gone():
             return
-        resolver = VerdictResolver(fits, self.ctx.knowledge)
-        claude_fields, plan = plan_autofill(self.page, resolver=resolver)
-        self.state.misses.update(resolver.misses)
-        explainer = self.explainer()
-        if explainer is not None:
-            explainer.begin(
-                f"step {self.state.step + 1}, the model's facts", claude_fields, plan, resolver
-            )
-        claude_result = apply_autofill(
-            self.page, claude_fields, plan, resume_path=None, assert_active=lambda: None,
-            preferences=self.ctx.knowledge.preferences, observer=explainer,
-        )
-        for fill in plan.fills:
-            question = _question_for(claude_fields[fill.index])
-            applied = claude_result["applied"].get(fill.index)
-            if applied is not None and question in fits and fill.resolution is not None:
-                self.state.tier_answers[question] = applied
-                self.state.tier_source[question] = "model"
-                self.state.tier_resolver[question] = fill.resolution.resolver_id
-                if fill.resolution.fact_key:
-                    self.state.tier_fact[question] = fill.resolution.fact_key
-                control = claude_fields[fill.index]
-                key = f"{self.state.step}:{control.get('fingerprint') or ''}#{fill.index}"
-                self.state.resolutions[key] = AnswerResolution(
-                    applied, "model", fill.resolution.resolver_id,
-                    fact_key=fill.resolution.fact_key, formatter=fill.resolution.formatter,
-                )
-                echo("claude", question, applied, note=fill.resolution.fact_key)
-        result["failures"].extend(claude_result["failures"])
-        if claude_result["events"]:
-            self.ctx.api.persist_autofill_step(
-                self.ctx.run_id,
-                {
-                    "step_number": self.state.step,
-                    "url": self.page.url,
-                    "fill_events": claude_result["events"],
-                },
-            )
+        targets = {
+            question.question: dict(field)
+            | {"label": question.question, "options": list(question.options)}
+            for question in questions
+            if (field := find_field(current, question.question)) is not None
+        }
+        self.refill_learned(fields, self.learn(verdicts, targets), result)
 
     # ----- long-form drafts ------------------------------------------------
 
@@ -1408,10 +1517,49 @@ class AutofillSession:
             )
         return findings
 
+    def pattern_pass(self, fields: list[dict[str, Any]], failures: list[dict[str, Any]]) -> bool:
+        """Refill every open question a pattern or the engine answers, before any model call.
+
+        A value a pattern filled that the page then lost (a re-render, a cleared
+        widget) comes back from the same pattern here, never from a model. True
+        when anything was filled.
+        """
+        try:
+            current = inspect_fields(self.page)
+            open_questions = audit_filled_form(current)
+        except Error:
+            return False
+        wanted = {
+            normalize_answer_question(question)
+            for question in open_questions["required_unfilled"]
+            + open_questions["optional_unfilled"]
+            if question not in self.state.blanks
+        }
+        plan = build_autofill_plan(current, resolver=Resolver(self.ctx.knowledge))
+        # Only what a pattern answers: an upload or a consent click the engine
+        # made is never replayed, since some sites append a second attachment.
+        planned = {
+            key
+            for fill in plan.fills
+            if fill.kind == "text" and fill.chooser is None
+            and fill.resolution is not None and fill.resolution.fact_key is not None
+            and (key := normalize_answer_question(_question_for(current[fill.index]))) in wanted
+        }
+        if not planned:
+            return False
+        more = self.fill_deterministic(fields, only=planned, note="a pattern answers again")
+        failures.extend(more.get("failures") or [])
+        return bool(more.get("filled_fields"))
+
     def audit(
         self, fields: list[dict[str, Any]], failures: list[dict[str, Any]]
     ) -> list[Finding]:
-        """What is still wrong with this page: nothing answered it, or a fact disagrees."""
+        """What is still wrong with this page: nothing answered it, or a fact disagrees.
+
+        A question a pattern answers but that is still empty is a control error:
+        the value was right and did not stay, which is the repair lane's, never
+        a model's.
+        """
         try:
             current = inspect_fields(self.page)
             open_questions = audit_filled_form(current)
@@ -1422,13 +1570,27 @@ class AutofillSession:
                                           or "")): failure
             for failure in failures
         }
+        resolver = Resolver(self.ctx.knowledge)
+        resolved: dict[str, AnswerResolution] = {}
+        for question in open_questions["required_unfilled"] + open_questions["optional_unfilled"]:
+            field = find_field(current, question)
+            # A signature or a password is yours: no lane may type into it.
+            if field is None or question in self.state.blanks or is_sensitive_field(field):
+                continue
+            resolution = resolver.resolve(
+                dict(field) | {"label": question, "options": self.options_for(current, field)}
+            )
+            if resolution is not None and resolution.formatter != BLANK:
+                resolved[normalize_answer_question(question)] = resolution
+        misses = {**self.state.misses, **resolver.misses}
         findings = [
             classify_empty(
                 question,
                 required=required,
                 needed=self.state.needed,
-                misses=self.state.misses,
+                misses=misses,
                 failures=by_question,
+                resolved=resolved,
             )
             for question, required in (
                 [(item, True) for item in open_questions["required_unfilled"]]
@@ -1460,12 +1622,14 @@ class AutofillSession:
         """
         failures = list(result.get("failures") or [])
         self.reconcile_follow_ups(fields)
+        self.pattern_pass(fields, failures)
         findings = self.audit(fields, failures)
         for _round in range(max(1, self.ctx.audit_rounds)):
             if not findings:
                 break
             if not self.remediate(fields, findings):
                 break
+            self.pattern_pass(fields, failures)
             findings = self.audit(fields, failures)
         self.report_open(findings)
         if self.ctx.link is not None:
@@ -1605,19 +1769,25 @@ class AutofillSession:
         return True
 
     def ask_again(self, fields: list[dict[str, Any]], findings: list[Finding]) -> bool:
-        """Put every unanswered question back to the model, once more, with the options."""
+        """Put every question nothing decides back to the model, once more, with the options.
+
+        A fact gap a pattern names is not the model's: the pattern is right and
+        only its fact is missing. What the model teaches is saved as a pattern,
+        and the pattern pass fills the field.
+        """
         if not self.ctx.use_claude:
             return False
         questions: list[ShortQuestion] = []
         targets: dict[str, dict[str, Any]] = {}
         for finding in findings:
-            if finding.cause not in {"pattern_gap", "fact_gap"}:
+            if finding.cause not in {"pattern_gap", "fact_gap"} or finding.fact_key:
                 continue
             field = find_field(fields, finding.question)
             if (
                 field is None
                 or not self.may_ask(finding.question)
                 or finding.question in self.state.blanks
+                or is_sensitive_field(field)
             ):
                 continue
             targets[finding.question] = field
@@ -1638,45 +1808,27 @@ class AutofillSession:
             posting={"company": self.ctx.company, "role": self.ctx.title},
             facts=self.ctx.knowledge.for_model(),
         )
-        fits = {
-            name: verdict for name, verdict in verdicts.items() if verdict.kind == "fits_fact"
-        }
         for verdict in verdicts.values():
             if verdict.kind == "no_fact" and verdict.missing_fact:
                 self.state.needed[verdict.question] = verdict.missing_fact
-        if not fits:
-            return False
-        resolver = VerdictResolver(fits, self.ctx.knowledge)
-        acted = False
-        for question, field in targets.items():
-            if question not in fits:
-                continue
-            resolution = resolver.resolve(
-                dict(field) | {"label": question, "options": self.options_for(fields, field)}
-            )
-            if resolution is None:
-                continue
-            shown = self.apply_value(
-                fields,
-                field,
-                resolution.value,
-                source="model",
-                resolver_id=resolution.resolver_id,
-                fact_key=resolution.fact_key,
-                formatter=resolution.formatter,
-            )
-            if shown is not None:
-                echo("claude", question, shown, note=resolution.fact_key)
-                acted = True
-        self.state.misses.update(resolver.misses)
-        return acted
+        learned = self.learn(verdicts, {
+            name: dict(field) | {"label": name, "options": self.options_for(fields, field)}
+            for name, field in targets.items()
+        })
+        return self.refill_learned(fields, learned, {})
 
     def correct_answer(self, fields: list[dict[str, Any]], finding: Finding) -> bool:
-        """Re-render the fact that contradicts an answer the worker itself filled."""
+        """Bind a question the worker answered wrongly to the fact that contradicts it, and
+        refill it through the pattern path.
+
+        The model only named the fact. An answer you typed, one the engine
+        chose, and one a binding you accepted produced are reported instead.
+        """
         key = str(finding.fact_key or "")
         if key not in self.ctx.knowledge.facts:
             return False
-        if finding.source not in WORKER_SOURCES:
+        engine = self.state.tier_resolver.get(finding.question, "").startswith("engine:")
+        if finding.source not in WORKER_SOURCES or engine:
             echo(
                 "review",
                 finding.question,
@@ -1687,24 +1839,31 @@ class AutofillSession:
         field = find_field(fields, finding.question)
         if field is None:
             return False
-        rendering = render(
-            key,
-            self.ctx.knowledge.facts[key],
-            self.ctx.knowledge.types.get(key, "text"),
-            field=dict(field) | {"options": self.options_for(fields, field)},
-            question=finding.question,
-            seed=self.ctx.knowledge.seed,
-        )
+        target = dict(field) | {
+            "label": finding.question, "options": self.options_for(fields, field)
+        }
+        rendering = Resolver(self.ctx.knowledge).render_fact(key, target, finding.question)
         if rendering is None or rendering.value == finding.answer:
+            return False
+        refusal = self.save_lesson(
+            finding.question, key, None, None, target, overriding=True
+        )
+        if refusal is not None:
+            echo("review", finding.question, finding.answer,
+                 note=f"{key} says otherwise ({finding.note}); {refusal}")
+            return False
+        resolution = Resolver(self.ctx.knowledge).resolve(target)
+        if resolution is None or resolution.value == finding.answer:
             return False
         shown = self.apply_value(
             fields,
             field,
-            rendering.value,
-            source="model",
-            resolver_id="model:answer_check_v1",
-            fact_key=key,
-            formatter=rendering.formatter,
+            resolution.value,
+            source="pattern",
+            resolver_id=resolution.resolver_id,
+            fact_key=resolution.fact_key,
+            formatter=resolution.formatter,
+            pattern_id=resolution.pattern_id,
         )
         if shown is None:
             return False
@@ -1814,27 +1973,29 @@ class AutofillSession:
         field = find_field(fields, question)
         if field is None:
             return True, f"set {key}"
-        rendering = render(
-            key,
-            self.ctx.knowledge.facts.get(key),
-            self.ctx.knowledge.types.get(key, value_type),
-            field=dict(field) | {"options": self.options_for(fields, field)},
-            question=question,
-            seed=self.ctx.knowledge.seed,
+        decided = Resolver(self.ctx.knowledge).decision(question)
+        if decided is None or str(decided["fact_key"]) != key:
+            # You named the fact this question needs: bind it, as the Inbox would.
+            refusal = self.bind(question, key, origin="inbox")
+            if refusal is not None:
+                return True, f"set {key}; {refusal}"
+        resolution = Resolver(self.ctx.knowledge).resolve(
+            dict(field) | {"label": question, "options": self.options_for(fields, field)}
         )
-        if rendering is None:
+        if resolution is None:
             return True, f"set {key}"
         shown = self.apply_value(
             fields,
             field,
-            rendering.value,
-            source="model",
-            resolver_id="model:fact_v1",
-            fact_key=key,
-            formatter=rendering.formatter,
+            resolution.value,
+            source="pattern",
+            resolver_id=resolution.resolver_id,
+            fact_key=resolution.fact_key,
+            formatter=resolution.formatter,
+            pattern_id=resolution.pattern_id,
         )
         if shown is not None:
-            echo("claude", question, shown, note=key)
+            echo("pattern", question, shown, note=key)
         return True, shown or f"set {key}"
 
     def refresh_knowledge(self) -> None:
@@ -1870,6 +2031,7 @@ class AutofillSession:
         resolver_id: str,
         fact_key: str | None = None,
         formatter: str | None = None,
+        pattern_id: str | None = None,
     ) -> str | None:
         """Set the control this value answers, read it back, and record the attempt.
 
@@ -1893,7 +2055,8 @@ class AutofillSession:
             candidate = None
         shown = str(candidate.get("value") or "") if candidate is not None else ""
         resolution = AnswerResolution(
-            shown or value, source, resolver_id, fact_key=fact_key, formatter=formatter
+            shown or value, source, resolver_id, fact_key=fact_key, formatter=formatter,
+            pattern_id=pattern_id,
         )
         self.ctx.api.persist_autofill_step(
             self.ctx.run_id,
@@ -1991,8 +2154,12 @@ class AutofillSession:
         resolution = Resolver(self.ctx.knowledge).resolve(target)
         key = self.state.tier_fact.get(question)
         if resolution is None and key is not None:
-            verdict = Verdict(question, "fits_fact", fact_key=key)
-            resolution = VerdictResolver({question: verdict}, self.ctx.knowledge).resolve(target)
+            rendering = Resolver(self.ctx.knowledge).render_fact(key, target, question)
+            if rendering is not None:
+                resolution = AnswerResolution(
+                    rendering.value, "pattern", "fact", fact_key=key,
+                    formatter=rendering.formatter,
+                )
         if resolution is None or resolution.fact_key is None or MULTI in resolution.value:
             return None
         wanted = choose_option(options, resolution.value) if options else None

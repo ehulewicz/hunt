@@ -16,6 +16,7 @@ from personal_os_worker.jobs.autofill_session import (
     SessionContext,
 )
 from personal_os_worker.jobs.browser import BrowserClosedError, VisibleBrowser, inspect_fields
+from personal_os_worker.jobs.options import normalize_answer_question
 from personal_os_worker.jobs.page_state import ApplicationPageState, classify_application_page
 from personal_os_worker.jobs.registry.kinds import question_of
 from personal_os_worker.jobs.resolve import Knowledge
@@ -68,6 +69,29 @@ class FakeApi:
         self.artifacts: list[str] = []
         self.library: dict[str, dict[str, Any]] = {}
         self.facts_set: list[tuple[str, Any]] = []
+        self.patterns_created: list[dict[str, Any]] = []
+
+    def questions(self) -> list[dict[str, Any]]:
+        """Every question a fill event met, as the API records them (R44)."""
+        met = {
+            str(event["question"])
+            for step in self.steps
+            for event in step.get("fill_events") or []
+        }
+        return [{"sample_label": label} for label in sorted(met)]
+
+    def create_pattern(self, **fields: Any) -> dict[str, Any]:
+        pattern_id = f"learned-{len(self.patterns_created) + 1}"
+        question = fields.get("question")
+        created = {
+            "id": pattern_id, "resolver_id": f"{fields['kind']}:{pattern_id}",
+            "kind": fields["kind"], "expression": fields.get("expression"),
+            "question_key": normalize_answer_question(question) if question else None,
+            "question_label": question, "fact_key": fields["fact_key"],
+            "origin": fields.get("origin"), "status": fields.get("status"),
+        }
+        self.patterns_created.append(created)
+        return created
 
     def set_fact(self, key: str, value: Any, **_: Any) -> dict[str, Any]:
         self.facts_set.append((key, value))
@@ -859,7 +883,7 @@ def test_session_seeds_long_form_records_every_answer_and_ends_on_submit(
     assert "picked up: First name" not in printed  # the worker filled it
 
 
-def test_session_resolves_pattern_and_claude_tiers_for_unfilled_fields(
+def test_the_model_teaches_a_pattern_and_the_pattern_pass_fills_the_field(
     browser_page,  # type: ignore[no-untyped-def]
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -894,7 +918,10 @@ def test_session_resolves_pattern_and_claude_tiers_for_unfilled_fields(
         asked.extend(str(question.question) for question in questions)
         assert {fact["key"] for fact in kwargs["facts"]} >= {"education.campus"}
         question = "Which campus will you report to?"
-        return {question: Verdict(question, "fits_fact", fact_key="education.campus")}
+        return {question: Verdict(
+            question, "fits_fact", fact_key="education.campus",
+            expression=r"\bwhich campus\b",
+        )}
 
     resume_pdf = tmp_path / "main.pdf"
     resume_pdf.write_bytes(b"%PDF-1.4\n%%EOF")
@@ -957,12 +984,21 @@ def test_session_resolves_pattern_and_claude_tiers_for_unfilled_fields(
         "Example Institute of Technology"
     )
     assert saved["What school are you attending?"]["source"] == "pattern"
+    # The model wrote no value: it taught a pattern, checked against every
+    # question met, and the pattern pass filled the field from the fact.
+    assert [(item["kind"], item["expression"], item["fact_key"], item["origin"],
+             item["status"]) for item in api.patterns_created] == [
+        ("expression", r"\bwhich campus\b", "education.campus", "model", "active"),
+    ]
     assert saved["Which campus will you report to?"]["answer_text"] == "Atlanta"
-    assert saved["Which campus will you report to?"]["source"] == "model"
+    assert saved["Which campus will you report to?"]["source"] == "pattern"
+    assert saved["Which campus will you report to?"]["resolver_id"] == "expression:learned-1"
     printed = capsys.readouterr().out
     assert "pattern    Consider me for other roles?" in printed and "-> Yes" in printed
     assert "pattern    Have you ever worked for Acme?" in printed and "-> No - never" in printed
-    assert "claude     Which campus will you report to?" in printed
+    assert "learned    Which campus will you report to?" in printed
+    assert "pattern    Which campus will you report to?" in printed
+    assert "claude " not in printed
     # Every fill event names the fact it came from; the pattern's id rides along.
     events = [event for step in api.steps for event in step.get("fill_events", [])]
     by_question = {event["question"]: event for event in events if event["operated_ok"]}
@@ -970,7 +1006,9 @@ def test_session_resolves_pattern_and_claude_tiers_for_unfilled_fields(
     assert by_question["Consider me for other roles?"]["pattern_id"] == (
         "11111111-1111-4111-8111-111111111111"
     )
-    assert by_question["Which campus will you report to?"]["source"] == "model"
+    campus = by_question["Which campus will you report to?"]
+    assert (campus["source"], campus["pattern_id"]) == ("pattern", "learned-1")
+    assert all(event["source"] != "model" for event in events)
     assert api.library == {}
 
 
@@ -1500,8 +1538,9 @@ def test_the_audit_corrects_an_answer_the_worker_filled_that_a_fact_contradicts(
             )
         }
 
+    api = FakeApi()
     session = audit_session(
-        browser_page, facts={"work_auth.requires_sponsorship": False}, checker=checker
+        browser_page, facts={"work_auth.requires_sponsorship": False}, checker=checker, api=api
     )
     # The worker filled it, so correcting it overwrites the worker's own work.
     session.state.tier_source[question] = "pattern"
@@ -1515,6 +1554,39 @@ def test_the_audit_corrects_an_answer_the_worker_filled_that_a_fact_contradicts(
         if item.get("group") == question
     }
     assert checked == {"Yes": False, "No": True}
+    # The model named the fact; the question is bound to it and refilled from it.
+    assert [(item["kind"], item["question_label"], item["fact_key"], item["origin"])
+            for item in api.patterns_created] == [
+        ("binding", question, "work_auth.requires_sponsorship", "model"),
+    ]
+    events = [event for step in api.steps for event in step.get("fill_events", [])]
+    assert (events[-1]["source"], events[-1]["pattern_id"]) == ("pattern", "learned-1")
+
+
+def test_the_audit_never_rebinds_a_question_you_bound(
+    browser_page,  # type: ignore[no-untyped-def]
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    browser_page.set_content(AUDIT_FORM)
+    question = "Do you require sponsorship?"
+    api = FakeApi()
+    yours = binding("do you require sponsorship", "preferences.willing_to_relocate")
+    session = audit_session(
+        browser_page,
+        facts={"work_auth.requires_sponsorship": False, "preferences.willing_to_relocate": True},
+        checker=lambda *_, **__: {
+            question: Judgement(question, "wrong", "work_auth.requires_sponsorship", "says no")
+        },
+        api=api,
+        patterns=[yours | {"origin": "inbox"}],
+    )
+    session.state.tier_source[question] = "pattern"
+
+    session.audit_and_repair(inspect_fields(browser_page), {"failures": []})
+
+    assert api.patterns_created == []
+    assert browser_page.is_checked("input[value=Yes]")
+    assert "a model never overrides yours" in capsys.readouterr().out
 
 
 def test_the_audit_reports_a_wrong_answer_you_typed_without_overwriting_it(
@@ -1828,7 +1900,7 @@ def test_a_click_a_fact_contradicts_is_reported_and_not_saved(
     assert [(item["answer_text"], item["source"]) for item in final] == [("No", "pattern")]
 
 
-def test_a_click_against_the_fact_the_model_named_is_not_saved(
+def test_a_click_against_the_fact_a_model_taught_is_not_saved(
     browser_page,  # type: ignore[no-untyped-def]
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -2082,3 +2154,186 @@ def test_a_none_fact_leaves_its_field_blank_and_asks_no_one(
         "Address Line 2": ("fact_gap", "address.line_2"),
         "Middle Name": ("pattern_gap", None),
     }
+
+
+def test_a_question_a_pattern_decides_never_goes_to_the_model(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    """Its fact is missing: that is a fact gap for you, not a question for the model."""
+    browser_page.set_content(AUDIT_FORM)
+    asked: list[str] = []
+
+    def short_drafter(questions: Any, **_: Any) -> dict[str, Verdict]:
+        asked.extend(question.question for question in questions)
+        return {}
+
+    session = audit_session(
+        browser_page,
+        facts={},
+        short_drafter=short_drafter,
+        patterns=[{"id": "e1", "kind": "expression", "status": "active", "origin": "inbox",
+                   "expression": r"\bsecurity clearance\b",
+                   "fact_key": "work_auth.security_clearance", "resolver_id": "expression:e1"}],
+    )
+    fields = inspect_fields(browser_page)
+    result = session.fill_deterministic(fields)
+    session.fill_with_claude(fields, result)
+    session.audit_and_repair(fields, result)
+
+    assert asked == []
+    findings = {item.question: item for item in session.audit(fields, [])}
+    clearance = findings["Do you hold a security clearance?"]
+    assert (clearance.cause, clearance.fact_key) == ("fact_gap", "work_auth.security_clearance")
+
+
+def test_the_audit_refills_a_cleared_pattern_fill_before_asking_any_model(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(
+        '<label for="city">City</label><input id="city" name="city" required>'
+    )
+    calls: list[str] = []
+    session = audit_session(
+        browser_page,
+        facts={"address.city": "Atlanta"},
+        short_drafter=lambda *_, **__: calls.append("short") or {},
+        checker=lambda *_, **__: calls.append("check") or {},
+        patterns=[{"id": "e1", "kind": "expression", "status": "active", "origin": "inbox",
+                   "expression": r"^city$", "fact_key": "address.city",
+                   "resolver_id": "expression:e1"}],
+    )
+    fields = inspect_fields(browser_page)
+    result = session.fill_deterministic(fields)
+    assert browser_page.input_value("#city") == "Atlanta"
+    # The page re-renders and loses the value.
+    browser_page.fill("#city", "")
+
+    session.audit_and_repair(fields, result)
+
+    assert browser_page.input_value("#city") == "Atlanta"
+    # Only the answer check ran, after the refill, over the refilled answer.
+    assert calls == ["check"]
+
+
+def test_a_gate_is_answered_through_what_the_model_taught(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    question = "Start Your Application"
+    gate = {"label": question, "type": "gateway", "tag": "button",
+            "options": ["Autofill with Resume", "Apply Manually"]}
+    asked: list[str] = []
+
+    def short_drafter(questions: Any, **_: Any) -> dict[str, Verdict]:
+        asked.extend(item.question for item in questions)
+        return {question: Verdict(question, "fits_fact", fact_key="preferences.application_start")}
+
+    api = FakeApi()
+    session = audit_session(
+        browser_page, facts={"preferences.application_start": "Apply Manually"},
+        short_drafter=short_drafter, api=api,
+    )
+    session.ctx.dry_run = True
+    # A dry run writes nothing, so it learns nothing and asks nothing.
+    assert session.gate_from_claude(gate) is None and asked == []
+
+    session.ctx.dry_run = False
+    resolution = session.gate_from_claude(gate)
+
+    assert resolution is not None
+    assert (resolution.value, resolution.source, resolution.pattern_id) == (
+        "Apply Manually", "pattern", "learned-1"
+    )
+    assert [(item["kind"], item["question_label"]) for item in api.patterns_created] == [
+        ("binding", question)
+    ]
+
+
+def test_a_fact_that_fits_none_of_the_options_is_never_learned(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    """A lesson that could only fail at format would decide the question for good."""
+    browser_page.set_content(
+        '<label for="t">Which term?</label>'
+        '<select id="t" required><option value=""></option><option>Spring</option>'
+        '<option>Summer</option></select>'
+    )
+    api = FakeApi()
+    session = audit_session(
+        browser_page, facts={"contact.email": "a@b.test"}, api=api,
+        short_drafter=lambda *_, **__: {
+            "Which term?": Verdict("Which term?", "fits_fact", fact_key="contact.email")
+        },
+    )
+    fields = inspect_fields(browser_page)
+    session.fill_with_claude(fields, {"failures": []})
+
+    assert api.patterns_created == []
+    assert browser_page.input_value("#t") == ""
+
+
+def test_the_audit_leaves_a_signature_a_pattern_matches_to_you(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(
+        '<label for="s">Electronic signature: your full legal name</label>'
+        '<input id="s" required>'
+    )
+    session = audit_session(
+        browser_page, facts={"identity.legal_name": "Alex Example"},
+        patterns=[{"id": "e1", "kind": "expression", "status": "active", "origin": "inbox",
+                   "expression": r"\bfull legal name\b", "fact_key": "identity.legal_name",
+                   "resolver_id": "expression:e1"}],
+    )
+    fields = inspect_fields(browser_page)
+    session.audit_and_repair(fields, {"failures": []})
+
+    assert browser_page.input_value("#s") == ""
+    finding = session.audit(fields, [])[0]
+    assert finding.cause != "control_error"
+
+
+def test_the_audit_never_uploads_a_document_twice(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
+    """An upload the page does not show by name is still never replayed."""
+    browser_page.set_content(
+        '<label for="r">Resume</label>'
+        '<div style="display:none"><input id="r" type="file" required></div>'
+    )
+    resume = tmp_path / "resume.pdf"
+    resume.write_bytes(b"%PDF-1.4 synthetic")
+    api = FakeApi()
+    session = audit_session(browser_page, facts={}, api=api)
+    session.ctx.resume_pdf = resume
+    fields = inspect_fields(browser_page)
+    result = session.fill_deterministic(fields)
+    session.audit_and_repair(fields, result)
+
+    uploads = [
+        event for step in api.steps for event in step.get("fill_events") or []
+        if event["strategy"] == "upload_file"
+    ]
+    assert len(uploads) == 1
+
+
+def test_a_gate_a_pattern_decides_is_never_put_to_the_model(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(
+        '<div role="dialog" aria-modal="true"><h2>Start Your Application</h2>'
+        '<button class="way">Autofill with Resume</button>'
+        '<button class="way">Apply Manually</button></div>'
+    )
+    asked: list[str] = []
+    session = audit_session(
+        browser_page, facts={},
+        short_drafter=lambda questions, **_: asked.extend(q.question for q in questions) or {},
+        patterns=[{"id": "e1", "kind": "expression", "status": "active", "origin": "inbox",
+                   "expression": r"^start your application$",
+                   "fact_key": "preferences.application_start",
+                   "resolver_id": "expression:e1"}],
+    )
+
+    assert session.pass_the_gate() is False
+    assert asked == []

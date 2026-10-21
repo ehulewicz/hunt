@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from personal_os_worker.jobs.resolve import Knowledge, Resolver, VerdictResolver
-from personal_os_worker.jobs.short_answers import Verdict
+from personal_os_worker.jobs.resolve import Knowledge, Resolver
 
 YES_NO = {"tag": "select", "options": ["Yes", "No"]}
 
@@ -90,14 +89,16 @@ def test_misses_say_which_fact_is_missing_or_what_did_not_fit() -> None:
     assert (gpa.stage, gpa.fact_key) == ("format", "education.gpa")
 
 
-def test_the_model_verdict_renders_its_fact_like_any_other() -> None:
-    facts = knowledge({"education.school_name": "Example Institute of Technology"})
-    resolver = VerdictResolver(
-        {"Which campus?": Verdict("Which campus?", "fits_fact", fact_key="education.school_name")},
-        facts,
-    )
-    result = resolver.resolve({"tag": "input", "label": "Which campus?"})
-    assert (result.value, result.source, result.resolver_id, result.fact_key) == (
-        "Example Institute of Technology", "model", "model:fact_v1", "education.school_name"
-    )
-    assert resolver.resolve({"tag": "input", "label": "Other?"}) is None
+def test_the_decision_is_the_binding_else_one_fact_among_the_expressions() -> None:
+    expression = {"kind": "expression", "status": "active"}
+    resolver = Resolver(knowledge({}, patterns=[
+        binding("current city", "address.location"),
+        expression | {"id": "e1", "expression": r"\bcity\b", "fact_key": "address.city"},
+        expression | {"id": "e2", "expression": r"\bcity\b.{0,20}\bstate\b",
+                      "fact_key": "address.city_state_zip"},
+    ]))
+    assert resolver.decision("Current city")["fact_key"] == "address.location"
+    assert resolver.decision("City")["id"] == "e1"
+    # Two facts match: nothing decides, so nothing resolves.
+    assert resolver.decision("City and state") is None
+    assert resolver.decision("  ") is None

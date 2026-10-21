@@ -11,6 +11,7 @@ from personal_os_worker.jobs.answer_check import (
     judgements_from,
 )
 from personal_os_worker.jobs.audit import Budget, Finding, classify_empty, order, summarize
+from personal_os_worker.jobs.autofill import AnswerResolution
 from personal_os_worker.jobs.resolve import Miss
 
 
@@ -21,6 +22,7 @@ def classify(question: str, **kwargs: Any) -> Finding:
         needed=kwargs.pop("needed", {}),
         misses=kwargs.pop("misses", {}),
         failures=kwargs.pop("failures", {}),
+        resolved=kwargs.pop("resolved", None),
     )
 
 
@@ -79,6 +81,20 @@ def test_nothing_known_about_a_question_is_a_pattern_gap() -> None:
     finding = classify("How many languages do you speak?", required=False)
     assert finding.cause == "pattern_gap"
     assert finding.required is False
+
+
+def test_an_empty_question_a_pattern_answers_is_a_control_error_not_a_pattern_gap() -> None:
+    """A pattern fill the page cleared: the value was right and did not stay (R67)."""
+    resolution = AnswerResolution(
+        "Atlanta", "pattern", "expression:e1", fact_key="address.city",
+        formatter="text_as_is", pattern_id="e1",
+    )
+    finding = classify(
+        "City", needed={"City": "current city"}, resolved={"city": resolution}
+    )
+    assert (finding.cause, finding.fact_key, finding.intended_value) == (
+        "control_error", "address.city", "Atlanta"
+    )
 
 
 def test_a_failure_that_stopped_nowhere_falls_through_to_the_resolver() -> None:

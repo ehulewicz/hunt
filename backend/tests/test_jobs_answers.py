@@ -16,15 +16,18 @@ from personal_os_backend.jobs_answers import (
     Inbox,
     Pattern,
     PatternCreate,
+    PatternRefused,
     PatternUpdate,
     PostgresAnswerStore,
     ProseUpdate,
     Question,
     QuestionUpdate,
+    _model_refusal,
     answered_by_expression,
     asks_a_question,
     get_answer_store,
     normalize_answer_key,
+    runaway_expression,
 )
 from personal_os_backend.main import create_app
 from personal_os_backend.models import Principal
@@ -89,8 +92,16 @@ def test_a_binding_names_a_question_and_an_expression_compiles() -> None:
         fact_key="work_auth.requires_sponsorship",
     )
     assert expression.question_id is None
+    # The worker learning from a verdict names the question by its wording.
+    learned = PatternCreate(
+        kind="binding", question="Do you require sponsorship?",
+        fact_key="work_auth.requires_sponsorship", origin="model", status="active",
+    )
+    assert learned.question_id is None and learned.question == "Do you require sponsorship?"
     for invalid in (
         {"kind": "binding", "fact_key": "work_auth.us_citizen"},
+        {"kind": "binding", "question_id": QUESTION_ID, "question": "Twice?", "fact_key": "a.b"},
+        {"kind": "expression", "expression": "x", "question": "Which?", "fact_key": "a.b"},
         {"kind": "binding", "question_id": QUESTION_ID, "fact_key": "Not A Key"},
         {"kind": "expression", "expression": "unbalanced (paren", "fact_key": "a.b"},
         {"kind": "expression", "expression": "x", "question_id": QUESTION_ID, "fact_key": "a.b"},
@@ -341,3 +352,79 @@ async def test_the_inbox_leaves_out_what_a_run_already_fills_and_what_asks_nothi
     assert [item.question.sample_label for item in inbox.questions] == [
         "Preferred Last Name", "Resume", "Employed by LinkedIn or GitHub?",
     ]
+
+
+class RefusalConnection:
+    """Answers each lookup `_model_refusal` makes with the row given for it."""
+
+    def __init__(self, *, disposition: str = "unbound", binding: str | None = None,
+                 expression: bool = False) -> None:
+        self.answers = {"jobs_questions": {"disposition": disposition},
+                        "kind = 'binding'": {"status": binding} if binding else None,
+                        "kind = 'expression'": {"?column?": 1} if expression else None}
+        self._row: dict[str, Any] | None = None
+
+    async def execute(self, query: str, params: Any = None) -> "RefusalConnection":
+        self._row = next(
+            (row for marker, row in self.answers.items() if marker in query), None
+        )
+        return self
+
+    async def fetchone(self) -> dict[str, Any] | None:
+        return self._row
+
+
+@pytest.mark.parametrize(
+    ("connection", "refusal"),
+    [
+        (RefusalConnection(), None),
+        (RefusalConnection(disposition="one_off"), "you marked this question one-off"),
+        (RefusalConnection(disposition="long_form"), "you marked this question long-form"),
+        (RefusalConnection(binding="active"),
+         "the question is bound already, and a model never replaces a binding"),
+        (RefusalConnection(binding="rejected"), "you rejected or retired this binding"),
+    ],
+)
+async def test_a_binding_a_model_taught_never_undoes_your_decision(
+    connection: RefusalConnection, refusal: str | None
+) -> None:
+    item = PatternCreate(kind="binding", question_id=QUESTION_ID, fact_key="a.b",
+                         origin="model", status="active")
+    assert await _model_refusal(connection, USER_ID, item) == refusal  # type: ignore[arg-type]
+
+
+async def test_an_expression_a_model_taught_is_refused_once_you_rejected_it() -> None:
+    item = PatternCreate(kind="expression", expression=r"\bphone\b", fact_key="contact.phone",
+                         origin="model", status="active")
+    assert await _model_refusal(RefusalConnection(), USER_ID, item) is None  # type: ignore[arg-type]
+    assert await _model_refusal(
+        RefusalConnection(expression=True), USER_ID, item  # type: ignore[arg-type]
+    ) == "you rejected or retired this expression"
+
+
+def test_a_models_expression_may_not_nest_one_repetition_in_another() -> None:
+    assert runaway_expression(r"^(\w+\s?)+$") and runaway_expression("(a*)*")
+    assert not runaway_expression(r"^\s*(alternate|other)\s+phone(\s+number)?\s*$")
+    with pytest.raises(ValidationError):
+        PatternCreate(kind="expression", expression=r"^(\w+\s?)+$", fact_key="a.b",
+                      origin="model")
+    # Your own expressions are yours to write.
+    PatternCreate(kind="expression", expression=r"^(\w+\s?)+$", fact_key="a.b")
+
+
+async def test_a_refused_pattern_is_a_conflict(
+    client: httpx.AsyncClient, store: FakeAnswerStore
+) -> None:
+    async def refuse(user_id: UUID, item: PatternCreate) -> Pattern | None:
+        raise PatternRefused("you rejected or retired this binding")
+
+    store.create_pattern = refuse  # type: ignore[method-assign]
+    async with client as http:
+        response = await http.post(
+            "/v1/jobs/patterns",
+            json={"kind": "binding", "question": "Which campus?", "fact_key": "a.b",
+                  "origin": "model", "status": "active"},
+            headers=HEADERS,
+        )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "you rejected or retired this binding"

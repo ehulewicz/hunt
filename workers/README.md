@@ -241,10 +241,20 @@ winter January 4, spring January 11, summer May 18, fall August 31) and a
 twelve-week window from it, whether that window runs into your last semester
 (apply warns), and whether you were referred (`apply --referred [NAME]`).
 A pattern whose fact is missing or fits none of the options leaves the field,
-and the run remembers why (`Miss`). Whatever is still empty goes to one
+and the run remembers why (`Miss`). A question no pattern decides goes to one
 bounded model pass (`short_answers.py`) that only names a fact — `fits_fact`,
-`no_fact` with the missing fact's name, or `unsure` — and `VerdictResolver`
-renders that fact like any other. Every call sees every fact with its value.
+with an expression for every wording where one fits, `no_fact` with the
+missing fact's name, or `unsure`. The model never writes a value (R67):
+`jobs/learn.py` checks what it named — the fact must fit the control, and an
+expression must compile, nest no repetition in another, match the question,
+decide it as that fact among the active patterns, and leave every other
+recorded question it matches answered as before, else the question is bound on
+its own; a model never replaces a binding — the session saves it active with
+origin `model`, and the ordinary pattern pass fills the field in the same run.
+The API refuses, too, any such pattern that would undo a decision of yours: one
+you rejected or retired, a binding over an existing one, or a question you
+marked one-off or long-form. A question or gate a pattern decides never reaches
+the model, even when its fact is missing. Every call sees every fact with its value.
 
 **How it is written.** `jobs/formatters.py` renders a fact for the control in
 front of it and names the formatter it used: a date as "December 2027", "Fall
@@ -275,12 +285,21 @@ not there before gets its own pass (`fill_revealed`, at most twice).
 wrong once every tier has had its turn, and `AutofillSession.remediate` runs the
 lane each cause names: a `format_error` tries the fact's other renderings, a
 `control_error` the control's other strategies, a `pattern_gap` goes back to the
-model with the options in front of it, and a `fact_gap` is asked for at the
-terminal under `--ask-facts`. `jobs/answer_check.py` is the other half: it reads
-back the answers the page already holds and asks whether a fact contradicts one,
-because an answer can be confidently filled and wrong. A wrong answer the worker
-filled is re-rendered from the fact the model named; a wrong answer you typed is
-reported and left alone. Before and after each repair the audit squares every
+model with the options in front of it (which again only teaches a pattern), and a
+`fact_gap` is asked for at the terminal under `--ask-facts`, where the fact you
+give also binds the question to it. Before any model call the audit runs the
+pattern pass over every open question, so a value a pattern filled that the page
+then lost comes back from the pattern; a question the current resolver answers
+that is still empty is a `control_error`, never a `pattern_gap`.
+`jobs/answer_check.py` is the other half: it reads back the answers the page
+already holds and asks whether a fact contradicts one, because an answer can be
+confidently filled and wrong. A wrong answer a pattern filled has its question
+bound to the fact the model named and is refilled through the pattern path,
+but only when that answer came from a pattern a model taught (never one you
+made) and the fact renders differently; one the engine chose, and one you
+typed, is reported and left alone. The audit never classifies a signature or a
+password from a pattern, and its pattern pass replays only pattern answers,
+never an upload or a consent click. Before and after each repair the audit squares every
 follow-up with the answer just above it as the page holds it: an N/A the worker
 wrote is taken back once that answer no longer rules the follow-up out (it says
 otherwise, or its fill never landed), and an empty follow-up it rules out gets

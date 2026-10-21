@@ -1,15 +1,16 @@
 """One bounded model pass over the short and choice questions a page left empty.
 
-Called at most once per page step, over the questions no active pattern or the
-engine answered. The model never writes a value. For each
-question it returns a verdict (design §7.4):
+Called at most once per page step, over the questions no active pattern decides
+and the engine did not answer. The model never writes a value, and nothing it
+says reaches the form (R67). For each question it returns a verdict (design §7.4):
 
-- `fits_fact` — names the one listed fact whose value answers it; the fill
-  renders that fact through a formatter, and a candidate binding goes to the
-  Inbox;
+- `fits_fact` — names the one listed fact whose value answers it, and may
+  propose an expression matching every wording of the question. The worker
+  checks it (`jobs/learn.py`), saves it as an active pattern, and the ordinary
+  pattern pass fills the field from that fact through a formatter;
 - `no_fact` — names the fact that would answer it ("security clearance status"),
-  so the gap is actionable (R9); nothing is filled;
-- `unsure` — nothing is filled.
+  so the gap is actionable (R9); nothing is learned;
+- `unsure` — nothing is learned.
 
 Each question is its own `claude -p` call, run concurrently so the pass takes as
 long as one question. Every fact is shown with its value: the model still only
@@ -42,9 +43,10 @@ SCHEMA = {
                     "question": {"type": "string"},
                     "verdict": {"type": "string", "enum": ["fits_fact", "no_fact", "unsure"]},
                     "fact_key": {"type": "string"},
+                    "expression": {"type": "string"},
                     "missing_fact": {"type": "string"},
                 },
-                "required": ["question", "verdict", "fact_key", "missing_fact"],
+                "required": ["question", "verdict", "fact_key", "expression", "missing_fact"],
             },
         }
     },
@@ -64,6 +66,8 @@ class Verdict:
     kind: Kind
     fact_key: str | None = None
     missing_fact: str | None = None
+    # A regular expression for every wording of the question, when one fits.
+    expression: str | None = None
 
 
 def run_claude(argv: list[str]) -> str:
@@ -89,11 +93,16 @@ type, and a value.
 
 - verdict "fits_fact": exactly one listed fact's value is the answer, possibly
   reworded or matched to one of the OPTIONS. Put its key, exactly as listed, in
-  fact_key, and leave missing_fact empty.
-- verdict "no_fact": no listed fact answers it. Leave fact_key empty and put in
-  missing_fact, in a few words, the fact that would answer it (for example
-  "security clearance status").
-- verdict "unsure": you cannot tell. Leave both empty.
+  fact_key, and leave missing_fact empty. In expression, give a Python regular
+  expression (matched case-insensitively against the question text alone) that
+  matches this question and other wordings that ask exactly the same thing, and
+  nothing that asks anything else; anchor a short label with ^ and $. Leave it
+  empty when no wording but this one is safe. It is checked against every
+  question seen before it is used.
+- verdict "no_fact": no listed fact answers it. Leave fact_key and expression
+  empty and put in missing_fact, in a few words, the fact that would answer it
+  (for example "security clearance status").
+- verdict "unsure": you cannot tell. Leave the rest empty.
 
 Never answer from general knowledge or inference. A question about experience at
 a particular kind of employer, industry, or role ("at a proprietary trading
@@ -134,8 +143,9 @@ def verdicts_from(
         kind = str(item.get("verdict") or "")
         key = str(item.get("fact_key") or "").strip()
         missing = " ".join(str(item.get("missing_fact") or "").split())[:120]
+        expression = str(item.get("expression") or "").strip() or None
         if kind == "fits_fact" and key in keys:
-            results[question] = Verdict(question, "fits_fact", fact_key=key)
+            results[question] = Verdict(question, "fits_fact", fact_key=key, expression=expression)
         elif kind == "no_fact" and missing:
             results[question] = Verdict(question, "no_fact", missing_fact=missing)
         else:

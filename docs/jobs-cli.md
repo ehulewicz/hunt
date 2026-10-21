@@ -106,8 +106,10 @@ Since 2026-10-14 the system learns answers from scratch (design §0). The old
 answer library, profile, and rules are the **archive**: frozen, readable with
 `os hunt archive`, and used only to get the facts right in the facts session,
 after which it is dropped. No application reads it, not even as a suggestion.
-A fill the model supplies from a fact records a `candidate` binding from that
-question to that fact.
+The model never fills a field. When it names the fact that answers a
+question, the worker checks what it proposes against every question already
+met, saves it as an active pattern (origin `model`), and fills the field
+through the ordinary pattern pass, tagged `learned`, then `pattern`.
 
 Every site is filled the same way, from its controls: there are no per-site
 adapters, and a pattern or strategy learned on one board applies to the same
@@ -163,11 +165,13 @@ terminal, Ctrl+S records what has been picked up so
 far for review, Ctrl+A records answers and marks the application applied when you have submitted
 it yourself, Ctrl+D skips the listing (it leaves the board as `skipped`, a
 resync cannot bring it back, and `os hunt skipped restore <n>` can), and
-Ctrl+C stops and records the application state. A field fills from a fact: the
-pattern you accepted for its question (tagged `pattern`), else
-one bounded local Claude pass per page step that names which fact answers each
-remaining short or choice question (tagged `claude`, also a candidate);
-`--no-claude` skips that last pass. A textarea is seeded with approved prose
+Ctrl+C stops and records the application state. A field fills from a fact,
+through an active pattern (tagged `pattern`). A short or choice question no
+pattern decides goes to one bounded local Claude pass per page step, which only
+names the fact that answers it and may propose an expression for every wording;
+the worker saves it as a pattern (tagged `learned`) and the pattern pass fills
+the field. A question a pattern decides never goes to the model, even when its
+fact is missing. `--no-claude` skips that pass. A textarea is seeded with approved prose
 for the same question, else a Claude draft that leans on your earlier writing.
 
 Once every tier has had its turn on a page step, the **audit** looks at what is
@@ -175,10 +179,15 @@ still wrong and fixes what it can before telling you anything. A field with no
 answer is classified — no fact yet, no pattern yet, the fact fits no option, the
 widget refused the value — and each cause runs its own repair: the fact's other
 renderings, the control's other strategies, or the question put back to the
-model with the options in front of it. The audit also reads back the answers
-already on the page and asks whether a fact says otherwise; a wrong answer the
-worker filled is re-rendered from that fact, and a wrong answer *you* typed is
-reported and left alone. It looks, repairs, and looks again, at most twice, then
+model with the options in front of it, which again only teaches a pattern.
+Before any model call the audit runs the pattern pass once more, so a value a
+pattern filled that the page lost comes back from the pattern, and one that
+still will not stay is a control error, never a question for the model. The
+audit also reads back the answers already on the page and asks whether a fact
+says otherwise; a wrong answer the worker filled has its question bound to that
+fact and refilled from it (only when a pattern a model taught gave it, never
+one you made), and a wrong answer
+*you* typed is reported and left alone. It looks, repairs, and looks again, at most twice, then
 lists only what no lane could fix, each line naming its cause. Repair is
 budgeted at 25 operations a question and 150 a run, so one bad control cannot
 spend a session. `--ask-facts` asks at the terminal for a fact a question needs
@@ -199,8 +208,8 @@ on the page: Enter fills it, `s` leaves it for you, `c` stops pausing.
 A board that puts a choice between Apply and the form — Workday's "Autofill
 with Resume / Apply Manually / Use My Last Application" — is a **gate**, and it
 is answered like any other choice: by the `preferences.application_start` fact,
-through an accepted pattern first, else one bounded Claude pass naming which
-fact answers it. Nothing is clicked without a fact behind it, the page's own
+through an active pattern first, else one bounded Claude pass naming which
+fact answers it, which binds the gate's question to that fact. Nothing is clicked without a fact behind it, the page's own
 submit and your account's sign-in are never candidates, and the readback is the
 form appearing. A gate no fact answers is left for you with its choices named —
 and the one you click is recorded, so the Inbox can bind it and the next run

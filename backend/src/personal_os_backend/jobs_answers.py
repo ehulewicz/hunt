@@ -2,8 +2,9 @@
 
 Knowledge starts empty and is learned (design §0). A question is recorded the
 first time a fill event meets it. A pattern connects a short-form question to a
-fact; only `active` patterns are read when filling, and a model fill only
-proposes a `candidate` binding, which the Inbox accepts or rejects. Prose is
+fact; only `active` patterns are read when filling. A model never fills: the
+worker checks the fact a model names and saves the pattern active with origin
+`model` (R67), and the Inbox lists a pattern only while it waits on you. Prose is
 long-form writing saved from submitted applications, reused once approved. The
 old answer library is the archive: readable, never written, and kept only for
 the facts session — no application reads it.
@@ -43,6 +44,22 @@ NOT_QUESTIONS = frozenset({"yes", "no", "search", "page number", "zoom level", "
 SECTION_HEADING = re.compile(r"(?:[a-z0-9+#]+ ){0,3}questions")
 # An unlabeled control's fingerprint, `tag|type|name|label|role`, standing in for a label.
 FINGERPRINT = re.compile(r"^[a-z][a-z0-9-]*\|[a-z-]*\|")
+
+
+# A group that repeats and holds a repetition of its own, `(\w+\s?)+`: the shape
+# whose backtracking can run for minutes on one long label.
+NESTED_REPETITION = re.compile(
+    r"\((?:[^()\\]|\\.)*(?:[+*]|\{\d*,\d*\})(?:[^()\\]|\\.)*\)(?:[+*]|\{\d*,\d*\})"
+)
+
+
+def runaway_expression(expression: str) -> bool:
+    """Whether an expression nests one repetition inside another (catastrophic backtracking)."""
+    return NESTED_REPETITION.search(expression) is not None
+
+
+class PatternRefused(Exception):
+    """A pattern a model taught that would undo a decision you made."""
 
 
 def asks_a_question(label: str, kind: str | None = None) -> bool:
@@ -100,32 +117,6 @@ async def upsert_question(
     return UUID(str(row["id"])) if row else None
 
 
-async def propose_binding(
-    connection: AsyncConnection[Any],
-    *,
-    user_id: UUID,
-    question_id: UUID,
-    fact_key: str,
-    formatter: str | None,
-) -> None:
-    """A candidate binding from a model fill; never activates by itself (R43)."""
-    if not FACT_KEY.fullmatch(fact_key):
-        return
-    await connection.execute(
-        """
-        with new as (select gen_random_uuid() as id)
-        insert into app.jobs_patterns (
-          id, user_id, resolver_id, kind, question_id, fact_key, formatter, origin, status
-        )
-        select new.id, %s, 'binding:' || new.id::text, 'binding', %s, %s, %s, 'model',
-               'candidate'
-        from new
-        on conflict (user_id, question_id, fact_key) where kind = 'binding' do nothing
-        """,
-        (user_id, question_id, fact_key, formatter),
-    )
-
-
 class Question(BaseModel):
     id: UUID
     normalized_key: str
@@ -166,6 +157,9 @@ class PatternCreate(BaseModel):
 
     kind: Literal["expression", "binding"]
     question_id: UUID | None = None
+    # A binding may name its question by label instead: the worker learning from a
+    # verdict knows the wording, not the row. It is recorded if it is new.
+    question: str | None = Field(default=None, min_length=1, max_length=1000)
     expression: str | None = Field(default=None, min_length=1, max_length=2000)
     fact_key: str = Field(min_length=3, max_length=200)
     formatter: str | None = Field(default=None, max_length=80, pattern=r"^[a-z][a-z0-9_]*$")
@@ -177,15 +171,21 @@ class PatternCreate(BaseModel):
     def shape_matches_kind(self) -> PatternCreate:
         if not FACT_KEY.fullmatch(self.fact_key):
             raise ValueError("fact_key is dotted lowercase words, e.g. work_auth.us_citizen")
-        if self.kind == "binding" and (self.question_id is None or self.expression is not None):
-            raise ValueError("a binding names its question and has no expression")
+        if self.kind == "binding" and (
+            (self.question_id is None) == (self.question is None) or self.expression is not None
+        ):
+            raise ValueError("a binding names its question, by id or label, and no expression")
         if self.kind == "expression":
-            if self.expression is None or self.question_id is not None:
+            if self.expression is None or self.question_id is not None or self.question:
                 raise ValueError("an expression has a regular expression and no question")
             try:
                 re.compile(self.expression, re.IGNORECASE)
             except re.error as error:
                 raise ValueError(f"expression must compile: {error}") from None
+            # Every Inbox request runs every active expression; one a model wrote
+            # must not be able to hang it.
+            if self.origin == "model" and runaway_expression(self.expression):
+                raise ValueError("a model's expression may not nest one repetition in another")
         return self
 
 
@@ -414,6 +414,44 @@ async def _activate(
         )
 
 
+async def _model_refusal(
+    connection: AsyncConnection[Any], user_id: UUID, item: PatternCreate
+) -> str | None:
+    """Why a pattern a model taught may not be saved: it would undo a decision you made.
+
+    You rejected or retired the same pattern, the question is bound already, or
+    you said the question is a one-off or wants prose.
+    """
+    if item.kind == "expression":
+        cursor = await connection.execute(
+            "select 1 from app.jobs_patterns where user_id = %s and kind = 'expression' "
+            "and expression = %s and fact_key = %s and status in ('rejected', 'retired')",
+            (user_id, item.expression, item.fact_key),
+        )
+        return "you rejected or retired this expression" if await cursor.fetchone() else None
+    cursor = await connection.execute(
+        "select disposition from app.jobs_questions where id = %s and user_id = %s",
+        (item.question_id, user_id),
+    )
+    question = await cursor.fetchone()
+    if question is not None and question["disposition"] in ("one_off", "long_form"):
+        return f"you marked this question {question['disposition'].replace('_', '-')}"
+    cursor = await connection.execute(
+        """
+        select status from app.jobs_patterns
+        where user_id = %s and question_id = %s and kind = 'binding'
+          and (status = 'active' or (fact_key = %s and status in ('rejected', 'retired')))
+        """,
+        (user_id, item.question_id, item.fact_key),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    if row["status"] == "active":
+        return "the question is bound already, and a model never replaces a binding"
+    return "you rejected or retired this binding"
+
+
 async def _pattern(
     connection: AsyncConnection[Any], user_id: UUID, pattern_id: UUID
 ) -> Pattern | None:
@@ -488,22 +526,35 @@ class PostgresAnswerStore:
             return [Pattern.model_validate(row) for row in await cursor.fetchall()]
 
     async def create_pattern(self, user_id: UUID, item: PatternCreate) -> Pattern | None:
-        """Create a pattern, or reuse the binding already proposed for that question and fact.
+        """Create a pattern, or reuse the binding already made for that question and fact.
 
-        None when the binding's question is not this user's.
+        None when the binding's question is not this user's, or its label asks
+        nothing. A pattern a model taught that would undo your decision raises
+        `PatternRefused`.
         """
         async with (
             self._pool.connection(timeout=self._timeout) as connection,
             connection.transaction(),
         ):
             await connection.execute("set local role personal_os_api")
-            if item.question_id is not None:
+            if item.question is not None:
+                question_id = await upsert_question(
+                    connection, user_id=user_id, label=item.question
+                )
+                if question_id is None:
+                    return None
+                item = item.model_copy(update={"question_id": question_id, "question": None})
+            elif item.question_id is not None:
                 cursor = await connection.execute(
                     "select 1 from app.jobs_questions where id = %s and user_id = %s",
                     (item.question_id, user_id),
                 )
                 if await cursor.fetchone() is None:
                     return None
+            if item.origin == "model":
+                refusal = await _model_refusal(connection, user_id, item)
+                if refusal is not None:
+                    raise PatternRefused(refusal)
             cursor = await connection.execute(
                 """
                 with new as (select gen_random_uuid() as id)
@@ -763,7 +814,10 @@ async def list_patterns(
 
 @router.post("/patterns", response_model=Pattern, status_code=status.HTTP_201_CREATED)
 async def create_pattern(item: PatternCreate, principal: CurrentPrincipal, store: Store) -> Pattern:
-    pattern = await store.create_pattern(principal.user_id, item)
+    try:
+        pattern = await store.create_pattern(principal.user_id, item)
+    except PatternRefused as refusal:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(refusal)) from None
     if pattern is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Question not found")
     return pattern

@@ -68,11 +68,15 @@ recorded the first time a fill event or an answer names it, unless its label
 asks nothing: a file upload, an unlabeled control's fingerprint, a lone `Yes`
 or `No`, a viewer's or site's own tools, or a section heading. A pattern binds a
 question — or, as an expression, any phrasing — to a fact; only `active`
-patterns reach a run, and a fill event whose value came from the model and
-read back proposes a `candidate` binding in the step's
-transaction, never an active one. `GET /v1/jobs/inbox` lists candidates with the
-answers recorded for their question, unbound short questions you answered, and
-unapproved prose. An unbound question that active expressions already decide
+patterns reach a run. A binding names its question by id, or by label, which
+records the question if it is new: that is how the worker saves what a model
+verdict taught, active with origin `model`, once it has checked it (R67). Such a
+pattern is refused (409) when it would undo a decision of yours: one you
+rejected or retired, a binding over the question's existing binding, a question
+you marked one-off or long-form, or an expression nesting one repetition in
+another. A fill event never proposes a pattern. `GET /v1/jobs/inbox` lists candidate and
+repaired patterns with the answers recorded for their question, unbound short
+questions you answered, and unapproved prose. An unbound question that active expressions already decide
 (they match it and name one fact, as the worker's resolver requires) is left
 out, and so is one recorded before the rule above that asks nothing. Accepting a binding (`PATCH /patterns/{id}` to `active`)
 retires the question's previous binding and marks the question `pattern`, and

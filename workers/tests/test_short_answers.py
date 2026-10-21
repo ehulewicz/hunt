@@ -43,6 +43,21 @@ def test_a_fits_fact_verdict_names_a_listed_fact() -> None:
     assert "5550001111" not in prompt
 
 
+def test_a_fits_fact_verdict_may_propose_an_expression_for_every_wording() -> None:
+    question = ShortQuestion("Which school do you attend?", ())
+    runner, calls = scripted(
+        item(question.question, "fits_fact", "education.school_name")
+        | {"expression": r"  \bwhich (school|university)\b "}
+    )
+    assert ask([question], runner)[question.question].expression == (
+        r"\bwhich (school|university)\b"
+    )
+    # The model is told it names a fact and an expression, never a value.
+    schema = json.loads(calls[0][calls[0].index("--json-schema") + 1])
+    answer = schema["properties"]["answers"]["items"]["properties"]
+    assert set(answer) == {"question", "verdict", "fact_key", "expression", "missing_fact"}
+
+
 def test_a_fact_key_that_was_not_listed_is_only_unsure() -> None:
     question = ShortQuestion("Do you hold a clearance?", ("Yes", "No"))
     runner, _ = scripted(item(question.question, "fits_fact", "security.clearance"))

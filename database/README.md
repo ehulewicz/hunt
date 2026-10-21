@@ -47,8 +47,9 @@ issue must carry its candidate. Failure issues the old dispatch left open are
 fails again reopens.
 
 An observed history row is identified by run and event index; final rows retain the
-submitted or drafted value with step and control context. Autofill never activates a
-pattern or approves prose. `jobs_worker_credentials` stores only SHA-256 token hashes plus
+submitted or drafted value with step and control context. Autofill activates only a
+pattern it learned from a model verdict and checked (origin `model`), and never
+approves prose. `jobs_worker_credentials` stores only SHA-256 token hashes plus
 scope, expiry, use, and revocation timestamps. Listing source metadata keeps
 discovery and direct application URLs separate, records the FAANG+/Quant/general
 source section, and stores normalized location arrays for match-any filtering.

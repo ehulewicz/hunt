@@ -3,10 +3,11 @@
 The order is fixed: the question's active binding, then active expression
 patterns (exactly one fact among those that match). A value always comes from a
 fact through a formatter; a pattern only says which fact. Candidates and
-rejected patterns are never read — only what you accepted in the Inbox. The
+rejected patterns are never read — only what you accepted in the Inbox, and
+what a model verdict taught and the worker checked (`jobs/learn.py`). The
 archive is never consulted while applying (§0): it exists for the facts session
-and is dropped after it. A question no pattern answers goes to the model pass,
-then to you.
+and is dropped after it. A question no pattern decides goes to the model pass,
+which can only teach a pattern, then to you.
 
 A pattern that cannot answer — its fact is missing, or the fact fits none of the
 control's options — is kept as a `Miss`, with the stage it stopped at, for the
@@ -204,9 +205,12 @@ class Resolver:
     def _miss(self, question: str, miss: Miss) -> None:
         self.misses.setdefault(normalize_answer_question(question), miss)
 
-    def _render(
-        self, key: str, field_info: dict[str, Any], question: str, prefer: str | None
+    def render_fact(
+        self, key: str, field_info: dict[str, Any], question: str, prefer: str | None = None
     ) -> Rendering | None:
+        """A fact written for this control, or None when it is missing or fits nothing."""
+        if key not in self.knowledge.facts:
+            return None
         return render(
             key,
             self.knowledge.facts.get(key),
@@ -229,7 +233,7 @@ class Resolver:
                 Miss(question, "pattern", key, resolver_id, note=f"no fact {key} yet"),
             )
             return None
-        rendering = self._render(key, field_info, question, pattern.get("formatter"))
+        rendering = self.render_fact(key, field_info, question, pattern.get("formatter"))
         if rendering is None:
             self._miss(
                 question,
@@ -246,17 +250,24 @@ class Resolver:
             pattern_id=str(pattern.get("id")) if pattern.get("id") else None,
         )
 
+    def decision(self, question: str) -> dict[str, Any] | None:
+        """The active pattern that decides a question: its binding, else the matching
+        expressions when they name one fact (the first of them). None when none does."""
+        label = question.strip()
+        if not label:
+            return None
+        binding = self.bindings.get(normalize_answer_question(label))
+        if binding is not None:
+            return binding
+        matched = [pattern for regex, pattern in self.expressions if regex.search(label)]
+        if len({str(pattern["fact_key"]) for pattern in matched}) == 1:
+            return matched[0]
+        return None
+
     def resolve(self, field_info: dict[str, Any]) -> AnswerResolution | None:
         question = str(field_info.get("label") or "").strip()
-        if not question:
-            return None
-        binding = self.bindings.get(normalize_answer_question(question))
-        if binding is not None:
-            return self._from_pattern(binding, field_info, question)
-        matched = [pattern for regex, pattern in self.expressions if regex.search(question)]
-        if len({str(pattern["fact_key"]) for pattern in matched}) == 1:
-            return self._from_pattern(matched[0], field_info, question)
-        return None
+        pattern = self.decision(question)
+        return self._from_pattern(pattern, field_info, question) if pattern is not None else None
 
     def explain(self, field_info: dict[str, Any]) -> list[Line]:
         """Every step `resolve` takes for this field, without recording a miss."""
@@ -291,60 +302,8 @@ class Resolver:
         if chosen is not None:
             fact = str(chosen["fact_key"])
             rendering = (
-                self._render(fact, field_info, question, chosen.get("formatter"))
+                self.render_fact(fact, field_info, question, chosen.get("formatter"))
                 if fact in self.knowledge.facts else None
             )
             lines.extend(_fact_lines(self.knowledge, fact, field_info, question, rendering))
         return lines
-
-
-class VerdictResolver:
-    """Renders the fact the model named for each question it answered `fits_fact`."""
-
-    def __init__(self, verdicts: dict[str, Any], knowledge: Knowledge) -> None:
-        self.knowledge = knowledge
-        self.facts = {
-            normalize_answer_question(question): str(verdict.fact_key)
-            for question, verdict in verdicts.items()
-            if getattr(verdict, "fact_key", None)
-        }
-        self.misses: dict[str, Miss] = {}
-
-    def resolve(self, field_info: dict[str, Any]) -> AnswerResolution | None:
-        question = str(field_info.get("label") or "").strip()
-        key = self.facts.get(normalize_answer_question(question))
-        if key is None or key not in self.knowledge.facts:
-            return None
-        rendering = render(
-            key,
-            self.knowledge.facts[key],
-            self.knowledge.types.get(key, "text"),
-            field=field_info,
-            question=question,
-            seed=self.knowledge.seed,
-        )
-        if rendering is None:
-            self.misses.setdefault(
-                normalize_answer_question(question),
-                Miss(question, "format", key, "model:fact_v1",
-                     note=f"the model chose {key}, which fits none of the options"),
-            )
-            return None
-        return AnswerResolution(
-            rendering.value, "model", "model:fact_v1", fact_key=key, formatter=rendering.formatter
-        )
-
-    def explain(self, field_info: dict[str, Any]) -> list[Line]:
-        question = str(field_info.get("label") or "").strip()
-        key = self.facts.get(normalize_answer_question(question))
-        if key is None:
-            return [("model", "named no fact for this question")]
-        rendering = (
-            render(
-                key, self.knowledge.facts[key], self.knowledge.types.get(key, "text"),
-                field=field_info, question=question, seed=self.knowledge.seed,
-            )
-            if key in self.knowledge.facts else None
-        )
-        return [("model", f"fits_fact: {key}"),
-                *_fact_lines(self.knowledge, key, field_info, question, rendering)]

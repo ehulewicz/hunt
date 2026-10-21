@@ -6,16 +6,20 @@ filled and contradict a fact — "requires sponsorship: Yes" when
 ever see it. This pass reads back what the page holds and asks, per answer,
 whether a fact says otherwise.
 
-The model returns a verdict, never a value (design §8):
+The model returns a verdict, never a value, and nothing it says reaches the
+form (design §8, R67):
 
 - `right` — a fact supports the answer, or no fact contradicts it;
-- `wrong` — exactly one listed fact contradicts it, named by key. The session
-  corrects it by rendering that fact through a formatter, the same way every
-  other value reaches a control;
+- `wrong` — exactly one listed fact contradicts it, named by key. The worker
+  binds the question to that fact (`jobs/learn.py`) and refills it through the
+  pattern path, the same way every other value reaches a control. An
+  expression would be no use here: one already decides the question, and a
+  second naming another fact would only leave it undecided;
 - `unknown` — no listed fact covers the question, so it cannot be judged.
 
 A wrong answer the user typed is reported, never overwritten: the only thing
-that outranks a fact is the person the fact is about.
+that outranks a fact is the person the fact is about. Neither is a question you
+bound to a fact yourself, or one the engine answered.
 
 Each answer is its own `claude -p` call, run concurrently, so the pass takes as
 long as one answer.

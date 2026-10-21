@@ -172,37 +172,22 @@ async def test_an_upload_or_a_label_that_asks_nothing_is_written_without_a_quest
 
 
 @pytest.mark.parametrize(
-    ("overrides", "proposed"),
+    "overrides",
     [
-        ({"source": "model", "fact_key": "work_auth.requires_sponsorship"}, True),
-        ({"source": "pattern", "fact_key": "work_auth.requires_sponsorship"}, False),
-        # The archive is never a suggestion for an application (design §0).
-        ({"source": "archive", "fact_key": "work_auth.requires_sponsorship"}, False),
-        ({"source": "model", "fact_key": None}, False),
-        ({"source": "model", "fact_key": "work_auth.requires_sponsorship",
-          "stopped_at": "strategy", "operated_ok": False}, False),
-        ({"source": "model", "fact_key": "work_auth.requires_sponsorship",
-          "operated_ok": None}, False),
+        {"source": "model", "fact_key": "work_auth.requires_sponsorship"},
+        {"source": "pattern", "fact_key": "work_auth.requires_sponsorship"},
+        {"source": "archive", "fact_key": "work_auth.requires_sponsorship"},
     ],
 )
-async def test_only_a_read_back_model_fill_proposes_a_candidate(
-    overrides: dict[str, Any], proposed: bool
-) -> None:
+async def test_no_fill_event_proposes_a_pattern(overrides: dict[str, Any]) -> None:
+    """A model never fills, and what it teaches the worker saves (R67)."""
     connection = FakeConnection()
     await record_fill_events(
         connection,  # type: ignore[arg-type]
         user_id=USER_ID, run_id=uuid4(), step=0, ats="ashby",
         events=[FillEventCreate.model_validate(event(**overrides))],
     )
-    proposals = [
-        (query, params) for query, params in connection.statements
-        if "into app.jobs_patterns" in query
-    ]
-    assert bool(proposals) is proposed
-    if proposed:
-        query, params = proposals[0]
-        assert "'candidate'" in query and "active" not in query
-        assert "work_auth.requires_sponsorship" in params
+    assert not any("into app.jobs_patterns" in query for query, _ in connection.statements)
 
 
 async def test_an_event_keeps_the_options_its_control_offered() -> None:

@@ -18,7 +18,7 @@ from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from personal_os_backend.jobs_answers import normalize_answer_key, propose_binding, upsert_question
+from personal_os_backend.jobs_answers import normalize_answer_key, upsert_question
 
 ControlKind = Literal[
     "text_entry",
@@ -89,9 +89,8 @@ async def record_fill_events(
 ) -> int:
     """Write one row per attempt; return how many were written.
 
-    Each event records its question (R44). A model fill that read back
-    proposes a candidate binding from its question to the fact it used
-    (R43); nothing here activates one.
+    Each event records its question (R44). Nothing here proposes or activates a
+    pattern: a model never fills, and what it teaches the worker saves (R67).
     """
     controls: dict[tuple[str, str], UUID] = {}
     strategies: dict[tuple[str, str], UUID] = {}
@@ -189,18 +188,5 @@ async def record_fill_events(
                 Jsonb(event.options) if event.options is not None else None,
             ),
         )
-        if (
-            question_id is not None
-            and event.fact_key
-            and event.operated_ok is True
-            and event.source == "model"
-        ):
-            await propose_binding(
-                connection,
-                user_id=user_id,
-                question_id=question_id,
-                fact_key=event.fact_key,
-                formatter=event.formatter,
-            )
         written += 1
     return written

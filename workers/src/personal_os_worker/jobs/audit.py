@@ -7,10 +7,14 @@ turns each into a `Finding` naming the cause. The cause decides the repair:
 | cause           | what it means                               | repair                |
 |-----------------|---------------------------------------------|-----------------------|
 | `fact_gap`      | no fact answers it, and we know which fact  | set the fact          |
-| `pattern_gap`   | nothing connects the question to a fact     | ask the model again   |
+| `pattern_gap`   | nothing connects the question to a fact     | the model names one   |
 | `format_error`  | the fact is known, no option fits it        | other renderings      |
 | `control_error` | the value is right, the widget refused it   | other strategies      |
-| `wrong_answer`  | a fact says the answer on the page is wrong | re-render that fact   |
+| `wrong_answer`  | a fact says the answer on the page is wrong | bind it to that fact  |
+
+A model only ever names a fact; what it names is saved as a pattern and the
+pattern pass fills the field (R67). A question a pattern answers that is still
+empty is a `control_error`: the value was right and did not stay.
 
 This module is pure: it classifies, it never touches a page or the API. The
 session performs the repairs and counts them against a budget, so one
@@ -82,12 +86,14 @@ def classify_empty(
     needed: dict[str, str],
     misses: dict[str, Any],
     failures: dict[str, dict[str, Any]],
+    resolved: dict[str, Any] | None = None,
 ) -> Finding:
     """Why this question has no answer, from what the fill already learned.
 
-    A recorded failure is the most specific evidence, then the model's named
-    missing fact, then the resolver's miss. With none of them, nothing connected
-    the question to a fact at all, which is a pattern gap.
+    A recorded failure is the most specific evidence, then what the current
+    resolver answers it with (`resolved`, keyed like `misses`), then the model's
+    named missing fact, then the resolver's miss. With none of them, nothing
+    connected the question to a fact at all, which is a pattern gap.
     """
     key = normalize_answer_question(question)
     failure = failures.get(key)
@@ -102,6 +108,17 @@ def classify_empty(
             fact_key=failure.get("fact_key"),
             formatter=failure.get("formatter"),
             intended_value=failure.get("intended_value"),
+        )
+    resolution = (resolved or {}).get(key)
+    if resolution is not None:
+        return Finding(
+            question,
+            "control_error",
+            required,
+            "a pattern answers it, but the value did not stay",
+            fact_key=getattr(resolution, "fact_key", None),
+            formatter=getattr(resolution, "formatter", None),
+            intended_value=getattr(resolution, "value", None),
         )
     if question in needed:
         return Finding(
