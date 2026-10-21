@@ -10,7 +10,9 @@ maintenance path lands is posted here with its commit.
 A sighting is a short question answered in an application that went in: its
 label, the control, the options it offered when they were kept, what the
 worker filled then (as a hash), and the answer that was submitted, which is
-the answer you accepted.
+the answer you accepted. An answer recorded before `jobs_questions` existed
+has no question row; its own normalized key stands in, and meets its run's fill
+events by it.
 """
 
 from __future__ import annotations
@@ -102,8 +104,11 @@ class CodeChangeCreate(BaseModel):
 class Sighting(BaseModel):
     question: str
     question_key: str
+    # The registry's control kind and attributes, from the fill event, when there was one.
     kind: str | None
     attributes: dict[str, Any] | None
+    # The control as the answer recorded it: its input type or tag (`radio`, `select`).
+    control: str | None
     options: list[str] | None
     answer: str
     fact_key: str | None
@@ -271,23 +276,31 @@ class PostgresChangeStore:
             await connection.execute("set local role personal_os_api")
             cursor = await connection.execute(
                 """
-                select answer.question_text as question, question.normalized_key as question_key,
-                       coalesce(event.kind, answer.control_kind) as kind, event.attributes,
-                       event.options, answer.answer_text as answer, event.fact_key,
-                       event.formatter, event.value_hash, answer.created_at as seen_at
+                select answer.question_text as question, keyed.question_key, event.kind,
+                       event.attributes, answer.control_kind as control, event.options,
+                       answer.answer_text as answer, event.fact_key, event.formatter,
+                       event.value_hash, answer.created_at as seen_at
                 from app.jobs_application_questions answer
-                join app.jobs_questions question on question.id = answer.question_id
+                left join app.jobs_questions question on question.id = answer.question_id
+                cross join lateral (
+                  select coalesce(question.normalized_key, answer.normalized_key) as question_key
+                ) keyed
                 left join lateral (
                   select control.kind, control.attributes, fill.options, fill.fact_key,
                          fill.formatter, fill.value_hash
                   from app.jobs_fill_events fill
                   join app.jobs_controls control on control.id = fill.control_id
-                  where fill.run_id = answer.run_id and fill.question_id = answer.question_id
+                  where fill.run_id = answer.run_id and fill.question_key = keyed.question_key
                   order by fill.created_at desc
                   limit 1
                 ) event on true
                 where answer.user_id = %s and answer.event_kind = 'final'
-                  and answer.status = 'submitted' and question.form = 'short'
+                  and answer.status = 'submitted'
+                  and coalesce(keyed.question_key, '') <> ''
+                  and coalesce(
+                    question.form,
+                    case when answer.control_kind = 'textarea' then 'long' else 'short' end
+                  ) = 'short'
                   and coalesce(trim(answer.answer_text), '') <> ''
                 order by answer.created_at desc
                 limit %s

@@ -78,7 +78,8 @@ verdict taught, active with origin `model`, once it has checked it (R67). Such a
 pattern is refused (409) when it would undo a decision of yours: one you
 rejected or retired, a binding over the question's existing binding, a question
 you marked one-off or long-form, or an expression nesting one repetition in
-another. A fill event never proposes a pattern. `GET /v1/jobs/inbox` lists candidate and
+another; nor is an expression saved again while it waits in the Inbox. A fill
+event never proposes a pattern. `GET /v1/jobs/inbox` lists candidate and
 repaired patterns with the answers recorded for their question, unbound short
 questions you answered, and unapproved prose. An unbound question that active expressions already decide
 (they match it and name one fact, as the worker's resolver requires) is left
@@ -146,10 +147,12 @@ verification, or `pending` without one. `GET /v1/jobs/changes` filters by
 subject, subject id, and status, newest first.
 
 `GET /v1/jobs/sightings` serves what a change is replayed against: each short
-answer submitted with an application, newest first, with the last fill event
-its run made for that question (the control's kind and attributes, the options
-it offered when they were kept, the fact and formatter, and the hash of what was
-filled). The submitted answer is the one you accepted.
+answer submitted with an application, newest first, with the input type or tag
+it was typed into and the last fill event its run made for that question (the
+control's kind and attributes, the options it offered when they were kept, the
+fact and formatter, and the hash of what was filled). The submitted answer is
+the one you accepted. An answer from before `jobs_questions` has no question
+row, so its own normalized key stands in for one.
 
 ### Devices
 

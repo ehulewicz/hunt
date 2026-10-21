@@ -459,15 +459,22 @@ async def _model_refusal(
     """Why a pattern a model taught may not be saved: it would undo a decision you made.
 
     You rejected or retired the same pattern, the question is bound already, or
-    you said the question is a one-off or wants prose.
+    you said the question is a one-off or wants prose. An expression already
+    waiting in the Inbox is not saved twice.
     """
     if item.kind == "expression":
         cursor = await connection.execute(
-            "select 1 from app.jobs_patterns where user_id = %s and kind = 'expression' "
-            "and expression = %s and fact_key = %s and status in ('rejected', 'retired')",
+            "select status from app.jobs_patterns where user_id = %s and kind = 'expression' "
+            "and expression = %s and fact_key = %s "
+            "and status in ('rejected', 'retired', 'candidate', 'repaired') limit 1",
             (user_id, item.expression, item.fact_key),
         )
-        return "you rejected or retired this expression" if await cursor.fetchone() else None
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        if row["status"] in ("candidate", "repaired"):
+            return "this expression already waits in the Inbox"
+        return "you rejected or retired this expression"
     cursor = await connection.execute(
         "select disposition from app.jobs_questions where id = %s and user_id = %s",
         (item.question_id, user_id),

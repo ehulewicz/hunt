@@ -273,7 +273,8 @@ class FakeChangeStore:
     async def sightings(self, user_id: UUID, *, limit: int) -> list[Sighting]:
         return [Sighting(
             question="Phone Extension", question_key="phone extension", kind="text_entry",
-            attributes={"tag": "input", "type": "text"}, options=None, answer="12",
+            attributes={"tag": "input", "type": "text"}, control="text", options=None,
+            answer="12",
             fact_key=None, formatter=None, value_hash=None, seen_at=NOW,
         )][:limit]
 

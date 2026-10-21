@@ -358,10 +358,10 @@ class RefusalConnection:
     """Answers each lookup `_model_refusal` makes with the row given for it."""
 
     def __init__(self, *, disposition: str = "unbound", binding: str | None = None,
-                 expression: bool = False) -> None:
+                 expression: str | None = None) -> None:
         self.answers = {"jobs_questions": {"disposition": disposition},
                         "kind = 'binding'": {"status": binding} if binding else None,
-                        "kind = 'expression'": {"?column?": 1} if expression else None}
+                        "kind = 'expression'": {"status": expression} if expression else None}
         self._row: dict[str, Any] | None = None
 
     async def execute(self, query: str, params: Any = None) -> "RefusalConnection":
@@ -398,8 +398,12 @@ async def test_an_expression_a_model_taught_is_refused_once_you_rejected_it() ->
                          origin="model", status="active")
     assert await _model_refusal(RefusalConnection(), USER_ID, item) is None  # type: ignore[arg-type]
     assert await _model_refusal(
-        RefusalConnection(expression=True), USER_ID, item  # type: ignore[arg-type]
+        RefusalConnection(expression="rejected"), USER_ID, item  # type: ignore[arg-type]
     ) == "you rejected or retired this expression"
+    # One that failed its replay already waits on you; it is not saved again.
+    assert await _model_refusal(
+        RefusalConnection(expression="candidate"), USER_ID, item  # type: ignore[arg-type]
+    ) == "this expression already waits in the Inbox"
 
 
 def test_a_models_expression_may_not_nest_one_repetition_in_another() -> None:
