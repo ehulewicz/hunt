@@ -155,7 +155,10 @@ is one — so a stopped run, or a re-run after a code change, picks the form up
 where it stands instead of navigating away from everything typed into it;
 `--fresh` opens a new tab. It waits for the posting to render before reading it
 (a board that fills its page from script has no text at all for the first
-second or two), verifies the company/role, saves the run/application context,
+second or two), checks the page is the posting — it names the role, not only
+the company — and otherwise finds it on the site (a link naming the role, the
+site's search by the full title and then shorter parts, its open roles), saves
+the run/application context,
 attaches `artifacts/career/Alex_Example.pdf` (published from the career record), follows one unambiguous Apply
 control when the ATS starts on a job-description page, fills the current step,
 then watches while you review required fields and use Next or Submit in the

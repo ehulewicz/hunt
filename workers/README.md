@@ -201,6 +201,24 @@ never armed, since "Apply now" reads as submitting. `commands.py` is
 live fills through the run context as a control preference that
 `browser.apply_autofill` tries first.
 
+## Reaching the posting
+
+A listing's URL sometimes lands on a careers home or a job list. The page is the
+posting only when it holds the whole title or a heading is the title
+(`navigate.is_posting`); a page that already shows an application form with the
+company on it is taken as it is. Otherwise `jobs/navigate.py` looks for it the
+way you would, each step read back: the route written for that site
+(`jobs/routes/`, one module per site, each registering itself with
+`@route("site.com")`), then a link whose text is the role, the site's search box
+with the full title and then shorter parts of it (without the parenthetical,
+what follows a separator, the term), and a link into the site's open roles, a
+few hops at most and never off the site. A link scores by the role's words,
+and loses for missing the role's kind ("Intern"), the title's term, or for
+words the title lacks, so a category link or another role is never taken.
+What it cannot find is reported as `posting_not_found` with what the page
+offered, and the run watches the browser until you open the posting, so a run
+never ends because its URL was a careers home.
+
 ## The gate between a posting and its form
 
 `jobs/gateway.py` captures the ways into an application on a page that offers
@@ -210,7 +228,9 @@ heading. `inspect_fields` never sees a button, because on a form a button is
 Next or Submit; a gate is captured only where there is no form to fill. The
 answer comes from a fact (`preferences.application_start`) through the ordinary
 resolver, so patterns, the Inbox and `--explain` need no special case, and the
-readback is `form_appeared`. A gate nothing answers is left alone: the capture
+readback is `form_appeared`. A gate or an account wall that appears after the
+first page is passed by the next step the same way. A gate nothing answers is
+left alone: the capture
 installs a click recorder, so the choice you make yourself is recorded as that
 question's answer and the Inbox can bind it.
 
