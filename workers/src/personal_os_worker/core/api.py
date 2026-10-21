@@ -135,12 +135,14 @@ class WorkerApi:
         label: str | None = None,
         value_type: str | None = None,
         verified: bool = True,
+        origin: str | None = None,
+        failure: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Set a fact. `origin` is "inbox" when you answer the Inbox, and `failure`
+        names the run and question a fact given mid-run answers."""
         body: dict[str, Any] = {"value": value, "verified": verified}
-        if label is not None:
-            body["label"] = label
-        if value_type is not None:
-            body["value_type"] = value_type
+        optional = {"label": label, "value_type": value_type, "origin": origin, "failure": failure}
+        body |= {name: item for name, item in optional.items() if item is not None}
         response = self._client.put(f"/v1/jobs/facts/{key}", json=body)
         response.raise_for_status()
         payload = response.json()
@@ -239,14 +241,50 @@ class WorkerApi:
             raise RuntimeError("Pattern response was invalid")
         return payload
 
-    def update_pattern(self, pattern_id: str, *, status: str) -> dict[str, Any]:
+    def update_pattern(
+        self, pattern_id: str, *, status: str, origin: str = "you"
+    ) -> dict[str, Any]:
         payload = self._json(
-            self._client.patch(f"/v1/jobs/patterns/{pattern_id}", json={"status": status}),
+            self._client.patch(
+                f"/v1/jobs/patterns/{pattern_id}", json={"status": status, "origin": origin}
+            ),
             "Pattern",
         )
         if not isinstance(payload, dict):
             raise RuntimeError("Pattern response was invalid")
         return payload
+
+    def changes(self, **filters: str | int) -> list[dict[str, Any]]:
+        """The change history, newest first: by subject, subject_id, status, limit."""
+        payload = self._json(self._client.get("/v1/jobs/changes", params=filters), "Changes")
+        return payload if isinstance(payload, list) else []
+
+    def record_code_change(
+        self,
+        commit: str,
+        *,
+        origin: str = "repair",
+        failure: dict[str, Any] | None = None,
+        verification: dict[str, int] | None = None,
+    ) -> dict[str, Any]:
+        body = {"commit": commit, "origin": origin, "failure": failure,
+                "verification": verification}
+        payload = self._json(
+            self._client.post(
+                "/v1/jobs/changes",
+                json={key: value for key, value in body.items() if value is not None},
+            ),
+            "Change",
+        )
+        if not isinstance(payload, dict):
+            raise RuntimeError("Change response was invalid")
+        return payload
+
+    def sightings(self, *, limit: int | None = None) -> list[dict[str, Any]]:
+        """Short answers submitted with an application, newest first (`jobs/replay.py`)."""
+        params = {"limit": limit} if limit else None
+        payload = self._json(self._client.get("/v1/jobs/sightings", params=params), "Sightings")
+        return payload if isinstance(payload, list) else []
 
     def prose(self) -> list[dict[str, Any]]:
         payload = self._json(self._client.get("/v1/jobs/prose"), "Prose")

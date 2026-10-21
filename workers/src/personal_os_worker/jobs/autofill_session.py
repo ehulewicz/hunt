@@ -109,7 +109,7 @@ from personal_os_worker.jobs.gateway import (
     observed_choice,
 )
 from personal_os_worker.jobs.keys import KeyWatcher, NoKeys
-from personal_os_worker.jobs.learn import lesson_for
+from personal_os_worker.jobs.learn import Lesson, binding_refusal, lesson_for
 from personal_os_worker.jobs.options import (
     choose_option,
     normalize_answer_question,
@@ -130,6 +130,7 @@ from personal_os_worker.jobs.registry.events import (
 from personal_os_worker.jobs.registry.kinds import question_of
 from personal_os_worker.jobs.remote import FACT_KEY, LinkedKeys, RunLink, gap_items
 from personal_os_worker.jobs.repair.repairer import find_field, repair_format, repair_strategy
+from personal_os_worker.jobs.replay import Replay, Sighting, replay_pattern, sightings_of
 from personal_os_worker.jobs.resolve import Knowledge, Miss, Resolver
 from personal_os_worker.jobs.short_answers import ShortQuestion, Verdict, draft_short_answers
 from personal_os_worker.jobs.sites import failure_signature
@@ -232,6 +233,12 @@ class SessionState:
     step: int = 0
     form_seen: bool = False
     navigation: TabNavigation | None = None
+    # The accepted answers a learned change is replayed against, read once a run;
+    # None when they could not be read.
+    sightings: list[Sighting] | None = None
+    sightings_read: bool = False
+    # (question, fact) -> why a lesson waits in the Inbox: it is saved once a run.
+    held: dict[tuple[str, str], str] = field(default_factory=dict)
 
 
 def page_signature(page: Page, fields: list[dict[str, Any]]) -> tuple[str, tuple[str, ...]]:
@@ -1039,33 +1046,73 @@ class AutofillSession:
 
     # ----- learning from the model ---------------------------------------------
 
+    def failure(self, question: str) -> dict[str, Any]:
+        """The failure a change made in this run answers: the run, and its question."""
+        key = normalize_answer_question(question)
+        return {"run_id": self.ctx.run_id} | ({"question_key": key} if key else {})
+
     def bind(self, question: str, fact_key: str, *, origin: str) -> str | None:
         """Bind one question to a fact and add it to what this run knows; why not, if not."""
-        return self.remember({"kind": "binding", "question": question}, fact_key, origin=origin)
+        return self.remember(
+            {"kind": "binding", "question": question}, fact_key, origin=origin,
+            failure=self.failure(question),
+        )
 
-    def remember(self, shape: dict[str, Any], fact_key: str, *, origin: str) -> str | None:
-        """Save an active pattern and add it to this run's knowledge; why not, if not.
-
-        A binding replaces its question's binding here as it does in the API.
-        """
+    def remember(
+        self,
+        shape: dict[str, Any],
+        fact_key: str,
+        *,
+        origin: str,
+        status: str = "active",
+        failure: dict[str, Any] | None = None,
+        verification: dict[str, int] | None = None,
+    ) -> str | None:
+        """Save a pattern, and add it to this run's knowledge once it is active; why not,
+        if not. A binding replaces its question's binding here as it does in the API."""
         try:
             created = self.ctx.api.create_pattern(
-                **shape, fact_key=fact_key, origin=origin, status="active"
+                **shape, fact_key=fact_key, origin=origin, status=status, failure=failure,
+                verification=verification,
             )
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code == 409:
+                # It would undo a decision of yours, or it already waits in the Inbox.
+                return str(error.response.json().get("detail") or "the API refused it")
+            return f"the pattern could not be saved (HTTP {error.response.status_code})"
         except (httpx.HTTPError, ReferenceError, RuntimeError) as error:
             return f"the pattern could not be saved ({error.__class__.__name__})"
-        key = normalize_answer_question(str(created.get("question_key") or ""))
-        kept = tuple(
-            pattern
-            for pattern in self.ctx.knowledge.patterns
-            if not (
-                created.get("kind") == "binding"
-                and pattern.get("kind") == "binding"
-                and normalize_answer_question(str(pattern.get("question_key") or "")) == key
-            )
-        )
-        self.ctx.knowledge = replace(self.ctx.knowledge, patterns=(*kept, created))
+        if created.get("status") == "active":
+            self.ctx.knowledge = self.ctx.knowledge.with_pattern(created)
         return None
+
+    def sightings(self) -> list[Sighting] | None:
+        """The answers you accepted, read once a run; None when they cannot be read."""
+        if not self.state.sightings_read:
+            self.state.sightings_read = True
+            try:
+                self.state.sightings = sightings_of(self.ctx.api.sightings())
+            except (httpx.HTTPError, ReferenceError, RuntimeError):
+                self.state.sightings = None
+        return self.state.sightings
+
+    def checked(self, lesson: Lesson) -> tuple[Lesson, Replay | None]:
+        """Replay a lesson against the answers you accepted (R69).
+
+        An expression that changes one for the worse falls back, once, to
+        binding the question alone, replayed in turn. None when the answers
+        could not be read: the lesson is saved as M2 saved it, unreplayed.
+        """
+        sightings = self.sightings()
+        if sightings is None:
+            return lesson, None
+        replay = replay_pattern(sightings, self.ctx.knowledge, lesson.pattern())
+        if replay.passed or lesson.kind == "binding" or binding_refusal(
+            lesson.question, patterns=list(self.ctx.knowledge.patterns)
+        ) is not None:
+            return lesson, replay
+        bound = lesson.bound(f"expression not kept: {replay.summary()}")
+        return bound, replay_pattern(sightings, self.ctx.knowledge, bound.pattern())
 
     def save_lesson(
         self,
@@ -1098,16 +1145,28 @@ class AutofillSession:
         )
         if lesson is None:
             return refusal
-        if lesson.kind == "expression":
-            shape: dict[str, Any] = {"kind": "expression", "expression": lesson.expression}
-        else:
-            shape = {"kind": "binding", "question": question}
-        failed = self.remember(shape, fact_key, origin="model")
+        if (question, fact_key) in self.state.held:
+            return self.state.held[(question, fact_key)]
+        lesson, replay = self.checked(lesson)
+        held = replay is not None and not replay.passed
+        failed = self.remember(
+            lesson.shape(),
+            fact_key,
+            origin="model",
+            status="candidate" if held else "active",
+            failure=self.failure(question),
+            verification=replay.verification() if replay is not None else None,
+        )
         if failed is not None:
             return failed
+        if held and replay is not None:
+            reason = f"it waits in the Inbox as a pattern check: {replay.summary()}"
+            self.state.held[(question, fact_key)] = reason
+            return reason
         what = f"/{lesson.expression}/" if lesson.kind == "expression" else "bound"
         echo("learned", question, note=f"{what} -> {fact_key}"
-             + (f"; {lesson.note}" if lesson.note else ""))
+             + (f"; {lesson.note}" if lesson.note else "")
+             + (f"; {replay.summary()}" if replay is not None else ""))
         return None
 
     def learn(
@@ -1965,7 +2024,9 @@ class AutofillSession:
         except ValueError as error:
             return False, str(error)
         try:
-            self.ctx.api.set_fact(key, value, label=label, value_type=value_type)
+            self.ctx.api.set_fact(
+                key, value, label=label, value_type=value_type, failure=self.failure(question)
+            )
         except httpx.HTTPStatusError as error:
             return False, f"the API refused {key} (HTTP {error.response.status_code})"
         self.refresh_knowledge()

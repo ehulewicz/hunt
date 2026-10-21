@@ -61,8 +61,8 @@ class FakeApi:
     def patterns(self, *statuses: str) -> list[dict[str, Any]]:
         return [{"kind": "expression", "expression": pattern} for pattern in self._expressions]
 
-    def update_pattern(self, pattern_id: str, *, status: str) -> dict[str, Any]:
-        self.calls.append(("pattern", (pattern_id, status)))
+    def update_pattern(self, pattern_id: str, *, status: str, origin: str) -> dict[str, Any]:
+        self.calls.append(("pattern", (pattern_id, status, origin)))
         return {}
 
     def create_pattern(self, **fields: Any) -> dict[str, Any]:
@@ -93,14 +93,14 @@ def answers(*replies: str) -> Any:
 def test_accepting_a_candidate_activates_it() -> None:
     api = FakeApi({"candidates": [candidate()], "questions": [], "prose": []})
     counts = walk_inbox(api, ask=answers("a"), today=TODAY)  # type: ignore[arg-type]
-    assert api.calls == [("pattern", ("p1", "active"))]
+    assert api.calls == [("pattern", ("p1", "active", "inbox"))]
     assert counts["accepted"] == 1
 
 
 def test_rejecting_a_candidate_retires_it_and_other_letters_reprompt() -> None:
     api = FakeApi({"candidates": [candidate()], "questions": [], "prose": []})
     counts = walk_inbox(api, ask=answers("w", "r"), today=TODAY)  # type: ignore[arg-type]
-    assert api.calls == [("pattern", ("p1", "rejected"))]
+    assert api.calls == [("pattern", ("p1", "rejected", "inbox"))]
     assert counts["rejected"] == 1
 
 

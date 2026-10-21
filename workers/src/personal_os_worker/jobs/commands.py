@@ -761,9 +761,12 @@ def run_autofill_failure_command(
 ) -> int:
     import re
     import subprocess
+    import sys
     import tempfile
 
     from personal_os_worker.core.tables import short_id
+    from personal_os_worker.jobs.knowledge import code_replay, print_replay
+    from personal_os_worker.jobs.options import normalize_answer_question
 
     allowed = {"list", "show", "diagnose", "draft-fix", "apply-fix", "verify"}
     if action not in allowed:
@@ -850,6 +853,19 @@ def run_autofill_failure_command(
             if replay.returncode != 0:
                 console.print("Patch applied, but replay tests failed. It was not marked verified.")
                 return 1
+            # The patched code, in a process of its own, against the answers you accepted.
+            label = str(issue.get("field_label") or "")
+            accepted = subprocess.run(
+                [sys.executable, "-m", "personal_os_worker", "hunt", "replay",
+                 *(["--question", label] if label else [])],
+                check=False, text=True,
+            )
+            if accepted.returncode != 0:
+                console.print(
+                    "Patch applied, but it changes answers you accepted. It was not marked "
+                    "verified."
+                )
+                return 1
             api.update_autofill_failure(issue_id, {"status": "replay_passed"})
             console.print("Patch applied and replay tests passed. It was not committed.")
             return 0
@@ -880,6 +896,21 @@ def run_autofill_failure_command(
                 capture_output=True,
                 text=True,
             ).stdout.strip()
+            # The committed fix, replayed and recorded with its commit (R69).
+            label = str(issue.get("field_label") or "")
+            checked = code_replay(api, question=label or None)
+            print_replay(checked)
+            runs = [str(item["run_id"]) for item in issue.get("occurrences") or []
+                    if isinstance(item, dict) and item.get("run_id")]
+            key = normalize_answer_question(label)
+            api.record_code_change(
+                commit,
+                failure={"run_id": runs[0] if runs else None, "question_key": key or None},
+                verification=checked.verification(),
+            )
+            if not checked.passed:
+                console.print("The fix changes answers you accepted; draft another.")
+                return 1
             result = run_autofill(listing_reference, dry_run=False)
             if result != 0:
                 return result

@@ -2,13 +2,16 @@
 
 `os hunt patterns` shows the loop's state: which questions fill
 deterministically (`active`), and which are waiting in the Inbox (`candidate`).
-`os hunt prose` manages saved long-form writing. `os hunt archive` reads the
-frozen old system: its answers, its retired rules with their translations, and
-its long-form writing as Markdown.
+`os hunt replay` replays the code as it stands against the answers you
+accepted, the check a code change passes before it is kept. `os hunt prose`
+manages saved long-form writing. `os hunt archive` reads the frozen old system:
+its answers, its retired rules with their translations, and its long-form
+writing as Markdown.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +24,9 @@ from personal_os_worker.core.commands import connected
 from personal_os_worker.core.tables import console, pick, short_id
 from personal_os_worker.jobs.archive.lookup import translate
 from personal_os_worker.jobs.archive.rules import RULES
+from personal_os_worker.jobs.options import normalize_answer_question
+from personal_os_worker.jobs.repair.commands import knowledge_for
+from personal_os_worker.jobs.replay import Replay, replay_code, sightings_of
 
 STATUS_STYLES = {"active": "green", "candidate": "yellow", "rejected": "red", "retired": "dim"}
 # Archived answers that are writing rather than a fact: a contextual row, or a long one.
@@ -77,6 +83,41 @@ def run_patterns(*, every: bool = False) -> int:
         return 0
     render_patterns(patterns)
     return 0
+
+
+def code_replay(
+    api: WorkerApi, *, question: str | None = None, fact_key: str | None = None
+) -> Replay:
+    """The code as it stands, with your facts and active patterns, replayed against
+    the answers you accepted; `question` and `fact_key` name the failure it fixes."""
+    knowledge = replace(knowledge_for(api), patterns=tuple(api.patterns("active")))
+    key = normalize_answer_question(question or "")
+    return replay_code(
+        sightings_of(api.sightings()), knowledge, question_key=key or None, fact_key=fact_key,
+        seed=key,
+    )
+
+
+def print_replay(replay: Replay) -> None:
+    console.print(replay.summary(), markup=False)
+    for outcome in replay.failures:
+        console.print(
+            f"  {outcome.sighting.question.strip()!r}: now {outcome.now!r}, "
+            f"you accepted {outcome.sighting.answer!r}",
+            markup=False,
+        )
+
+
+def run_replay(*, question: str | None = None, fact_key: str | None = None) -> int:
+    """0 when no accepted answer changes for the worse, else 1."""
+    config, token = connected()
+    api = WorkerApi(config, token)
+    try:
+        replay = code_replay(api, question=question, fact_key=fact_key)
+    finally:
+        api.close()
+    print_replay(replay)
+    return 0 if replay.passed else 1
 
 
 def render_prose(items: list[dict[str, Any]]) -> None:

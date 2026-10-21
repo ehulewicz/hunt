@@ -132,7 +132,7 @@ authorization. Submission and submitted status stay manual.
 
 ### Changes and sightings
 
-`jobs_changes.py` keeps the history of what Jobs knows (M4). Every pattern and
+`jobs_changes.py` keeps the history of what Jobs knows (R69). Every pattern and
 fact write records a `jobs_changes` row in its own transaction: the subject
 (`pattern` by id, `fact` by key), the action, the row before and after as JSON,
 who made it (`you`, `inbox`, `model`), and, when the write names one, the

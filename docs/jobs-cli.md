@@ -22,6 +22,7 @@ os hunt apps
 os hunt inbox        # accept or reject what was learned; bind questions to facts
 os hunt patterns     # what fills deterministically (active) and what waits (candidate)
 os hunt patterns --all
+os hunt replay       # the code as it stands, against the answers you accepted
 os hunt prose        # saved long-form writing
 os hunt prose add --question "Why this company?" --file ./answer.md
 os hunt prose approve 2
@@ -108,14 +109,20 @@ answer library, profile, and rules are the **archive**: frozen, readable with
 after which it is dropped. No application reads it, not even as a suggestion.
 The model never fills a field. When it names the fact that answers a
 question, the worker checks what it proposes against every question already
-met, saves it as an active pattern (origin `model`), and fills the field
-through the ordinary pattern pass, tagged `learned`, then `pattern`.
+met, then replays it against the answers you accepted on applications that went
+in. If it would change none of them for the worse, it is saved as an active
+pattern (origin `model`) and fills the field through the ordinary pattern pass,
+tagged `learned`, then `pattern`. An expression that would falls back to
+binding the question alone; a lesson that still would is left for you, tagged
+`left`, and waits in the Inbox as a pattern check. Every change to a pattern or
+fact, yours included, is kept with what it was before and after.
 
 Every site is filled the same way, from its controls: there are no per-site
 adapters, and a pattern or strategy learned on one board applies to the same
 question or control on any other. `--ats` and a run's ATS are only labels.
 
-`os hunt inbox` is the human step. It walks candidates (accept or reject),
+`os hunt inbox` is the human step. It walks candidates (accept or reject; a
+pattern check also says how many accepted answers its replay would change),
 questions you answered that nothing is bound to (bind to a fact — `?` lists
 every fact key — creating it from the catalog if needed; keep as a one-off; or
 mark long-form), and long-form writing from
@@ -299,6 +306,8 @@ signed-in page.
 
 Failure diagnosis and fix drafting use subscription-authenticated local Claude.
 `apply-fix` requires the literal confirmation `apply`, changes only worker or
-worker-test paths, runs the replay suite, and never commits. Commit the reviewed
-fix yourself before `verify`; the command records that commit only after live
-headed confirmation.
+worker-test paths, runs the replay suite and then `os hunt replay` on the patched
+code, and never commits. Commit the reviewed fix yourself before `verify`;
+`verify` replays the commit against the answers you accepted and records it as a
+code change with that result, stops if the fix changes one for the worse, and
+marks the issue fixed only after live headed confirmation.

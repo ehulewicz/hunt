@@ -12,6 +12,11 @@ patterns, and decides every other recorded question it matches exactly as
 before. Otherwise the question is bound on its own. A model never replaces a
 binding, and a pattern you made is never overridden for a question it answers.
 
+Before it is saved, a lesson is replayed against the answers you accepted
+(`jobs/replay.py`). An expression that would change one for the worse falls
+back to binding the question alone, replayed in turn; a lesson whose replay
+still fails is saved as a candidate, and waits in the Inbox as a pattern check.
+
 This module is pure: it decides what to learn, and the session saves it.
 """
 
@@ -45,6 +50,27 @@ class Lesson:
     # Why a proposed expression was not kept, when the lesson fell back to a binding.
     note: str = ""
 
+    def shape(self) -> dict[str, Any]:
+        """What the API saves: the expression, or the question by its wording."""
+        if self.kind == "expression":
+            return {"kind": "expression", "expression": self.expression}
+        return {"kind": "binding", "question": self.question}
+
+    def pattern(self) -> dict[str, Any]:
+        """The active pattern this lesson would become, as a resolver reads one."""
+        shape = (
+            {"kind": "expression", "expression": self.expression}
+            if self.kind == "expression"
+            else {"kind": "binding", "question_key": self.question}
+        )
+        return shape | {
+            "id": "proposed", "fact_key": self.fact_key, "status": "active", "origin": "model",
+        }
+
+    def bound(self, note: str) -> Lesson:
+        """The question alone, bound to the same fact."""
+        return Lesson(self.question, self.fact_key, "binding", note=note)
+
 
 def _fact(pattern: dict[str, Any] | None) -> str | None:
     return str(pattern["fact_key"]) if pattern is not None else None
@@ -73,10 +99,7 @@ def expression_refusal(
         return f"it does not compile ({error})"
     if not compiled.search(question.strip()):
         return "it does not match the question"
-    proposed = {
-        "id": "proposed", "kind": "expression", "expression": expression,
-        "fact_key": fact_key, "status": "active",
-    }
+    proposed = Lesson(question, fact_key, "expression", expression).pattern()
     before, after = _resolver(patterns), _resolver([*patterns, proposed])
     if _fact(after.decision(question)) != fact_key:
         return "the active patterns would still not decide the question as that fact"

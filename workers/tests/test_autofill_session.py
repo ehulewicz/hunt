@@ -70,6 +70,12 @@ class FakeApi:
         self.library: dict[str, dict[str, Any]] = {}
         self.facts_set: list[tuple[str, Any]] = []
         self.patterns_created: list[dict[str, Any]] = []
+        # Accepted answers a learned pattern is replayed against (`/v1/jobs/sightings`).
+        self.accepted: list[dict[str, Any]] = []
+        self.created_with: list[dict[str, Any]] = []
+
+    def sightings(self) -> list[dict[str, Any]]:
+        return self.accepted
 
     def questions(self) -> list[dict[str, Any]]:
         """Every question a fill event met, as the API records them (R44)."""
@@ -91,6 +97,7 @@ class FakeApi:
             "origin": fields.get("origin"), "status": fields.get("status"),
         }
         self.patterns_created.append(created)
+        self.created_with.append(fields)
         return created
 
     def set_fact(self, key: str, value: Any, **_: Any) -> dict[str, Any]:
@@ -1010,6 +1017,87 @@ def test_the_model_teaches_a_pattern_and_the_pattern_pass_fills_the_field(
     assert (campus["source"], campus["pattern_id"]) == ("pattern", "learned-1")
     assert all(event["source"] != "model" for event in events)
     assert api.library == {}
+    # Nothing accepted was there to contradict it; it was replayed all the same.
+    assert api.created_with[0]["verification"] == {"sampled": 0, "failed": 0}
+    assert api.created_with[0]["failure"] == {
+        "run_id": "run-tiers", "question_key": "which campus will you report to",
+    }
+
+
+def accepted(question: str, answer: str) -> dict[str, Any]:
+    return {"question": question, "question_key": question.casefold(), "kind": "text_entry",
+            "attributes": {"tag": "input", "type": "text"}, "control": "text",
+            "options": None, "answer": answer, "fact_key": None, "value_hash": None}
+
+
+@pytest.mark.parametrize(
+    ("sightings", "saved", "filled"),
+    [
+        # The expression would answer "Do you live on campus?" with a campus: the
+        # question alone is bound instead, which changes nothing you accepted.
+        ([accepted("Do you live on campus?", "No")], ("binding", "active"), "Atlanta"),
+        # You answered this very question otherwise before: nothing is filled, and
+        # the binding waits in the Inbox as a pattern check.
+        ([accepted("Which campus will you report to?", "Savannah")],
+         ("binding", "candidate"), ""),
+    ],
+)
+def test_a_lesson_that_would_change_an_accepted_answer_is_not_kept_as_taught(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    sightings: list[dict[str, Any]],
+    saved: tuple[str, str],
+    filled: str,
+) -> None:
+    browser_page.set_content(
+        """
+        <form>
+          <label for="campus">Which campus will you report to?</label>
+          <input id="campus" required>
+          <button type="submit">Submit</button>
+        </form>
+        """
+    )
+    api = FakeApi()
+    api.accepted = sightings
+
+    def short_drafter(questions: Any, **kwargs: Any) -> dict[str, Verdict]:
+        question = "Which campus will you report to?"
+        return {question: Verdict(
+            question, "fits_fact", fact_key="education.campus", expression=r"\bcampus\b",
+        )}
+
+    resume_pdf = tmp_path / "main.pdf"
+    resume_pdf.write_bytes(b"%PDF-1.4\n%%EOF")
+    session = AutofillSession(SessionContext(
+        api=api,  # type: ignore[arg-type]
+        run_id="run-replay",
+        ats="greenhouse",
+        browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
+        page=browser_page,
+        console_errors=[],
+        knowledge=known({"education.campus": "Atlanta"}),
+        resume_json={},
+        resume_pdf=resume_pdf,
+        company="Acme",
+        title="Backend Engineer Intern",
+        description=None,
+        short_drafter=short_drafter,
+        poll_seconds=0.05,
+        keys=InterruptingKeys([set()]),
+    ))
+    session.run()
+
+    assert [(item["kind"], item["status"]) for item in api.patterns_created] == [saved]
+    assert api.created_with[0]["verification"]["sampled"] == 1
+    assert browser_page.input_value("#campus") == filled
+    printed = capsys.readouterr().out
+    if filled:
+        assert "expression not kept" in printed and "would get 'Atlanta'" in printed
+    else:
+        assert "waits in the Inbox as a pattern check" in printed
+    assert "claude " not in printed
 
 
 def test_dry_run_plans_without_opening_tabs_or_writing(

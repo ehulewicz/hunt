@@ -18,6 +18,7 @@ os hunt 20         # list 20
 os hunt today
 os hunt inbox
 os hunt patterns
+os hunt replay
 os hunt facts review
 os hunt resume
 os hunt apps
@@ -137,7 +138,24 @@ every fact key with its label, type, sensitivity, and whether it is stored,
 career-derived, or derived.
 
 `jobs/inbox.py` is `os hunt inbox`; `jobs/knowledge.py` is `os hunt patterns`,
-`prose`, and `archive`.
+`replay`, `prose`, and `archive`.
+
+**Replay (R69).** A learned change is checked offline before it is kept.
+`jobs/replay.py` replays it against sightings, the short answers submitted with
+applications (`/v1/jobs/sightings`), each rebuilt as the control it was, with
+the options it offered when they were kept: the resolver and formatters run
+once as things stand and once with the change. It replays the sightings the
+change can affect (those its question or expression matches, and those filled
+from its fact), the 25 newest, and 25 more at random, seeded by the change. A
+sighting fails when the change gives it a different answer that is not the one
+you accepted, or takes that one away; a sighting it leaves as it was never
+fails, right or wrong. An answer is the accepted one when its fact can be
+written that way for the control, whichever writing the rebuilt control picks,
+since a sighting from before options were kept rebuilds a menu without them.
+`os hunt replay` runs the code as it stands the same way; a code change cannot
+be run as it was, so its before is what the worker filled then, known only when
+that was the accepted answer or nothing, and unknown for an answer from before
+fill events.
 
 ## Repair
 
@@ -256,11 +274,17 @@ missing fact's name, or `unsure`. The model never writes a value (R67):
 expression must compile, nest no repetition in another, match the question,
 decide it as that fact among the active patterns, and leave every other
 recorded question it matches answered as before, else the question is bound on
-its own; a model never replaces a binding — the session saves it active with
-origin `model`, and the ordinary pattern pass fills the field in the same run.
+its own; a model never replaces a binding — then replays it (above). If no
+accepted answer changes for the worse, the session saves it active with origin
+`model`, and the ordinary pattern pass fills the field in the same run. An
+expression that changes one falls back, once, to binding the question alone,
+replayed in turn; a lesson that still changes one is saved as a candidate with
+its verification, waits in the Inbox as a pattern check, and is saved once a
+run. The pattern records the run and question it answers, and the API keeps
+the change in `jobs_changes`.
 The API refuses, too, any such pattern that would undo a decision of yours: one
 you rejected or retired, a binding over an existing one, or a question you
-marked one-off or long-form. A question or gate a pattern decides never reaches
+marked one-off or long-form; and an expression already waiting in the Inbox. A question or gate a pattern decides never reaches
 the model, even when its fact is missing. Every call sees every fact with its value.
 
 **How it is written.** `jobs/formatters.py` renders a fact for the control in

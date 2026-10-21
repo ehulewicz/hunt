@@ -268,6 +268,23 @@ and settling R51's shadows) happens with you after this lands.
 > one-fact rule. *Decided by you (plan, 2026-10-20; the two engine rules
 > 2026-10-21).* Supersedes R45 for consent and the source ranking.
 
+> **R69 — A learned change is replayed before it is kept.** Every change to a
+> pattern or fact is recorded in `jobs_changes`: before and after, who made it
+> (you, the Inbox, a model, a repair), the failure it answered, and, for a
+> learned one, its verification. A pattern a model taught is replayed offline
+> against the sightings it can affect (its question or expression's matches,
+> and those filled from its fact) plus the 25 newest and 25 at random: the
+> resolver and formatters, once as things stand and once with the change,
+> against the answer submitted, which is the one you accepted. It fails when it
+> gives an accepted answer a different wrong one or takes it away; what it
+> leaves as it was never counts against it. An expression that fails falls back,
+> once, to binding the question alone; a lesson that still fails is saved a
+> candidate and waits in the Inbox as a pattern check. A code fix from the
+> maintenance path is replayed the same way, against what the worker filled
+> then, and recorded with its commit; one that fails is not verified. A change
+> you make is recorded and not replayed. *Decided by you (plan, 2026-10-20; the
+> table's columns 2026-10-21, a commit as a code change's subject).*
+
 ---
 
 ## 1. Why
@@ -1715,6 +1732,7 @@ on its own judgement and report the decisions; dispute any by number.
 | R66 | A referral belongs to the application; apply takes any posting URL | decided by you 2026-10-18 |
 | R67 | The model learns; it never fills | decided by you 2026-10-20 |
 | R68 | Consent and "how did you hear" are patterns; uploads and N/A stay engine rules | decided by you 2026-10-21 |
+| R69 | A learned change is replayed against the answers you accepted before it is kept | decided by you 2026-10-21 |
 | R6 | Fact values reviewed in the database, `verified_at` per row | changed by you |
 | R7 | Minimum $40/hour; annual derived; always a number | changed by you |
 | R8 | `years_professional` derived from the career record | changed by your resume decision |

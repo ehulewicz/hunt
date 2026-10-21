@@ -92,15 +92,22 @@ def review_candidate(
     console.print(f"\n[bold]Candidate[/bold]  {pattern.get('question_label') or ''}", markup=True)
     console.print(f"  answers from  {key} = {shown(key, values)}", markup=False)
     console.print(f"  proposed by   {pattern.get('origin')}", markup=False)
+    check = item.get("check")
+    if check:
+        # A pattern check: what it learned would have changed answers you accepted.
+        console.print(
+            f"  replay failed {check.get('failed')} of {check.get('sampled')} accepted "
+            "answer(s); accepting it overrides that check", style="yellow",
+        )
     if item.get("answers"):
         console.print("  filled", style="dim")
         print_answers(item["answers"])
     choice = choose(ask, "  [a]ccept  [r]eject  [s]kip  [q]uit: ", "ars")
     if choice == "a":
-        api.update_pattern(str(pattern["id"]), status="active")
+        api.update_pattern(str(pattern["id"]), status="active", origin="inbox")
         counts["accepted"] += 1
     elif choice == "r":
-        api.update_pattern(str(pattern["id"]), status="rejected")
+        api.update_pattern(str(pattern["id"]), status="rejected", origin="inbox")
         counts["rejected"] += 1
     else:
         counts["skipped"] += 1
@@ -136,12 +143,7 @@ def new_fact(
     except ValueError as error:
         console.print(f"  {error}", style="red")
         return False
-    api.set_fact(
-        key,
-        value,
-        label=label,
-        value_type=value_type,
-    )
+    api.set_fact(key, value, label=label, value_type=value_type, origin="inbox")
     console.print(f"  set {key}", style="dim")
     return True
 

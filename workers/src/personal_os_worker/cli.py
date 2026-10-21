@@ -32,7 +32,7 @@ from personal_os_worker.jobs.sites import ATS_NAMES
 
 HUNT_COMMANDS = (
     "today", "sync", "open", "apps", "skipped", "inbox", "patterns", "facts", "prose",
-    "archive", "resume", "apply", "repair", "validate",
+    "archive", "resume", "apply", "repair", "validate", "replay",
 )
 LISTING_FLAGS = ("--faang", "--quant", "--location", "--family", "--all-roles", "--ats")
 
@@ -322,6 +322,13 @@ def build_parser() -> argparse.ArgumentParser:
     jobs_commands.add_parser(
         "validate", help="Watch each repaired rule fill its field, then accept or reject it"
     )
+    replay = jobs_commands.add_parser(
+        "replay",
+        help="Replay the code as it stands against the answers you accepted; "
+        "exits 1 when one changes for the worse",
+    )
+    replay.add_argument("--question", help="The failed question a code change fixes")
+    replay.add_argument("--fact", dest="fact_key", help="The fact that question is filled from")
 
     return parser
 
@@ -451,6 +458,8 @@ def _dispatch(args: argparse.Namespace) -> int:
             return repairs.run_repair(watch=args.watch, until=args.until)
         if args.hunt_command == "validate":
             return repairs.run_validate()
+        if args.hunt_command == "replay":
+            return knowledge.run_replay(question=args.question, fact_key=args.fact_key)
         if args.hunt_command == "apply":
             if args.ref == "failures":
                 return hunt.run_autofill_failure_command(

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Literal
 
@@ -141,6 +141,21 @@ class Knowledge:
     def values(self) -> dict[str, Any]:
         """Every fact value, keyed by its dotted name."""
         return dict(self.facts)
+
+    def with_pattern(self, pattern: dict[str, Any]) -> Knowledge:
+        """This knowledge with one more active pattern; a binding replaces its
+        question's binding, as it does in the API."""
+        key = normalize_answer_question(str(pattern.get("question_key") or ""))
+        kept = tuple(
+            known
+            for known in self.patterns
+            if not (
+                pattern.get("kind") == "binding"
+                and known.get("kind") == "binding"
+                and normalize_answer_question(str(known.get("question_key") or "")) == key
+            )
+        )
+        return replace(self, patterns=(*kept, pattern))
 
 
 @dataclass(frozen=True, slots=True)
