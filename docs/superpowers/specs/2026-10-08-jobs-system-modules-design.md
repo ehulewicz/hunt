@@ -262,11 +262,11 @@ and settling R51's shadows) happens with you after this lands.
 > referred. A typeahead nobody has opened is still chosen against its live
 > menu. The Inbox rule and the replay now cover them like any pattern, and a
 > question you bind elsewhere wins as it would anywhere. The upload and N/A
-> rules stay in the engine for now: an upload is recognised by what its control
-> sits in, which a question's wording cannot carry, and an N/A pattern would
-> tie with the follow-up's own pattern ("If yes, who referred you?") under the
-> one-fact rule. *Decided by you (plan, 2026-10-20); the two exceptions are
-> open.* Supersedes R45 for consent and the source ranking.
+> rules stay in the engine: an upload is recognised by what its control sits
+> in, which a question's wording cannot carry, and an N/A pattern would tie
+> with the follow-up's own pattern ("If yes, who referred you?") under the
+> one-fact rule. *Decided by you (plan, 2026-10-20; the two engine rules
+> 2026-10-21).* Supersedes R45 for consent and the source ranking.
 
 ---
 
@@ -1713,6 +1713,8 @@ on its own judgement and report the decisions; dispute any by number.
 | R64 | Only an open captcha challenge parks a choice | decided in training 2026-10-17; yours to reverse |
 | R65 | The earliest start is derived per posting: notice period or the named term, twelve weeks | decided by you 2026-10-18 |
 | R66 | A referral belongs to the application; apply takes any posting URL | decided by you 2026-10-18 |
+| R67 | The model learns; it never fills | decided by you 2026-10-20 |
+| R68 | Consent and "how did you hear" are patterns; uploads and N/A stay engine rules | decided by you 2026-10-21 |
 | R6 | Fact values reviewed in the database, `verified_at` per row | changed by you |
 | R7 | Minimum $40/hour; annual derived; always a number | changed by you |
 | R8 | `years_professional` derived from the career record | changed by your resume decision |
@@ -1752,7 +1754,7 @@ on its own judgement and report the decisions; dispute any by number.
 | R42 | Archive in place, frozen; rules move to `jobs/archive/` | delegated |
 | R43 | Archive and model fills propose candidates; you activate | delegated; model only (R54) |
 | R44 | Questions recorded when they are met | delegated |
-| R45 | Engine rules stay active and are not patterns | delegated |
+| R45 | Engine rules stay active and are not patterns | delegated; consent and source superseded by R68 |
 | R46 | Strategies stay active; controls learned by observation | delegated |
 | R47 | `os hunt inbox` ships in slice C | delegated |
 | R48 | Accepting a candidate activates it | delegated |

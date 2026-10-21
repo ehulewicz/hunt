@@ -231,8 +231,8 @@ formatter knows: `consent.agrees` takes the one option that agrees, and
 Other (a referral first under `--referred`; a free-text box gets the fact's
 value, or "Employee referral" when referred). A typeahead nobody has opened is
 chosen against its live menu by the same rule. A consent box is never put to a
-model; a signature or password is yours. The engine still answers two kinds of
-field itself: the resume and transcript upload, and a typed follow-up — "If
+model; a signature or password is yours. The engine answers two kinds of field
+itself (R68): the resume and transcript upload, and a typed follow-up — "If
 yes…", "If you answered No…", "If so…", required or optional — gets "N/A" when
 the question just above it holds or is planned to hold the other answer. No
 value that declines to answer is ever chosen.
