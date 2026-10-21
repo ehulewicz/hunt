@@ -122,6 +122,7 @@ from personal_os_worker.jobs.page_state import (
     classify_application_page,
     normalize_navigation_url,
 )
+from personal_os_worker.jobs.provenance import spans
 from personal_os_worker.jobs.registry.events import (
     fill_event,
     planned_events,
@@ -239,6 +240,9 @@ class SessionState:
     sightings_read: bool = False
     # (question, fact) -> why a lesson waits in the Inbox: it is saved once a run.
     held: dict[tuple[str, str], str] = field(default_factory=dict)
+    # question -> (the model's draft, the previous answers it started from), for
+    # each long-form answer's provenance.
+    origins: dict[str, tuple[str, tuple[str, ...]]] = field(default_factory=dict)
 
 
 def page_signature(page: Page, fields: list[dict[str, Any]]) -> tuple[str, tuple[str, ...]]:
@@ -1303,14 +1307,12 @@ class AutofillSession:
             None,
         )
         if approved is not None:
-            return (
-                str(approved["text"]).strip(),
-                "prose",
-                f"prose:{approved.get('id')}",
-                "approved prose (edit freely)",
-            )
+            text = str(approved["text"]).strip()
+            self.state.origins[question] = ("", (text,))
+            return text, "prose", f"prose:{approved.get('id')}", "approved prose (edit freely)"
         if not self.ctx.use_claude:
-            return "", "empty", "", "drafting disabled; write it, it is saved when submitted"
+            return "", "empty", "", "drafting disabled; write it, it is saved at the run's end"
+        references = self.references(question)
         draft = self.ctx.drafter(
             question=question,
             base=None,
@@ -1321,10 +1323,13 @@ class AutofillSession:
             },
             resume=self.ctx.resume_json,
             facts=self.ctx.knowledge.values(),
-            references=self.references(question),
+            references=references,
             limit=limit,
         )
         if draft:
+            self.state.origins[question] = (
+                draft, tuple(str(item.get("answer_text") or "") for item in references)
+            )
             return draft, "model", "model:long_form_v1", "claude draft tailored to this posting"
         return "", "empty", "", "no approved prose and no claude draft; write from scratch"
 
@@ -2329,6 +2334,12 @@ class AutofillSession:
                 "resolver_id": resolver_id,
                 "proposed_value": proposed_value,
             }
+            origin = self.state.origins.get(question)
+            if item.get("form") == "long" and origin is not None:
+                draft, started_from = origin
+                self.state.collected[control_key]["provenance"] = spans(
+                    value, draft=draft, previous=started_from
+                )
             if previous is None or previous["answer_text"] != value:
                 self.state.observations.append(
                     {

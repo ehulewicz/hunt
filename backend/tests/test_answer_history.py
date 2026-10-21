@@ -371,3 +371,49 @@ async def test_a_submitted_long_form_answer_waits_in_the_inbox_as_prose() -> Non
     assert len(prose) == 1
     assert prose[0] is not None
     assert "Because of X" in prose[0] and application_id in prose[0] and "manual" in prose[0]
+
+
+@pytest.mark.asyncio
+async def test_every_runs_writing_is_saved_with_where_each_stretch_came_from() -> None:
+    application_id = uuid4()
+    connection = RecordingConnection({"application_id": application_id})
+    store = PostgresJobsStore(RecordingPool(connection), 5)  # type: ignore[arg-type]
+    text = "  I build tools. I also like puzzles."
+    item = AutofillRunComplete(
+        final_url="https://example.test/apply",
+        submitted=False,
+        answers=[{
+            "question": "Why us?", "answer_text": text, "source": "manual", "form": "long",
+            "provenance": [{"start": 2, "end": 17, "source": "model"},
+                           {"start": 17, "end": 37, "source": "previous"}],
+        }],
+    )
+
+    assert await store.complete_autofill_run(uuid4(), uuid4(), item)
+
+    [(query, params)] = [
+        (query, params) for query, params in connection.queries if "jobs_prose" in query
+    ]
+    # The latest run's text replaces the unapproved one written for this application.
+    assert "update app.jobs_prose" in query and "where not exists" in query
+    saved, origin, spans, submitted = params[:4]
+    assert (saved, origin, submitted) == ("I build tools. I also like puzzles.", "manual", False)
+    # The spans follow the text as saved, without its leading spaces.
+    assert spans.obj == [{"start": 0, "end": 15, "source": "model"},
+                         {"start": 15, "end": 35, "source": "previous"}]
+    assert saved[0:15] == "I build tools. "
+
+
+@pytest.mark.parametrize("spans", [
+    [{"start": 5, "end": 3, "source": "model"}],
+    [{"start": 0, "end": 40, "source": "model"}],
+    [{"start": 0, "end": 6, "source": "model"}, {"start": 4, "end": 8, "source": "previous"}],
+    [{"start": 0, "end": 4, "source": "you"}],
+])
+def test_spans_must_be_ordered_apart_and_inside_the_answer(spans: list[dict[str, Any]]) -> None:
+    with pytest.raises(ValidationError):
+        AutofillRunComplete(
+            final_url="https://example.test",
+            answers=[{"question": "Why us?", "answer_text": "Because of X", "form": "long",
+                      "provenance": spans}],
+        )

@@ -214,6 +214,38 @@ class PatternUpdate(BaseModel):
     origin: Literal["you", "inbox"] = "you"
 
 
+class ProseSpan(BaseModel):
+    """A stretch of prose and where it came from; text in no span is yours."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    start: int = Field(ge=0)
+    end: int = Field(gt=0)
+    source: Literal["model", "previous"]
+
+
+def check_spans(spans: list[ProseSpan], text: str) -> None:
+    """Spans run in order, never overlap, and stay inside the text; ValueError if not."""
+    reached = 0
+    for span in spans:
+        if span.start < reached or span.end <= span.start or span.end > len(text):
+            raise ValueError("provenance spans must be ordered, apart, and inside the text")
+        reached = span.end
+
+
+def stripped_spans(text: str, spans: list[ProseSpan] | None) -> list[dict[str, Any]] | None:
+    """The spans of `text` as they fall in `text.strip()`, which is what is saved."""
+    if spans is None:
+        return None
+    lead, kept = len(text) - len(text.lstrip()), len(text.strip())
+    shifted = []
+    for span in spans:
+        start, end = max(0, span.start - lead), min(kept, span.end - lead)
+        if end > start:
+            shifted.append({"start": start, "end": end, "source": span.source})
+    return shifted
+
+
 class Prose(BaseModel):
     id: UUID
     question_id: UUID | None
@@ -223,6 +255,10 @@ class Prose(BaseModel):
     text: str
     approved: bool
     origin: Literal["manual", "model", "archive"]
+    # Where each stretch came from; None for prose saved before spans were kept.
+    provenance: list[ProseSpan] | None = None
+    # Whether the application it was written for went in.
+    submitted: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -233,6 +269,8 @@ class ProseCreate(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
     text: str = Field(min_length=1, max_length=20000)
     approved: bool = True
+    # Writing you add is yours; writing copied out of the archive says so.
+    origin: Literal["manual", "archive"] = "manual"
 
 
 class ProseUpdate(BaseModel):
@@ -303,7 +341,7 @@ QUESTION_COLUMNS = """
 PROSE_SELECT = """
     select prose.id, prose.question_id, question.sample_label as question_label,
            prose.application_id, company.name as company_name, prose.text, prose.approved,
-           prose.origin, prose.created_at, prose.updated_at
+           prose.origin, prose.provenance, prose.submitted, prose.created_at, prose.updated_at
     from app.jobs_prose prose
     left join app.jobs_questions question on question.id = prose.question_id
     left join app.jobs_applications application on application.id = prose.application_id
@@ -741,9 +779,9 @@ class PostgresAnswerStore:
             cursor = await connection.execute(
                 """
                 insert into app.jobs_prose (user_id, question_id, text, approved, origin)
-                values (%s, %s, %s, %s, 'manual') returning id
+                values (%s, %s, %s, %s, %s) returning id
                 """,
-                (user_id, question_id, item.text.strip(), item.approved),
+                (user_id, question_id, item.text.strip(), item.approved, item.origin),
             )
             row = await cursor.fetchone()
             if row is None:

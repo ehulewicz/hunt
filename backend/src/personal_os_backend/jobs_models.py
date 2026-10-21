@@ -10,6 +10,7 @@ from pydantic import (
     model_validator,
 )
 
+from personal_os_backend.jobs_answers import ProseSpan, check_spans
 from personal_os_backend.jobs_registry import FillEventCreate
 
 CareerStage = Literal["internship", "new_grad"]
@@ -167,8 +168,10 @@ class AutofillAnswer(BaseModel):
     field_fingerprint: str | None = Field(default=None, max_length=500)
     resolver_id: str | None = Field(default=None, max_length=200)
     proposed_value: str | None = Field(default=None, max_length=10000)
-    # Whether the question wants prose; a submitted long-form answer is saved as prose.
+    # Whether the question wants prose; a long-form answer is saved as prose.
     form: Literal["short", "long"] | None = None
+    # A long-form answer's spans: drafted by a model, or taken from a previous answer.
+    provenance: list[ProseSpan] | None = Field(default=None, max_length=1000)
 
     @field_validator("question")
     @classmethod
@@ -177,6 +180,12 @@ class AutofillAnswer(BaseModel):
         if not value:
             raise ValueError("must not be blank")
         return value
+
+    @model_validator(mode="after")
+    def spans_fit_the_answer(self) -> "AutofillAnswer":
+        if self.provenance is not None:
+            check_spans(self.provenance, self.answer_text)
+        return self
 
 
 class AutofillObservation(AutofillAnswer):
