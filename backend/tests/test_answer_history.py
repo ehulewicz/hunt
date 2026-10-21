@@ -417,3 +417,28 @@ def test_spans_must_be_ordered_apart_and_inside_the_answer(spans: list[dict[str,
             answers=[{"question": "Why us?", "answer_text": "Because of X", "form": "long",
                       "provenance": spans}],
         )
+
+
+@pytest.mark.asyncio
+async def test_a_long_form_answer_is_kept_as_writing_the_moment_it_is_seen() -> None:
+    application_id = uuid4()
+    connection = RecordingConnection(running_run(application_id))
+    store = PostgresJobsStore(RecordingPool(connection), 5)  # type: ignore[arg-type]
+    item = AutofillStepCreate(
+        step_number=0,
+        url="https://example.test/apply",
+        observations=[
+            observation(event_index=0, form="long", answer_text="A draft",
+                        provenance=[{"start": 0, "end": 7, "source": "model"}]),
+            observation(event_index=1, form="long", answer_text="Reused", source="prose"),
+            observation(event_index=2, form="long", answer_text="   "),
+        ],
+    )
+
+    assert await store.persist_autofill_step(uuid4(), uuid4(), item) == []
+
+    [params] = [p for q, p in connection.queries if "jobs_prose" in q]
+    assert params is not None
+    # Not submitted yet; the run's end updates the same row.
+    assert params[:2] == ("A draft", "model") and params[3] is False
+    assert application_id in params

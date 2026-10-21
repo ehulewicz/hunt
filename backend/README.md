@@ -88,9 +88,9 @@ questions you answered, and unapproved prose. An unbound question that active ex
 (they match it and name one fact, as the worker's resolver requires) is left
 out, and so is one recorded before the rule above that asks nothing. Accepting a binding (`PATCH /patterns/{id}` to `active`)
 retires the question's previous binding and marks the question `pattern`, and
-rejecting or retiring one hands the question back. Every run's long-form answer
-is saved as unapproved prose, one row per application and question (the latest
-run's text), with `submitted` and its `provenance`: the spans the worker found
+rejecting or retiring one hands the question back. A long-form answer is saved
+as unapproved prose as soon as a step carries it, and again at the run's end,
+one row per application and question holding the latest text, with `submitted` and its `provenance`: the spans the worker found
 drafted by a model or taken from a previous answer; text in neither is yours.
 Approved prose reused as it was is not re-saved. The old
 answer library is `jobs_archive_answers`, served read-only at

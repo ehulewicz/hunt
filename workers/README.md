@@ -169,7 +169,9 @@ when authentication, transport, or API errors prevent the check from completing.
 long-form answer as `previous` or `model`; unmarked text is yours. Previous
 writing wins when both sources match, and matches shorter than 16 characters
 are ignored. Spans use character offsets in the final text, are ordered, and
-never overlap. Every run saves its prose for review, including runs not submitted.
+never overlap. Every run saves its prose for review, including runs not submitted:
+a long-form answer goes to the API the moment its text changes, a draft as it is
+written and your edits as you make them, so a killed run loses none of it.
 For a new question, the worker asks FastAPI for semantically similar questions
 with approved prose, caches that result for the run, and supplies up to five
 pieces to the existing drafting call. Exact approved questions reuse their prose

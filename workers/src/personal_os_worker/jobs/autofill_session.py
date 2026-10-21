@@ -534,7 +534,7 @@ class AutofillSession:
         with self.timings.measure("history_checkpoint", step=self.state.step):
             return self._save_now()
 
-    def _save_now(self) -> int:
+    def _save_now(self, *, quiet: bool = False) -> int:
         """Persist newly observed values for this run without approving reuse."""
         pending = self.state.observations[self.state.persisted_observations :]
         for offset in range(0, len(pending), 500):
@@ -548,7 +548,10 @@ class AutofillSession:
                 },
             )
             self.state.persisted_observations += len(batch)
-        console.print(f"  [dim]recorded {len(pending)} answer observation(s) for review[/dim]")
+        if not quiet:
+            console.print(
+                f"  [dim]recorded {len(pending)} answer observation(s) for review[/dim]"
+            )
         return len(pending)
 
     # ----- form discovery --------------------------------------------------
@@ -2373,6 +2376,7 @@ class AutofillSession:
         self.state.na_flagged = flagged
 
     def record_snapshot(self, fields: list[dict[str, Any]]) -> None:
+        writing = False  # a long-form answer changed: saved at once, not at the run's end
         withheld = dict(self.state.withheld)
         flagged = self.state.na_flagged
         held: dict[str, str] = {}  # question -> what the page shows for it
@@ -2469,11 +2473,20 @@ class AutofillSession:
                         "resolver_id": resolver_id,
                         "proposed_value": proposed_value,
                     }
+                    | (
+                        {"provenance": self.state.collected[control_key]["provenance"]}
+                        if "provenance" in self.state.collected[control_key] else {}
+                    )
                 )
+                writing |= item.get("form") == "long"
             # Echo what the user typed or chose so they can see it was picked up.
             if source == "manual" and self.state.announced.get(control_key) != value:
                 self.state.announced[control_key] = value
                 echo("picked up", question, value)
+        if writing and not self.ctx.dry_run:
+            # Writing is kept as it is written: a run that is killed loses none of it.
+            with contextlib.suppress(httpx.HTTPError, RuntimeError):
+                self._save_now(quiet=True)
         self.flag_follow_ups(fields, held)
         if self.state.withheld != withheld or self.state.na_flagged != flagged:
             with contextlib.suppress(Error):

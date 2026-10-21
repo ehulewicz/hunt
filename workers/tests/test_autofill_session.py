@@ -2466,3 +2466,63 @@ def test_a_gate_a_pattern_decides_is_never_put_to_the_model(
 
     assert session.pass_the_gate() is False
     assert asked == []
+
+
+class WatchingKeys(ScriptedKeys):
+    """Notes what the API held at the first wait, then stops the run."""
+
+    def __init__(self, api: FakeApi) -> None:
+        super().__init__([])
+        self.api = api
+        self.held: list[dict[str, Any]] = []
+
+    def wait(self, seconds: float) -> set[str]:
+        self.held = [
+            observation
+            for step in self.api.steps
+            for observation in step.get("observations") or []
+            if observation["form"] == "long"
+        ]
+        raise KeyboardInterrupt
+
+
+def test_writing_is_sent_as_it_is_written_not_at_the_runs_end(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
+    browser_page.set_content(
+        """
+        <form>
+          <label for="summary">Personal Summary</label>
+          <textarea id="summary"></textarea>
+          <button type="submit">Submit</button>
+        </form>
+        """
+    )
+    api = FakeApi()
+    keys = WatchingKeys(api)
+    resume_pdf = tmp_path / "main.pdf"
+    resume_pdf.write_bytes(b"%PDF-1.4\n%%EOF")
+    draft = "I build software for business workflows and take it through production."
+    session = AutofillSession(SessionContext(
+        api=api,  # type: ignore[arg-type]
+        run_id="run-writing",
+        ats="generic",
+        browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
+        page=browser_page,
+        console_errors=[],
+        knowledge=known({}),
+        resume_json={},
+        resume_pdf=resume_pdf,
+        company="Acme",
+        title="Backend Engineer Intern",
+        description=None,
+        drafter=lambda **_: draft,
+        poll_seconds=0.05,
+        keys=keys,
+    ))
+    session.run()
+
+    # Already with the API while the run waited on you, with where the text came from.
+    assert keys.held and keys.held[0]["answer_text"] == draft
+    assert keys.held[0]["provenance"] == [{"start": 0, "end": len(draft), "source": "model"}]

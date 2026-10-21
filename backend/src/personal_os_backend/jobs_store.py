@@ -6,7 +6,7 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from fastapi import Request
-from psycopg import sql
+from psycopg import AsyncConnection, sql
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
@@ -21,6 +21,7 @@ from personal_os_backend.jobs_answers import (
 from personal_os_backend.jobs_models import (
     DEFAULT_TECHNICAL_FAMILIES,
     ApplicationUpdate,
+    AutofillAnswer,
     AutofillFailureDetail,
     AutofillFailureIssue,
     AutofillFailureUpdate,
@@ -887,6 +888,10 @@ class PostgresJobsStore:
                         question_id,
                     ),
                 )
+                await save_prose(
+                    connection, user_id, run["application_id"], question_id, observation,
+                    submitted=False,
+                )
             await record_fill_events(
                 connection,
                 user_id=user_id,
@@ -977,40 +982,10 @@ class PostgresJobsStore:
                         question_id,
                     ),
                 )
-                # Every run's long-form answer is writing worth keeping, whether or
-                # not it went in: it waits in the Inbox until approved for reuse, one
-                # row per application and question, the latest run's text. Reused
-                # prose is not re-saved.
-                if answer.form == "long" and source != "prose" and question_id is not None:
-                    spans = stripped_spans(answer.answer_text, answer.provenance)
-                    prose = (
-                        answer_text,
-                        "model" if source == "model" else "manual",
-                        Jsonb(spans) if spans is not None else None,
-                        item.submitted,
-                    )
-                    await connection.execute(
-                        """
-                        with kept as (
-                          update app.jobs_prose
-                          set text = %s, origin = %s, provenance = %s, submitted = %s,
-                              updated_at = now()
-                          where user_id = %s and application_id = %s and question_id = %s
-                            and not approved
-                          returning id
-                        )
-                        insert into app.jobs_prose (
-                          user_id, question_id, application_id, text, approved, origin,
-                          provenance, submitted
-                        )
-                        select %s, %s, %s, %s, false, %s, %s, %s
-                        where not exists (select 1 from kept)
-                        """,
-                        (
-                            *prose, user_id, run["application_id"], question_id,
-                            user_id, question_id, run["application_id"], *prose,
-                        ),
-                    )
+                await save_prose(
+                    connection, user_id, run["application_id"], question_id, answer,
+                    submitted=item.submitted,
+                )
         return True
 
     async def owns_autofill_run(self, user_id: UUID, run_id: UUID) -> bool:
@@ -1263,6 +1238,52 @@ class PostgresJobsStore:
             )
             row = await cursor.fetchone()
         return ValidationTarget.model_validate(row) if row else None
+
+
+async def save_prose(
+    connection: AsyncConnection[Any],
+    user_id: UUID,
+    application_id: UUID,
+    question_id: UUID | None,
+    answer: AutofillAnswer,
+    *,
+    submitted: bool,
+) -> None:
+    """Keep a long-form answer as writing, as it is written and again at the run's end.
+
+    It waits in the Inbox until approved for reuse: one row per application and
+    question, holding the latest text. Approved prose reused as it was is not
+    saved again, and neither is an empty box.
+    """
+    text = answer.answer_text.strip()
+    if answer.form != "long" or answer.source == "prose" or question_id is None or not text:
+        return
+    spans = stripped_spans(answer.answer_text, answer.provenance)
+    prose = (
+        text,
+        "model" if answer.source == "model" else "manual",
+        Jsonb(spans) if spans is not None else None,
+        submitted,
+    )
+    await connection.execute(
+        """
+        with kept as (
+          update app.jobs_prose
+          set text = %s, origin = %s, provenance = %s, submitted = %s, updated_at = now()
+          where user_id = %s and application_id = %s and question_id = %s and not approved
+          returning id
+        )
+        insert into app.jobs_prose (
+          user_id, question_id, application_id, text, approved, origin, provenance, submitted
+        )
+        select %s, %s, %s, %s, false, %s, %s, %s
+        where not exists (select 1 from kept)
+        """,
+        (
+            *prose, user_id, application_id, question_id,
+            user_id, question_id, application_id, *prose,
+        ),
+    )
 
 
 async def get_jobs_store(request: Request) -> JobsStore:
