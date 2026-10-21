@@ -130,5 +130,5 @@ export function isNoneValue(value: unknown): boolean {
 }
 
 export function factDisplayValue(value: unknown): string {
-  return isNoneValue(value) ? "None (deliberate blank)" : valueText(value);
+  return isNoneValue(value) ? "None" : valueText(value);
 }

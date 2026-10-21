@@ -260,6 +260,13 @@ One-time setup, on the machine that runs `os hunt apply`:
 
 ## How a field is filled
 
+**Completion policy.** Every field is answered, including optional short text,
+long-form questions, and uploads. Optional is the employer's validation rule,
+never permission for the worker to skip it. Give useful information from facts,
+approved writing, or a grounded draft. No and N/A are valid answers only when
+the facts or the answer above establish them; missing facts never imply No.
+An unanswered field remains an outlined, actionable gap even when optional.
+
 **Which value.** Every value comes from a fact. `jobs/resolve.py` builds the
 run's `Knowledge` — stored facts over career-derived ones, then the derived and
 posting facts — and answers a field
@@ -317,9 +324,10 @@ type; the $40/hour minimum as `$40/hour`, `40`, `$83,200 USD`, or `83200`; yes
 and no as whichever option says them ("No, I am not a protected veteran");
 numbers into the range that contains them; lists as text, or one box per item.
 A fact whose value is the empty value of its type (`""` or `[]`, set with
-`facts set KEY --none`) says the answer is none: the planner records a
-deliberate blank, nothing is operated, the model is never asked about it, and
-the audit lists it only when the form requires an answer, as a fact gap.
+`facts set KEY --none`) says the answer is none: free text gets N/A and a menu
+gets its explicit None or Not applicable option. A control that cannot accept
+either (a URL, date, number, or menu without such an option) remains an explicit
+fact gap, required or optional; the worker never fabricates a value to satisfy it.
 `contact.phone_country` is `{country, calling_code}`; a menu whose every option
 is a calling code ("+1", "United States (+1)", "🇺🇸 (+1) United States of
 America") gets the one with that code, and of several the one naming the
@@ -345,6 +353,15 @@ give also binds the question to it. Before any model call the audit runs the
 pattern pass over every open question, so a value a pattern filled that the page
 then lost comes back from the pattern; a question the current resolver answers
 that is still empty is a `control_error`, never a `pattern_gap`.
+Empty prose is a `draft_error` and returns to the prose drafter, with at most
+two drafting attempts per question per run; it never goes to the fact selector.
+A radio whose question was not captured is a `detection_error`, including a
+selected radio: Yes and No alone cannot identify a question. A model outage
+(including a subscription usage limit) is reported once and stops further model
+calls for that run. An answer check that returns no judgement remains a
+`model_error` on subsequent audits, so it cannot become a successful check by
+being omitted. `model_errors.py` interprets failure envelopes without logging
+their prompt, answer, or raw error payload.
 `jobs/answer_check.py` is the other half: it reads back the answers the page
 already holds and asks whether a fact contradicts one, because an answer can be
 confidently filled and wrong. A wrong answer a pattern filled has its question
@@ -392,7 +409,11 @@ control. A choice's question comes from its fieldset's legend, its group's
 its options, and only from a container that holds that one question (its
 radios share one name, and at most one label or legend in it is no option's
 own): a section heading such as "Job specific questions" is never a question,
-and a radio group whose question is plain text before its options keeps it, so
+the walk continues past an options-only wrapper to the question above it, and
+required markers on the question's child spans count too. A question that
+cannot be recovered is reported for extraction repair and is never filled as
+though an option label were its question. A radio group whose question is plain
+text before its options keeps it, so
 a lone "Yes" is never recorded as one. `events.py` turns every attempt
 into a fill event (control, strategy, resolver, fact, formatter, the active
 pattern, value hash, whether the question wants prose, where it stopped, and the
@@ -405,3 +426,12 @@ solves a captcha. A text box whose suggestions are
 plain elements rather than ARIA options (Lever's location) is typed into and the
 suggestion naming the same place is clicked (`type_and_pick_suggestion`), the
 fallback when `set_value` does not read back.
+An almost invisible, read-only combobox input is opened with focus and ArrowDown,
+so a styled dropdown does not fail while trying to click a fraction of a pixel.
+A hidden native select beside the visible combobox is its responsive mirror and
+is not counted as another question.
+ARIA-owned menus can identify choices with disabled state and keyboard tab stops,
+even without `role=option`. Read-only menus only select a matched choice; they
+never fall through to typing and Enter, which can commit an unrelated first
+option. A radio or checkbox covered by its own label falls back to focused Space
+and must read back the requested checked state.

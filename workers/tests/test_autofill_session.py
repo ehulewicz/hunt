@@ -1635,7 +1635,9 @@ def audit_session(
         company="Acme",
         title="Backend Engineer Intern",
         description=None,
-        checker=checker or (lambda *_, **__: {}),
+        checker=checker or (lambda answers, **__: {
+            answer.question: Judgement(answer.question, "right") for answer in answers
+        }),
         short_drafter=short_drafter or (lambda *_, **__: {}),
         ask_facts=ask_facts,
         prompt=prompt or (lambda _: ""),
@@ -2240,7 +2242,7 @@ def test_account_flow_never_runs_on_google(
     assert account.calls == 0
 
 
-def test_a_none_fact_leaves_its_field_blank_and_asks_no_one(
+def test_a_none_fact_writes_na_and_does_not_ask_for_an_invented_value(
     browser_page,  # type: ignore[no-untyped-def]
     tmp_path: Path,
 ) -> None:
@@ -2272,14 +2274,13 @@ def test_a_none_fact_leaves_its_field_blank_and_asks_no_one(
     events = [event for step in api.steps for event in step.get("fill_events") or []]
     blank = next(event for event in events if event["question"] == "Address Line 2")
     assert (blank["formatter"], blank["fact_key"], blank["stopped_at"], blank["operated_ok"]) == (
-        "none_as_blank", "address.line_2", None, None
+        "none_as_na", "address.line_2", None, True
     )
     assert asked == [["Middle Name"]]
-    assert session.state.blanks == {"Address Line 2": "address.line_2"}
-    # A form that will not take the blank says so, naming the fact to change.
+    assert session.state.blanks == {}
+    assert browser_page.input_value("#a2") == "N/A"
     findings = {item.question: (item.cause, item.fact_key) for item in session.audit(fields, [])}
     assert findings == {
-        "Address Line 2": ("fact_gap", "address.line_2"),
         "Middle Name": ("pattern_gap", None),
     }
 

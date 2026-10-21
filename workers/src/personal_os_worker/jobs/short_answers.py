@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from personal_os_worker.jobs import claude_usage
+from personal_os_worker.jobs.model_errors import checked_output
 
 MAX_CONCURRENT_CALLS = 6
 Kind = Literal["fits_fact", "no_fact", "unsure"]
@@ -79,7 +80,7 @@ def run_claude(argv: list[str]) -> str:
         timeout=300,
     )
     claude_usage.record(process.stdout)
-    return process.stdout if process.returncode == 0 else ""
+    return checked_output(process.stdout, process.returncode)
 
 
 def _prompt(

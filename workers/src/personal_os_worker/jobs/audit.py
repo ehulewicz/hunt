@@ -29,7 +29,8 @@ from typing import Any, Literal
 from personal_os_worker.jobs.options import normalize_answer_question
 
 Cause = Literal[
-    "fact_gap", "pattern_gap", "format_error", "control_error", "wrong_answer"
+    "fact_gap", "pattern_gap", "format_error", "control_error", "wrong_answer",
+    "detection_error", "draft_error", "model_error",
 ]
 # Repaired on the page by the existing repair lane, which stores a candidate
 # rule that `os hunt validate` can promote.

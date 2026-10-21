@@ -358,6 +358,7 @@ def test_extension_audit_reports_presence_without_copying_values() -> None:
                 "index": 2,
                 "type": "radio",
                 "label": "Veteran status",
+                "group": "Veteran status",
                 "required": False,
                 "filled": True,
             },
@@ -657,8 +658,8 @@ def test_the_audit_lists_optional_fields_left_empty_after_required_ones() -> Non
         ]
     )
     assert audit["required_unfilled"] == ["Email"]
-    # Files are uploaded by the engine or left to you; consent is the engine's.
-    assert audit["optional_unfilled"] == ["Pronouns", "Relocate?"]
+    # Optional uploads stay actionable; consent is handled by its own lane.
+    assert audit["optional_unfilled"] == ["Pronouns", "Other documents", "Relocate?"]
 
 
 

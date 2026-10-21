@@ -23,6 +23,7 @@ from personal_os_worker.documents.resume import repository_root
 from personal_os_worker.documents.resume_pdf import PREAMBLE, build_header, compile_pdf, escape
 from personal_os_worker.jobs import claude_usage
 from personal_os_worker.jobs.answers import TAG_LEAK
+from personal_os_worker.jobs.model_errors import checked_output
 
 SLOT = re.compile(r"\{\{(\w+)\}\}")
 CLAUDE_SLOTS = ("hook", "why_this", "tie")
@@ -158,7 +159,7 @@ CANONICAL RESUME: {json.dumps(resume, default=str)[:30000]}
 def run_claude(argv: list[str]) -> str:
     process = subprocess.run(argv, check=False, capture_output=True, text=True, timeout=300)
     claude_usage.record(process.stdout)
-    return process.stdout if process.returncode == 0 else ""
+    return checked_output(process.stdout, process.returncode)
 
 
 def draft_slots(

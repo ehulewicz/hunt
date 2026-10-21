@@ -223,8 +223,8 @@ def test_of_several_yes_options_the_open_ended_one_is_chosen() -> None:
 
 
 @pytest.mark.parametrize(("value", "value_type"), [("", "text"), ([], "list")])
-def test_a_none_fact_renders_as_a_deliberate_blank(value: Any, value_type: str) -> None:
-    assert rendered("address.line_2", value, value_type, "Address Line 2") == ("", "none_as_blank")
+def test_a_none_fact_writes_na_or_remains_unrepresentable(value: Any, value_type: str) -> None:
+    assert rendered("address.line_2", value, value_type, "Address Line 2") == ("N/A", "none_as_na")
     choices = {"tag": "select", "options": ["AWS", "GCP"]}
     assert rendered("education.certifications", value, value_type, "Certifications", choices) == (
         "", "none_as_blank"

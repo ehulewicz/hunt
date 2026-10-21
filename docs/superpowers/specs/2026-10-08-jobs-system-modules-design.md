@@ -485,9 +485,10 @@ in parallel in a second browser (§10.3). You are applying now; the system
 learns beside you, not in front of you.
 
 **No field is left empty.** Required or optional, every field is filled; the run
-does not advance past a page while any field is unfilled. A field stays blank
-only when a fact says the true answer is empty. When every rule and the model
-pass have come up empty, it waits for you (§10.2).
+does not advance past a page while any field is unfilled. A fact whose true
+answer is empty is written as N/A or a valid None option. An incompatible
+control remains an explicit gap. When every rule and the model pass have come
+up empty, it waits for you (§10.2).
 
 **The cover letter is always attached.** If the form offers a cover letter, by
 upload or by text, it gets one, whether or not it is required.
@@ -1097,11 +1098,13 @@ continues once readback shows a value. What you type is captured as a `manual`
 fill, which is exactly the evidence the Inbox and Condenser need.
 
 > **R21 — Optional fields are filled like required ones.** *Changed by you:
-> originally optional fields never blocked.* The one exception is a field whose
-> true answer is empty, and only when a fact says so — no second address line,
-> no referrer when `referral.status = none`. That is recorded as a deliberate
-> empty fill (`source = pattern`, empty value hash), so "left blank on purpose"
-> and "could not fill" are distinguishable in the metrics.
+> originally optional fields never blocked.* Reaffirmed 2026-10-21: all optional
+> fields are always filled, especially long-form questions. The old exception
+> for a deliberately empty fact is removed: write N/A or a truthful None option
+> when valid, otherwise report an actionable gap. No and N/A require supporting
+> facts or a follow-up ruled out by the preceding answer; missing information
+> must never become an invented answer. The implementation policy lives in
+> `workers/README.md`, under "How a field is filled".
 
 **The cover letter is always attached.** Any cover letter field —
 `is_cover_letter_field` already detects upload and text variants — is filled

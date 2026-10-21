@@ -346,6 +346,9 @@ def build_autofill_plan(
         if field_type in BUTTON_TYPES or tag == "button":
             reasons[index] = "a button: never operated"
             continue
+        if field_type == "radio" and not group:
+            reasons[index] = "question label missing: extraction needs repair"
+            continue
         if normalized != current_key:
             above, current, current_key = current, set(), normalized
         held = held_answer(field)

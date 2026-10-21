@@ -94,4 +94,7 @@ def question_of(field: dict[str, Any]) -> str:
     """The question a control answers: the group's question for a choice option."""
     if _lower(field, "type") in {"radio", "checkbox"} and str(field.get("group") or "").strip():
         return str(field["group"]).strip()
+    if _lower(field, "type") == "radio":
+        identity = field.get("name") or field.get("selector") or field.get("index")
+        return f"Unidentified question ({identity})"
     return str(field.get("label") or field.get("name") or "").strip()

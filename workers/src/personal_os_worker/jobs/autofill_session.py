@@ -110,6 +110,7 @@ from personal_os_worker.jobs.gateway import (
 )
 from personal_os_worker.jobs.keys import KeyWatcher, NoKeys
 from personal_os_worker.jobs.learn import Lesson, binding_refusal, lesson_for
+from personal_os_worker.jobs.model_errors import ModelError
 from personal_os_worker.jobs.options import (
     choose_option,
     normalize_answer_question,
@@ -217,6 +218,8 @@ class SessionState:
     seed_resolver: dict[str, str] = field(default_factory=dict)  # question -> prose/model id
     asked_claude: dict[str, int] = field(default_factory=dict)  # question -> times asked
     judged: set[str] = field(default_factory=set)  # answers already checked against the facts
+    check_findings: dict[str, Finding] = field(default_factory=dict)
+    model_error: str | None = None
     repair_attempted: set[str] = field(default_factory=set)  # questions repair already retried
     budget: Budget = field(default_factory=Budget)
     misses: dict[str, Miss] = field(default_factory=dict)  # answer key -> why unanswered
@@ -319,9 +322,7 @@ def echo(tag: str, question: str, value: str | None = None, *, note: str | None 
 
 def _question_for(field: dict[str, Any]) -> str:
     """The question a control answers: its group for a choice control, else its label."""
-    if str(field.get("type") or "").casefold() in {"radio", "checkbox"} and field.get("group"):
-        return str(field.get("group")).strip()
-    return str(field.get("label") or "").strip()
+    return question_of(field)
 
 
 
@@ -359,7 +360,7 @@ def _claude_questions(fields: list[dict[str, Any]]) -> list[ShortQuestion]:
 
     Radio/checkbox groups with no option checked (options = the group's option
     labels), selects and typeaheads with a known menu (their options), and
-    required text inputs (no options).
+    all text inputs, required or optional (no options).
     """
     groups: dict[str, list[dict[str, Any]]] = {}
     questions: dict[str, ShortQuestion] = {}
@@ -384,7 +385,7 @@ def _claude_questions(fields: list[dict[str, Any]]) -> list[ShortQuestion]:
             questions[label] = ShortQuestion(
                 label, tuple(str(option) for option in item.get("options") or [])
             )
-        elif item.get("required") is True:
+        else:
             questions[label] = ShortQuestion(label, ())
     for group, members in groups.items():
         if any(member.get("filled") is True for member in members):
@@ -426,6 +427,19 @@ class AutofillSession:
         self.page = context.page
         self._explainer: Explainer | None = None
         self.timings = AutofillTimings(report=lambda line: console.print(line, style="dim"))
+
+    def call_model[T](self, operation: Callable[..., T], *args: Any, **kwargs: Any) -> T | None:
+        """Keep model outages visible without ending the live application."""
+        if self.state.model_error is not None:
+            return None
+        try:
+            return operation(*args, **kwargs)
+        except (ModelError, subprocess.TimeoutExpired, OSError) as error:
+            self.state.model_error = str(error) if isinstance(error, ModelError) else (
+                "Claude timed out or could not start; drafting and answer checks unavailable"
+            )
+            echo("failed", "Drafting and answer audit", note=self.state.model_error)
+            return None
 
     # ----- reporting -------------------------------------------------------
 
@@ -683,11 +697,11 @@ class AutofillSession:
             return None
         question = str(gate["label"])
         console.print("  [dim]asking Claude which fact says how to start this application[/dim]")
-        verdicts = self.ctx.short_drafter(
+        verdicts = self.call_model(self.ctx.short_drafter,
             [ShortQuestion(question, tuple(str(item) for item in gate["options"]))],
             posting={"company": self.ctx.company, "role": self.ctx.title},
             facts=self.ctx.knowledge.for_model(),
-        )
+        ) or {}
         for verdict in verdicts.values():
             if verdict.kind == "no_fact" and verdict.missing_fact:
                 self.state.needed[verdict.question] = verdict.missing_fact
@@ -1294,11 +1308,11 @@ class AutofillSession:
         for pending_question in questions:
             self.note_asked(pending_question.question)
         console.print(f"  [dim]asking Claude which fact answers {len(questions)} question(s)[/dim]")
-        verdicts = self.ctx.short_drafter(
+        verdicts = self.call_model(self.ctx.short_drafter,
             questions,
             posting={"company": self.ctx.company, "role": self.ctx.title},
             facts=self.ctx.knowledge.for_model(),
-        )
+        ) or {}
         for verdict in verdicts.values():
             if verdict.kind == "no_fact" and verdict.missing_fact:
                 self.state.needed[verdict.question] = verdict.missing_fact
@@ -1364,7 +1378,10 @@ class AutofillSession:
         if not self.ctx.use_claude:
             return "", "empty", "", "drafting disabled; write it, it is saved at the run's end"
         references = self.references(question)
-        draft = self.ctx.drafter(
+        if not self.may_ask(question):
+            return "", "empty", "", "no usable draft after two attempts; answer still needed"
+        self.note_asked(question)
+        draft = self.call_model(self.ctx.drafter,
             question=question,
             base=None,
             posting={
@@ -1376,6 +1393,7 @@ class AutofillSession:
             facts=self.ctx.knowledge.values(),
             references=references,
             limit=limit,
+            attempts=1,
         )
         if draft:
             self.state.origins[question] = (
@@ -1461,7 +1479,9 @@ class AutofillSession:
         slots = None
         if self.ctx.use_claude:
             console.print("  [dim]drafting the cover letter slots[/dim]")
-            slots = self.ctx.letter_drafter(template, posting=posting, resume=self.ctx.resume_json)
+            slots = self.call_model(
+                self.ctx.letter_drafter, template, posting=posting, resume=self.ctx.resume_json
+            )
         if slots is None:
             slots = placeholder_slots(template)
             note = "slots left as [prompts]; fill them in"
@@ -1578,6 +1598,7 @@ class AutofillSession:
                 is_sensitive_field(control)
                 or is_long_form_field(control)
                 or is_cover_letter_field(control)
+                or (control.get("type") == "radio" and not control.get("group"))
             ):
                 continue
             source = self.state.tier_source.get(question)
@@ -1599,38 +1620,51 @@ class AutofillSession:
         """Answers a fact says are wrong, judged once per answer per run."""
         if not self.ctx.use_claude:
             return []
+        answers = self.filled_answers(fields)
+        live = {answer.question: answer.answer for answer in answers}
+        self.state.check_findings = {
+            question: finding for question, finding in self.state.check_findings.items()
+            if live.get(question) == finding.answer
+        }
         fresh = [
             answer
-            for answer in self.filled_answers(fields)
+            for answer in answers
             if answer.question not in self.state.judged
         ]
         if not fresh:
-            return []
+            return list(self.state.check_findings.values())
         self.state.judged.update(answer.question for answer in fresh)
         console.print(f"  [dim]checking {len(fresh)} answer(s) against the facts[/dim]")
-        judgements = self.ctx.checker(
+        judgements = self.call_model(self.ctx.checker,
             fresh,
             posting={"company": self.ctx.company, "role": self.ctx.title},
             facts=self.ctx.knowledge.for_model(),
-        )
+        ) or {}
         held = {answer.question: answer for answer in fresh}
-        findings: list[Finding] = []
+        required = {
+            _question_for(item) for item in fields if item.get("required") is True
+        }
+        for unchecked in fresh:
+            if unchecked.question not in judgements:
+                self.state.check_findings[unchecked.question] = Finding(
+                    unchecked.question, "model_error", unchecked.question in required,
+                    self.state.model_error or "the answer check returned no judgement",
+                    answer=unchecked.answer, source=unchecked.source,
+                )
         for judgement in judgements.values():
             answer = held.get(judgement.question)
             if judgement.kind != "wrong" or not judgement.fact_key or answer is None:
                 continue
-            findings.append(
-                Finding(
-                    judgement.question,
-                    "wrong_answer",
-                    required=False,
-                    note=judgement.note or f"{judgement.fact_key} says otherwise",
-                    fact_key=judgement.fact_key,
-                    answer=answer.answer,
-                    source=answer.source,
-                )
+            self.state.check_findings[judgement.question] = Finding(
+                judgement.question,
+                "wrong_answer",
+                required=judgement.question in required,
+                note=judgement.note or f"{judgement.fact_key} says otherwise",
+                fact_key=judgement.fact_key,
+                answer=answer.answer,
+                source=answer.source,
             )
-        return findings
+        return list(self.state.check_findings.values())
 
     def pattern_pass(self, fields: list[dict[str, Any]], failures: list[dict[str, Any]]) -> bool:
         """Refill every open question a pattern or the engine answers, before any model call.
@@ -1713,19 +1747,37 @@ class AutofillSession:
             )
             if question not in self.state.blanks
         ]
-        # A none fact the form will not accept blank: the fact is yours to change.
+        # None remains a known fact even when this control cannot accept N/A.
         findings += [
             Finding(
                 question,
                 "fact_gap",
-                True,
-                f"{fact} is none, and the form requires an answer",
+                question in open_questions["required_unfilled"],
+                f"{fact} is none, but this control cannot represent N/A; answer still needed",
                 fact_key=fact,
             )
-            for question in open_questions["required_unfilled"]
+            for question in (
+                open_questions["required_unfilled"] + open_questions["optional_unfilled"]
+            )
             if (fact := self.state.blanks.get(question)) is not None
         ]
-        return order(findings + self.wrong_answers(fields))
+        unidentified = {
+            _question_for(item): item for item in current
+            if item.get("type") == "radio" and not item.get("group")
+        }
+        findings = [item for item in findings if item.question not in unidentified]
+        findings += [Finding(question, "detection_error", item.get("required") is True,
+                             "radio options have no question label; extraction needs repair")
+                     for question, item in unidentified.items()]
+        findings = [
+            replace(item, cause="draft_error", note=self.state.model_error
+                    or "prose still needs an answer from approved writing or a grounded draft")
+            if item.cause == "pattern_gap"
+            and (control := find_field(current, item.question)) is not None
+            and is_long_form_field(control) else item
+            for item in findings
+        ]
+        return order(findings + self.wrong_answers(current))
 
     def audit_and_repair(
         self, fields: list[dict[str, Any]], result: dict[str, Any]
@@ -1753,6 +1805,12 @@ class AutofillSession:
     def remediate(self, fields: list[dict[str, Any]], findings: list[Finding]) -> bool:
         """Run each finding's repair path; True when anything on the page changed."""
         acted = False
+        prose = {item.question for item in findings if item.cause == "draft_error"}
+        if prose:
+            current = inspect_fields(self.page)
+            self.fill_long_form([item for item in current if _question_for(item) in prose])
+            acted = any(item.get("filled") is True and _question_for(item) in prose
+                        for item in inspect_fields(self.page))
         if self.ctx.repair:
             acted = self.queue_repairs(fields, findings) or acted
         acted = self.ask_again(fields, findings) or acted
@@ -1918,11 +1976,11 @@ class AutofillSession:
         console.print(
             f"  [dim]asking Claude again about {len(questions)} unanswered question(s)[/dim]"
         )
-        verdicts = self.ctx.short_drafter(
+        verdicts = self.call_model(self.ctx.short_drafter,
             questions,
             posting={"company": self.ctx.company, "role": self.ctx.title},
             facts=self.ctx.knowledge.for_model(),
-        )
+        ) or {}
         for verdict in verdicts.values():
             if verdict.kind == "no_fact" and verdict.missing_fact:
                 self.state.needed[verdict.question] = verdict.missing_fact
@@ -2219,8 +2277,9 @@ class AutofillSession:
         if not findings:
             console.print("  [dim]every field is filled, and no fact disagrees[/dim]")
             return
-        empty = [item for item in findings if item.cause != "wrong_answer"]
+        empty = [item for item in findings if item.cause not in {"wrong_answer", "model_error"}]
         wrong = [item for item in findings if item.cause == "wrong_answer"]
+        unchecked = [item for item in findings if item.cause == "model_error"]
         required = sum(1 for item in empty if item.required)
         console.print()
         if empty:
@@ -2241,6 +2300,10 @@ class AutofillSession:
             console.print("  [bold]A fact disagrees with these answers[/bold]:")
             for item in wrong:
                 echo("review", item.question, item.answer, note=f"{item.fact_key}: {item.note}")
+        if unchecked:
+            console.print("  [bold]Answer audit incomplete[/bold]:")
+            for item in unchecked:
+                echo("review", item.question, item.answer, note=item.note)
 
     def report_review(self) -> None:
         """List the long-form answers that came from a draft, once per step."""

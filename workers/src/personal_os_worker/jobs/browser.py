@@ -627,15 +627,33 @@ def _click_option_button(attempt: Attempt) -> str | None:
 def _check_control(attempt: Attempt) -> str | None:
     if captcha_challenge_present(attempt.page):
         raise CaptchaPresent("choice left manual while a captcha challenge is open")
-    attempt.control.check(timeout=CONTROL_TIMEOUT_MS)
+    set_check_state(attempt.control, True)
     return attempt.fill.value
 
 
 def _uncheck_control(attempt: Attempt) -> str | None:
     if captcha_challenge_present(attempt.page):
         raise CaptchaPresent("choice left manual while a captcha challenge is open")
-    attempt.control.uncheck(timeout=CONTROL_TIMEOUT_MS)
+    set_check_state(attempt.control, False)
     return None
+
+
+def set_check_state(control: Any, checked: bool) -> None:
+    """A styled option's own label can cover the input; keyboard events still work."""
+    try:
+        if checked:
+            control.check(timeout=CONTROL_TIMEOUT_MS)
+        else:
+            control.uncheck(timeout=CONTROL_TIMEOUT_MS)
+    except Error:
+        if control.is_checked(timeout=CONTROL_TIMEOUT_MS) == checked:
+            return
+        control.focus(timeout=CONTROL_TIMEOUT_MS)
+        if not control.evaluate("e => e.getRootNode().activeElement === e"):
+            raise RuntimeError("choice input could not be focused") from None
+        control.press("Space", timeout=CONTROL_TIMEOUT_MS)
+        if control.is_checked(timeout=CONTROL_TIMEOUT_MS) != checked:
+            raise RuntimeError("choice did not retain its checked state") from None
 
 
 def _set_value(attempt: Attempt) -> str | None:
@@ -986,6 +1004,14 @@ def _menu_options(control: Any) -> Any:
     except Error:
         in_document = False
     if in_document:
+        owned_id = control.get_attribute("aria-controls") or control.get_attribute("aria-owns")
+        if owned_id and len(owned_id.split()) == 1:
+            owned = scoped.locator(f"[id={json.dumps(owned_id)}]")
+            # Some accessible menus identify options by their disabled state
+            # and keyboard tab stop, without repeating role=option.
+            choices = owned.locator('[role="option"], [aria-disabled][tabindex="-1"]')
+            if choices.count():
+                return choices
         return scoped.get_by_role("option")
     # Inside a shadow root (SmartRecruiters) XPath cannot climb to <body>; role
     # queries pierce shadow roots, so ask the page.
@@ -1046,9 +1072,20 @@ def _await_options(page: Page, options: Any, timeout_ms: int) -> bool:
     return True
 
 
+def open_combobox(control: Any) -> None:
+    """Open the menu through its keyboard input when that input is too small to click."""
+    box = control.bounding_box()
+    if (control.get_attribute("aria-readonly") == "true" and box is not None
+            and (box["width"] < 1 or box["height"] < 1)):
+        control.focus(timeout=CONTROL_TIMEOUT_MS)
+        control.press("ArrowDown", timeout=CONTROL_TIMEOUT_MS)
+    else:
+        control.click(timeout=CONTROL_TIMEOUT_MS)
+
+
 def combobox_options(page: Page, control: Any) -> list[str]:
     """What a typeahead offers before anything is typed; empty for a search box."""
-    control.click(timeout=CONTROL_TIMEOUT_MS)
+    open_combobox(control)
     options = _menu_options(control)
     texts: list[str] = []
     if _await_options(page, options, COMBOBOX_LIST_TIMEOUT_MS):
@@ -1061,7 +1098,7 @@ def choose_combobox_option(
     page: Page, control: Any, chooser: str, *, referred: bool = False
 ) -> str:
     """Open a typeahead and pick by standing rule: the agreeing option, or your source."""
-    control.click(timeout=CONTROL_TIMEOUT_MS)
+    open_combobox(control)
     options = _menu_options(control)
     if not _await_options(page, options, COMBOBOX_LIST_TIMEOUT_MS):
         control.press("Escape", timeout=CONTROL_TIMEOUT_MS)
@@ -1089,7 +1126,7 @@ def select_combobox_option(page: Page, control: Any, value: str) -> str:
     Keystrokes rather than a synthetic value: react-select and Places key
     their menus off real input events and close on blur.
     """
-    control.click(timeout=CONTROL_TIMEOUT_MS)
+    open_combobox(control)
     options = _menu_options(control)
     if _await_options(page, options, COMBOBOX_LIST_TIMEOUT_MS):
         visible, texts = _visible_texts(options)
@@ -1097,6 +1134,9 @@ def select_combobox_option(page: Page, control: Any, value: str) -> str:
         if chosen is not None:
             options.nth(visible[texts.index(chosen)]).click()
             return chosen
+    if control.get_attribute("aria-readonly") == "true":
+        control.press("Escape", timeout=CONTROL_TIMEOUT_MS)
+        raise RuntimeError("no unambiguous combobox option in read-only menu")
     # A place ("Atlanta, Georgia") is searched whole, then by its first part,
     # since a places search rarely knows the state's full name; either way the
     # option naming the same city and state is the one picked.
@@ -1327,6 +1367,10 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           // React-select mirrors the chosen value into an aria-hidden input that
           // carries the required flag; the visible combobox is the real control.
           if (element.getAttribute('aria-hidden') === 'true') return false;
+          // Responsive widgets can keep a hidden native select beside their
+          // visible combobox. That is one question, never a second filled field.
+          if (element.tagName === 'SELECT' && !element.getClientRects().length
+              && element.parentElement?.querySelector('[role="combobox"]')) return false;
           // A captcha's own response box answers the captcha, never a question.
           const naming = `${element.getAttribute('name') || ''} ${element.id || ''}`.toLowerCase();
           if (/captcha|turnstile/.test(naming)) return false;
@@ -1383,9 +1427,13 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           // Ashby writes the group question as a heading label, not a legend.
           const legend = oneQuestion(fieldset)
             ? fieldset?.querySelector(':scope > legend, :scope > label') : null;
-          const groupRequired = Boolean(
-            legend && (/required/i.test(legend.className) || /\\*\\s*$/.test(legend.textContent))
-          );
+          const marksRequired = node => Boolean(node && (
+            node.getAttribute('aria-required') === 'true'
+            || /required/i.test(String(node.className))
+            || /\\*\\s*$/.test(node.textContent || '')
+            || node.querySelector('[class*="required"], [aria-required="true"]')
+          ));
+          const groupRequired = marksRequired(legend);
           const group = element.closest('[role="group"], [role="radiogroup"]');
           // A group names its question by aria-label, or by the element its
           // aria-labelledby points at.
@@ -1536,6 +1584,7 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
           if (choice && !legend && !groupLabel && !yesnoContainer) {
             let ancestor = element.parentElement;
             for (let depth = 0; ancestor && depth < 5; depth += 1) {
+              if (!oneQuestion(ancestor)) break;
               const options = [...ancestor.querySelectorAll(`input[type="${element.type}"]`)];
               if (options.length >= 2) {
                 const optionLabel = node => options.some(
@@ -1563,7 +1612,9 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
                   )) || null;
                   if (blockQuestion) blockOptions = options;
                 }
-                break;
+                // The first shared ancestor may contain only the options.
+                // Keep walking to their question, but never across questions.
+                if (blockQuestion) break;
               }
               ancestor = ancestor.parentElement;
             }
@@ -1637,10 +1688,12 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
             ).trim().replace(/\\s*\\*\\s*$/, ''),
             required: element.required === true
               || element.getAttribute('aria-required') === 'true'
-              || Boolean(localLabel && /required/i.test(String(localLabel.className)))
+              || marksRequired(localLabel)
               || /\\*\\s*$/.test(rawLabel)
               || (['radio', 'checkbox'].includes(element.type) && groupRequired)
-              || Boolean(blockQuestion && /\\*\\s*$/.test(blockQuestion.textContent || ''))
+              || marksRequired(blockQuestion)
+              || Boolean(group && oneQuestion(group)
+                && group.getAttribute('aria-required') === 'true')
               || (element.getAttribute('role') === 'combobox' && mirroredRequired)
               || Boolean(yesnoContainer && /_required_/.test(yesnoLabel?.className || '')),
             selector,
@@ -1910,8 +1963,8 @@ def audit_filled_form(
         if field_type in {"submit", "button", "reset", "hidden"}:
             continue
         group = str(field.get("group") or "").strip()
-        is_choice = field_type in {"radio", "checkbox"} and bool(group)
-        label = group if is_choice else str(
+        is_choice = field_type == "radio" or (field_type == "checkbox" and bool(group))
+        label = question_of(field) if is_choice else str(
             field.get("label") or field.get("name") or field.get("index") or "field"
         )
         # Two questions worded alike stay two groups (choice_group_key).
@@ -1927,7 +1980,7 @@ def audit_filled_form(
                 pending_groups.append((key, label))
             else:
                 required_unfilled.append(label)
-        elif str(field.get("type") or "").casefold() != "file" and not is_sensitive_field(field):
+        elif not is_sensitive_field(field):
             if is_choice:
                 optional_groups.append((key, label))
             else:

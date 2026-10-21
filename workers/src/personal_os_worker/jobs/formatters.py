@@ -42,7 +42,8 @@ NEGATIVE = re.compile(r"\b(no|not|don t|do not|never|none|neither)\b")
 AFFIRMATIVE = re.compile(r"^(yes|true|y)$")
 NEGATIVE_WORD = re.compile(r"^(no|false|n)$")
 # A fact whose value is the empty value of its type ("" or []) says the answer
-# is none: the field stays blank on purpose, and nothing counts it as a miss.
+# is none: write N/A or a truthful None option where the control permits it.
+# BLANK identifies controls that cannot represent it; the audit reports a gap.
 BLANK = "none_as_blank"
 
 
@@ -541,11 +542,19 @@ def render(
     `context` is the run's other facts, for the few renderings that need one
     (a city in a typeahead goes in with its state, a country in a menu of
     calling codes takes the phone's code). A value that is the empty value of
-    its type renders as a deliberate blank.
+    its type renders as N/A, a None option, or a gap for an incompatible control.
     """
     if value is None:
         return None
     if is_blank(value):
+        options = _options(field)
+        for option in options:
+            if normalize_answer_question(option) in {"none", "n a", "not applicable"}:
+                return Rendering(option, "none_as_option")
+        if (not options and field.get("tag") in {"input", "textarea"}
+                and _input_type(field) in {"", "text", "search"}
+                and field.get("role") != "combobox"):
+            return Rendering("N/A", "none_as_na")
         return Rendering("", BLANK)
     options = _options(field)
     if key in LIVE_MENU:

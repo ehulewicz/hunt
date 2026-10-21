@@ -59,7 +59,7 @@ started in a terminal. Starting a busy or unready device is disabled.
 
 The answer panel switches between Inbox and Library. Inbox separates Questions,
 Facts to verify, Writing, and Pattern checks. Unbound questions can be linked to
-an existing fact or a new typed fact. Unverified facts and every deliberate blank
+an existing fact or a new typed fact. Unverified facts and every fact marked None
 (an empty string or list, displayed as None) remain visible for verification,
 including previously verified blanks. Empty text is saved unchanged; lists use
 JSON, including `[]`. Writing is one editable text, with separate actions to save
