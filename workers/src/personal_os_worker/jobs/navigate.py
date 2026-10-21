@@ -25,6 +25,7 @@ import time
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -328,14 +329,19 @@ def reach_posting(
     page: Page,
     target: Target,
     *,
-    report_page_failure: Callable[..., None],
+    report_page_failure: Callable[..., Any],
     sleep: Callable[[float], None] = time.sleep,
+    fixes: Any | None = None,
+    run_id: str = "",
+    cdp_url: str = "",
 ) -> Page:
     """The posting's tab: found by its site's route or the navigator, else by you.
 
     What the navigator could not find is reported as `posting_not_found`, with
     what the page offered, and the run watches the browser until the posting is
-    in front, so a run never ends because a URL landed on a careers home.
+    in front, so a run never ends because a URL landed on a careers home. With a
+    fixer, the failure goes to it while you look: a route it writes and keeps is
+    tried on this tab, and opens the posting for you.
     """
     from personal_os_worker.jobs.browser import visible_actions
     from personal_os_worker.jobs.routes import route_for
@@ -349,19 +355,62 @@ def reach_posting(
     offered: list[str] = []
     with suppress(Error):
         offered = visible_actions(page)
-    report_page_failure(
-        "posting_not_found",
-        f"Neither a link, the site's search, nor its open roles led to {target.title!r}",
-        offered=offered,
-    )
+    message = f"Neither a link, the site's search, nor its open roles led to {target.title!r}"
+    issues = report_page_failure("posting_not_found", message, offered=offered) or []
+    if fixes is not None:
+        hand_to_fixer(page, target, fixes, message=message, offered=offered, run_id=run_id,
+                      issue_id=str(issues[0].get("id")) if issues else None)
     console.print(
         f"[yellow]Posting not found:[/yellow] open {target.title!r} in the browser; "
         "I am watching the page."
     )
     while True:
         page = browser.active_page(page)
+        # The route the fixer keeps opens the posting itself; no reload is needed.
+        if fixes is not None and fixes.at_safe_point(partial(probe_args, page, cdp_url)):
+            fixes.consume_kept()
         text = rendered_body_text(page, timeout_ms=2_000)
         if is_posting(page, target.title, text=text):
             console.print("  [dim]the posting is open[/dim]")
             return page
         sleep(WATCH_SECONDS)
+
+
+def probe_args(page: Page, cdp_url: str) -> dict[str, Any]:
+    from personal_os_worker.jobs.browser import cdp_target_id
+
+    return {"cdp_url": cdp_url, "target_id": cdp_target_id(page), "page_url": page.url,
+            "knowledge": {}}
+
+
+def hand_to_fixer(
+    page: Page,
+    target: Target,
+    fixes: Any,
+    *,
+    message: str,
+    offered: list[str],
+    run_id: str,
+    issue_id: str | None,
+) -> None:
+    """A posting the navigator cannot find is a route the fixer can write."""
+    from personal_os_worker.jobs.browser import inspect_fields, page_evidence
+    from personal_os_worker.jobs.fix.lane import Problem
+
+    files: dict[str, bytes] = {}
+    with suppress(Error):
+        files = page_evidence(page, inspect_fields(page))
+    fixes.submit(Problem(
+        key=f"posting_not_found|{registrable_site(page.url)}",
+        cause="posting_not_found",
+        question=target.title,
+        note=message,
+        target={"kind": "route", "goal": "posting", "title": target.title,
+                "company": target.company},
+        evidence={"url": page.url, "offered": offered},
+        tried=("a link naming the role, the site's search by the full and shorter titles, "
+               "and its open roles",),
+        issue_id=issue_id,
+        run_id=run_id or None,
+        page_files=files,
+    ))

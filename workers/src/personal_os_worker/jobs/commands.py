@@ -5,10 +5,12 @@ from __future__ import annotations
 import contextlib
 import re
 from datetime import date
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 from playwright.sync_api import Error
+from rich.markup import escape
 
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
@@ -476,6 +478,7 @@ def apply_posting(
     ask_facts: bool = False,
     referred: str | None = None,
     remote: bool = False,
+    continued: dict[str, Any] | None = None,
 ) -> str:
     """Run one interactive apply session: "submitted", "skipped", or "stopped".
 
@@ -483,10 +486,22 @@ def apply_posting(
     is the referrer's name, or "" when none was given. With this device's agent
     listening, the run registers with it so the Hunt page sees and drives it;
     `remote` is a run the page started, whose letter and facts the page answers.
+    `continued` is the state a run wrote when a kept fix made it reload: this
+    process carries the same run on, on the same tab, with the new code.
     """
+    from personal_os_worker.core.service import state_dir
     from personal_os_worker.documents.doctor import latex_toolchain_check
-    from personal_os_worker.documents.resume import ensure_resume, transcript_pdf_path
-    from personal_os_worker.jobs.autofill_session import AutofillSession, SessionContext
+    from personal_os_worker.documents.resume import (
+        ensure_resume,
+        repository_root,
+        transcript_pdf_path,
+    )
+    from personal_os_worker.jobs.autofill_session import (
+        AutofillSession,
+        ReloadForFix,
+        SessionContext,
+        SessionState,
+    )
     from personal_os_worker.jobs.browser import (
         VisibleBrowser,
         identifies_posting,
@@ -495,6 +510,7 @@ def apply_posting(
         page_evidence,
         rendered_body_text,
     )
+    from personal_os_worker.jobs.fix.queue import FixQueue
     from personal_os_worker.jobs.keys import KeyWatcher
     from personal_os_worker.jobs.navigate import Target, is_posting, reach_posting
     from personal_os_worker.jobs.remote import LinkedKeys, RunLink, mirrored
@@ -512,6 +528,8 @@ def apply_posting(
     api = WorkerApi(config, token)
     run_id: str | None = None
     link: RunLink | None = None
+    fixes: FixQueue | None = None
+    reload_state: Path | None = None
     mirror = contextlib.ExitStack()
     result = "failed"
     try:
@@ -519,9 +537,15 @@ def apply_posting(
         resume_json = dict(career["document"])
         resume = ensure_resume(api)
         version = adapter_version()
-        run = api.create_autofill_run(
-            posting_id=posting_id, ats="generic", adapter_version=version
-        )
+        if continued is not None:
+            # The same run, with what it knows now: the fix may have taught some.
+            run = dict(continued["run"]) | {
+                "facts": api.facts(), "patterns": api.patterns("active"),
+            }
+        else:
+            run = api.create_autofill_run(
+                posting_id=posting_id, ats="generic", adapter_version=version
+            )
         run_id = str(run["run_id"])
         link = RunLink.connect(
             run_id=run_id,
@@ -533,6 +557,15 @@ def apply_posting(
             mirror.enter_context(mirrored(link))
         elif remote:
             raise RuntimeError("This device's agent did not take the run")
+        if not no_claude and not dry_run:
+            fixes = FixQueue(
+                repo=repository_root(),
+                workdir=state_dir() / "fix" / run_id,
+                api=api,
+                run_id=run_id,
+                report=lambda line: console.print(f"  [dim]{escape(line)}[/dim]"),
+                publish=link.fixes if link is not None else None,
+            )
         direct_url = str(run["application_url"])
         # A label for querying the fill events; every site is filled the same way.
         ats = str(run.get("ats") or "generic")
@@ -580,7 +613,7 @@ def apply_posting(
                 *,
                 step_number: int = 0,
                 offered: list[str] | None = None,
-            ) -> None:
+            ) -> list[dict[str, Any]]:
                 captured_fields = inspect_fields(page)
                 evidence = page_evidence(
                     page, captured_fields, console_errors=console_errors
@@ -601,7 +634,7 @@ def apply_posting(
                         content_type=content_type,
                     )
                 fingerprint = f"{category}|{page.url.split('?', 1)[0]}"
-                api.persist_autofill_step(
+                return api.persist_autofill_step(
                     run_id,
                     {
                         "step_number": step_number,
@@ -643,6 +676,7 @@ def apply_posting(
                 page = reach_posting(
                     browser, page, Target(expected_title, expected_company),
                     report_page_failure=report_page_failure,
+                    fixes=fixes, run_id=run_id, cdp_url=config.cdp_url,
                 )
                 if link is not None:
                     link.tab(page)
@@ -696,18 +730,37 @@ def apply_posting(
                     # A remote run has no terminal to ask at; the page asks instead.
                     ask_facts=ask_facts and not remote,
                     account=account_flow(knowledge, expected_company),
+                    fixes=fixes,
+                    cdp_url=config.cdp_url,
                     **linked,
                 )
             )
-            outcome = session.run()
-            result = finalize_application_outcome(
-                api,
-                run=run,
-                run_id=run_id,
-                outcome=outcome,
-                page=page,
-            )
-            return result
+            if continued is not None:
+                session.state = SessionState.restore(dict(continued["session"]))
+                console.print("  [dim]carrying the run on with the fix just kept[/dim]")
+            try:
+                outcome = session.run()
+            except ReloadForFix:
+                result = "reload"
+                reload_state = write_reload_state(
+                    state_dir() / "reload" / f"{run_id}.json",
+                    params={
+                        "posting_id": posting_id, "dry_run": False, "no_claude": no_claude,
+                        "repair": repair, "fresh": False, "explain": explain, "step": step,
+                        "ask_facts": ask_facts, "referred": referred, "remote": remote,
+                    },
+                    run=run,
+                    session=session.state.export(),
+                )
+            else:
+                result = finalize_application_outcome(
+                    api,
+                    run=run,
+                    run_id=run_id,
+                    outcome=outcome,
+                    page=page,
+                )
+                return result
     except KeyboardInterrupt:
         result = "stopped"
         if run_id is not None:
@@ -721,12 +774,55 @@ def apply_posting(
             api.stop_autofill_run(run_id, status="failed")
         raise
     finally:
+        if fixes is not None:
+            fixes.close()
         mirror.close()
         if link is not None:
-            link.end(result)
+            if reload_state is None:
+                link.end(result)
+            else:
+                link.reload()
             link.close()
         api.close()
+    if reload_state is not None:
+        console.print("  [dim]a fix was kept; reloading with it on the same tab[/dim]")
+        reload_with(reload_state)
     return "stopped"
+
+
+def write_reload_state(
+    path: Path, *, params: dict[str, Any], run: dict[str, Any], session: dict[str, Any]
+) -> Path:
+    """What the next process needs to carry this run on: how it was started, the
+    run's context, and the session's state."""
+    import json
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"params": params, "run": run, "session": session},
+                               default=str), encoding="utf-8")
+    return path
+
+
+def reload_with(state: Path) -> None:
+    """Become a new process running the code as it is now; the same PID, so the
+    device agent and its pipe carry on with it."""
+    import os
+    import sys
+
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os.execv(sys.executable, [sys.executable, "-m", "personal_os_worker", "hunt", "apply",
+                              "--continue-run", str(state)])
+
+
+def continue_run(state: Path) -> int:
+    """Carry on a run that reloaded for a kept fix."""
+    import json
+
+    data = json.loads(state.read_text(encoding="utf-8"))
+    state.unlink(missing_ok=True)
+    outcome = apply_posting(**dict(data["params"]), continued=data)
+    return 0 if outcome in {"submitted", "skipped", "stopped"} else 1
 
 
 def run_autofill_failure_command(action: str | None, reference: str | None) -> int:

@@ -11,6 +11,7 @@ writing as Markdown.
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -110,8 +111,14 @@ def print_replay(replay: Replay) -> None:
         )
 
 
-def run_replay(*, question: str | None = None, fact_key: str | None = None) -> int:
-    """0 for a passing replay, 1 for a regression, 2 when the check could not run."""
+def run_replay(
+    *, question: str | None = None, fact_key: str | None = None, json_line: bool = False
+) -> int:
+    """0 for a passing replay, 1 for a regression, 2 when the check could not run.
+
+    `json_line` ends the output with the counts as one JSON line, which the
+    fixer records as a kept fix's verification.
+    """
     try:
         config, token = connected()
         api = WorkerApi(config, token)
@@ -123,6 +130,8 @@ def run_replay(*, question: str | None = None, fact_key: str | None = None) -> i
         console.print(f"Replay could not complete: {error}", markup=False)
         return 2
     print_replay(replay)
+    if json_line:
+        print(json.dumps(replay.verification() | {"unchecked": replay.unchecked}))
     return 0 if replay.passed else 1
 
 

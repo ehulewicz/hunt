@@ -150,6 +150,9 @@ def test_a_linked_run_that_fails_tells_the_page_why(
         def end(self, outcome: str) -> None:
             sent.append(outcome)
 
+        def fixes(self, items: list[Any]) -> None:
+            pass
+
         def close(self) -> None:
             sent.append("closed")
 

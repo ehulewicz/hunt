@@ -20,7 +20,7 @@ import json
 import subprocess
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -76,6 +76,7 @@ from personal_os_worker.jobs.browser import (
     VisibleBrowser,
     apply_autofill,
     audit_filled_form,
+    cdp_target_id,
     combobox_options,
     fresh_control,
     has_submit_control,
@@ -105,6 +106,8 @@ from personal_os_worker.jobs.cover_letter import (
 )
 from personal_os_worker.jobs.drafts import similar_answers
 from personal_os_worker.jobs.explain import Explainer
+from personal_os_worker.jobs.fix.lane import Problem
+from personal_os_worker.jobs.fix.queue import FixQueue
 from personal_os_worker.jobs.formatters import BLANK, polarity
 from personal_os_worker.jobs.gateway import (
     click_gateway,
@@ -145,6 +148,10 @@ from personal_os_worker.jobs.sites import failure_signature
 
 class SubmittedByUser(Exception):
     """Ctrl+A: the user says the application went in."""
+
+
+class ReloadForFix(Exception):
+    """A fix was kept: the run reloads with the new code and carries on, same tab."""
 
 
 class SkippedByUser(Exception):
@@ -202,6 +209,10 @@ class SessionContext:
     prompt: Callable[[str], str] = input
     # This device's agent, when one is listening: the Hunt page sees and drives the run.
     link: RunLink | None = None
+    # The fixer: a failure no lane without code settles gets a code fix, written
+    # and tested in the background and kept at a safe point (`jobs/fix/`).
+    fixes: FixQueue | None = None
+    cdp_url: str = ""
 
 
 @dataclass
@@ -247,6 +258,10 @@ class SessionState:
     walls: list[Finding] = field(default_factory=list)
     # (cause, question) already stored as a failure issue this run.
     persisted_gaps: set[tuple[str, str]] = field(default_factory=set)
+    # A problem's key -> the failure issue it was stored as, for the fixer.
+    issue_ids: dict[str, str] = field(default_factory=dict)
+    # Problems handed to the fixer this run, kept or not: never handed over twice.
+    fix_keys: set[str] = field(default_factory=set)
     # The accepted answers a learned change is replayed against, read once a run;
     # None when they could not be read.
     sightings: list[Sighting] | None = None
@@ -258,9 +273,68 @@ class SessionState:
     origins: dict[str, tuple[str, tuple[str, ...]]] = field(default_factory=dict)
     similar_prose: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
+    # What a reload carries over: everything that says what this run already
+    # did, asked, spent, and decided. What is read again from the page or the
+    # API (misses, resolutions, sightings, the tab's navigation) is not.
+    _SETS = ("warnings", "judged", "repair_attempted", "na_flagged", "outlined", "gates_tried",
+             "account_tried", "fix_keys")
+    _PLAIN = ("review", "cover_letter", "collected", "seeds", "planned", "announced",
+              "observations", "persisted_observations", "tier_answers", "tier_source",
+              "tier_resolver", "tier_fact", "seed_resolver", "asked_claude", "model_error",
+              "needed", "blanks", "withheld", "account_parked", "step", "form_seen",
+              "form_site", "issue_ids")
+
+    def export(self) -> dict[str, Any]:
+        """This run's state as JSON, for the process that carries it on."""
+        data: dict[str, Any] = {name: getattr(self, name) for name in self._PLAIN}
+        data |= {name: sorted(getattr(self, name)) for name in self._SETS}
+        data["budget"] = {"spent": self.budget.spent, "total": self.budget.total}
+        data["held"] = [[question, fact, why] for (question, fact), why in self.held.items()]
+        data["origins"] = {question: [draft, list(previous)]
+                           for question, (draft, previous) in self.origins.items()}
+        data["persisted_gaps"] = sorted([cause, question]
+                                        for cause, question in self.persisted_gaps)
+        return data
+
+    @classmethod
+    def restore(cls, data: dict[str, Any]) -> SessionState:
+        state = cls()
+        for name in cls._PLAIN:
+            if name in data:
+                setattr(state, name, data[name])
+        for name in cls._SETS:
+            setattr(state, name, set(data.get(name) or ()))
+        state.review = [(question, source) for question, source in state.review]
+        state.seeds = {question: (text, source) for question, (text, source)
+                       in state.seeds.items()}
+        budget = data.get("budget") or {}
+        state.budget = Budget(spent=dict(budget.get("spent") or {}),
+                              total=int(budget.get("total") or 0))
+        state.held = {(question, fact): why for question, fact, why in data.get("held") or ()}
+        state.origins = {question: (draft, tuple(previous))
+                         for question, (draft, previous) in (data.get("origins") or {}).items()}
+        state.persisted_gaps = {(cause, question)
+                                for cause, question in data.get("persisted_gaps") or ()}
+        return state
+
 
 # Open causes stored as failure issues by the audit itself.
 PERSISTED_CAUSES = frozenset({"fact_gap", "unknown_control", "detection_error"})
+# Causes only code can settle once the lanes without code have had their turn.
+CODE_CAUSES = frozenset({
+    "unknown_control", "detection_error", "control_error", "format_error", "wall",
+    "posting_not_found",
+})
+# What already ran before a cause reached the fixer, in the words its prompt uses.
+TRIED: dict[str, tuple[str, ...]] = {
+    "control_error": ("the repair lane tried every strategy this control's kind has",),
+    "format_error": ("the repair lane tried every other rendering of the fact",),
+    "unknown_control": ("no control kind captures this widget, so nothing could operate it",),
+    "detection_error": ("the question extraction found no question for these options",),
+    "wall": ("the one-click Apply control, gate answering by fact, and the account flow",),
+    "posting_not_found": ("a link naming the role, the site's search by the full and "
+                          "shorter titles, and its open roles",),
+}
 
 
 def page_signature(page: Page, fields: list[dict[str, Any]]) -> tuple[str, tuple[str, ...]]:
@@ -496,14 +570,14 @@ class AutofillSession:
         *,
         artifact_paths: dict[str, str] | None = None,
         offered: list[str] | None = None,
-    ) -> None:
+    ) -> list[dict[str, Any]]:
         if artifact_paths is None:
             captured = inspect_fields(self.page)
             artifact_paths = self.upload_evidence(
                 page_evidence(self.page, captured, console_errors=self.ctx.console_errors)
             )
         fingerprint = f"{category}|{self.page.url.split('?', 1)[0]}|{self.state.step}"
-        self.persist_step(
+        return self.persist_step(
             self.ctx.run_id,
             {
                 "step_number": self.state.step,
@@ -531,6 +605,7 @@ class AutofillSession:
     def sleep(self) -> None:
         if self.ctx.link is not None:
             self.ctx.link.tab(self.page)
+        self.safe_point()
         pressed = self.ctx.keys.wait(self.ctx.poll_seconds)
         if "save" in pressed:
             self.save_now()
@@ -1843,6 +1918,8 @@ class AutofillSession:
         self.persist_open(findings)
         if self.ctx.link is not None:
             self.ctx.link.gaps(gap_items(findings))
+        self.escalate(findings)
+        self.safe_point()
 
     def remediate(self, fields: list[dict[str, Any]], findings: list[Finding]) -> bool:
         """Run each finding's repair path; True when anything on the page changed."""
@@ -1981,6 +2058,10 @@ class AutofillSession:
                 "failures": failures,
             },
         )
+        self.remember_issues(failures, issues, lambda failure: (
+            "format_error" if failure["category"] == "format_miss" else "control_error",
+            failure["question"],
+        ))
         self.repair_in_place(fields, failures, issues)
         return True
 
@@ -2400,10 +2481,25 @@ class AutofillSession:
                     if failure["category"] != "fact_gap":
                         failure["artifact_paths"] = paths
         with contextlib.suppress(httpx.HTTPError):
-            self.persist_step(
+            issues = self.persist_step(
                 self.ctx.run_id,
                 {"step_number": self.state.step, "url": self.page.url, "failures": failures},
             )
+            self.remember_issues(failures, issues,
+                                 lambda failure: (failure["category"], failure["question"]))
+
+    def remember_issues(
+        self,
+        failures: list[dict[str, Any]],
+        issues: list[dict[str, Any]],
+        problem: Callable[[dict[str, Any]], tuple[str, str]],
+    ) -> None:
+        """Note which failure issue each stored failure became, by its problem's key."""
+        by_signature = {str(issue.get("signature")): str(issue.get("id")) for issue in issues}
+        for failure in failures:
+            issue_id = by_signature.get(str(failure.get("signature")))
+            if issue_id:
+                self.state.issue_ids[self.problem_key(*problem(failure))] = issue_id
 
     def report_wall(self, category: str, message: str) -> Finding:
         """A wall between the run and its form is a finding, like an empty field.
@@ -2423,10 +2519,90 @@ class AutofillSession:
                       "offered": offered},
         )
         self.state.walls.append(finding)
-        self.report_page_failure(category, message, offered=offered)
+        issues = self.report_page_failure(category, message, offered=offered)
+        if issues:
+            self.state.issue_ids[self.problem_key("wall", finding.question)] = str(
+                issues[0].get("id"))
         if self.ctx.link is not None:
             self.ctx.link.gaps(gap_items([finding]))
+        # Signing in is yours and the account flow's; never a code fix.
+        if category != "account_wall":
+            self.escalate([finding])
         return finding
+
+    # ----- the fixer ------------------------------------------------------------
+
+    def problem_key(self, cause: str, question: str) -> str:
+        """One fix per cause and question a run; a wall is one per site."""
+        if cause in {"wall", "posting_not_found"}:
+            return f"{cause}|{registrable_site(self.page.url)}"
+        return f"{cause}|{normalize_answer_question(question)}"
+
+    def escalate(self, findings: list[Finding]) -> None:
+        """Hand the fixer what only code can settle; it works while the run goes on.
+
+        A widget no kind captures and a question that cannot be read go
+        straight to it; a format or control error only once the repair lane
+        has had its turn; a wall once the Apply control, the gates, and the
+        navigator have. A missing fact, a pattern gap, and prose are never code.
+        """
+        if self.ctx.fixes is None or self.ctx.dry_run:
+            return
+        for finding in findings:
+            if finding.cause not in CODE_CAUSES:
+                continue
+            key = self.problem_key(finding.cause, finding.question)
+            if key in self.state.fix_keys:
+                continue
+            problem = self.problem_for(finding, key)
+            if problem is not None and self.ctx.fixes.submit(problem):
+                self.state.fix_keys.add(key)
+
+    def problem_for(self, finding: Finding, key: str) -> Problem | None:
+        try:
+            current = inspect_fields(self.page)
+            files = page_evidence(self.page, current, console_errors=self.ctx.console_errors)
+        except Error:
+            return None
+        if finding.cause in {"wall", "posting_not_found"}:
+            target: dict[str, Any] = {
+                "kind": "route", "goal": "posting" if finding.cause == "posting_not_found"
+                else "form", "title": self.ctx.title, "company": self.ctx.company,
+            }
+        else:
+            target = {"kind": "field", "question": finding.question}
+        return Problem(
+            key=key,
+            cause=finding.cause,
+            question=finding.question,
+            note=finding.note,
+            target=target,
+            evidence=dict(finding.evidence or {}) | {"url": self.page.url},
+            tried=TRIED.get(finding.cause, ()),
+            fact_key=finding.fact_key,
+            issue_id=self.state.issue_ids.get(key),
+            run_id=self.ctx.run_id,
+            page_files=files,
+        )
+
+    def probe_args(self) -> dict[str, Any]:
+        """What the probe needs to find this run's tab and answer from its facts."""
+        return {
+            "cdp_url": self.ctx.cdp_url,
+            "target_id": cdp_target_id(self.page),
+            "page_url": self.page.url,
+            "knowledge": asdict(self.ctx.knowledge),
+        }
+
+    def safe_point(self) -> None:
+        """Between polls and after an audit: try a waiting fix on the page; reload
+        with the new code once one was kept and none is mid-flight."""
+        if self.ctx.fixes is None:
+            return
+        if self.ctx.fixes.at_safe_point(self.probe_args):
+            with contextlib.suppress(httpx.HTTPError, Error):
+                self.save_now()
+            raise ReloadForFix
 
     def report_review(self) -> None:
         """List the long-form answers that came from a draft, once per step."""

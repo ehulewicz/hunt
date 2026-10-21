@@ -107,6 +107,8 @@ distro; `os device status` says what it is doing.
   positions and DOM key fields to CDP input against the last frame's metadata.
 - `runs.py` holds the one run the agent knows about. A page run's output is the log
   until the run says hello on the socket; from then its console arrives there.
+  A run that announces a reload keeps its place while its socket is closed, and
+  its next process attaches to it again by its run id.
 - `link.py` is that socket: JSON lines over `state_dir()/device.sock`, and the
   ANSI-to-styled-spans conversion the page draws from.
 
@@ -218,6 +220,53 @@ words the title lacks, so a category link or another role is never taken.
 What it cannot find is reported as `posting_not_found` with what the page
 offered, and the run watches the browser until you open the posting, so a run
 never ends because its URL was a careers home.
+
+## How the run fixes itself
+
+`jobs/fix/` is the fixer. When the audit is done with a page step, what only
+code can settle goes to it (`AutofillSession.escalate`): a widget no kind
+captures, a question that cannot be read, a format or control error the repair
+lane ran out of renderings or strategies for, a wall the Apply control, gates
+and account flow did not pass (never the account flow itself, which is yours),
+and a posting the navigator could not find. A missing fact, a pattern gap and
+prose never are. The run keeps filling while the fixer works, one failure at a
+time in a background thread (`queue.py`):
+
+1. `scratch.py` clones the repository (`git clone --shared`) under the state
+   directory and writes the live page's evidence in as fixtures.
+2. `lane.py` asks a model, with file tools only and the scratch clone as its
+   working directory, for the smallest code change and a regression test
+   against those fixtures. It may change `jobs/` code and add tests; it may not
+   edit an existing test, delete a file, or touch the denylist (`safety.py`,
+   the account and mail, the model call sites, `learn.py`, `replay.py`, the
+   fixer).
+3. The worker checks the paths, then runs ruff, mypy and the whole worker suite
+   on the scratch code (the workspace interpreter, the scratch source first on
+   `PYTHONPATH`), then `os hunt replay --json` against the answers you
+   accepted.
+4. At the run's next safe point (between polls, after an audit) `probe.py`
+   runs in its own process on the scratch code, attaches to the run's tab over
+   CDP, arms the submit guards, and operates only the target: the field from
+   its fact, read back (a control it now captures that no fact answers counts
+   as detected), or the route, read back as the posting or the form.
+5. `keep.py` commits exactly the fix's hunks on `main` from a temporary index,
+   moving `main` only if it has not moved, applies them to the working tree
+   without disturbing anyone's staged or unstaged work, and pushes; a refused
+   push leaves the commit local and says so. The change is recorded with its
+   parent, diff, attempts, gates, replay counts and probe, and the issue is
+   `fixed`.
+
+Any step that fails goes back to the model with what failed; after three
+attempts, or when the model names a missing fact or calls it impossible, the
+issue is `unsolved` and waits in the Inbox. A model outage stops the fixer for
+the run. Once a fix is kept and no other is mid-flight, the run saves its
+observations, writes its state (`SessionState.export`) and re-executes itself
+(`apply --continue-run`, the same PID), so the device agent keeps the run: it
+announces `reload`, and the agent keeps its place for the new process. The new
+process reads the facts and patterns as they are now, continues on the same
+tab, restores what the run already asked, spent and decided, and fills only
+what is still empty. Each fix's state goes to the page as `fixes`. `--no-claude`
+and `--dry-run` run no fixer.
 
 ## The gate between a posting and its form
 

@@ -247,6 +247,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Failure command when ref is 'failures'",
     )
     autofill.add_argument("failure_ref", nargs="?", help="Failure row or id prefix")
+    # A run that reloaded for a kept fix carries itself on from this state file.
+    autofill.add_argument("--continue-run", type=Path, help=argparse.SUPPRESS)
     autofill.add_argument(
         "--dry-run",
         action="store_true",
@@ -326,6 +328,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     replay.add_argument("--question", help="The failed question a code change fixes")
     replay.add_argument("--fact", dest="fact_key", help="The fact that question is filled from")
+    replay.add_argument(
+        "--json", action="store_true", dest="json_line",
+        help="End with one JSON line of the counts, for the fixer",
+    )
 
     return parser
 
@@ -456,8 +462,12 @@ def _dispatch(args: argparse.Namespace) -> int:
         if args.hunt_command == "validate":
             return repairs.run_validate()
         if args.hunt_command == "replay":
-            return knowledge.run_replay(question=args.question, fact_key=args.fact_key)
+            return knowledge.run_replay(
+                question=args.question, fact_key=args.fact_key, json_line=args.json_line
+            )
         if args.hunt_command == "apply":
+            if args.continue_run is not None:
+                return hunt.continue_run(args.continue_run)
             if args.ref == "failures":
                 return hunt.run_autofill_failure_command(args.failure_action, args.failure_ref)
             if args.failure_action or args.failure_ref:

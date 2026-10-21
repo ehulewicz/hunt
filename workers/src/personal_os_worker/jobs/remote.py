@@ -167,6 +167,14 @@ class RunLink:
     def gaps(self, items: list[dict[str, Any]]) -> None:
         self._client.send({"type": "gaps", "items": items})
 
+    def fixes(self, items: list[dict[str, Any]]) -> None:
+        """Where each fix the fixer is working on stands."""
+        self._client.send({"type": "fixes", "items": items})
+
+    def reload(self) -> None:
+        """This process is about to become one running a kept fix: keep the run's place."""
+        self._client.send({"type": "reload"})
+
     def fact_result(self, question: str, *, ok: bool, message: str) -> None:
         self._client.send(
             {"type": "fact_result", "question": question, "ok": ok, "message": message}

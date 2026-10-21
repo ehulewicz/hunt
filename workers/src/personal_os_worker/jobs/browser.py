@@ -161,6 +161,20 @@ def tab_continues(tab_url: str, application_url: str) -> bool:
     return here == there or here.startswith(f"{there}/")
 
 
+def cdp_target_id(page: Page) -> str | None:
+    """The CDP target id of a page: how another process connected to the same
+    browser finds this tab."""
+    try:
+        session = page.context.new_cdp_session(page)
+        try:
+            info = session.send("Target.getTargetInfo")
+        finally:
+            session.detach()
+        return str(info["targetInfo"]["targetId"])
+    except (Error, KeyError, TypeError):
+        return None
+
+
 def registrable_site(url: str) -> str:
     """The registrable part of a URL's host, near enough: its last two labels."""
     host = (urlsplit(url).hostname or "").casefold()

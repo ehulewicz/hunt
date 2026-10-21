@@ -266,9 +266,11 @@ class WorkerApi:
         origin: str = "repair",
         failure: dict[str, Any] | None = None,
         verification: dict[str, int] | None = None,
+        parent: str | None = None,
+        detail: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         body = {"commit": commit, "origin": origin, "failure": failure,
-                "verification": verification}
+                "verification": verification, "parent": parent, "detail": detail}
         payload = self._json(
             self._client.post(
                 "/v1/jobs/changes",
