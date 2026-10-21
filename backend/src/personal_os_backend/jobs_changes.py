@@ -101,6 +101,14 @@ class CodeChangeCreate(BaseModel):
     verification: Verification | None = None
 
 
+class ReplayKnowledge(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    facts: dict[str, Any] = Field(max_length=5000)
+    types: dict[str, str] = Field(max_length=5000)
+    seed: str = Field(default="", max_length=200)
+
+
 class Sighting(BaseModel):
     question: str
     question_key: str
@@ -115,6 +123,7 @@ class Sighting(BaseModel):
     formatter: str | None
     value_hash: str | None
     seen_at: datetime
+    knowledge: ReplayKnowledge | None = None
 
 
 async def record_change(
@@ -279,7 +288,7 @@ class PostgresChangeStore:
                 select answer.question_text as question, keyed.question_key, event.kind,
                        event.attributes, answer.control_kind as control, event.options,
                        answer.answer_text as answer, event.fact_key, event.formatter,
-                       event.value_hash, answer.created_at as seen_at
+                       event.value_hash, event.knowledge, answer.created_at as seen_at
                 from app.jobs_application_questions answer
                 left join app.jobs_questions question on question.id = answer.question_id
                 cross join lateral (
@@ -287,7 +296,7 @@ class PostgresChangeStore:
                 ) keyed
                 left join lateral (
                   select control.kind, control.attributes, fill.options, fill.fact_key,
-                         fill.formatter, fill.value_hash
+                         fill.formatter, fill.value_hash, fill.knowledge
                   from app.jobs_fill_events fill
                   join app.jobs_controls control on control.id = fill.control_id
                   where fill.run_id = answer.run_id and fill.question_key = keyed.question_key

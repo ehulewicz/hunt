@@ -156,6 +156,12 @@ class PostgresFactStore:
             if not label or not value_type:
                 raise ValueError("A new fact needs a label and a value_type")
             value = validate_fact_value(value_type, item.value)
+            if existing is not None and (
+                existing["label"] == label and existing["value_type"] == value_type
+                and existing["value"] == value
+                and (existing["verified_at"] is not None) == item.verified
+            ):
+                return Fact.model_validate(existing)
             cursor = await connection.execute(
                 f"""
                 insert into app.jobs_facts (
@@ -227,6 +233,10 @@ Store = Annotated[FactStore, Depends(get_fact_store)]
 
 
 def _checked_key(key: str) -> str:
+    if len(key) > 200:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "A fact key is at most 200 characters"
+        )
     if not FACT_KEY.fullmatch(key):
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,

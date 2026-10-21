@@ -854,11 +854,12 @@ question, and compare. The same index serves one-off promotion (R10).
 > above/below decision with no new call site. Vectors replace the candidate
 > selection later without changing anything around it.
 
-> **R13 — Embeddings, when built, run locally.** A small sentence-transformer
-> in the worker (CPU, no API, deterministic output for a given model version)
-> with pgvector storage in the existing database. This still needs AGENTS.md's
-> model-call rule amended to admit embeddings, and that amendment lands with
-> the feature, not before.
+> **R13 — Question embeddings are owned by FastAPI.** *Revised 2026-10-21 after
+> the maintainer supplied the OpenAI secret and approved continuing.* FastAPI
+> embeds question labels with the pinned `text-embedding-3-small` model and
+> caches `vector(1536)` on `jobs_questions` in the private hosted database.
+> The worker asks for similar questions and approved prose, with no provider
+> key on the device. AGENTS.md permits this bounded embedding call.
 
 ### 7.6 Career record: the resume in the database
 
@@ -1531,9 +1532,9 @@ left open.
 earlier pending proposal. Question dispositions (§7.4) and rule status (§10.5)
 replace it.
 
-### Later, with embeddings (not part of this approval)
+### Question embeddings (approved 2026-10-21)
 
-`jobs_question_embeddings(question_id, model, embedding vector)` — R13.
+`jobs_questions.embedding vector(1536)` — R13; one pinned model in code.
 
 ---
 

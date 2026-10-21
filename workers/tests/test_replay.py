@@ -45,7 +45,14 @@ NAMES = (
 def seen(question: str, answer: str, **fields: Any) -> dict[str, Any]:
     return {"question": question, "question_key": question.casefold(), "kind": "text_entry",
             "attributes": {"tag": "input", "type": "text"}, "control": "text", "options": None,
-            "answer": answer, "fact_key": None, "value_hash": None} | fields
+            "answer": answer, "fact_key": None, "value_hash": None,
+            "knowledge": {"facts": {"identity.first_name": "Ethan",
+                                    "identity.last_name": "Example",
+                                    "identity.middle_name": "Alexander",
+                                    "identity.legal_name": "Alex Quinn Example",
+                                    "contact.email": "alex.example@example.com",
+                                    "work_auth.requires_sponsorship": False},
+                          "types": {"work_auth.requires_sponsorship": "boolean"}}} | fields
 
 
 ACCEPTED = sightings_of([
@@ -157,3 +164,37 @@ def test_code_is_replayed_against_what_was_filled_then() -> None:
                                             expression(r"\bemail\b", "contact.email")))
     assert [outcome.sighting.question for outcome in broad.failures] == ["Company name"]
     assert replay_code(accepted, knowledge(*NAMES)).passed
+
+
+def test_replay_uses_each_sightings_original_facts_not_todays_posting() -> None:
+    past = sightings_of([
+        seen("Start date", "2026-09-01", fact_key="availability.earliest_start_date",
+             value_hash=value_hash("2026-09-01"),
+             knowledge={"facts": {"availability.earliest_start_date": "2026-09-01"},
+                        "types": {"availability.earliest_start_date": "date"}, "seed": "past"}),
+        seen("Email", "old@example.com", fact_key="contact.email",
+             value_hash=value_hash("old@example.com"),
+             knowledge={"facts": {"contact.email": "old@example.com"},
+                        "types": {"contact.email": "text"}, "seed": "past"}),
+    ])
+    start = expression(r"start date", "availability.earliest_start_date")
+    today = knowledge(*NAMES, start)
+    assert replay_code(past, today).passed
+    assert replay_pattern(past[:1], knowledge(), start).passed
+    # Re-routing a historical field to the wrong fact is still a regression.
+    wrong = expression(r"email", "identity.middle_name")
+    broken = replay_code(past, knowledge(wrong))
+    assert not broken.passed
+
+
+def test_legacy_context_drift_is_reported_as_unchecked_not_as_a_regression() -> None:
+    past = sightings_of([
+        seen("Start date", "2026-09-01", fact_key="availability.earliest_start_date",
+             value_hash=value_hash("2026-09-01"), knowledge=None),
+    ])
+    start = expression(r"start date", "availability.earliest_start_date")
+    replay = replay_code(past, knowledge(start))
+    assert replay.passed and replay.unchecked == 1
+    assert replay.verification() == {"sampled": 0, "failed": 0}
+    assert "without original facts" in replay.summary()
+    assert replay_pattern(past, knowledge(), start).passed

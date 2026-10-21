@@ -55,6 +55,9 @@ Application facts live in `jobs_facts`, one row per fact keyed by a dotted name
 (`education.graduation_date`), with a JSON value typed by `value_type`.
 `/v1/jobs/facts` lists, sets, verifies, and deletes them; a write is validated
 against its type here and by a database check. Setting a value marks it verified.
+Saving an unchanged value, label, type, and verification state is a no-op;
+an explicit verification still records the new verification time. Fact keys
+are limited to 200 characters, matching the change history.
 An empty text or list is a fact too: the answer is none, and the worker leaves
 that field blank on purpose. A choice is never empty.
 Unknown or optional EEO values are not inferred.
@@ -140,7 +143,8 @@ fact write records a `jobs_changes` row in its own transaction: the subject
 (`pattern` by id, `fact` by key), the action, the row before and after as JSON,
 who made it (`you`, `inbox`, `model`), and, when the write names one, the
 failure it answered (a run of yours and the question's key). A binding that
-replaces another records the one it retired too. A pattern the worker learned
+replaces another records the one it retired too, as does marking its question
+one-off, long-form, or unbound. A pattern the worker learned
 arrives with its verification, the sightings it replayed and how many it made
 wrong; one that made any wrong cannot arrive active, so it waits in the Inbox,
 and `GET /v1/jobs/inbox` carries that failed change as the candidate's `check`.
@@ -153,9 +157,27 @@ subject, subject id, and status, newest first.
 answer submitted with an application, newest first, with the input type or tag
 it was typed into and the last fill event its run made for that question (the
 control's kind and attributes, the options it offered when they were kept, the
-fact and formatter, and the hash of what was filled). The submitted answer is
+fact and formatter, the hash of what was filled, and the exact fact values,
+types, and seed used for that attempt). The submitted answer is
 the one you accepted. An answer from before `jobs_questions` has no question
-row, so its own normalized key stands in for one.
+row, so its own normalized key stands in for one. Historical attempts without
+a knowledge snapshot remain readable; the worker identifies replay cases
+whose original inputs cannot be verified.
+
+### Similar questions
+
+`POST /v1/jobs/questions/similar` compares question labels using cosine
+similarity. `jobs_search.py` calls OpenAI `text-embedding-3-small` in batches,
+caches each recorded question's 1536-dimensional vector, and returns matches
+above the requested threshold (default 0.65), with only approved prose attached.
+`prose_only` restricts matches to questions that have approved writing. The same
+endpoint can find short or one-off questions without that restriction. Only
+question labels reach OpenAI. Provider calls run outside database transactions;
+missing or invalid provider results return 503 without saving vectors. Exact
+comparisons scan this single user's small corpus; no approximate index is needed.
+The model is pinned in code; replacing it requires clearing and rebuilding all
+cached vectors. The key is `PERSONAL_OS_API_OPENAI_API_KEY`, supplied from GCP
+Secret Manager; it is never sent to the worker or frontend.
 
 ### Devices
 
@@ -246,6 +268,7 @@ src/personal_os_backend/
   jobs_storage.py   private Storage bucket reads and writes
   jobs_answers.py   questions, patterns, prose, the archive, and the Inbox
   jobs_changes.py   /v1/jobs/changes and /sightings: the change history and what it is replayed against
+  jobs_search.py    cached question embeddings and approved-prose similarity search
   jobs_devices.py   /v1/jobs/devices: the heartbeat upsert and the device list
 tests/              pytest suite, async mode auto
 Dockerfile          builds from the repository root build context, not from here

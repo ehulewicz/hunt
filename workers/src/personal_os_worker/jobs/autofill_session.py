@@ -243,6 +243,7 @@ class SessionState:
     # question -> (the model's draft, the previous answers it started from), for
     # each long-form answer's provenance.
     origins: dict[str, tuple[str, tuple[str, ...]]] = field(default_factory=dict)
+    similar_prose: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
 
 def page_signature(page: Page, fields: list[dict[str, Any]]) -> tuple[str, tuple[str, ...]]:
@@ -428,6 +429,17 @@ class AutofillSession:
 
     # ----- reporting -------------------------------------------------------
 
+    def persist_step(self, run_id: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        """Attach the exact inputs used for each attempt before storing its observation."""
+        payload = dict(payload)
+        if "fill_events" in payload:
+            knowledge = self.ctx.knowledge
+            snapshot = {"facts": knowledge.facts, "types": knowledge.types, "seed": knowledge.seed}
+            payload["fill_events"] = [
+                event | {"knowledge": snapshot} for event in payload["fill_events"]
+            ]
+        return self.ctx.api.persist_autofill_step(run_id, payload)
+
     def upload_evidence(self, evidence: dict[str, bytes]) -> dict[str, str]:
         with self.timings.measure("evidence_upload", step=self.state.step):
             return self._upload_evidence(evidence)
@@ -458,7 +470,7 @@ class AutofillSession:
                 page_evidence(self.page, captured, console_errors=self.ctx.console_errors)
             )
         fingerprint = f"{category}|{self.page.url.split('?', 1)[0]}|{self.state.step}"
-        self.ctx.api.persist_autofill_step(
+        self.persist_step(
             self.ctx.run_id,
             {
                 "step_number": self.state.step,
@@ -513,7 +525,7 @@ class AutofillSession:
         pending = self.state.observations[self.state.persisted_observations :]
         for offset in range(0, len(pending), 500):
             batch = pending[offset : offset + 500]
-            self.ctx.api.persist_autofill_step(
+            self.persist_step(
                 self.ctx.run_id,
                 {
                     "step_number": self.state.step,
@@ -693,7 +705,7 @@ class AutofillSession:
     ) -> None:
         """Write the gate as a fill event, so the question and its proposal are learned."""
         question = str(gate["label"])
-        self.ctx.api.persist_autofill_step(
+        self.persist_step(
             self.ctx.run_id,
             {
                 "step_number": self.state.step,
@@ -870,7 +882,7 @@ class AutofillSession:
         if self.ctx.dry_run:
             if explainer is not None:
                 explainer.dry_run()
-            self.ctx.api.persist_autofill_step(
+            self.persist_step(
                 self.ctx.run_id,
                 {
                     "step_number": self.state.step,
@@ -975,7 +987,7 @@ class AutofillSession:
             artifact_paths = self.upload_evidence(self.evidence)
             for failure in result["failures"]:
                 failure["artifact_paths"] = artifact_paths
-        issues = self.ctx.api.persist_autofill_step(
+        issues = self.persist_step(
             self.ctx.run_id,
             {
                 "step_number": self.state.step,
@@ -1053,7 +1065,9 @@ class AutofillSession:
     def failure(self, question: str) -> dict[str, Any]:
         """The failure a change made in this run answers: the run, and its question."""
         key = normalize_answer_question(question)
-        return {"run_id": self.ctx.run_id} | ({"question_key": key} if key else {})
+        return {"run_id": self.ctx.run_id} | (
+            {"question_key": key} if key and len(key) <= 1000 else {}
+        )
 
     def bind(self, question: str, fact_key: str, *, origin: str) -> str | None:
         """Bind one question to a fact and add it to what this run knows; why not, if not."""
@@ -1071,6 +1085,7 @@ class AutofillSession:
         status: str = "active",
         failure: dict[str, Any] | None = None,
         verification: dict[str, int] | None = None,
+        use_for_run: bool = False,
     ) -> str | None:
         """Save a pattern, and add it to this run's knowledge once it is active; why not,
         if not. A binding replaces its question's binding here as it does in the API."""
@@ -1086,8 +1101,8 @@ class AutofillSession:
             return f"the pattern could not be saved (HTTP {error.response.status_code})"
         except (httpx.HTTPError, ReferenceError, RuntimeError) as error:
             return f"the pattern could not be saved ({error.__class__.__name__})"
-        if created.get("status") == "active":
-            self.ctx.knowledge = self.ctx.knowledge.with_pattern(created)
+        if created.get("status") == "active" or use_for_run:
+            self.ctx.knowledge = self.ctx.knowledge.with_pattern(created | {"status": "active"})
         return None
 
     def sightings(self) -> list[Sighting] | None:
@@ -1160,11 +1175,27 @@ class AutofillSession:
             status="candidate" if held else "active",
             failure=self.failure(question),
             verification=replay.verification() if replay is not None else None,
+            use_for_run=held and overriding,
         )
+        if lesson.kind == "expression" and failed == "this expression already waits in the Inbox":
+            lesson, replay = self.checked(lesson.bound(f"expression not kept: {failed}"))
+            held = replay is not None and not replay.passed
+            failed = self.remember(
+                lesson.shape(), fact_key, origin="model",
+                status="candidate" if held else "active", failure=self.failure(question),
+                verification=replay.verification() if replay is not None else None,
+                use_for_run=held and overriding,
+            )
         if failed is not None:
             return failed
         if held and replay is not None:
             reason = f"it waits in the Inbox as a pattern check: {replay.summary()}"
+            if overriding:
+                # The current answer was independently checked against a fact.
+                # Repair this run, while the conflicting historical answer keeps
+                # the reusable lesson pending the user's review.
+                echo("review", question, note=f"correcting this run only; {reason}")
+                return None
             self.state.held[(question, fact_key)] = reason
             return reason
         what = f"/{lesson.expression}/" if lesson.kind == "expression" else "bound"
@@ -1288,11 +1319,31 @@ class AutofillSession:
 
     def references(self, question: str) -> list[dict[str, Any]]:
         """Your approved writing on similar questions; the archive is never a suggestion."""
+        key = normalize_answer_question(question)
+        if key in self.state.similar_prose:
+            return self.state.similar_prose[key]
+        search = getattr(self.ctx.api, "similar_questions", None)
+        if search is not None:
+            try:
+                matches = search(question, prose_only=True)
+                references = [
+                    {"question": match["question"], "answer_text": prose["text"]}
+                    for match in matches for prose in match.get("prose") or []
+                    if prose.get("approved") and str(prose.get("text") or "").strip()
+                ][:5]
+                self.state.similar_prose[key] = references
+                return references
+            except (httpx.HTTPError, RuntimeError):
+                self.warn_once(
+                    "similarity-unavailable", "Question similarity is unavailable; "
+                    "using wording matches for approved prose.",
+                )
         writing = [
             {"question": item.get("question_label"), "answer_text": item.get("text")}
             for item in self.ctx.knowledge.prose
         ]
-        return similar_answers(question, writing)
+        self.state.similar_prose[key] = similar_answers(question, writing)
+        return self.state.similar_prose[key]
 
     def seed_for(self, question: str, *, limit: int | None = None) -> tuple[str, str, str, str]:
         """Return (seed text, seed source, resolver id, human note)."""
@@ -1821,7 +1872,7 @@ class AutofillSession:
             )
         if not failures:
             return False
-        issues = self.ctx.api.persist_autofill_step(
+        issues = self.persist_step(
             self.ctx.run_id,
             {
                 "step_number": self.state.step,
@@ -2124,7 +2175,7 @@ class AutofillSession:
             shown or value, source, resolver_id, fact_key=fact_key, formatter=formatter,
             pattern_id=pattern_id,
         )
-        self.ctx.api.persist_autofill_step(
+        self.persist_step(
             self.ctx.run_id,
             {
                 "step_number": self.state.step,

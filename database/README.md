@@ -34,6 +34,9 @@ at most one binding per question is `active`, and one row exists per question
 and fact. Prose is long-form writing tied to the question and application it
 was written for, unapproved until reviewed. Answer history and fill events carry
 `question_id`, and fill events the `pattern_id` that produced their value.
+`jobs_questions.embedding` caches `extensions.vector(1536)` for the single
+pinned question-embedding model. It remains in the private `app` schema, and
+only the API role reads or writes it.
 
 The archive is the old system, renamed and frozen — the API role can only read
 it: `jobs_archive_answers` (the former answer library, 198 rows),
@@ -67,7 +70,10 @@ as a dimension only, a value hash, `stopped_at` (`pattern`, `format`,
 `strategy`, or null) with `operated_ok` (true read back, false failed, null not
 attempted), and `options`, the JSON array of what the control offered (null
 when it offered nothing or its menu was never read), so a learned change can be
-replayed against what the page showed. `question_key` and `resolver_id` stand in until `jobs_questions` and
+replayed against what the page showed. Each attempt also stores `knowledge`,
+a JSON snapshot of the fact values, types, and seed the worker used, so replay
+can reproduce old answers without borrowing today's posting or facts. Legacy
+events leave it null. `question_key` and `resolver_id` stand in until `jobs_questions` and
 `jobs_patterns` exist and add real foreign keys.
 
 `jobs_devices` is one row per machine that runs the Hunt agent, keyed by an id

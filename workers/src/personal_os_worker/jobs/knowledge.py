@@ -15,11 +15,13 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+import httpx
 from rich import box
 from rich.markup import escape
 from rich.table import Table
 
 from personal_os_worker.core.api import WorkerApi
+from personal_os_worker.core.auth import LoginError
 from personal_os_worker.core.commands import connected
 from personal_os_worker.core.tables import console, pick, short_id
 from personal_os_worker.jobs.archive.lookup import translate
@@ -109,13 +111,17 @@ def print_replay(replay: Replay) -> None:
 
 
 def run_replay(*, question: str | None = None, fact_key: str | None = None) -> int:
-    """0 when no accepted answer changes for the worse, else 1."""
-    config, token = connected()
-    api = WorkerApi(config, token)
+    """0 for a passing replay, 1 for a regression, 2 when the check could not run."""
     try:
-        replay = code_replay(api, question=question, fact_key=fact_key)
-    finally:
-        api.close()
+        config, token = connected()
+        api = WorkerApi(config, token)
+        try:
+            replay = code_replay(api, question=question, fact_key=fact_key)
+        finally:
+            api.close()
+    except (httpx.HTTPError, LoginError, RuntimeError, ReferenceError) as error:
+        console.print(f"Replay could not complete: {error}", markup=False)
+        return 2
     print_replay(replay)
     return 0 if replay.passed else 1
 

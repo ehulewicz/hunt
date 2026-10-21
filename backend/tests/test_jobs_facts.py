@@ -154,6 +154,18 @@ async def test_a_new_fact_needs_a_label_and_type(client: httpx.AsyncClient) -> N
     assert body["verified_at"] is not None
 
 
+async def test_fact_keys_too_long_for_change_history_are_rejected_before_writing(
+    client: httpx.AsyncClient, store: FakeFactStore,
+) -> None:
+    key = "custom." + "x" * 194
+    response = await client.put(
+        f"/v1/jobs/facts/{key}", headers=HEADERS,
+        json={"value": "value", "label": "Example", "value_type": "text"},
+    )
+    assert response.status_code == 422
+    assert store.rows == {}
+
+
 async def test_updating_a_fact_keeps_its_label_and_type(
     client: httpx.AsyncClient, store: FakeFactStore
 ) -> None:

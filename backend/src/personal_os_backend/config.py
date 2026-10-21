@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     database_pool_timeout_seconds: float = Field(default=10.0, gt=0)
     cors_allowed_origins: list[str] = Field(default_factory=list)
     supabase_secret_key: SecretStr | None = None
+    openai_api_key: SecretStr | None = None
 
     @field_validator("allowed_email")
     @classmethod

@@ -10,7 +10,12 @@ from fastapi import FastAPI
 from pydantic import ValidationError
 
 from personal_os_backend.config import Settings
-from personal_os_backend.jobs_answers import PatternCreate, PatternUpdate, PostgresAnswerStore
+from personal_os_backend.jobs_answers import (
+    PatternCreate,
+    PatternUpdate,
+    PostgresAnswerStore,
+    QuestionUpdate,
+)
 from personal_os_backend.jobs_changes import (
     Change,
     CodeChangeCreate,
@@ -176,6 +181,29 @@ async def test_retiring_a_pattern_records_it_before_and_after() -> None:
     assert change["before"]["status"] == "active" and change["after"]["status"] == "retired"
 
 
+@pytest.mark.parametrize("disposition", ["one_off", "long_form", "unbound"])
+async def test_changing_question_disposition_records_its_retired_binding(disposition: str) -> None:
+    old = pattern_row("active")
+
+    def answer(query: str, params: Any) -> list[dict[str, Any]]:
+        if "from app.jobs_patterns pattern" in query:
+            return [old]
+        return []
+
+    connection = ScriptConnection(answer)
+    store = PostgresAnswerStore(ScriptPool(connection), 5)  # type: ignore[arg-type]
+    await store.update_question(
+        USER_ID, old["question_id"], QuestionUpdate(disposition=disposition),
+    )
+
+    [change] = connection.changes
+    assert (change["subject_id"], change["action"], change["origin"]) == (
+        str(old["id"]), "retire", "inbox",
+    )
+    assert change["before"]["status"] == "active"
+    assert change["after"]["status"] == "retired"
+
+
 async def test_a_binding_that_replaces_another_records_both() -> None:
     question_id, old_id, new_id = uuid4(), uuid4(), uuid4()
 
@@ -238,6 +266,8 @@ async def test_every_fact_write_is_a_change_keyed_by_the_fact() -> None:
         value="Alexander", label="Middle name", value_type="text", origin="inbox",
         failure=Failure(run_id=RUN_ID, question_key="middle name"),
     ))
+    await store.set_fact(USER_ID, "identity.middle_name", FactWrite(value="A."))
+    # Saving the same verified value again must not manufacture another change.
     await store.set_fact(USER_ID, "identity.middle_name", FactWrite(value="A."))
     await store.verify_fact(USER_ID, "identity.middle_name")
     assert await store.delete_fact(USER_ID, "identity.middle_name")

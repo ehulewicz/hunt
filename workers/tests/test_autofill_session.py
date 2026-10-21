@@ -1016,6 +1016,7 @@ def test_the_model_teaches_a_pattern_and_the_pattern_pass_fills_the_field(
     campus = by_question["Which campus will you report to?"]
     assert (campus["source"], campus["pattern_id"]) == ("pattern", "learned-1")
     assert all(event["source"] != "model" for event in events)
+    assert all(event["knowledge"]["facts"]["education.campus"] == "Atlanta" for event in events)
     assert api.library == {}
     # Nothing accepted was there to contradict it; it was replayed all the same.
     assert api.created_with[0]["verification"] == {"sampled": 0, "failed": 0}
@@ -1027,7 +1028,39 @@ def test_the_model_teaches_a_pattern_and_the_pattern_pass_fills_the_field(
 def accepted(question: str, answer: str) -> dict[str, Any]:
     return {"question": question, "question_key": question.casefold(), "kind": "text_entry",
             "attributes": {"tag": "input", "type": "text"}, "control": "text",
-            "options": None, "answer": answer, "fact_key": None, "value_hash": None}
+            "options": None, "answer": answer, "fact_key": None, "value_hash": None,
+            "knowledge": {"facts": {"education.campus": "Atlanta",
+                                    "work_auth.requires_sponsorship": False},
+                          "types": {"work_auth.requires_sponsorship": "boolean"}}}
+
+
+def test_an_expression_waiting_in_inbox_can_fall_back_to_a_checked_binding(
+    browser_page, monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
+) -> None:
+    import httpx
+
+    api = FakeApi()
+    create = api.create_pattern
+
+    def refuse_waiting_expression(**fields: Any) -> dict[str, Any]:
+        if fields["kind"] == "expression":
+            response = httpx.Response(
+                409, json={"detail": "this expression already waits in the Inbox"},
+                request=httpx.Request("POST", "https://api.test/v1/jobs/patterns"),
+            )
+            response.raise_for_status()
+        return create(**fields)
+
+    monkeypatch.setattr(api, "create_pattern", refuse_waiting_expression)
+    session = audit_session(browser_page, facts={"education.campus": "Atlanta"}, api=api)
+    question = "Which campus?"
+    refusal = session.save_lesson(
+        question, "education.campus", r"\bcampus\b", [question],
+        {"label": question, "tag": "input", "type": "text"},
+    )
+    assert refusal is None
+    assert [(p["kind"], p["status"]) for p in api.patterns_created] == [("binding", "active")]
+    assert api.created_with[0]["verification"] == {"sampled": 0, "failed": 0}
 
 
 @pytest.mark.parametrize(
@@ -1531,7 +1564,7 @@ def test_greenhouse_short_answer_essay_input_is_seeded_like_a_textarea(
     session = AutofillSession(cast(Any, SimpleNamespace(
         page=browser_page, browser=FakeBrowser(browser_page), use_claude=True,
         company="Gemini", title="Software Engineer", description="Crypto exchange",
-        resume_json={}, knowledge=known({}),
+        resume_json={}, knowledge=known({}), api=FakeApi(),
         drafter=lambda **_: "Short draft that fits.",
     )))
 
@@ -1550,7 +1583,7 @@ def test_a_draft_over_the_controls_cap_is_left_for_the_user(
     session = AutofillSession(cast(Any, SimpleNamespace(
         page=browser_page, browser=FakeBrowser(browser_page), use_claude=True,
         company="Gemini", title="Software Engineer", description="Crypto exchange",
-        resume_json={}, knowledge=known({}),
+        resume_json={}, knowledge=known({}), api=FakeApi(),
         drafter=lambda **_: "x" * 300,
     )))
 
@@ -1611,8 +1644,10 @@ def audit_session(
     return AutofillSession(context)
 
 
+@pytest.mark.parametrize("past_wrong_answer", [False, True])
 def test_the_audit_corrects_an_answer_the_worker_filled_that_a_fact_contradicts(
     browser_page,  # type: ignore[no-untyped-def]
+    past_wrong_answer: bool,
 ) -> None:
     browser_page.set_content(AUDIT_FORM)
     question = "Do you require sponsorship?"
@@ -1627,6 +1662,8 @@ def test_the_audit_corrects_an_answer_the_worker_filled_that_a_fact_contradicts(
         }
 
     api = FakeApi()
+    if past_wrong_answer:
+        api.accepted = [accepted(question, "Yes")]
     session = audit_session(
         browser_page, facts={"work_auth.requires_sponsorship": False}, checker=checker, api=api
     )
@@ -1647,6 +1684,9 @@ def test_the_audit_corrects_an_answer_the_worker_filled_that_a_fact_contradicts(
             for item in api.patterns_created] == [
         ("binding", question, "work_auth.requires_sponsorship", "model"),
     ]
+    assert api.patterns_created[0]["status"] == (
+        "candidate" if past_wrong_answer else "active"
+    )
     events = [event for step in api.steps for event in step.get("fill_events", [])]
     assert (events[-1]["source"], events[-1]["pattern_id"]) == ("pattern", "learned-1")
 

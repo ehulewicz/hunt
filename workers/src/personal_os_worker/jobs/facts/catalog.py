@@ -57,14 +57,15 @@ CATALOG = _entries(
     CatalogEntry("contact.portfolio_url", "Portfolio or personal website URL", "text"),
     CatalogEntry("contact.x_url", "X (Twitter) profile URL", "text"),
     CatalogEntry("contact.facebook_url", "Facebook profile URL", "text"),
-    CatalogEntry("address.line_1", "Street address", "text"),
+    CatalogEntry("address.line_1", "Street address (current, permanent, and mailing)", "text"),
     CatalogEntry("address.line_2", "Second address line", "text"),
-    CatalogEntry("address.city", "Current city", "text"),
-    CatalogEntry("address.state", "Current state", "text"),
+    CatalogEntry("address.city", "City (current, permanent, and mailing)", "text"),
+    CatalogEntry("address.state", "State (current, permanent, and mailing)", "text"),
     CatalogEntry("address.postal_code", "Postal code", "text"),
     CatalogEntry("address.country", "Country of residence", "text"),
     CatalogEntry(
-        "address.location", "Current location as city, state, country", "text", "derived"
+        "address.location", "Current or permanent location as city, state, country",
+        "text", "derived"
     ),
     CatalogEntry(
         "address.city_state_zip", "City, state and postal code as one line", "text", "derived"

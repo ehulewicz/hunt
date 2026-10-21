@@ -861,9 +861,12 @@ def run_autofill_failure_command(
                 check=False, text=True,
             )
             if accepted.returncode != 0:
+                reason = (
+                    "it changes answers you accepted" if accepted.returncode == 1
+                    else "the accepted-answer check could not complete; see its error above"
+                )
                 console.print(
-                    "Patch applied, but it changes answers you accepted. It was not marked "
-                    "verified."
+                    f"Patch applied, but {reason}. It was not marked verified."
                 )
                 return 1
             api.update_autofill_failure(issue_id, {"status": "replay_passed"})

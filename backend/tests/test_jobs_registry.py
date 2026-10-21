@@ -192,6 +192,8 @@ async def test_no_fill_event_proposes_a_pattern(overrides: dict[str, Any]) -> No
 
 async def test_an_event_keeps_the_options_its_control_offered() -> None:
     connection = FakeConnection()
+    snapshot = {"facts": {"referral.referred": True},
+                "types": {"referral.referred": "boolean"}, "seed": "historical-run"}
     await record_fill_events(
         connection,  # type: ignore[arg-type]
         user_id=USER_ID,
@@ -199,7 +201,7 @@ async def test_an_event_keeps_the_options_its_control_offered() -> None:
         step=0,
         ats="greenhouse",
         events=[
-            FillEventCreate.model_validate(event(options=["Yes", "No"])),
+            FillEventCreate.model_validate(event(options=["Yes", "No"], knowledge=snapshot)),
             FillEventCreate.model_validate(event(question="First name")),
         ],
     )
@@ -208,3 +210,5 @@ async def test_an_event_keeps_the_options_its_control_offered() -> None:
     ]
     assert inserts[0][17].obj == ["Yes", "No"]
     assert inserts[1][17] is None
+    assert inserts[0][18].obj == snapshot
+    assert inserts[1][18] is None

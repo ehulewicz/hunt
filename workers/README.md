@@ -136,6 +136,8 @@ formatter — and `jobs/archive/lookup.py` applies them in the old order, for
 what every archived question translates to (R30). `jobs/facts/catalog.py` is
 every fact key with its label, type, sensitivity, and whether it is stored,
 career-derived, or derived.
+Current, permanent, and mailing address questions all use the same `address.*`
+facts; their labels explicitly tell the model that these meanings coincide.
 
 `jobs/inbox.py` is `os hunt inbox`; `jobs/knowledge.py` is `os hunt patterns`,
 `replay`, `prose`, and `archive`.
@@ -144,7 +146,9 @@ career-derived, or derived.
 `jobs/replay.py` replays it against sightings, the short answers submitted with
 applications (`/v1/jobs/sightings`), each rebuilt as the control it was, with
 the options it offered when they were kept: the resolver and formatters run
-once as things stand and once with the change. It replays the sightings the
+once as things stand and once with the change, using each attempt's original
+fact values, types, and seed from its fill event. Today's dates, posting facts,
+or edited facts therefore cannot count as code regressions. It replays the sightings the
 change can affect (those its question or expression matches, and those filled
 from its fact), the 25 newest, and 25 more at random, seeded by the change. A
 sighting fails when the change gives it a different answer that is not the one
@@ -155,7 +159,22 @@ since a sighting from before options were kept rebuilds a menu without them.
 `os hunt replay` runs the code as it stands the same way; a code change cannot
 be run as it was, so its before is what the worker filled then, known only when
 that was the accepted answer or nothing, and unknown for an answer from before
-fill events.
+fill events. Legacy sightings without snapshots can check a pattern only when
+the unchanged resolver still produces the accepted answer. Code replay lists
+them as unchecked; its summary reports unavailable baselines explicitly.
+The command exits 0 for a passing check, 1 for changed accepted answers, and 2
+when authentication, transport, or API errors prevent the check from completing.
+
+**Prose attribution.** `jobs/provenance.py` marks matching stretches of a final
+long-form answer as `previous` or `model`; unmarked text is yours. Previous
+writing wins when both sources match, and matches shorter than 16 characters
+are ignored. Spans use character offsets in the final text, are ordered, and
+never overlap. Every run saves its prose for review, including runs not submitted.
+For a new question, the worker asks FastAPI for semantically similar questions
+with approved prose, caches that result for the run, and supplies up to five
+pieces to the existing drafting call. Exact approved questions reuse their prose
+directly. If semantic search is unavailable, it reports that and uses the
+existing wording comparison; no embedding key is kept on the device.
 
 ## Repair
 
@@ -281,7 +300,11 @@ expression that changes one falls back, once, to binding the question alone,
 replayed in turn; a lesson that still changes one is saved as a candidate with
 its verification, waits in the Inbox as a pattern check, and is saved once a
 run. The pattern records the run and question it answers, and the API keeps
-the change in `jobs_changes`.
+the change in `jobs_changes`. An expression already waiting in the Inbox also
+falls back to a checked binding of this question alone. If the answer check
+finds a wrong worker answer but historical answers disagree with the correction,
+the binding stays a candidate for review and is used only for this run. A
+user-authored pattern or an existing binding is still never overridden.
 The API refuses, too, any such pattern that would undo a decision of yours: one
 you rejected or retired, a binding over an existing one, or a question you
 marked one-off or long-form; and an expression already waiting in the Inbox. A question or gate a pattern decides never reaches

@@ -611,6 +611,13 @@ class PostgresAnswerStore:
             connection.transaction(),
         ):
             await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                f"select {PATTERN_COLUMNS} {PATTERN_FROM} where pattern.user_id = %s "
+                "and pattern.question_id = %s and pattern.kind = 'binding' "
+                "and pattern.status = 'active' for update of pattern",
+                (user_id, question_id),
+            )
+            retired = [Pattern.model_validate(row) for row in await cursor.fetchall()]
             await connection.execute(
                 """
                 update app.jobs_patterns set status = 'retired'
@@ -618,6 +625,11 @@ class PostgresAnswerStore:
                 """,
                 (user_id, question_id),
             )
+            for old in retired:
+                await _record_pattern(
+                    connection, user_id, "retire", old,
+                    old.model_copy(update={"status": "retired"}), origin="inbox",
+                )
             cursor = await connection.execute(
                 f"""
                 update app.jobs_questions set disposition = %s, pattern_id = null

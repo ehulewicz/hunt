@@ -19,6 +19,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from personal_os_backend.jobs_answers import normalize_answer_key, upsert_question
+from personal_os_backend.jobs_changes import ReplayKnowledge
 
 ControlKind = Literal[
     "text_entry",
@@ -62,6 +63,7 @@ class FillEventCreate(BaseModel):
     options: list[Annotated[str, Field(max_length=1000)]] | None = Field(
         default=None, max_length=1000
     )
+    knowledge: ReplayKnowledge | None = None
 
     @field_validator("strategy")
     @classmethod
@@ -161,10 +163,10 @@ async def record_fill_events(
             insert into app.jobs_fill_events (
               user_id, run_id, step, question_key, resolver_id, fact_key, formatter,
               source, control_id, strategy_id, ats, value_hash, stopped_at, operated_ok,
-              question_id, pattern_id, options
+              question_id, pattern_id, options, knowledge
             ) values (
               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-              (select id from app.jobs_patterns where id = %s and user_id = %s), %s
+              (select id from app.jobs_patterns where id = %s and user_id = %s), %s, %s
             )
             """,
             (
@@ -186,6 +188,7 @@ async def record_fill_events(
                 event.pattern_id,
                 user_id,
                 Jsonb(event.options) if event.options is not None else None,
+                Jsonb(event.knowledge.model_dump()) if event.knowledge is not None else None,
             ),
         )
         written += 1

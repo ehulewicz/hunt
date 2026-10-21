@@ -290,6 +290,17 @@ class WorkerApi:
         payload = self._json(self._client.get("/v1/jobs/prose"), "Prose")
         return payload if isinstance(payload, list) else []
 
+    def similar_questions(
+        self, question: str, *, prose_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        payload = self._json(
+            self._client.post(
+                "/v1/jobs/questions/similar",
+                json={"question": question, "prose_only": prose_only},
+            ), "Similar questions",
+        )
+        return payload if isinstance(payload, list) else []
+
     def create_prose(self, *, question: str, text: str, approved: bool = True) -> dict[str, Any]:
         payload = self._json(
             self._client.post(

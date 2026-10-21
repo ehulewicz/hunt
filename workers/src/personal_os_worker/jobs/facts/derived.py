@@ -69,7 +69,7 @@ DERIVED_FACTS = (
     DerivedFact("identity.last_name", "Last name", ("identity.legal_name",)),
     DerivedFact(
         "address.location",
-        "Current location as city, state, country",
+        "Current or permanent location as city, state, country",
         ("address.city", "address.state", "address.country"),
     ),
     DerivedFact(

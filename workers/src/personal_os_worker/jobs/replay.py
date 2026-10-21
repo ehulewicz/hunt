@@ -27,7 +27,7 @@ from __future__ import annotations
 import random
 import re
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from personal_os_worker.jobs.formatters import BLANK, renderings
@@ -66,6 +66,7 @@ class Sighting:
     answer: str
     fact_key: str | None
     value_hash: str | None
+    knowledge: dict[str, Any] | None = None
 
     @classmethod
     def of(cls, row: dict[str, Any]) -> Sighting:
@@ -79,6 +80,16 @@ class Sighting:
             answer=str(row.get("answer") or ""),
             fact_key=str(row["fact_key"]) if row.get("fact_key") else None,
             value_hash=str(row["value_hash"]) if row.get("value_hash") else None,
+            knowledge=dict(row["knowledge"]) if row.get("knowledge") is not None else None,
+        )
+
+    def context(self, current: Knowledge) -> Knowledge:
+        """Keep the code and patterns under test, using this attempt's original inputs."""
+        if self.knowledge is None:
+            return current
+        return replace(
+            current, facts=dict(self.knowledge["facts"]), types=dict(self.knowledge["types"]),
+            seed=str(self.knowledge.get("seed") or ""),
         )
 
     def field(self) -> dict[str, Any]:
@@ -191,17 +202,28 @@ class Replay:
     def passed(self) -> bool:
         return not self.failures
 
+    @property
+    def unchecked(self) -> int:
+        return sum(not outcome.before_known for outcome in self.outcomes)
+
     def verification(self) -> dict[str, int]:
-        return {"sampled": len(self.outcomes), "failed": len(self.failures)}
+        return {"sampled": len(self.outcomes) - self.unchecked, "failed": len(self.failures)}
 
     def summary(self) -> str:
+        context = (
+            f"; {self.unchecked} without original facts or a known baseline"
+            if self.unchecked else ""
+        )
         if self.passed:
-            return f"replayed {len(self.outcomes)} accepted answer(s), none changed for the worse"
+            return (
+                f"replayed {len(self.outcomes)} accepted answer(s), none changed for the worse"
+                + context
+            )
         worst = self.failures[0]
         return (
             f"{len(self.failures)} of {len(self.outcomes)} accepted answer(s) would change; "
             f"{worst.sighting.question.strip()!r} would get {worst.now!r}, "
-            f"not {worst.sighting.answer!r}"
+            f"not {worst.sighting.answer!r}" + context
         )
 
 
@@ -257,11 +279,19 @@ def replay_pattern(
     """Replay the sightings a new active pattern can affect, before and with it."""
     seed = str(pattern.get("expression") or pattern.get("question_key") or "")
     chosen = select(sightings, touched_by(pattern), seed=f"{seed}->{pattern.get('fact_key')}")
-    before, after = Resolver(knowledge), Resolver(knowledge.with_pattern(pattern))
-    return Replay(tuple(
-        Outcome(sighting, answer_of(before, sighting), answer_of(after, sighting))
-        for sighting in chosen
-    ))
+    outcomes: list[Outcome] = []
+    for sighting in chosen:
+        context = sighting.context(knowledge)
+        before = answer_of(Resolver(context), sighting)
+        after = answer_of(Resolver(context.with_pattern(pattern)), sighting)
+        # With no snapshot, today's fact is usable only when the unchanged
+        # resolver still reproduces what the user accepted. Otherwise a changed
+        # fact cannot be distinguished from a changed rule.
+        known = sighting.knowledge is not None or (
+            before is not None and before.says(sighting.answer, kind=sighting.kind)
+        )
+        outcomes.append(Outcome(sighting, before, after, before_known=known))
+    return Replay(tuple(outcomes))
 
 
 def replay_code(
@@ -285,11 +315,10 @@ def replay_code(
             or (fact_key and sighting.fact_key == fact_key)
         )
 
-    current = Resolver(knowledge)
     outcomes: list[Outcome] = []
     for sighting in select(sightings, touches, seed=seed or key):
-        after = answer_of(current, sighting)
-        if sighting.kind is None:
+        after = answer_of(Resolver(sighting.context(knowledge)), sighting)
+        if sighting.kind is None or sighting.knowledge is None:
             # No fill event: what the worker did then was never recorded.
             outcomes.append(Outcome(sighting, None, after, before_known=False))
         elif sighting.value_hash is None:
