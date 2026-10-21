@@ -35,7 +35,7 @@ const props = {
   stream: "live" as const, streamMessage: null, onRetry: () => undefined,
 };
 
-test("a short pane requests a full-width capture from an older agent", () => {
+test("the pane asks Chrome for a view of its own size", () => {
   const send = vi.fn();
   render(<HuntLive {...props} send={send} />);
   sizeSurface(1000, 600);
@@ -43,17 +43,18 @@ test("a short pane requests a full-width capture from an older agent", () => {
     callbacks[0]([], {} as ResizeObserver);
     vi.advanceTimersByTime(300);
   });
-  expect(send).toHaveBeenLastCalledWith({ type: "view", width: 1000, height: 1645, dpr: 1.25 });
+  // Not the 1065x1751 shape Chrome happened to give the tab: that made the pane scroll.
+  expect(send).toHaveBeenLastCalledWith({ type: "view", width: 1000, height: 600, dpr: 1.25 });
 
   sizeSurface(700, 600);
   act(() => {
     callbacks.at(-1)!([], {} as ResizeObserver);
     vi.advanceTimersByTime(300);
   });
-  expect(send).toHaveBeenLastCalledWith({ type: "view", width: 700, height: 1151, dpr: 1.25 });
+  expect(send).toHaveBeenLastCalledWith({ type: "view", width: 700, height: 600, dpr: 1.25 });
 });
 
-test("reconnecting sends the native aspect ratio again without waiting for a pane resize", () => {
+test("reconnecting asks for the pane's view again without waiting for a pane resize", () => {
   const send = vi.fn();
   const { rerender } = render(<HuntLive {...props} send={send} status="closed" />);
   sizeSurface(1000, 600);
@@ -61,5 +62,5 @@ test("reconnecting sends the native aspect ratio again without waiting for a pan
   send.mockClear();
   rerender(<HuntLive {...props} send={send} />);
   act(() => { vi.advanceTimersByTime(300); });
-  expect(send).toHaveBeenLastCalledWith({ type: "view", width: 1000, height: 1645, dpr: 1.25 });
+  expect(send).toHaveBeenLastCalledWith({ type: "view", width: 1000, height: 600, dpr: 1.25 });
 });

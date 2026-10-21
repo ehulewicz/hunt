@@ -8,6 +8,7 @@ import pytest
 from personal_os_worker.device import stream
 from personal_os_worker.device.stream import (
     key_events,
+    layout_size,
     mouse_params,
     page_point,
     screencast_size,
@@ -186,17 +187,46 @@ async def test_the_stream_shows_the_runs_tab_and_lists_only_pages() -> None:
     assert [tab["id"] for tab in tabs["tabs"]] == ["T1", "T2"] and tabs["current"] == "T2"
 
 
-async def test_a_short_viewer_does_not_reduce_the_resolution_of_a_tall_chrome_window() -> None:
-    view, cdp, _, _ = await started()
-    await view.resize({"width": 1180, "height": 700, "dpr": 1})
+def test_the_tab_is_laid_out_at_the_viewers_pane_but_never_narrower_than_a_desktop() -> None:
+    assert layout_size({"width": 1180, "height": 700, "dpr": 1.25}) == {
+        "width": 1180, "height": 700, "deviceScaleFactor": 1.25, "mobile": False,
+    }
+    # A narrow pane keeps the desktop layout, at the pane's shape, shown smaller.
+    assert layout_size({"width": 700, "height": 600, "dpr": 1}) == {
+        "width": 1024, "height": 878, "deviceScaleFactor": 1.0, "mobile": False,
+    }
+    assert layout_size({"width": 1180, "height": 700, "dpr": 5})["deviceScaleFactor"] == 3.0  # type: ignore[index]
+    assert layout_size({}) is None
+    assert layout_size({"width": 0, "height": 700}) is None
+
+
+async def test_the_shown_tab_fills_the_pane_at_the_viewers_pixel_density() -> None:
+    view, cdp, _, _ = await started(run_tab="T1")
+    await view.resize({"width": 1180, "height": 700, "dpr": 1.25})
+    # Chrome gives a tab in a minimized window whatever size it likes (2560x1271,
+    # 1065x1751); the pane then scrolls, or shrinks the page. Lay it out at the pane.
+    override = [
+        (params, session) for method, params, session in cdp.sent
+        if method == "Emulation.setDeviceMetricsOverride"
+    ][-1]
+    assert override == (
+        {"width": 1180, "height": 700, "deviceScaleFactor": 1.25, "mobile": False}, "S-T1"
+    )
     params = [params for method, params, _ in cdp.sent if method == "Page.startScreencast"][-1]
-    # A height cap of 700 shrinks a 1280x1800 window to 498x700; the page then
-    # enlarges those 498 pixels back to the pane's 1180-pixel width.
-    assert params["maxWidth"] == 1180
+    assert params["maxWidth"] == 1475
     assert "maxHeight" not in params
     assert params["quality"] >= 90
-    assert not any(method.startswith("Emulation.") for method, _, _ in cdp.sent)
+    order = cdp.methods()
+    assert order.index("Emulation.setDeviceMetricsOverride") < order.index("Page.startScreencast")
     await view.close()
+
+
+async def test_a_tab_gets_its_own_size_back_once_nobody_watches_it() -> None:
+    view, cdp, _, _ = await started(run_tab="T1")
+    await view.switch("T2")
+    assert ("Emulation.clearDeviceMetricsOverride", {}, "S-T1") in cdp.sent
+    await view.close()
+    assert ("Emulation.clearDeviceMetricsOverride", {}, "S-T2") in cdp.sent
 
 
 async def test_each_frame_reaches_the_viewer_before_it_is_acknowledged() -> None:

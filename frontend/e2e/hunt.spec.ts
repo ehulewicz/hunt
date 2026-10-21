@@ -194,7 +194,7 @@ test("an existing terminal application opens without starting another run", asyn
   expect(agent.runs).toEqual([]);
 });
 
-test("capture requests preserve native aspect ratio when the viewer pane resizes", async ({ page }) => {
+test("Chrome is asked for the pane's own view and the pane never scrolls itself", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const agent = await setup(page, true);
   await page.goto("/hunt");
@@ -204,9 +204,19 @@ test("capture requests preserve native aspect ratio when the viewer pane resizes
   for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 720 }]) {
     await page.setViewportSize(viewport);
     const expected = await surface.evaluate((element) => ({
-      type: "view", width: element.clientWidth, height: Math.ceil(element.clientWidth * 820 / 960), dpr: window.devicePixelRatio,
+      type: "view", width: element.clientWidth, height: element.clientHeight, dpr: window.devicePixelRatio,
     }));
     await expect.poll(() => agent.fromPage.filter((message) => message.type === "view").at(-1)).toEqual(expected);
+    // A 960x820 frame is taller than this pane; it is fitted, not scrolled.
+    const fit = await surface.evaluate((element) => {
+      const pane = element.getBoundingClientRect();
+      const image = element.querySelector("img")!.getBoundingClientRect();
+      return {
+        scrolls: element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth,
+        inside: image.top >= pane.top - 1 && image.bottom <= pane.bottom + 1 && image.left >= pane.left - 1 && image.right <= pane.right + 1,
+      };
+    });
+    expect(fit).toEqual({ scrolls: false, inside: true });
   }
   expect(agent.sockets()).toBe(1);
 });

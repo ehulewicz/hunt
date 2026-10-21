@@ -6,13 +6,10 @@ import { Globe2, Radio } from "lucide-react";
 import type { Frame, SessionStatus } from "@/components/use-device-session";
 import { keyMessage, pointerMessage, type Tab, type View, wheelMessage } from "@/lib/device";
 
-export function viewOf(element: HTMLElement | null, native?: Pick<Frame, "width" | "height"> | null): View {
+// The agent lays the tab out at this size, so a frame fills the pane exactly.
+export function viewOf(element: HTMLElement | null): View {
   const width = element?.clientWidth || 960;
-  // Older agents cap both dimensions. Match Chrome's aspect ratio so a short
-  // panel cannot force them to downscale the image's width before we show it.
-  const height = native && native.width > 0 && native.height > 0
-    ? Math.ceil(width * native.height / native.width)
-    : element?.clientHeight || Math.round(width * 0.625);
+  const height = element?.clientHeight || Math.round(width * 0.625);
   return { width, height, dpr: typeof window === "undefined" ? 1 : window.devicePixelRatio || 1 };
 }
 
@@ -65,20 +62,14 @@ export function HuntLive({
     return () => element.removeEventListener("wheel", onWheel);
   }, [send]);
 
-  const nativeWidth = frame?.width;
-  const nativeHeight = frame?.height;
-
-  // Negotiate again after the first frame, reconnect, or resize. Frame URLs change
-  // constantly; only native dimensions should cause another capture request.
+  // Ask for the pane's view on connect, reconnect, and resize.
   useEffect(() => {
     const element = surface.current;
     if (!element || status !== "open") return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const schedule = () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => send({ type: "view", ...viewOf(element,
-        nativeWidth && nativeHeight ? { width: nativeWidth, height: nativeHeight } : null,
-      ) }), 300);
+      timer = setTimeout(() => send({ type: "view", ...viewOf(element) }), 300);
     };
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
     observer?.observe(element);
@@ -89,7 +80,7 @@ export function HuntLive({
       window.removeEventListener("resize", schedule);
       if (timer) clearTimeout(timer);
     };
-  }, [send, status, nativeWidth, nativeHeight]);
+  }, [send, status]);
 
   function pointer(event: React.MouseEvent, kind: "move" | "down" | "up") {
     if (!image.current) return;

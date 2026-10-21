@@ -189,9 +189,9 @@ input::placeholder, textarea::placeholder { color: var(--ui-faint); opacity: 1; 
 .browser-live { color: var(--ui-success); }
 .browser-live svg, .browser-state svg { width: 10px; height: 10px; }
 .browser-tab-placeholder { padding-inline: 6px; color: var(--ui-muted); font-size: 11px; }
-.live-surface { flex: 1; display: flex; align-items: flex-start; justify-content: center; min-height: 0; overflow: auto; border: 0; border-radius: 0; background: var(--ui-bg); }
+.live-surface { flex: 1; display: flex; align-items: flex-start; justify-content: center; min-height: 0; overflow: hidden; border: 0; border-radius: 0; background: var(--ui-bg); }
 .live-surface.focused { outline-offset: -3px; }
-.live-surface img { flex: 0 0 auto; max-height: none; width: 100%; height: auto; }
+.live-surface img { flex: 0 0 auto; max-width: 100%; max-height: 100%; width: auto; height: auto; }
 .live-notice, .live-waiting { align-self: center; margin: auto; font-size: 13px; }
 .live-surface > .live-waiting:not(:only-child) { color: var(--ui-text); }
 .session-footer { padding-inline: 25px; }

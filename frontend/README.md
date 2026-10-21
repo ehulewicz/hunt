@@ -80,10 +80,10 @@ overview closes only the browser's device session, not the application run.
 The device's Chrome occupies the right panel. Its tabs scroll horizontally;
 frames are JPEGs over an authenticated WebSocket. Clicks, wheel turns, and keys on
 the focused view go to Chrome, and Ctrl+V pastes this computer's clipboard.
-After the first frame, reconnect, and resize, the page requests a capture at the
-panel's pixel width and Chrome's native aspect ratio. The capture height is
-independent of the visible panel height, so older agents that cap both dimensions
-also retain full-width detail. A device this browser
+On connect, reconnect, and resize, the page sends the panel's size and pixel
+density, and the agent lays the tab out at that size. A frame fills the panel
+one image pixel to each screen pixel, the panel itself never scrolls, and every
+wheel turn scrolls Chrome. A frame of another shape is fitted inside the panel. A device this browser
 cannot reach explains the tailnet connection and offers a retry. A second window
 can take over a session. Run controls and answer submission are disabled while
 disconnected. The console uses token classes for its styled spans, follows new

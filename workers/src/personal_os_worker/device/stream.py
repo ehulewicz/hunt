@@ -27,6 +27,9 @@ import httpx
 QUALITY = 90
 MAX_SIDE = 2560
 DEFAULT_SIZE = (1280, 800)
+# Narrower than this, most boards switch to their tablet layout.
+MIN_LAYOUT_WIDTH = 1024
+MAX_SCALE = 3.0
 # A minimized or idle tab may not paint; one screenshot shows it until it does.
 FIRST_FRAME_SECONDS = 1.5
 # How long a tab switch waits for the stream to finish opening.
@@ -65,6 +68,29 @@ def screencast_size(view: dict[str, Any]) -> tuple[int, int]:
     except (KeyError, TypeError, ValueError):
         return DEFAULT_SIZE
     return max(200, min(MAX_SIDE, width)), max(200, min(MAX_SIDE, height))
+
+
+def layout_size(view: dict[str, Any]) -> dict[str, Any] | None:
+    """The viewport the shown tab is laid out at: the viewer's pane, at its pixel density.
+
+    A pane narrower than a desktop keeps the desktop layout at the pane's shape,
+    and is shown smaller. None when the viewer gave no usable size.
+    """
+    try:
+        width = float(view["width"])
+        height = float(view["height"])
+        ratio = float(view.get("dpr") or 1)
+    except (KeyError, TypeError, ValueError):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    layout_width = max(MIN_LAYOUT_WIDTH, round(width))
+    return {
+        "width": layout_width,
+        "height": round(layout_width * height / width),
+        "deviceScaleFactor": min(MAX_SCALE, max(1.0, ratio)),
+        "mobile": False,
+    }
 
 
 def _fraction(value: Any) -> float:
@@ -347,6 +373,8 @@ class Stream:
         if self.session is not None:
             with contextlib.suppress(CdpError):
                 await cdp.send("Page.stopScreencast", {}, self.session)
+            with contextlib.suppress(CdpError):
+                await cdp.send("Emulation.clearDeviceMetricsOverride", {}, self.session)
         self.session = self.current = None
         await cdp.close()
 
@@ -359,6 +387,9 @@ class Stream:
             if self.session is not None:
                 with contextlib.suppress(CdpError):
                     await cdp.send("Page.stopScreencast", {}, self.session)
+                # The tab the viewer leaves goes back to its own size.
+                with contextlib.suppress(CdpError):
+                    await cdp.send("Emulation.clearDeviceMetricsOverride", {}, self.session)
                 with contextlib.suppress(CdpError):
                     await cdp.send("Target.detachFromTarget", {"sessionId": self.session})
             self.session, self.meta = None, None
@@ -385,10 +416,15 @@ class Stream:
                 )
 
     async def _start(self, cdp: Cdp) -> None:
+        # Chrome lays out a tab in a minimized window at whatever size it likes
+        # (2560x1271 for one tab, 1065x1751 for the next): the pane then had to
+        # scroll, or shrink the page. Laid out at the pane, a frame fills it
+        # exactly, one image pixel to each of the viewer's, and every wheel turn
+        # scrolls Chrome.
+        metrics = layout_size(self.view)
+        if metrics is not None:
+            await cdp.send("Emulation.setDeviceMetricsOverride", metrics, self.session)
         width, _ = screencast_size(self.view)
-        # Chrome preserves aspect ratio. Capping a tall native window to the
-        # panel's height also shrinks its width, which the page then upscales.
-        # Capture at the viewer's pixel width and let its panel scroll vertically.
         await cdp.send(
             "Page.startScreencast",
             {"format": "jpeg", "quality": QUALITY, "maxWidth": width,

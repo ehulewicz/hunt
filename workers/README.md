@@ -91,10 +91,13 @@ distro; `os device status` says what it is doing.
   itself when its own source changes, between runs only.
 - `stream.py` is the live view: a raw CDP connection to the browser endpoint,
   separate from the run's Playwright. It attaches only to the tab being shown,
-  screencasts it as quality-90 JPEG with a width limit based on the viewer's
-  display density, up to 2560 pixels. Capture height follows Chrome's native
-  aspect ratio: limiting it to a short panel would shrink the width and blur
-  text when displayed. Each frame is acknowledged once delivered, which is
+  and lays it out at the viewer's panel (`Emulation.setDeviceMetricsOverride`):
+  the panel's size, never narrower than 1024 CSS pixels, at the viewer's pixel
+  density. Chrome sizes a tab in a minimized window as it likes (2560×1271 for
+  one, 1065×1751 for the next), which made the panel scroll or shrank the page.
+  A tab gets its own size back once the viewer leaves it or disconnects, so a
+  run nobody watches fills at Chrome's size. It screencasts as quality-90 JPEG at
+  the panel's device-pixel width, up to 2560 pixels. Each frame is acknowledged once delivered, which is
   Chrome's own flow control. The stream follows the run's tab and any popup it opens
   (Google sign-in), un-minimizes the window, and maps the page's fractional
   positions and DOM key fields to CDP input against the last frame's metadata.
