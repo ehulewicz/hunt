@@ -20,14 +20,12 @@ names a key, and seeing the value is what lets it name the right one.
 from __future__ import annotations
 
 import json
-import subprocess
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from personal_os_worker.jobs import claude_usage
-from personal_os_worker.jobs.model_errors import checked_output
+from personal_os_worker.jobs import model
 
 MAX_CONCURRENT_CALLS = 6
 Kind = Literal["fits_fact", "no_fact", "unsure"]
@@ -71,16 +69,7 @@ class Verdict:
     expression: str | None = None
 
 
-def run_claude(argv: list[str]) -> str:
-    process = subprocess.run(
-        argv,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    claude_usage.record(process.stdout)
-    return checked_output(process.stdout, process.returncode)
+run_claude = model.run
 
 
 def _prompt(
@@ -165,19 +154,7 @@ def draft_short_answers(
         return {}
 
     def argv_for(question: ShortQuestion) -> list[str]:
-        return [
-            "claude",
-            "-p",
-            "--safe-mode",
-            "--tools",
-            "",
-            "--no-session-persistence",
-            "--output-format",
-            "json",
-            "--json-schema",
-            json.dumps(SCHEMA, separators=(",", ":")),
-            _prompt(question, posting=posting, facts=facts),
-        ]
+        return model.argv(_prompt(question, posting=posting, facts=facts), schema=SCHEMA)
 
     with ThreadPoolExecutor(max_workers=min(len(questions), MAX_CONCURRENT_CALLS)) as pool:
         outputs = list(pool.map(lambda question: runner(argv_for(question)), questions))

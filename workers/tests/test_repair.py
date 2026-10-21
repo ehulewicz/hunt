@@ -10,7 +10,6 @@ import pytest
 from playwright.sync_api import Error, sync_playwright
 
 from personal_os_worker.jobs.browser import OPERATIONS, Attempt, inspect_fields
-from personal_os_worker.jobs.repair.guards import install_guards, names_a_submission
 from personal_os_worker.jobs.repair.repairer import (
     find_field,
     repair_format,
@@ -18,6 +17,7 @@ from personal_os_worker.jobs.repair.repairer import (
     repair_strategy,
 )
 from personal_os_worker.jobs.resolve import Knowledge
+from personal_os_worker.jobs.safety import armed, install_guards, names_a_submission
 
 TERMS_TYPEAHEAD = """
 <div class="select">
@@ -99,6 +99,26 @@ def test_the_page_guard_cancels_every_submission(page) -> None:  # type: ignore[
     page.click("#other")
     assert page.evaluate("window.sent || 0") == 0
     assert page.evaluate("window.clicked") is True  # ordinary buttons still work
+
+
+def test_your_tab_is_guarded_only_while_the_worker_operates_it(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(
+        """
+        <form id="f" onsubmit="event.preventDefault(); window.sent = (window.sent || 0) + 1;">
+          <input name="email"><button type="submit">Submit application</button>
+        </form>
+        """
+    )
+    with armed(page):
+        page.click("text=Submit application")
+        page.evaluate("document.querySelector('#f').requestSubmit()")
+        assert page.evaluate("window.sent || 0") == 0
+    # Handed back: your own Submit goes through.
+    page.click("text=Submit application")
+    assert page.evaluate("window.sent || 0") == 1
+    with armed(page):
+        page.click("text=Submit application")
+    assert page.evaluate("window.sent || 0") == 1
 
 
 def test_the_network_guard_refuses_what_names_a_submission() -> None:

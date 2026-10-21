@@ -21,9 +21,8 @@ from typing import Any
 
 from personal_os_worker.documents.resume import repository_root
 from personal_os_worker.documents.resume_pdf import PREAMBLE, build_header, compile_pdf, escape
-from personal_os_worker.jobs import claude_usage
+from personal_os_worker.jobs import model
 from personal_os_worker.jobs.answers import TAG_LEAK
-from personal_os_worker.jobs.model_errors import checked_output
 
 SLOT = re.compile(r"\{\{(\w+)\}\}")
 CLAUDE_SLOTS = ("hook", "why_this", "tie")
@@ -156,10 +155,7 @@ CANONICAL RESUME: {json.dumps(resume, default=str)[:30000]}
     """.strip()
 
 
-def run_claude(argv: list[str]) -> str:
-    process = subprocess.run(argv, check=False, capture_output=True, text=True, timeout=300)
-    claude_usage.record(process.stdout)
-    return checked_output(process.stdout, process.returncode)
+run_claude = model.run
 
 
 def draft_slots(
@@ -171,19 +167,7 @@ def draft_slots(
 ) -> LetterSlots | None:
     """One bounded `claude -p` call; None when the answer is unusable."""
     modules = list(template.modules)
-    argv = [
-        "claude",
-        "-p",
-        "--safe-mode",
-        "--tools",
-        "",
-        "--no-session-persistence",
-        "--output-format",
-        "json",
-        "--json-schema",
-        json.dumps(_schema(modules), separators=(",", ":")),
-        _prompt(template, posting=posting, resume=resume),
-    ]
+    argv = model.argv(_prompt(template, posting=posting, resume=resume), schema=_schema(modules))
     try:
         payload = json.loads(runner(argv))
         structured = payload.get("structured_output", payload)

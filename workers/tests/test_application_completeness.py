@@ -137,12 +137,12 @@ def test_unlabelled_radio_is_reported_as_detection_failure_even_if_selected(
 
 
 def test_claude_usage_limit_is_not_an_empty_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    from personal_os_worker.jobs import short_answers
+    from personal_os_worker.jobs import model
 
     process = subprocess.CompletedProcess(
         args=[], returncode=1, stdout=json.dumps({'is_error': True,
             'api_error': 'usage_limit_reached', 'api_error_status': 429}), stderr='')
-    monkeypatch.setattr(short_answers.subprocess, 'run', lambda *_, **__: process)
+    monkeypatch.setattr(model.subprocess, "run", lambda *_, **__: process)
     with pytest.raises(RuntimeError, match='usage limit'):
         run_claude(['claude', '-p'])
 

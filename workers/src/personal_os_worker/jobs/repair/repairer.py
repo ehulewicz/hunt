@@ -28,8 +28,8 @@ from personal_os_worker.jobs.formatters import polarity, renderings, yes_no_opti
 from personal_os_worker.jobs.options import choose_option, normalize_answer_question
 from personal_os_worker.jobs.registry.kinds import classify, control_attributes, question_of
 from personal_os_worker.jobs.registry.strategies import APPLIES, CANDIDATES
-from personal_os_worker.jobs.repair.guards import SUBMITTING
 from personal_os_worker.jobs.resolve import Knowledge
+from personal_os_worker.jobs.safety import refuse_submit
 
 Operation = Callable[[Attempt], str | None]
 
@@ -65,13 +65,6 @@ def _choice_target(page: Page, field: dict[str, Any], value: str) -> dict[str, A
     return group[labels.index(chosen)] if chosen in labels else None
 
 
-def _refuse_submit(field: dict[str, Any]) -> None:
-    """The worker's own refusal: never operate a control that reads as submitting."""
-    label = str(field.get("label") or "") + " " + str(field.get("value") or "")
-    if str(field.get("type") or "").casefold() == "submit" or SUBMITTING.search(label):
-        raise RuntimeError("refusing to operate a submit control during repair")
-
-
 def _attempt(
     page: Page,
     field: dict[str, Any],
@@ -80,7 +73,7 @@ def _attempt(
     operations: Mapping[str, Operation],
 ) -> str | None:
     """Operate with one strategy and read back; the shown value if it took, else None."""
-    _refuse_submit(field)
+    refuse_submit(field)
     try:
         result = operations[name](Attempt(page, fresh_control(page, field), field, fill, None))
     except (Error, RuntimeError):
@@ -177,7 +170,7 @@ def repair_on_page(
     if field is None:
         return None, "the question is not on the first page of the form"
     try:
-        _refuse_submit(field)
+        refuse_submit(field)
     except RuntimeError as error:
         return None, str(error)
     if issue.get("stopped_at") == "format":

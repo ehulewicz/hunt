@@ -134,6 +134,7 @@ from personal_os_worker.jobs.remote import FACT_KEY, LinkedKeys, RunLink, gap_it
 from personal_os_worker.jobs.repair.repairer import find_field, repair_format, repair_strategy
 from personal_os_worker.jobs.replay import Replay, Sighting, replay_pattern, sightings_of
 from personal_os_worker.jobs.resolve import Knowledge, Miss, Resolver
+from personal_os_worker.jobs.safety import armed
 from personal_os_worker.jobs.short_answers import ShortQuestion, Verdict, draft_short_answers
 from personal_os_worker.jobs.sites import failure_signature
 
@@ -909,16 +910,17 @@ class AutofillSession:
             )
             return {"filled_fields": [], "skipped_fields": [], "failures": [], "plan": plan}
         before = page_evidence(self.page, fields, console_errors=self.ctx.console_errors)
-        result = apply_autofill(
-            self.page,
-            fields,
-            plan,
-            resume_path=self.ctx.resume_pdf,
-            transcript_path=self.ctx.transcript_pdf,
-            assert_active=lambda: None,
-            preferences=self.ctx.knowledge.preferences,
-            observer=explainer,
-        )
+        with armed(self.page):
+            result = apply_autofill(
+                self.page,
+                fields,
+                plan,
+                resume_path=self.ctx.resume_pdf,
+                transcript_path=self.ctx.transcript_pdf,
+                assert_active=lambda: None,
+                preferences=self.ctx.knowledge.preferences,
+                observer=explainer,
+            )
         if explainer is not None:
             explainer.finish()
         for fill in plan.fills:
@@ -1055,17 +1057,18 @@ class AutofillSession:
             self.state.repair_attempted.add(normalize_answer_question(question))
             self.state.budget.charge(question, REPAIR_COST)
             try:
-                if stage == "format" and failure.get("fact_key"):
-                    candidate = repair_format(
-                        self.page, field, self.ctx.knowledge, str(failure["fact_key"]),
-                        failed_formatter=failure.get("formatter"),
-                    )
-                elif stage == "strategy" and failure.get("intended_value"):
-                    candidate = repair_strategy(
-                        self.page, field, str(failure["intended_value"])
-                    )
-                else:
-                    candidate = None
+                with armed(self.page):
+                    if stage == "format" and failure.get("fact_key"):
+                        candidate = repair_format(
+                            self.page, field, self.ctx.knowledge, str(failure["fact_key"]),
+                            failed_formatter=failure.get("formatter"),
+                        )
+                    elif stage == "strategy" and failure.get("intended_value"):
+                        candidate = repair_strategy(
+                            self.page, field, str(failure["intended_value"])
+                        )
+                    else:
+                        candidate = None
             except (Error, RuntimeError):
                 candidate = None
             if candidate is None:
@@ -1442,8 +1445,9 @@ class AutofillSession:
                 echo("left", question, note=note.split(";", 1)[0])
                 continue
             try:
-                set_registered_value(fresh_control(self.page, item), seed)
-                ok = verify_control(self.page, item, seed)
+                with armed(self.page):
+                    set_registered_value(fresh_control(self.page, item), seed)
+                    ok = verify_control(self.page, item, seed)
             except (Error, RuntimeError) as error:
                 ok = False
                 echo("failed", question, note=str(error))
@@ -1541,16 +1545,17 @@ class AutofillSession:
                     continue
             shown = ""
             try:
-                if pdf is not None:
-                    upload_into(self.page, fresh_control(self.page, item), pdf)
-                    self.page.wait_for_timeout(750)
-                    ok = verify_control(self.page, item, None, resume=True, filename=pdf.name)
-                    shown = pdf.name
-                else:
-                    set_registered_value(fresh_control(self.page, item), text)
-                    ok = verify_control(self.page, item, text)
-                    shown = text.strip()
-                    self.state.seeds[question] = (shown, "model")
+                with armed(self.page):
+                    if pdf is not None:
+                        upload_into(self.page, fresh_control(self.page, item), pdf)
+                        self.page.wait_for_timeout(750)
+                        ok = verify_control(self.page, item, None, resume=True, filename=pdf.name)
+                        shown = pdf.name
+                    else:
+                        set_registered_value(fresh_control(self.page, item), text)
+                        ok = verify_control(self.page, item, text)
+                        shown = text.strip()
+                        self.state.seeds[question] = (shown, "model")
             except (Error, RuntimeError) as error:
                 ok = False
                 echo("failed", question, note=error_note(error))
@@ -1872,9 +1877,10 @@ class AutofillSession:
         """Take back an N/A the worker wrote into a follow-up that does apply."""
         question = _question_for(field)
         try:
-            control = fresh_control(self.page, field)
-            set_registered_value(control, "")
-            cleared = not str(control.input_value(timeout=CONTROL_TIMEOUT_MS)).strip()
+            with armed(self.page):
+                control = fresh_control(self.page, field)
+                set_registered_value(control, "")
+                cleared = not str(control.input_value(timeout=CONTROL_TIMEOUT_MS)).strip()
         except (Error, RuntimeError):
             cleared = False
         if not cleared:
@@ -2228,7 +2234,8 @@ class AutofillSession:
         field = target
         self.state.budget.charge(question, REPAIR_COST)
         try:
-            candidate = repair_strategy(self.page, field, value)
+            with armed(self.page):
+                candidate = repair_strategy(self.page, field, value)
         except (Error, RuntimeError):
             candidate = None
         shown = str(candidate.get("value") or "") if candidate is not None else ""

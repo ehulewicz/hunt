@@ -186,12 +186,16 @@ retries each field that
 stopped at a format or a strategy on the live page, right after that step's
 fill, on any site. `repairer.py` retries one failed field — every applicable
 strategy for a `strategy` failure, every other rendering of the fact for a
-`format` failure — and returns the first that reads back. `guards.py` holds the
-two independent submit guards installed before a repair or validation page
-loads: a page script that cancels submissions and submit-labelled clicks, and a
-network route that aborts any non-GET request naming a submission; the repairer
-also refuses to operate a control that reads as submitting — the only guard in
-place on your own live tab, which you go on to submit. `commands.py` is
+`format` failure — and returns the first that reads back. `jobs/safety.py` holds
+everything that keeps the worker from submitting: the two independent guards, a
+page script that cancels submissions and submit-labelled clicks and a network
+route that aborts any non-GET request naming a submission, and the worker's own
+refusal to operate a control that reads as submitting. A repair or validation
+page is guarded from before it loads. Your own tab is guarded only while the
+worker operates a field on it (`armed`): the script acts only while armed, and
+the route exists only for the operation, so your Submit works the moment the
+worker stops. Reaching the form (the Apply click, a gate, the account wall) is
+never armed, since "Apply now" reads as submitting. `commands.py` is
 `os hunt repair [--watch]`, for failures left by `--no-repair` runs, and
 `os hunt validate`. A validated strategy reaches
 live fills through the run context as a control preference that
@@ -362,8 +366,9 @@ selected radio: Yes and No alone cannot identify a question. A model outage
 (including a subscription usage limit) is reported once and stops further model
 calls for that run. An answer check that returns no judgement remains a
 `model_error` on subsequent audits, so it cannot become a successful check by
-being omitted. `model_errors.py` interprets failure envelopes without logging
-their prompt, answer, or raw error payload.
+being omitted. Every `claude -p` call is built and run by `jobs/model.py`, which
+meters it and, through `model_errors.py`, interprets failure envelopes without
+logging their prompt, answer, or raw error payload.
 `jobs/answer_check.py` is the other half: it reads back the answers the page
 already holds and asks whether a fact contradicts one, because an answer can be
 confidently filled and wrong. A wrong answer a pattern filled has its question

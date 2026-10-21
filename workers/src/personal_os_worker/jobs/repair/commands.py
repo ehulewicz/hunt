@@ -42,9 +42,9 @@ from personal_os_worker.jobs.browser import (
 )
 from personal_os_worker.jobs.formatters import render
 from personal_os_worker.jobs.options import normalize_answer_question
-from personal_os_worker.jobs.repair.guards import install_guards
 from personal_os_worker.jobs.repair.repairer import find_field, repair_on_page
 from personal_os_worker.jobs.resolve import Knowledge
+from personal_os_worker.jobs.safety import install_guards
 
 Ask = Callable[[str], str]
 REPAIRABLE = frozenset({"format", "strategy"})

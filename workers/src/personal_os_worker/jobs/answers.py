@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import unicodedata
 from difflib import SequenceMatcher
 from typing import Any
 
-from personal_os_worker.jobs import claude_usage
-from personal_os_worker.jobs.model_errors import checked_output
+from personal_os_worker.jobs import model
 from personal_os_worker.jobs.options import normalize_answer_question
 
 ZERO_WIDTH = re.compile("[\u200b-\u200f\u2060\ufeff]")
@@ -118,29 +116,9 @@ YOUR EARLIER WRITING ON SIMILAR QUESTIONS: {json.dumps(references, default=str)[
     """.strip()
     fact_text = json.dumps({"resume": resume, "facts": facts, "base": base}, default=str)
     for _ in range(attempts):
-        process = subprocess.run(
-            [
-                "claude",
-                "-p",
-                "--safe-mode",
-                "--tools",
-                "",
-                "--no-session-persistence",
-                "--output-format",
-                "json",
-                "--json-schema",
-                json.dumps(schema, separators=(",", ":")),
-                prompt,
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        claude_usage.record(process.stdout)
-        checked_output(process.stdout, process.returncode)
+        output = model.run(model.argv(prompt, schema=schema))
         try:
-            payload = json.loads(process.stdout)
+            payload = json.loads(output)
             structured = payload.get("structured_output", payload)
             answer = str(structured.get("answer") or "").strip()
         except (json.JSONDecodeError, AttributeError):
