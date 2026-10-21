@@ -108,6 +108,20 @@ input::placeholder, textarea::placeholder { color: var(--ui-faint); opacity: 1; 
 .review-row > span:nth-child(2) { flex: 1; display: grid; gap: 5px; min-width: 0; }
 .review-row strong { font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-row small { color: var(--ui-muted); font-size: 10px; }
+.attention-content .review-row strong { white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
+.attention-content .review-row small { overflow-wrap: anywhere; line-height: 1.5; }
+.attention-content .review-icon { flex: 0 0 auto; }
+.answer-categories { flex-wrap: wrap; gap: 0; padding-inline: 12px; }
+.answer-categories button { flex: 1 0 auto; gap: 6px; padding-inline: 8px; font-size: 11px; }
+.metadata-empty { color: var(--ui-muted); font-size: 12px; line-height: 1.6; }
+.category-note { margin: 0; padding: 12px 22px; border-bottom: 1px solid var(--ui-border); }
+.attention-content > .panel-empty { height: auto; }
+.library-search { flex: 0 0 auto; padding: 12px 18px; border-bottom: 1px solid var(--ui-border); }
+.library-search input { width: 100%; min-width: 0; border: 1px solid var(--ui-border-strong); border-radius: 6px; padding: 8px 10px; color: var(--ui-text); background: var(--ui-bg); font: inherit; font-size: 12px; }
+.library-error { padding: 12px 22px; }
+.library-error p { margin: 0 0 8px; }
+.review-form h4 { margin: 0; font-size: 13px; font-weight: 500; }
+.review-form code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .review-row > svg { width: 13px; height: 13px; color: var(--ui-faint); }
 .review-form { display: grid; gap: 16px; padding: 20px 22px; }
 .review-form > .text-button { justify-self: start; }

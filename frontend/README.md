@@ -57,14 +57,24 @@ runs. A pending application's Resume action uses its stored posting id. A run
 already active on a device opens without starting another one, including runs
 started in a terminal. Starting a busy or unready device is disabled.
 
-"Needs attention" keeps facts, prose, and suggested patterns on the same page.
-Unbound questions can be linked to an existing fact or a new typed fact; facts
-awaiting verification can be edited and confirmed. Prose can be edited and
-explicitly approved for reuse, or discarded. Candidate patterns show their fact's
-current value and require acceptance or rejection. These actions use the existing
-FastAPI endpoints; editing a draft alone never approves it. Pattern change history
-and comparisons between generated and submitted prose are not exposed by the
-current API and are not represented as working features.
+The answer panel switches between Inbox and Library. Inbox separates Questions,
+Facts to verify, Writing, and Pattern checks. Unbound questions can be linked to
+an existing fact or a new typed fact. Unverified facts and every deliberate blank
+(an empty string or list, displayed as None) remain visible for verification,
+including previously verified blanks. Empty text is saved unchanged; lists use
+JSON, including `[]`. Writing is one editable text, with separate actions to save
+an unapproved draft, approve it for reuse, or discard it. Suggested patterns show
+their fact's current value and can be accepted or rejected.
+
+Library loads on opening and refreshes every 30 seconds, independently of the
+overview. Its searchable Questions, Facts, Writing, and Patterns categories read
+the existing `/v1/jobs/questions`, `/facts`, `/prose`, and `/patterns` endpoints.
+It includes approved writing, verified facts, and all pattern statuses, including
+rejected and retired records. Facts and writing use the same editors as Inbox;
+questions and patterns expose their stored details. Failed loads offer retry and
+retain the last successful records. Cause tags, writing origin highlights, pattern
+verification results, and pattern history have explicit unavailable empty states
+until the API supplies them. The frontend does not infer this metadata.
 
 A successful start or an explicit Open action replaces the overview with an
 application workspace. Its default split gives answers one third and Chrome two
@@ -90,7 +100,7 @@ disconnected. The console uses token classes for its styled spans, follows new
 lines at the bottom, and holds still when scrolled up.
 
 The overview keeps compact totals, the application launcher, and Applications
-on the left; Needs attention fills the right column from top to bottom. On desktop,
+on the left; Inbox and Library fill the right column from top to bottom. On desktop,
 Hunt fits the viewport; application lists, the inbox, the answer panel, the log,
 and Chrome have bounded scrolling. Narrow screens use document scrolling and
 stack the workspace panels on phones. The rest of the app uses the
@@ -148,7 +158,9 @@ src/app/              App Router. (workspace)/ is the authenticated shell group;
                       from the supplied design reference and its OFL license.
 src/components/       workspace.tsx is the auth gate, app-shell.tsx the sidebar
                       layout, plus account-menu and empty-page. hunt-dashboard and
-                      hunt-inbox own the overview; hunt-devices, hunt-run, and
+                      hunt-inbox own the overview; hunt-library and hunt-review
+                      provide the saved-answer library and shared editors;
+                      hunt-devices, hunt-run, and
                       hunt-live own device selection and the application workspace;
                       use-device-session.ts is its connection state.
 src/lib/              api.ts (the Cloud Run fetch layer), device.ts (the device

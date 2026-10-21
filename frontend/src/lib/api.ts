@@ -150,6 +150,31 @@ export type Inbox = {
   prose: Prose[];
 };
 
+export type Question = {
+  id: string;
+  sample_label: string;
+  form: "short" | "long";
+  disposition: "unbound" | "pattern" | "one_off" | "long_form";
+  pattern_id: string | null;
+};
+
+export type HuntLibrary = {
+  questions: Question[];
+  facts: Fact[];
+  prose: Prose[];
+  patterns: Pattern[];
+};
+
+export async function loadHuntLibrary(accessToken: string): Promise<HuntLibrary> {
+  const [questions, facts, prose, patterns] = await Promise.all([
+    apiRequest<Question[]>("/v1/jobs/questions", accessToken),
+    apiRequest<Fact[]>("/v1/jobs/facts", accessToken),
+    apiRequest<Prose[]>("/v1/jobs/prose", accessToken),
+    apiRequest<Pattern[]>("/v1/jobs/patterns?status=active&status=candidate&status=rejected&status=retired", accessToken),
+  ]);
+  return { questions, facts, prose, patterns };
+}
+
 export type HuntOverview = {
   applications: JobApplication[];
   inbox: Inbox;

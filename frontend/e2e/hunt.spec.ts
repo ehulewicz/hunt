@@ -21,6 +21,8 @@ const FACTS = [
   { key: "contact.email", label: "Email", value: "alex.example@example.com", value_type: "text", verified_at: "2026-10-20T12:00:00Z" },
   { key: "work_auth.us_citizen", label: "US citizen", value: true, value_type: "boolean", verified_at: "2026-10-20T12:00:00Z" },
   { key: "availability.start_date", label: "Available start date", value: "2027-05-17", value_type: "date", verified_at: null },
+  { key: "contact.phone_extension", label: "Phone extension", value: "", value_type: "text", verified_at: "2026-10-20T12:00:00Z" },
+  { key: "education.certifications", label: "Certifications", value: [], value_type: "list", verified_at: null },
 ];
 const GAP = { question: "Date of birth", cause: "fact_gap", required: true, note: "Add your date of birth to finish this field.", fact_key: "identity.birth_date", missing_fact: null, label: "Date of birth", value_type: "date", settable: true };
 let jpeg: Buffer;
@@ -77,6 +79,17 @@ async function setup(page: Page, busy = false) {
       { ...APPLICATION, id: "a5", posting_id: "p5", company_name: "Linear", title: "Software Engineer Intern", status: "applied", applied_at: "2026-10-15T12:00:00Z" },
     ] });
     if (url.endsWith("/jobs/facts")) return route.fulfill({ json: FACTS });
+    if (url.endsWith("/jobs/questions")) return route.fulfill({ json: [
+      { id: "q2", sample_label: "Your email?", form: "short", disposition: "pattern", pattern_id: "pat2" },
+      { id: "q3", sample_label: "Anything else?", form: "long", disposition: "long_form", pattern_id: null },
+    ] });
+    if (url.endsWith("/jobs/prose")) return route.fulfill({ json: [
+      { id: "pr2", question_label: "Career goals", company_name: null, text: "Build useful tools for people.\nKeep learning from their feedback.", approved: true },
+    ] });
+    if (url.includes("/jobs/patterns?")) return route.fulfill({ json: [
+      { id: "pat2", question_id: "q2", question_label: "Your email?", expression: null, fact_key: "contact.email", formatter: null, status: "active" },
+      { id: "pat3", question_id: null, question_label: null, expression: "email address", fact_key: "contact.email", formatter: null, status: "retired" },
+    ] });
     if (url.includes("/jobs/listings?")) return route.fulfill({ json: { total: 284, items: [], limit: 1, offset: 0 } });
     if (url.endsWith("/jobs/inbox")) return route.fulfill({ json: {
       questions: [{ question: { id: "q1", sample_label: "Will you need visa sponsorship?" }, answers: [] }],
@@ -135,8 +148,8 @@ test("the overview fits one desktop screen and connects only after starting an a
   await expect(page).toHaveScreenshot("hunt-overview.png", { animations: "disabled" });
   await page.setViewportSize({ width: 1280, height: 720 });
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
-  await expect(page.getByRole("heading", { name: "Needs attention" })).toBeInViewport();
-  const attention = (await page.getByRole("region", { name: "Needs attention" }).boundingBox())!;
+  await expect(page.getByRole("heading", { name: /^Inbox/ })).toBeInViewport();
+  const attention = (await page.getByRole("region", { name: "Inbox and Library" }).boundingBox())!;
   const totals = (await page.getByRole("group", { name: "Application totals" }).boundingBox())!;
   const applications = (await page.getByRole("region", { name: "Applications", exact: true }).boundingBox())!;
   expect(attention.y).toBeCloseTo(totals.y, 0);
@@ -231,20 +244,21 @@ test("an unreachable device explains the tailnet connection and can retry", asyn
   await expect(page.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
 });
 
-test("facts, prose and patterns are reviewed in place with explicit writes", async ({ page }) => {
+test("facts, writing and pattern checks are reviewed in place with explicit writes", async ({ page }) => {
   const agent = await setup(page);
   await page.goto("/hunt");
+  await page.getByRole("button", { name: /Facts to verify/ }).click();
   await page.getByRole("button", { name: "Review Available start date" }).click();
   await page.getByRole("textbox", { name: "Value", exact: true }).fill("2027-05-24");
   await page.getByRole("button", { name: "Save verified fact" }).click();
   await expect.poll(() => agent.writes).toContainEqual({ url: "https://api.test/v1/jobs/facts/availability.start_date", body: { value: "2027-05-24", verified: true } });
-  await page.getByRole("button", { name: /Prose 1/ }).click();
+  await page.getByRole("button", { name: /Writing 1/ }).click();
   await page.getByRole("button", { name: "Review Why do you want to work at Acme?" }).click();
   await page.getByRole("textbox", { name: "Answer", exact: true }).fill("I build tools people use.");
   expect(agent.writes).toHaveLength(1);
   await page.getByRole("button", { name: "Approve for reuse" }).click();
   await expect.poll(() => agent.writes.length).toBe(2);
-  await page.getByRole("button", { name: /Patterns 1/ }).click();
+  await page.getByRole("button", { name: /Pattern checks 1/ }).click();
   await page.getByRole("button", { name: "Review Are you a US citizen?" }).click();
   await expect(page.getByText("true", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Accept pattern" }).click();
@@ -271,10 +285,48 @@ test("a new typed fact is saved before its question is linked", async ({ page })
 test("a suggested pattern can be rejected without approving it", async ({ page }) => {
   const agent = await setup(page);
   await page.goto("/hunt");
-  await page.getByRole("button", { name: /Patterns 1/ }).click();
+  await page.getByRole("button", { name: /Pattern checks 1/ }).click();
   await page.getByRole("button", { name: "Review Are you a US citizen?" }).click();
   await page.getByRole("button", { name: "Reject", exact: true }).click();
   await expect.poll(() => agent.writes).toEqual([{ url: "https://api.test/v1/jobs/patterns/pat1", body: { status: "rejected" } }]);
+});
+
+test("Library exposes saved records with unavailable history and works on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const agent = await setup(page);
+  await page.goto("/hunt");
+  await page.getByRole("button", { name: "Library", exact: true }).click();
+  await expect(page.getByRole("button", { name: "View Your email?" })).toBeVisible();
+  await page.getByRole("searchbox", { name: "Search questions" }).fill("Anything");
+  await expect(page.getByRole("button", { name: "View Your email?" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "View Anything else?" })).toBeVisible();
+  await page.getByRole("button", { name: /Patterns 2/ }).click();
+  await expect(page.getByText("Retired: contact.email")).toBeVisible();
+  await noHorizontalOverflow(page);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await expect(page).toHaveScreenshot("hunt-library.png", { animations: "disabled" });
+  await page.getByRole("button", { name: "View email address" }).click();
+  await expect(page.getByText("Pattern history is not available yet.")).toBeVisible();
+  await expect(page.getByText("alex.example@example.com", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /Writing 1/ }).click();
+  await page.getByRole("button", { name: "Review Career goals" }).click();
+  await expect(page.getByRole("textbox", { name: "Answer" })).toHaveValue("Build useful tools for people.\nKeep learning from their feedback.");
+  await expect(page.getByText("Origin highlights are not available yet.")).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await noHorizontalOverflow(page);
+  await page.getByRole("button", { name: /Facts 5/ }).click();
+  await expect(page).toHaveScreenshot("hunt-library-mobile.png", { fullPage: true, animations: "disabled" });
+  await page.getByRole("button", { name: "Review Phone extension" }).click();
+  await expect(page.getByRole("textbox", { name: "Value", exact: true })).toHaveValue("");
+  await page.getByRole("button", { name: "Save verified fact" }).click();
+  await expect.poll(() => agent.writes).toEqual([{ url: "https://api.test/v1/jobs/facts/contact.phone_extension", body: { value: "", verified: true } }]);
+  await page.getByRole("button", { name: "Inbox", exact: true }).click();
+  await page.getByRole("button", { name: /Facts to verify/ }).click();
+  await page.getByRole("button", { name: "Review Certifications" }).click();
+  await expect(page.getByRole("textbox", { name: "Value", exact: true })).toHaveValue("[]");
+  await page.getByRole("button", { name: "Save verified fact" }).click();
+  await expect.poll(() => agent.writes).toContainEqual({ url: "https://api.test/v1/jobs/facts/education.certifications", body: { value: [], verified: true } });
+  expect(agent.sockets()).toBe(0);
 });
 
 test("the dashboard and application stay usable on a phone", async ({ page }) => {

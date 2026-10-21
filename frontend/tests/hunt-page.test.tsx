@@ -48,7 +48,7 @@ test("Hunt opens an overview with real totals without connecting to Chrome", asy
   expect(within(totals).getByLabelText("Pending")).toHaveTextContent("1");
   expect(within(totals).getByLabelText("On the board")).toHaveTextContent("42");
   expect(within(totals).queryByLabelText("Interviews")).not.toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Needs attention" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Inbox" })).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Live view" })).not.toBeInTheDocument();
   expect(openDeviceSession).not.toHaveBeenCalled();
 });
@@ -146,7 +146,7 @@ test("reviewing prose saves an explicit approval through the API", async () => {
     return original(...args);
   });
   render(<HuntPage />);
-  fireEvent.click(await screen.findByRole("button", { name: /Prose.*1/ }));
+  fireEvent.click(await screen.findByRole("button", { name: /Writing.*1/ }));
   fireEvent.click(screen.getByRole("button", { name: "Review Why Acme?" }));
   const editor = screen.getByRole("textbox", { name: "Answer" });
   fireEvent.change(editor, { target: { value: "I build tools people use." } });
