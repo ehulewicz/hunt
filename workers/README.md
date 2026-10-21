@@ -224,14 +224,18 @@ One-time setup, on the machine that runs `os hunt apply`:
 run's `Knowledge` — stored facts over career-derived ones, then the derived and
 posting facts — and answers a field
 in a fixed order: the question's active binding, then active expression
-patterns (exactly one fact among those that match). The engine
-answers its own fields first: consent and attestation take the agreeing option,
-the resume and transcript upload, "how did you hear" ranks the employer's site,
-a job board, then Other (a referral first under `--referred`; a free-text box
-gets "Company website"), a typed follow-up — "If yes…", "If you answered No…",
-"If so…", required or optional — gets "N/A" when the question just above it
-holds or is planned to hold the other answer, and no value that declines to
-answer is ever chosen.
+patterns (exactly one fact among those that match). Consent and "how did you
+hear" are patterns too (R68), each an active expression reading a fact the
+formatter knows: `consent.agrees` takes the one option that agrees, and
+`preferences.application_source` ranks the employer's site, a job board, then
+Other (a referral first under `--referred`; a free-text box gets the fact's
+value, or "Employee referral" when referred). A typeahead nobody has opened is
+chosen against its live menu by the same rule. A consent box is never put to a
+model; a signature or password is yours. The engine still answers two kinds of
+field itself: the resume and transcript upload, and a typed follow-up — "If
+yes…", "If you answered No…", "If so…", required or optional — gets "N/A" when
+the question just above it holds or is planned to hold the other answer. No
+value that declines to answer is ever chosen.
 
 **Posting facts.** Some facts belong to the posting, not to you, and are derived
 per run in `jobs/facts/derived.py`: whether you worked at or applied to its

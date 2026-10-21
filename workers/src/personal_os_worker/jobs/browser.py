@@ -22,14 +22,17 @@ from personal_os_worker.jobs.autofill import (
     AutofillPlan,
     FormFill,
     Resolves,
-    affirmative_option,
     build_autofill_plan,
     choice_group_key,
     is_sensitive_field,
     offered_options,
-    preferred_source_option,
 )
-from personal_os_worker.jobs.formatters import choose_date_range, yes_no_option
+from personal_os_worker.jobs.formatters import (
+    affirmative_option,
+    choose_date_range,
+    source_option,
+    yes_no_option,
+)
 from personal_os_worker.jobs.options import choose_option, choose_synonym, normalize_question
 from personal_os_worker.jobs.registry.events import fill_event, form_of
 from personal_os_worker.jobs.registry.kinds import classify, control_key, question_of
@@ -602,9 +605,8 @@ def _select_multiple(attempt: Attempt) -> str | None:
 
 
 def _combobox_choose_from_menu(attempt: Attempt) -> str | None:
-    label = str(attempt.field.get("label") or attempt.field.get("name") or "")
     return choose_combobox_option(
-        attempt.page, attempt.control, str(attempt.fill.chooser), question=label,
+        attempt.page, attempt.control, str(attempt.fill.chooser),
         referred=attempt.fill.referred,
     )
 
@@ -1056,9 +1058,9 @@ def combobox_options(page: Page, control: Any) -> list[str]:
 
 
 def choose_combobox_option(
-    page: Page, control: Any, chooser: str, *, question: str, referred: bool = False
+    page: Page, control: Any, chooser: str, *, referred: bool = False
 ) -> str:
-    """Open a typeahead and pick by standing policy: the how-heard source or the consent."""
+    """Open a typeahead and pick by standing rule: the agreeing option, or your source."""
     control.click(timeout=CONTROL_TIMEOUT_MS)
     options = _menu_options(control)
     if not _await_options(page, options, COMBOBOX_LIST_TIMEOUT_MS):
@@ -1069,7 +1071,7 @@ def choose_combobox_option(
     if chooser == "consent":
         chosen = affirmative_option(distinct)
     else:
-        chosen = preferred_source_option(question, distinct, referred=referred)
+        chosen = source_option(distinct, referred=referred)
     if chosen is None:
         control.press("Escape", timeout=CONTROL_TIMEOUT_MS)
         raise RuntimeError(f"no unambiguous combobox option for {chooser}")

@@ -286,3 +286,35 @@ def test_the_phones_country_by_name_or_code_as_the_box_asks() -> None:
     assert rendered(
         "contact.phone_country", PHONE_COUNTRY, "object", "Country Phone Code", typeahead
     ) == ("United States", "country_name")
+
+
+def test_consent_takes_the_agreeing_option_and_a_typeahead_its_live_menu() -> None:
+    menu = {"tag": "select", "options": ["Select...", "Yes, I have read and agree", "No"]}
+    assert rendered("consent.agrees", True, "boolean", "Terms", menu) == (
+        "Yes, I have read and agree", "affirmative_option"
+    )
+    assert rendered("consent.agrees", False, "boolean", "Terms", menu) is None
+    # A typeahead nobody has opened: the planner chooses against its live menu.
+    typeahead = {"tag": "input", "type": "text", "role": "combobox"}
+    assert rendered("consent.agrees", True, "boolean", "Terms", typeahead) == (
+        "Yes", "affirmative_option"
+    )
+    # A consent box you type into is never answered for you.
+    assert rendered("consent.agrees", True, "boolean", "Type I agree") is None
+
+
+def test_the_standing_source_ranks_the_menu_and_names_a_referral() -> None:
+    menu = {"tag": "select", "options": ["LinkedIn", "Employee Referral", "Acme Website"]}
+    assert rendered("preferences.application_source", "Company website", "text",
+                    "How did you hear about us?", menu) == ("Acme Website", "application_source")
+    referred = {"referral.referred": True}
+    assert rendered("preferences.application_source", "Company website", "text",
+                    "How did you hear about us?", menu, context=referred) == (
+        "Employee Referral", "application_source"
+    )
+    assert rendered("preferences.application_source", "Company website", "text",
+                    "How did you hear about us?") == ("Company website", "application_source")
+    assert rendered("preferences.application_source", "Company website", "text",
+                    "How did you hear about us?", context=referred) == (
+        "Employee referral", "application_source"
+    )

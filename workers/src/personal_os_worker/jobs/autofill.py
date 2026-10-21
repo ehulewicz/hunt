@@ -5,10 +5,9 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from personal_os_worker.jobs.formatters import BLANK, polarity
+from personal_os_worker.jobs.formatters import BLANK, LIVE_MENU, polarity
 from personal_os_worker.jobs.options import (
     choose_option,
-    normalize_answer_question,
     normalize_question,
     same_name,
 )
@@ -63,9 +62,10 @@ class AutofillPlan:
     reasons: dict[int, str] = dataclasses.field(default_factory=dict)
 
 
-# Consent, terms, and attestation controls are always answered affirmatively
-# (decided 2026-09-14); only a signature is left to the user. Demographic
-# questions are ordinary saved answers for a single user and are not blocked.
+# Consent, terms, and attestation controls are recognised here so they are never
+# drafted or put to a model; the pattern naming `consent.agrees` answers them
+# (R68), and only a signature is left to the user. Demographic questions are
+# ordinary saved answers for a single user and are not blocked.
 CONSENT_WORDS = frozenset(
     {
         "agree",
@@ -83,12 +83,6 @@ CONSENT_WORDS = frozenset(
 )
 SIGNATURE_WORDS = frozenset({"signature", "electronic signature"})
 BLOCKED_LABEL_WORDS = CONSENT_WORDS | SIGNATURE_WORDS
-NEGATION = re.compile(r"\b(not|no|don t|do not|decline|disagree|reject|refuse)\b")
-AFFIRMATION = re.compile(
-    r"\b(yes|agree|accept|acknowledge|consent|confirm|i have read|understood)\b"
-)
-JOB_BOARD = re.compile(r"\b(job\s+boards?|linkedin|indeed|handshake|glassdoor|wellfound|dice)\b")
-
 # A follow-up that applies only after one answer: "If you answered No to the
 # above, ...", "If yes, please ...", "If so, ...". "If not" counts only as a whole
 # clause, so "If not already provided" is no condition.
@@ -99,60 +93,6 @@ CONDITIONAL = re.compile(
 )
 # What the engine writes into a follow-up the answer above rules out.
 NOT_APPLICABLE = AnswerResolution("N/A", "pattern", "engine:not_applicable")
-HOW_HEARD = re.compile(
-    r"\bhow did you (?:first )?hear\b|\bwhere did you (?:first )?hear\b|"
-    r"\bhow did you (?:first )?(?:find|learn about)\b",
-    re.IGNORECASE,
-)
-# A career fair, a campus career office or an info session is an event or a
-# place, never the employer's own site.
-NOT_A_SITE = frozenset(
-    {"fair", "fairs", "office", "event", "events", "center", "centre", "services", "session",
-     "expo", "seminar", "conference"}
-)
-
-
-def _is_company_site(value: str) -> bool:
-    """"Company Website", "Point72 Website", "Careers page": the employer's own site."""
-    words = set(value.split())
-    if JOB_BOARD.search(value) or words & NOT_A_SITE:
-        return False
-    if not (words & {"website", "site", "webpage", "web"} or value in {"careers", "career page"}
-            or "careers page" in value or "career site" in value):
-        return False
-    return "job" not in words or "company" in words
-
-
-def preferred_source_option(
-    question: str, options: list[str], *, referred: bool = False
-) -> str | None:
-    """The user's standing source choice, ranked by the options actually offered.
-
-    A referred application names the referral first.
-    """
-    if not HOW_HEARD.search(question):
-        return None
-
-    normalized = [(option, normalize_answer_question(option)) for option in options]
-    if referred:
-        named = [
-            option for option, value in normalized
-            if re.search(r"\breferr(al|ed)\b", value) and not re.search(r"\bnot\b", value)
-        ]
-        if named:
-            return named[0]
-    preferences = (
-        _is_company_site,
-        lambda value: re.search(r"\bjob\s+boards?\b", value) is not None,
-        lambda value: value == "other" or value.startswith("other "),
-    )
-    for matches in preferences:
-        found = [option for option, value in normalized if matches(value)]
-        if found:
-            return found[0]
-    return None
-
-
 # An upload that fills the application in from a resume ("Easy Apply",
 # "apply with resume") is a way into the form, not the form's resume field.
 AUTOFILL_UPLOAD = re.compile(
@@ -241,23 +181,6 @@ def is_long_form_field(field: dict[str, Any]) -> bool:
     if tag != "input" or field_type not in PROSE_INPUT_TYPES or field.get("options"):
         return False
     return NARRATIVE_QUESTION.search(_field_context(field)) is not None
-
-
-def affirmative_option(options: list[str]) -> str | None:
-    """The one option that agrees: "Yes", "I agree", "Yes, I have read and accept ..."."""
-    candidates = [
-        option
-        for option in options
-        if option.strip()
-        and not is_non_answer_option(option)
-        and not NEGATION.search(normalize_answer_question(option))
-    ]
-    agreeing = [
-        option for option in candidates if AFFIRMATION.search(normalize_answer_question(option))
-    ]
-    if len(agreeing) == 1:
-        return agreeing[0]
-    return candidates[0] if len(candidates) == 1 and not agreeing else None
 
 
 def choice_group_key(field: dict[str, Any]) -> str:
@@ -363,8 +286,9 @@ def build_autofill_plan(
 ) -> AutofillPlan:
     """Plan fills: the engine's own rules, then whatever the resolver answers from facts.
 
-    The engine handles consent, the resume and transcript uploads, and "how did
-    you hear about us"; every other value comes from the resolver. Choice
+    The engine handles the resume and transcript uploads and the N/A of a
+    follow-up the answer above rules out; every other value, consent and "how
+    did you hear" included, comes from the resolver. Choice
     groups pick the single option that equals, starts with, is a prefix of, or
     contains every word of the answer.
     """
@@ -441,27 +365,10 @@ def build_autofill_plan(
         chooser: str | None = None
         resolution: AnswerResolution | None = None
         kind = "text"
-        if sensitive:
-            if is_consent_field(field) and field_type != "file":
-                own = str(field.get("label") or field.get("value") or "")
-                if field_type in {"radio", "checkbox"}:
-                    options = group_options.get(normalized) or [own]
-                    chosen = own if len(options) == 1 else affirmative_option(options)
-                    value = own if chosen == own else None
-                    reasons[index] = (
-                        "engine: consent takes its agreeing option"
-                        if value is not None
-                        else f"engine: consent, but the agreeing option is {chosen!r}"
-                    )
-                elif field.get("role") == "combobox":
-                    chooser = "consent"
-                    reasons[index] = "engine: consent, chosen against the live menu"
-                elif tag == "select":
-                    options = [str(option) for option in field.get("options") or []]
-                    value = affirmative_option(options)
-                    reasons[index] = "engine: consent takes its agreeing option"
-            else:
-                reasons[index] = "sensitive (a signature, a password): left for you"
+        # Consent is answered like any question, by the pattern that names
+        # `consent.agrees`; a signature or a password is yours.
+        if sensitive and (field_type == "file" or not is_consent_field(field)):
+            reasons[index] = "sensitive (a signature, a password): left for you"
         elif field_type == "file" and index in resume_candidates and len(resume_candidates) == 1:
             kind = "resume"
             reasons[index] = "engine: the one resume upload"
@@ -475,20 +382,14 @@ def build_autofill_plan(
         elif field_type == "file":
             reasons[index] = "a file no rule names (or one of several): left for you"
         else:
+            # A checkbox with no group offers itself as its one option.
+            own = str(field.get("label") or field.get("value") or "")
             options = (
-                group_options.get(normalized, [])
+                group_options.get(normalized) or ([own] if field_type == "checkbox" else [])
                 if field_type in {"radio", "checkbox"}
                 else [str(option) for option in field.get("options") or []]
             )
-            source_choice = preferred_source_option(question_label, options, referred=referred)
-            if source_choice is not None:
-                resolution = AnswerResolution(
-                    source_choice, "pattern", "engine:application_source"
-                )
-                reasons[index] = (
-                    "engine: how did you hear ranks the employer's site, a job board, then Other"
-                )
-            elif resolver is not None:
+            if resolver is not None:
                 resolution = resolver.resolve(
                     dict(field) | {"label": question_label, "options": options}
                 )
@@ -510,19 +411,15 @@ def build_autofill_plan(
             value = (
                 resolution.value if resolution is not None and kind != BLANK_KIND else None
             )
-            if value is None and not options and HOW_HEARD.search(question_label):
-                if field.get("role") == "combobox":
-                    chooser = "source"
-                    reasons[index] = "engine: how did you hear, chosen against the live menu"
-                elif tag in {"input", "textarea"}:
-                    # A free-text box gets the same standing answer a menu does.
-                    resolution = AnswerResolution(
-                        "Employee referral" if referred else "Company website",
-                        "pattern",
-                        "engine:application_source",
-                    )
-                    value = resolution.value
-                    reasons[index] = "engine: how did you hear, the standing source"
+            if (
+                resolution is not None and resolution.fact_key in LIVE_MENU and not options
+                and field.get("role") == "combobox"
+            ):
+                # A typeahead nobody has opened: the agreeing option, or your
+                # standing source, is chosen against its live menu.
+                chooser = LIVE_MENU[resolution.fact_key]
+                value = None
+                reasons[index] += "; chosen against the live menu"
 
             if field_type in {"radio", "checkbox"} and value is not None:
                 own = str(field.get("label") or field.get("value") or "")

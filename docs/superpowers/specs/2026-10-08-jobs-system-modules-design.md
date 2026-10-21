@@ -254,6 +254,20 @@ and settling R51's shadows) happens with you after this lands.
 > should never fill anything."* Supersedes the fill half of §7.4's `fits_fact`,
 > §8's "a candidate waits in the Inbox", and the model lanes of §10.2's audit.
 
+> **R68 — Consent and "how did you hear" are patterns.** Each standing rule is
+> a fact, an active expression that names it, and a formatter for that fact:
+> `consent.agrees` (true) takes the one agreeing option, and
+> `preferences.application_source` ("Company website") ranks the employer's
+> site, a job board, then Other, a referral first when the application was
+> referred. A typeahead nobody has opened is still chosen against its live
+> menu. The Inbox rule and the replay now cover them like any pattern, and a
+> question you bind elsewhere wins as it would anywhere. The upload and N/A
+> rules stay in the engine for now: an upload is recognised by what its control
+> sits in, which a question's wording cannot carry, and an N/A pattern would
+> tie with the follow-up's own pattern ("If yes, who referred you?") under the
+> one-fact rule. *Decided by you (plan, 2026-10-20); the two exceptions are
+> open.* Supersedes R45 for consent and the source ranking.
+
 ---
 
 ## 1. Why

@@ -154,6 +154,15 @@ CATALOG = _entries(
     CatalogEntry(
         "preferences.location_strategy", "Office selection policy (design §9)", "object"
     ),
+    CatalogEntry(
+        "preferences.application_source",
+        "How you came to a posting, in a free-text box; menus rank the employer's site, "
+        "a job board, then Other",
+        "text",
+    ),
+    CatalogEntry(
+        "consent.agrees", "Agree to consent, terms, privacy and attestation questions", "boolean"
+    ),
     CatalogEntry("compensation.minimum", "Minimum compensation", "object"),
     CatalogEntry(
         "compensation.minimum_annual", "Minimum annual compensation", "number", "derived"

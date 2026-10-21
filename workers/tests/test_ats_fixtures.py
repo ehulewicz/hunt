@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 from playwright.sync_api import Error, sync_playwright
+from standing_rules import standing
 
 from personal_os_worker.jobs.autofill import AnswerResolution, build_autofill_plan
 from personal_os_worker.jobs.browser import (
@@ -896,7 +897,8 @@ def test_how_heard_and_consent_typeaheads_are_chosen_from_the_live_menu(
 ) -> None:
     browser_page.set_content(REACT_SELECT_POLICY)
     fields = inspect_fields(browser_page)
-    plan = build_autofill_plan(fields)
+    # The standing rules are patterns: each typeahead is chosen against its live menu.
+    plan = build_autofill_plan(fields, resolver=standing())
     assert [(fill.value, fill.chooser) for fill in plan.fills] == [
         (None, "source"),
         (None, "consent"),

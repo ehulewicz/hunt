@@ -21,7 +21,12 @@ from typing import Any
 from personal_os_worker.jobs.facts.derived import HOURS_PER_YEAR, graduation_term
 from personal_os_worker.jobs.office import choose_offices
 from personal_os_worker.jobs.office import parse as parse_place
-from personal_os_worker.jobs.options import CALLING_CODE, choose_numeric_range, choose_option
+from personal_os_worker.jobs.options import (
+    CALLING_CODE,
+    choose_numeric_range,
+    choose_option,
+    normalize_answer_question,
+)
 from personal_os_worker.jobs.sites import is_non_answer_option
 
 MONTHS = (
@@ -39,6 +44,27 @@ NEGATIVE_WORD = re.compile(r"^(no|false|n)$")
 # A fact whose value is the empty value of its type ("" or []) says the answer
 # is none: the field stays blank on purpose, and nothing counts it as a miss.
 BLANK = "none_as_blank"
+
+
+# Consent, terms, and attestations are agreed to (decided 2026-09-14), through
+# the `consent.agrees` fact: the option that agrees, whatever it says it with.
+NEGATION = re.compile(r"\b(not|no|don t|do not|decline|disagree|reject|refuse)\b")
+AFFIRMATION = re.compile(
+    r"\b(yes|agree|accept|acknowledge|consent|confirm|i have read|understood)\b"
+)
+# How you came to a posting, through `preferences.application_source`: the
+# employer's own site, then a job board, then Other (a referral first when the
+# application was referred).
+JOB_BOARD = re.compile(r"\b(job\s+boards?|linkedin|indeed|handshake|glassdoor|wellfound|dice)\b")
+# A career fair, a campus career office or an info session is an event or a
+# place, never the employer's own site.
+NOT_A_SITE = frozenset(
+    {"fair", "fairs", "office", "event", "events", "center", "centre", "services", "session",
+     "expo", "seminar", "conference"}
+)
+# Facts whose rendering against a typeahead nobody has opened is chosen against
+# the live menu instead: the planner's chooser for each.
+LIVE_MENU = {"consent.agrees": "consent", "preferences.application_source": "source"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +93,86 @@ def _hint(field: dict[str, Any], question: str) -> str:
     return " ".join(
         str(part or "") for part in (question, field.get("placeholder"), field.get("label"))
     ).casefold()
+
+
+def affirmative_option(options: list[str]) -> str | None:
+    """The one option that agrees: "Yes", "I agree", "Yes, I have read and accept ..."."""
+    candidates = [
+        option
+        for option in options
+        if option.strip()
+        and not is_non_answer_option(option)
+        and not NEGATION.search(normalize_answer_question(option))
+    ]
+    agreeing = [
+        option for option in candidates if AFFIRMATION.search(normalize_answer_question(option))
+    ]
+    if len(agreeing) == 1:
+        return agreeing[0]
+    return candidates[0] if len(candidates) == 1 and not agreeing else None
+
+
+def _is_company_site(value: str) -> bool:
+    """"Company Website", "Point72 Website", "Careers page": the employer's own site."""
+    words = set(value.split())
+    if JOB_BOARD.search(value) or words & NOT_A_SITE:
+        return False
+    if not (words & {"website", "site", "webpage", "web"} or value in {"careers", "career page"}
+            or "careers page" in value or "career site" in value):
+        return False
+    return "job" not in words or "company" in words
+
+
+def source_option(options: list[str], *, referred: bool = False) -> str | None:
+    """Your standing source, ranked by the options actually offered.
+
+    A referred application names the referral first.
+    """
+    normalized = [(option, normalize_answer_question(option)) for option in options]
+    if referred:
+        named = [
+            option for option, value in normalized
+            if re.search(r"\breferr(al|ed)\b", value) and not re.search(r"\bnot\b", value)
+        ]
+        if named:
+            return named[0]
+    preferences = (
+        _is_company_site,
+        lambda value: re.search(r"\bjob\s+boards?\b", value) is not None,
+        lambda value: value == "other" or value.startswith("other "),
+    )
+    for matches in preferences:
+        found = [option for option, value in normalized if matches(value)]
+        if found:
+            return found[0]
+    return None
+
+
+def _standing(
+    key: str,
+    value: Any,
+    field: dict[str, Any],
+    options: list[str],
+    context: Mapping[str, Any] | None,
+) -> Rendering | None:
+    """The two standing rules as facts: agree to consent, and say how you came to a posting.
+
+    A typeahead with no options read yet renders the fact as text, which the
+    planner chooses against the live menu instead (`LIVE_MENU`).
+    """
+    referred = bool((context or {}).get("referral.referred"))
+    if key == "consent.agrees":
+        if value is not True:
+            return None
+        if options:
+            chosen = affirmative_option(options)
+            return Rendering(chosen, "affirmative_option") if chosen is not None else None
+        return Rendering("Yes", "affirmative_option") if field.get("role") == "combobox" else None
+    if options:
+        chosen = source_option(options, referred=referred)
+        return Rendering(chosen, "application_source") if chosen is not None else None
+    text = "Employee referral" if referred else str(value).strip()
+    return Rendering(text, "application_source") if text else None
 
 
 def polarity(value: Any) -> bool | None:
@@ -441,6 +547,8 @@ def render(
     if is_blank(value):
         return Rendering("", BLANK)
     options = _options(field)
+    if key in LIVE_MENU:
+        return _standing(key, value, field, options, context)
     phone = _phone_country(key, value, context)
     if phone is not None and calling_code_menu(options):
         chosen = calling_code_option(options, *phone)

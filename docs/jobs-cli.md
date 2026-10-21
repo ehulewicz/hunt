@@ -155,7 +155,9 @@ then watches while you review required fields and use Next or Submit in the
 browser. It reports a visible Submit control and rescans after navigation, but
 does not gate navigation on a required-field audit. No automated action contains
 Next, Submit, signature, or captcha operations; consent and attestation
-controls take their agreeing option. Each step ends with a **Left for you**
+controls take their agreeing option, through the `consent.agrees` fact and the
+pattern that names it, and "how did you hear" takes your standing source through
+`preferences.application_source`. Each step ends with a **Left for you**
 list of every control still empty — required first, then optional — each with
 why (no fact yet, a fact that fits no option, a fact the model said is
 missing), and the same controls are outlined on the page. A cover-letter control opens the

@@ -1,13 +1,15 @@
 from typing import Any
 
+from standing_rules import Then, standing
+
 from personal_os_worker.jobs.autofill import (
     AnswerResolution,
-    affirmative_option,
     build_autofill_plan,
     follow_up_condition,
     is_long_form_field,
 )
 from personal_os_worker.jobs.browser import audit_filled_form
+from personal_os_worker.jobs.formatters import affirmative_option, source_option
 from personal_os_worker.jobs.options import choose_option
 
 
@@ -59,7 +61,9 @@ def test_autofill_affirms_consent_and_leaves_non_exact_answers_empty() -> None:
         },
     ]
 
-    plan = build_autofill_plan(fields, resolver=Stub({"Why do you want this company?": "No"}))
+    plan = build_autofill_plan(
+        fields, resolver=Then(Stub({"Why do you want this company?": "No"}))
+    )
 
     # A lone consent checkbox is checked; nothing else here can be answered.
     assert [(fill.index, fill.value) for fill in plan.fills] == [(1, "I certify this is true")]
@@ -75,7 +79,7 @@ def test_an_acknowledgment_box_is_consent() -> None:
          "required": True},
     ]
 
-    plan = build_autofill_plan(fields, resolver=Stub())
+    plan = build_autofill_plan(fields, resolver=standing())
 
     assert [(fill.index, fill.value) for fill in plan.fills] == [
         (0, "Acknowledgment"), (1, "Acknowledgement")
@@ -130,7 +134,7 @@ def test_consent_controls_take_the_affirmative_option_and_signatures_stay_manual
             "required": True,
         },
     ]
-    plan = build_autofill_plan(fields)
+    plan = build_autofill_plan(fields, resolver=standing())
     assert [(fill.index, fill.value, fill.chooser) for fill in plan.fills] == [
         (0, "Yes, I have read and agree to the privacy policy", None),
         (1, None, "consent"),
@@ -258,7 +262,7 @@ def test_how_heard_uses_the_first_available_standing_source_preference() -> None
             }
             for index, option in enumerate(options)
         ]
-        plan = build_autofill_plan(fields, resolver=Stub({question: "LinkedIn"}))
+        plan = build_autofill_plan(fields, resolver=standing())
         return plan.fills[0].value if plan.fills else None
 
     assert chosen(["LinkedIn", "Other", "Other Job Boards", "Company Website"]) == (
@@ -266,7 +270,8 @@ def test_how_heard_uses_the_first_available_standing_source_preference() -> None
     )
     assert chosen(["LinkedIn", "Other", "Online Job Board"]) == "Online Job Board"
     assert chosen(["LinkedIn", "Other (please specify)"]) == "Other (please specify)"
-    assert chosen(["LinkedIn", "Referral"]) == "LinkedIn"
+    # Nothing ranks: the standing source fits no option, so it is left for you.
+    assert chosen(["LinkedIn", "Referral"]) is None
     # The employer's own site under its own name still counts as the company website.
     assert chosen(["LinkedIn", "Handshake", "DV Website", "Other"]) == "DV Website"
     assert chosen(["LinkedIn", "Careers page", "Other"]) == "Careers page"
@@ -279,15 +284,14 @@ def test_how_heard_uses_the_first_available_standing_source_preference() -> None
 
 
 def test_a_referred_application_names_the_referral_as_its_source() -> None:
-    from personal_os_worker.jobs.autofill import preferred_source_option
-
     options = ["Company Website", "Employee Referral", "LinkedIn", "Other"]
-    question = "How did you hear about us?"
-    assert preferred_source_option(question, options) == "Company Website"
-    assert preferred_source_option(question, options, referred=True) == "Employee Referral"
-    assert preferred_source_option(question, ["Not referred", "Website"], referred=True) == (
-        "Website"
-    )
+    assert source_option(options) == "Company Website"
+    assert source_option(options, referred=True) == "Employee Referral"
+    assert source_option(["Not referred", "Website"], referred=True) == "Website"
+    fields = [{"index": 0, "tag": "select", "label": "How did you hear about us?",
+               "options": options}]
+    plan = build_autofill_plan(fields, resolver=standing(referral={"referred": True}))
+    assert [fill.value for fill in plan.fills] == ["Employee Referral"]
 
 
 def test_how_heard_typeahead_without_visible_options_is_chosen_from_the_live_menu() -> None:
@@ -301,11 +305,11 @@ def test_how_heard_typeahead_without_visible_options_is_chosen_from_the_live_men
             "required": True,
         }
     ]
-    plan = build_autofill_plan(fields)
+    plan = build_autofill_plan(fields, resolver=standing())
     assert [(fill.index, fill.value, fill.chooser) for fill in plan.fills] == [(0, None, "source")]
     # A pattern you accepted for the question wins over the standing preference.
     plan = build_autofill_plan(
-        fields, resolver=Stub({"How did you hear about DV Trading?": "Referral"})
+        fields, resolver=Then(Stub({"How did you hear about DV Trading?": "Referral"}))
     )
     assert [(f.index, f.value, f.chooser) for f in plan.fills] == [(0, "Referral", None)]
 
@@ -674,11 +678,16 @@ def test_two_questions_worded_alike_are_two_radio_groups() -> None:
 def test_how_heard_as_free_text_gets_the_standing_source() -> None:
     fields = [{"index": 0, "tag": "input", "type": "text",
                "label": "How did you hear about this job?", "required": False}]
-    plan = build_autofill_plan(fields)
+    plan = build_autofill_plan(fields, resolver=standing())
     [fill] = plan.fills
     assert fill.value == "Company website"
     assert fill.resolution is not None
-    assert fill.resolution.resolver_id == "engine:application_source"
+    assert (fill.resolution.resolver_id, fill.resolution.fact_key) == (
+        "expression:standing-source", "preferences.application_source"
+    )
+    # Referred, the same box names the referral.
+    plan = build_autofill_plan(fields, resolver=standing(referral={"referred": True}))
+    assert [fill.value for fill in plan.fills] == ["Employee referral"]
 
 
 def test_a_follow_up_the_answer_above_rules_out_is_not_applicable() -> None:
