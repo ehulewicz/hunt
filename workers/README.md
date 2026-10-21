@@ -480,7 +480,13 @@ reports each fill to a `FillObserver` before and after operating it, which
 **How it is operated.** `jobs/registry/` names what the fill path does. `kinds.py` classifies every
 detected control into one of seven kinds — `text_entry`, `native_select`,
 `choice_group`, `multi_choice_group`, `toggle`, `dynamic_choice`, `file` — from
-generic HTML and ARIA alone; a group of `aria-pressed` buttons is found by that
+generic HTML and ARIA alone, or into a custom kind. A custom kind
+(`registry/custom/`, one module each, usually written by the fixer) teaches a
+widget with no form input of its own: a selector for its root, a script that
+reads what it holds, and its strategies. Registering one adds its strategies to
+the tables below, `inspect_fields` captures its widgets after the form inputs,
+`fresh_control` finds them by position, the readback compares what its script
+reads, and the widget is never an `unknown_control` again; a group of `aria-pressed` buttons is found by that
 state, not by any site's class names. `strategies.py` lists each kind's candidate
 strategies in order, and `browser.OPERATIONS` performs them: candidates are tried
 until one operates, then the value is read back: a select by its chosen

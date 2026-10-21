@@ -974,6 +974,17 @@ def fresh_control(page: Page, field: dict[str, Any]) -> Any:
         locator = frame.locator(selector)
         if locator.count() == 1:
             return locator
+    if field.get("custom"):
+        from personal_os_worker.jobs.registry.custom import load
+
+        kind = load().get(str(field["custom"]))
+        if kind is None:
+            raise RuntimeError(f"no custom kind {field['custom']!r} is registered")
+        widgets = frame.locator(kind.selector)
+        position = int(field.get("custom_index") or 0)
+        if position >= widgets.count():
+            raise RuntimeError("control is no longer present")
+        return widgets.nth(position)
     controls = frame.locator("input, textarea, select, [role=combobox]")
     position = int(field.get("control_index", field["index"]))
     if position >= controls.count():
@@ -1218,6 +1229,13 @@ def verify_control(
         return _verify_upload(page, field, filename)
     control = fresh_control(page, field)
     try:
+        if field.get("custom"):
+            from personal_os_worker.jobs.registry.custom import load, read
+
+            kind = load()[str(field["custom"])]
+            held = str(read(control, kind).get("value") or "")
+            expected = str(value or "")
+            return same_entry(held, expected) or option_match([held], expected) is not None
         if field.get("type") == "yesno":
             buttons, texts = _button_group(control)
             chosen = button_choice(texts, str(value or ""))
@@ -1768,6 +1786,20 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
             item["frame_index"] = frame_index
             item["frame_url"] = frame.url
             results.append(item)
+    # Widgets a custom kind captures (`registry/custom/`), after the form inputs.
+    from personal_os_worker.jobs.registry.custom import capture, load
+
+    for kind in load().values():
+        for frame_index, frame in enumerate(page.frames):
+            try:
+                captured = capture(frame, kind)
+            except Error:
+                continue
+            for item in captured:
+                item["index"] = len(results)
+                item["frame_index"] = frame_index
+                item["frame_url"] = frame.url
+                results.append(item)
     return results
 
 
@@ -1797,7 +1829,7 @@ def visible_actions(page: Page, *, limit: int = 40) -> list[str]:
 # editable, with no form input of their own. Site chrome (navigation, header,
 # footer), captchas, hidden elements, and a combobox's own popup are not.
 UNKNOWN_CONTROLS_SCRIPT = r"""
-() => {
+(customSelectors) => {
   const roles = ['slider', 'spinbutton', 'radiogroup', 'listbox', 'textbox', 'switch',
                  'checkbox', 'radio', 'option'];
   const candidates = [...document.querySelectorAll(
@@ -1865,6 +1897,9 @@ UNKNOWN_CONTROLS_SCRIPT = r"""
     if (!visible(node) || node.closest(chrome) || node.closest('[aria-hidden="true"]')) continue;
     if (node.matches(native) || node.querySelector(native) || node.closest(native)) continue;
     if (node.closest('[role="combobox"]') || ownedPopup(node)) continue;
+    if (customSelectors.some(selector => node.matches(selector) || node.closest(selector))) {
+      continue;
+    }
     const role = node.getAttribute('role') || (node.isContentEditable ? 'textbox' : 'button');
     // An option, radio, or checkbox inside a group is that group, reported once.
     const parentGroup = node.parentElement?.closest('[role="radiogroup"], [role="listbox"]');
@@ -1894,12 +1929,16 @@ def inspect_unknown_controls(page: Page) -> list[dict[str, Any]]:
     """Every widget on the page that no control kind captures, with its question.
 
     An empty unknown control is an `unknown_control` finding: no strategy can
-    operate it until code is written for it (`jobs/fix/`).
+    operate it until code is written for it (`jobs/fix/`). A widget a custom
+    kind captures is a control like any other.
     """
+    from personal_os_worker.jobs.registry.custom import load
+
+    selectors = [kind.selector for kind in load().values()]
     results: list[dict[str, Any]] = []
     for frame_index, frame in enumerate(page.frames):
         try:
-            raw = frame.evaluate(UNKNOWN_CONTROLS_SCRIPT)
+            raw = frame.evaluate(UNKNOWN_CONTROLS_SCRIPT, selectors)
         except Error:
             continue
         for item in cast(list[dict[str, Any]], raw):

@@ -34,8 +34,9 @@ SCHEMA = {
 }
 # What each cause asks the code to do, in the words the prompt uses.
 GOALS = {
-    "unknown_control": "the worker cannot see or operate this widget: capture it as a control "
-    "(a kind and its detection) and operate it with a strategy that reads the value back",
+    "unknown_control": "the worker cannot see or operate this widget: teach it as a custom "
+    "kind, one new module in jobs/registry/custom/ (its docstring says how) that finds the "
+    "widget, reads what it holds, and operates it so the value reads back",
     "detection_error": "the worker captured this control but not its question: read the "
     "question correctly for this markup",
     "control_error": "the right value is known but no strategy got the widget to hold it: "
