@@ -12,6 +12,7 @@ cross-boundary, reference, or historical.
 |---|---|
 | [`deployment.md`](deployment.md) | How production is built and deployed: Vercel, the GitHub Actions `Deploy` workflow, GCP Secret Manager, the one-time Tailscale setup for Hunt devices, test ports, and the one-time Google OAuth bootstrap. |
 | [`jobs-cli.md`](jobs-cli.md) | The `os hunt` and `os device` command surface, the behavior of headed apply, and driving it from the Hunt page. The user-facing reference for Jobs. |
+| [`jobs/how-a-field-is-filled.md`](jobs/how-a-field-is-filled.md) | The pieces that fill one form field (question, pattern, fact, formatter, control, strategy, fill event, answer history, prose, archive), where each lives, and how each counts as verified. A map that links to the owning READMEs. |
 | [`superpowers/specs/`](superpowers/specs/) | Design specs for work not yet built. A spec is a plan, not a description of the current system. |
 | [`third-party/`](third-party/) | Reviews of external projects and extensions, recording what was reimplemented and what was deliberately not vendored. |
 | [`archived/`](archived/) | Superseded documentation. Nothing there describes the current system. |
