@@ -71,6 +71,12 @@ os hunt repair                # retry queued failures from runs with --no-repair
 os hunt validate              # watch each repaired rule fill, then accept or reject it
 os hunt apply failures list
 os hunt apply failures show 1
+
+os hunt changes               # the 20 newest changes to what Jobs knows, and to its code
+os hunt changes 50 --subject code --status passed
+os hunt changes show 3        # one change in full, a code change's diff included
+os hunt fixes                 # failures the fixer took on, and how each went
+os hunt sites                 # each site's latest run and its model calls
 ```
 
 ```bash
@@ -313,3 +319,25 @@ once the value reads back; the run then reloads on the same tab and carries on.
 The terminal and the page show each fix as it goes (`fix writing`, `testing`,
 `waiting`, `probing`, `kept`, `unsolved`). What three attempts could not fix is
 outlined and waits in the Inbox.
+
+## History
+
+Three read-only commands say what the loop has done. `os hunt changes [N]` lists
+the newest N changes (20 by default), newest first: when, the subject and its id
+(a fact by key, code by commit), the action, who made it (`you`, `inbox`,
+`model`, `repair`, `worker`), the failure it fixed (its run, issue, and
+question), its replay (`passed 0/12` is none wrong of twelve replayed), and what
+it did in one line, the fields that differ before to after. `--subject`
+(`pattern`, `fact`, `code`, `prose`, `question`, `strategy`) and `--status`
+(`pending`, `passed`, `failed`) narrow it. `os hunt changes show <row|id-prefix>`
+prints one change in full, with both sides as JSON and a code change's diff.
+
+`os hunt fixes` lists the failures the fixer took on (`fixing`, `fixed`,
+`unsolved`): the category, the question, how often it was seen, the commit that
+fixed it, and the notes, which say what it tried or why it gave up.
+
+`os hunt sites` groups runs by site, the registrable host (its last two labels)
+of where each run ended up, else where it started, and shows each site's latest
+run: when, its model calls, and how many failure issues it hit are still open or
+unsolved. A site whose latest run made no model calls is marked `met`: the
+next application there should need none either.

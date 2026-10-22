@@ -29,6 +29,7 @@ from personal_os_backend.jobs_models import (
     AutofillRunCreate,
     AutofillRunFinish,
     AutofillRunStop,
+    AutofillSite,
     AutofillStepCreate,
     JobApplication,
     JobListing,
@@ -269,6 +270,12 @@ async def list_autofill_failures(
     principal: CurrentPrincipal, store: Store
 ) -> list[AutofillFailureIssue]:
     return await store.list_autofill_failures(principal.user_id)
+
+
+@router.get("/autofill/sites", response_model=list[AutofillSite])
+async def list_autofill_sites(principal: CurrentPrincipal, store: Store) -> list[AutofillSite]:
+    """Each site's latest run: its model calls and the failures it left open."""
+    return await store.list_autofill_sites(principal.user_id)
 
 
 @router.get("/autofill/failures/{issue_id}", response_model=AutofillFailureDetail)

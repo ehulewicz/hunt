@@ -282,6 +282,20 @@ class AutofillArtifactResponse(BaseModel):
     storage_path: str
 
 
+class AutofillSite(BaseModel):
+    """A site's latest run: a site whose latest run made no model calls fills without one."""
+
+    site: str
+    runs: int
+    run_id: UUID
+    run_status: str
+    model_calls: int
+    last_run_at: datetime
+    # Failure issues that run hit which are still open (or being fixed), and unsolved.
+    open_issues: int
+    unsolved_issues: int
+
+
 class ValidationTarget(BaseModel):
     """An unsubmitted application showing the failed question, a fresh one first (R26)."""
 

@@ -444,6 +444,11 @@ class WorkerApi:
         value = response.json()
         return value if isinstance(value, list) else []
 
+    def autofill_sites(self) -> list[dict[str, Any]]:
+        """Each site's latest run, its model calls, and the failures it left open."""
+        payload = self._json(self._client.get("/v1/jobs/autofill/sites"), "Sites")
+        return payload if isinstance(payload, list) else []
+
     def autofill_failure(self, issue_id: str) -> dict[str, Any]:
         response = self._client.get(f"/v1/jobs/autofill/failures/{issue_id}")
         response.raise_for_status()

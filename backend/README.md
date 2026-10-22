@@ -138,7 +138,11 @@ commit, and dates the live readback) once a code fix is kept, or to `unsolved`
 when its attempts run out; an unsolved issue can be taken again. A fixed,
 validated, repaired, archived, or unsolved signature that fails again reopens;
 one being fixed stays with the fixer. Each step may carry the run's
-`model_calls` so far, and a run's count only grows. `GET
+`model_calls` so far, and a run's count only grows. `GET /autofill/sites`
+folds runs by site, the last two labels of the final URL's host (else the
+application URL's), newest first: each site's run count and its latest run, with
+that run's status, model calls, and how many failure issues it hit are still
+`open` or `fixing`, and `unsolved`. `GET
 /autofill/failures/{id}/target` names an unsubmitted application that showed the
 question, another posting before the one that failed (R26), and every run's
 context carries the validated strategy candidates as control preferences. FastAPI alone writes sanitized artifacts to the private autofill bucket

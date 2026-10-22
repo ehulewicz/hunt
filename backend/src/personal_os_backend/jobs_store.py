@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, Protocol
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from fastapi import Request
@@ -31,6 +32,7 @@ from personal_os_backend.jobs_models import (
     AutofillRunCreate,
     AutofillRunFinish,
     AutofillRunStop,
+    AutofillSite,
     AutofillStepCreate,
     JobApplication,
     JobListing,
@@ -141,6 +143,8 @@ class JobsStore(Protocol):
     ) -> bool: ...
 
     async def list_autofill_failures(self, user_id: UUID) -> list[AutofillFailureIssue]: ...
+
+    async def list_autofill_sites(self, user_id: UUID) -> list[AutofillSite]: ...
 
     async def get_autofill_failure(
         self, user_id: UUID, issue_id: UUID
@@ -1049,6 +1053,33 @@ class PostgresJobsStore:
             rows = await cursor.fetchall()
         return [AutofillFailureIssue.model_validate(row) for row in rows]
 
+    async def list_autofill_sites(self, user_id: UUID) -> list[AutofillSite]:
+        """Each site's latest run, newest first, with the failure issues it hit that
+        are still open or unsolved."""
+        async with self._pool.connection(timeout=self._timeout) as connection:
+            await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                """
+                select run.id, run.status, run.model_calls, run.created_at,
+                       coalesce(nullif(run.final_url, ''), run.application_url) as url,
+                       count(distinct issue.id)
+                         filter (where issue.status in ('open', 'fixing')) as open_issues,
+                       count(distinct issue.id)
+                         filter (where issue.status = 'unsolved') as unsolved_issues
+                from app.jobs_autofill_runs run
+                left join app.jobs_autofill_failure_occurrences occurrence
+                  on occurrence.run_id = run.id and occurrence.user_id = run.user_id
+                left join app.jobs_autofill_failure_issues issue
+                  on issue.id = occurrence.issue_id and issue.user_id = run.user_id
+                where run.user_id = %s
+                group by run.id
+                order by run.created_at desc, run.id
+                """,
+                (user_id,),
+            )
+            rows = await cursor.fetchall()
+        return latest_per_site(rows)
+
     async def get_autofill_failure(
         self, user_id: UUID, issue_id: UUID
     ) -> AutofillFailureDetail | None:
@@ -1297,6 +1328,32 @@ async def save_prose(
         ),
     )
 
+
+def registrable_site(url: str) -> str:
+    """The registrable part of a URL's host, near enough: its last two labels, as the
+    worker names a site."""
+    host = (urlsplit(url).hostname or "").casefold().rstrip(".")
+    return ".".join(host.split(".")[-2:])
+
+
+def latest_per_site(runs: Sequence[dict[str, Any]]) -> list[AutofillSite]:
+    """Runs, newest first, folded to each site's latest one and how many runs it had."""
+    latest: dict[str, dict[str, Any]] = {}
+    counts: dict[str, int] = {}
+    for run in runs:
+        site = registrable_site(str(run["url"] or ""))
+        if not site:
+            continue
+        counts[site] = counts.get(site, 0) + 1
+        latest.setdefault(site, run)
+    return [
+        AutofillSite(
+            site=site, runs=counts[site], run_id=run["id"], run_status=run["status"],
+            model_calls=run["model_calls"], last_run_at=run["created_at"],
+            open_issues=run["open_issues"], unsolved_issues=run["unsolved_issues"],
+        )
+        for site, run in latest.items()
+    ]
 
 async def get_jobs_store(request: Request) -> JobsStore:
     settings: Settings = request.app.state.settings

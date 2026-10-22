@@ -23,7 +23,7 @@ from personal_os_worker.core.tables import ReferenceError, console
 from personal_os_worker.device import commands as devices
 from personal_os_worker.documents import resume as resumes
 from personal_os_worker.jobs import commands as hunt
-from personal_os_worker.jobs import inbox, knowledge
+from personal_os_worker.jobs import history, inbox, knowledge
 from personal_os_worker.jobs.commands import APPLICATION_STATUSES, DEFAULT_TECHNICAL_FAMILIES
 from personal_os_worker.jobs.facts import commands as facts
 from personal_os_worker.jobs.facts.commands import VALUE_TYPES
@@ -32,7 +32,7 @@ from personal_os_worker.jobs.sites import ATS_NAMES
 
 HUNT_COMMANDS = (
     "today", "sync", "open", "apps", "skipped", "inbox", "patterns", "facts", "prose",
-    "archive", "resume", "apply", "repair", "validate", "replay",
+    "archive", "resume", "apply", "repair", "validate", "replay", "changes", "fixes", "sites",
 )
 LISTING_FLAGS = ("--faang", "--quant", "--location", "--family", "--all-roles", "--ats")
 
@@ -333,6 +333,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="End with one JSON line of the counts, for the fixer",
     )
 
+    changes = jobs_commands.add_parser(
+        "changes",
+        help="Every change to a pattern, fact, prose, question, strategy, or code: "
+        "who made it, what it fixed, how its replay went",
+    )
+    changes.add_argument(
+        "action", nargs="?", metavar="N|show",
+        help="Rows to show (default 20), or 'show' to print one in full",
+    )
+    changes.add_argument("ref", nargs="?", help="Row number from 'os hunt changes' or id prefix")
+    changes.add_argument("--subject", choices=history.CHANGE_SUBJECTS)
+    changes.add_argument("--status", dest="change_status", choices=history.CHANGE_STATUSES)
+    jobs_commands.add_parser(
+        "fixes", help="Failures the fixer took on: being fixed, fixed by a commit, or unsolved"
+    )
+    jobs_commands.add_parser(
+        "sites", help="Each site's latest run and its model calls (0 meets the goal)"
+    )
+
     return parser
 
 
@@ -465,6 +484,14 @@ def _dispatch(args: argparse.Namespace) -> int:
             return knowledge.run_replay(
                 question=args.question, fact_key=args.fact_key, json_line=args.json_line
             )
+        if args.hunt_command == "changes":
+            return history.run_changes(
+                args.action, args.ref, subject=args.subject, status=args.change_status
+            )
+        if args.hunt_command == "fixes":
+            return history.run_fixes()
+        if args.hunt_command == "sites":
+            return history.run_sites()
         if args.hunt_command == "apply":
             if args.continue_run is not None:
                 return hunt.continue_run(args.continue_run)

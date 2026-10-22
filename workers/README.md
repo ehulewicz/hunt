@@ -142,7 +142,8 @@ Current, permanent, and mailing address questions all use the same `address.*`
 facts; their labels explicitly tell the model that these meanings coincide.
 
 `jobs/inbox.py` is `os hunt inbox`; `jobs/knowledge.py` is `os hunt patterns`,
-`replay`, `prose`, and `archive`.
+`replay`, `prose`, and `archive`; `jobs/history.py` is the read-only `os hunt
+changes`, `fixes`, and `sites`.
 
 **Replay (R69).** A learned change is checked offline before it is kept.
 `jobs/replay.py` replays it against sightings, the short answers submitted with
