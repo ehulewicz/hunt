@@ -38,8 +38,16 @@ Once per device (Windows + WSL, mirrored networking as the CLI already needs):
    as before), run `os device install`. It records the device's id and address, runs
    `tailscale serve --bg --https=443 http://127.0.0.1:9340`, registers the
    "Personal OS device" logon task, starts it, and runs `os doctor`.
-3. The device appears on the Hunt page within a minute. `os device status` says
-   what its agent is doing; its log is `~/.local/state/personal-os/device.log`.
+3. With systemd on in WSL, keep one OOM kill from stopping the whole distro. A
+   shell, the agent, and WSL's own init all live in `init.scope`, whose default
+   `OOMPolicy=stop` turns one killed process into every shell killed, and the
+   counter survives until `wsl --shutdown`, so each restart dies again 90 seconds
+   in. Write `/etc/systemd/system.conf.d/oom.conf` with `[Manager]` and
+   `DefaultOOMPolicy=continue`, run `sudo systemctl daemon-reexec`, and check that
+   `systemctl show init.scope -p OOMPolicy` says `continue`.
+4. The device appears on the Hunt page within a minute. `os device status` says
+   what its agent is doing; its log is `~/.local/state/personal-os/device.log`,
+   and `memory.log` beside it has what the agent and its run hold every 30 seconds.
 
 The logon task needs a signed-in Windows session: after a reboot, the agent
 starts when someone signs in, not at the lock screen. A device's Chrome keeps

@@ -76,6 +76,7 @@ def run_serve() -> int:
     try:
         import uvicorn
 
+        from personal_os_worker.device.memory import MemoryWatch
         from personal_os_worker.device.server import Agent, TokenVerifier, create_app, reexec
     except ImportError as error:
         # A worker installed before the agent existed lacks its server packages.
@@ -109,6 +110,7 @@ def run_serve() -> int:
         update=lambda: update_checkout(repo).note,
         ensure_chrome=lambda: service.ensure_chrome(config.cdp_url, quiet=True),
         log_dir=state_dir() / "runs",
+        memory=MemoryWatch(state_dir() / "memory.log"),
     )
     console.print(f"device agent: {identity.name} listening on 127.0.0.1:{AGENT_PORT}")
     uvicorn.run(

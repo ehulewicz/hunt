@@ -88,6 +88,8 @@ class RunState:
     gaps: list[dict[str, Any]] = field(default_factory=list)
     fixes: list[dict[str, Any]] = field(default_factory=list)
     tab: str | None = None
+    # What the run's hello said its process is; a terminal run is not the agent's child.
+    pid: int | None = None
     linked: bool = False
     # The run said it is reloading with a kept fix: its next connection is the
     # same run, so its socket closing does not end it.
@@ -149,6 +151,9 @@ class RunManager:
 
     def active_run_id(self) -> str | None:
         return self.current.run_id if self.current is not None and self.current.active else None
+
+    def active_pid(self) -> int | None:
+        return self.current.pid if self.current is not None and self.current.active else None
 
     def snapshot(self) -> dict[str, Any] | None:
         return self.current.snapshot() if self.current is not None else None
@@ -243,6 +248,8 @@ class RunManager:
         state.company = str(hello.get("company") or "") or None
         state.title = str(hello.get("title") or "") or None
         state.remote = bool(hello.get("remote"))
+        pid = hello.get("pid")
+        state.pid = pid if isinstance(pid, int) and not isinstance(pid, bool) and pid > 1 else None
         state.phase, state.linked = "running", True
         self._writer = writer
         writer.write(encode({"type": "attached"}))
@@ -315,6 +322,11 @@ class RunManager:
             await self._publish(message)
         elif kind == "end":
             await self._end(state, str(message.get("outcome") or "stopped"))
+
+    async def note(self, text: str) -> None:
+        """A line from the agent itself in the active run's log, in red."""
+        if self.current is not None and self.current.active:
+            await self._line(self.current, [{"text": text, "style": ["red"]}])
 
     async def _line(self, state: RunState, spans: list[dict[str, Any]]) -> None:
         state.lines.append(spans)

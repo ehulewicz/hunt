@@ -151,7 +151,7 @@ async def test_a_terminal_run_registers_and_a_second_is_turned_away(tmp_path: Pa
     async with Agent(tmp_path) as agent:
         first = await asyncio.to_thread(
             LinkClient.connect,
-            {"type": "hello", "run_id": "t1", "company": "Beta", "title": "SWE"},
+            {"type": "hello", "run_id": "t1", "company": "Beta", "title": "SWE", "pid": 4242},
             path=agent.socket,
         )
         assert first is not None
@@ -159,6 +159,10 @@ async def test_a_terminal_run_registers_and_a_second_is_turned_away(tmp_path: Pa
         assert agent.manager.current is not None
         assert agent.manager.current.origin == "terminal"
         assert agent.manager.current.company == "Beta"
+        # The memory watch follows a terminal run by the pid its hello gave.
+        await agent.until(lambda: agent.manager.active_pid() == 4242)
+        await agent.manager.note("Stopped python3 (4242)")
+        assert agent.text()[-1] == "Stopped python3 (4242)"
 
         second = await asyncio.to_thread(
             LinkClient.connect, {"type": "hello", "run_id": "t2"}, path=agent.socket

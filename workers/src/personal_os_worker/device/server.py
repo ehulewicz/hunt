@@ -39,6 +39,7 @@ from personal_os_worker.core.config import CliConfig
 from personal_os_worker.device.heartbeat import HEARTBEAT_SECONDS, Presence
 from personal_os_worker.device.identity import DeviceIdentity
 from personal_os_worker.device.link import socket_path
+from personal_os_worker.device.memory import MemoryWatch, gigabytes
 from personal_os_worker.device.runs import RunBusy, RunManager
 from personal_os_worker.device.stream import CdpConnection, Stream, pack_frame
 from personal_os_worker.device.update import source_fingerprint
@@ -176,11 +177,13 @@ class Agent:
         ensure_chrome: Callable[[], object],
         stream_factory: StreamFactory | None = None,
         log_dir: Path | None = None,
+        memory: MemoryWatch | None = None,
     ) -> None:
         self.config = config
         self.identity = identity
         self.presence = presence
         self.verifier = verifier
+        self.memory = memory
         self.ensure_chrome = ensure_chrome
         self.stream_factory = stream_factory or self._chrome_stream
         self.viewer: Viewer | None = None
@@ -373,6 +376,10 @@ def create_app(agent: Agent, *, background: bool = True) -> Starlette:
                 )
             ),
         ]
+        if agent.memory is not None:
+            tasks.append(
+                asyncio.create_task(watch_memory(agent, agent.memory, restart=agent.restart))
+            )
         try:
             yield
         finally:
@@ -403,6 +410,32 @@ async def heartbeats(agent: Agent) -> None:
         except Exception as error:
             print(f"heartbeat failed: {error}", flush=True)
         await asyncio.sleep(HEARTBEAT_SECONDS)
+
+
+async def watch_memory(
+    agent: Agent,
+    watch: MemoryWatch,
+    *,
+    restart: Callable[[], Awaitable[None]],
+    every: float = HEARTBEAT_SECONDS,
+) -> None:
+    """Sample memory every beat; a run's process past the limit is stopped and the run told."""
+    while True:
+        try:
+            over = await asyncio.to_thread(watch.check, agent.runs.active_pid())
+        except Exception as error:
+            print(f"memory watch failed: {error}", flush=True)
+            over = None
+        if over is not None and over.pid == watch.agent_pid:
+            if not agent.runs.busy():
+                await restart()
+                return
+        elif over is not None:
+            await agent.runs.note(
+                f"Stopped {over.name} ({over.pid}): it held {gigabytes(over.rss)}, past the "
+                f"{gigabytes(watch.limit)} limit. memory.log has the samples before it."
+            )
+        await asyncio.sleep(every)
 
 
 async def restart_when_changed(

@@ -16,6 +16,7 @@ from starlette.websockets import WebSocketDisconnect
 from personal_os_worker.core.config import CliConfig
 from personal_os_worker.device import server
 from personal_os_worker.device.identity import DeviceIdentity
+from personal_os_worker.device.memory import Process
 from personal_os_worker.device.runs import RunManager
 from personal_os_worker.device.server import Agent, TokenVerifier, create_app
 from personal_os_worker.device.update import Checkout
@@ -246,6 +247,53 @@ async def test_the_agent_restarts_only_between_runs(agent: Agent) -> None:
     task = asyncio.create_task(
         server.restart_when_changed(agent, lambda: next(prints), restart=restart, every=0.01)
     )
+    await asyncio.sleep(0.05)
+    assert restarted == []
+    agent.runs.current = None
+    await asyncio.wait_for(task, 1)
+    assert restarted == [1]
+
+
+class FakeWatch:
+    def __init__(self, over: Process | None) -> None:
+        self.over = over
+        self.agent_pid = 100
+        self.limit = 4 * 1024**3
+        self.asked: list[int | None] = []
+
+    def check(self, run_pid: int | None = None) -> Process | None:
+        self.asked.append(run_pid)
+        return self.over
+
+
+async def test_a_run_process_past_the_limit_is_named_in_the_runs_log(agent: Agent) -> None:
+    notes: list[str] = []
+
+    async def note(text: str) -> None:
+        notes.append(text)
+
+    async def restart() -> None:
+        raise AssertionError("only the agent itself past the limit restarts")
+
+    agent.runs.note = note  # type: ignore[method-assign]
+    agent.runs.current = type("S", (), {"active": True, "pid": 201})()  # type: ignore[assignment]
+    fake = FakeWatch(Process(201, 1, "os", 5 * 1024**3))
+    task = asyncio.create_task(server.watch_memory(agent, fake, restart=restart, every=0.01))  # type: ignore[arg-type]
+    await asyncio.sleep(0.05)
+    task.cancel()
+    assert fake.asked[0] == 201
+    assert notes[0].startswith("Stopped os (201): it held 5.00G, past the 4.00G limit")
+
+
+async def test_the_agent_past_the_limit_restarts_once_no_run_is_active(agent: Agent) -> None:
+    restarted: list[int] = []
+
+    async def restart() -> None:
+        restarted.append(1)
+
+    agent.runs.current = type("S", (), {"active": True, "pid": None})()  # type: ignore[assignment]
+    fake = FakeWatch(Process(100, 1, "python3", 5 * 1024**3))
+    task = asyncio.create_task(server.watch_memory(agent, fake, restart=restart, every=0.01))  # type: ignore[arg-type]
     await asyncio.sleep(0.05)
     assert restarted == []
     agent.runs.current = None

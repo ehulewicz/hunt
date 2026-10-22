@@ -80,6 +80,12 @@ distro; `os device status` says what it is doing.
   Readiness is `os doctor`, run every ten minutes; a closed automation Chrome does
   not count against it, because the agent starts Chrome itself when a page connects
   or a run starts.
+- `memory.py` samples, every 30 seconds, the resident memory of the agent, every
+  process under it, and a terminal run by the pid its hello gave, and appends one
+  line to `memory.log` in the state directory (rotated at 5 MB). A process past
+  4 GiB is stopped with SIGTERM, the line names it, and the run's log says so;
+  the agent itself past the limit restarts once no run is active. A leak that
+  reaches the kernel's OOM killer otherwise leaves no record of what it was.
 - `server.py` is the agent: Starlette on uvicorn, on 127.0.0.1:9340 only, published
   to the tailnet by Windows `tailscale serve`. Every request carries the user's
   Supabase token, which the agent checks by asking the local API for `/v1/me`; a
