@@ -41,6 +41,7 @@ function HuntSession({ device, balanced, draft, onDraft, gapDrafts, onGapDraft, 
           draft={draft}
           gapDrafts={gapDrafts}
           gaps={state.gaps}
+          fixes={state.fixes}
           letter={state.letter}
           log={state.log}
           onControl={onControl}

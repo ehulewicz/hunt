@@ -12,6 +12,7 @@ import {
   type DeviceSession,
   type FrameHeader,
   type Gap,
+  type Fix,
   type LogLine,
   openDeviceSession,
   type RunSnapshot,
@@ -42,6 +43,7 @@ export type SessionState = {
   streamMessage: string | null;
   letter: string | null;
   gaps: Gap[];
+  fixes: Fix[];
   results: Record<string, { ok: boolean; message: string }>;
 };
 
@@ -59,6 +61,7 @@ export const initialSession: SessionState = {
   streamMessage: null,
   letter: null,
   gaps: [],
+  fixes: [],
   results: {},
 };
 
@@ -68,7 +71,7 @@ type Action =
   | { type: "frame"; frame: Frame };
 
 function fromRun(state: SessionState, run: RunSnapshot | null): SessionState {
-  return { ...state, run, letter: run?.letter ?? null, gaps: run?.gaps ?? [] };
+  return { ...state, run, letter: run?.letter ?? null, gaps: run?.gaps ?? [], fixes: run?.fixes ?? [] };
 }
 
 export function sessionReducer(state: SessionState, action: Action): SessionState {
@@ -88,6 +91,8 @@ export function sessionReducer(state: SessionState, action: Action): SessionStat
       return { ...state, letter: message.text };
     case "gaps":
       return { ...state, gaps: message.items, results: {} };
+    case "fixes":
+      return { ...state, fixes: message.items };
     case "fact_result":
       return {
         ...state,

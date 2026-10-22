@@ -1,31 +1,38 @@
 "use client";
 
 import { ArrowLeft, Check } from "lucide-react";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useRef, useState } from "react";
 
-import { apiRequest, type Fact, type InboxQuestion, type Pattern, type Prose } from "@/lib/api";
+import { ReplayResult } from "@/components/hunt-history";
+import { apiRequest, type Change, type Fact, type InboxFact, type InboxQuestion, type Pattern, type Prose } from "@/lib/api";
 import { freshAccessToken } from "@/lib/device";
 
-export type Review = { kind: "fact"; item: Fact } | { kind: "question"; item: InboxQuestion }
-  | { kind: "prose"; item: Prose } | { kind: "pattern"; item: Pattern };
+export type Review = { kind: "fact"; item: Fact | InboxFact } | { kind: "question"; item: InboxQuestion }
+  | { kind: "prose"; item: Prose } | { kind: "pattern"; item: Pattern; check?: Change | null };
 
 export function valueText(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value, null, 2) ?? "";
 }
 
-export function ReviewForm({ review, facts, onDone, onBack }: {
-  review: Review; facts: Fact[]; onDone: () => void; onBack: () => void;
+export function ReviewForm({ review: initialReview, facts, onDone, onBack, origin = "you" }: {
+  review: Review; facts: Fact[]; origin?: "you" | "inbox"; onDone: () => void; onBack: () => void;
 }) {
-  const [text, setText] = useState(review.kind === "prose" ? review.item.text : review.kind === "fact" ? valueText(review.item.value) : "");
-  const [factKey, setFactKey] = useState("");
+  // Missing cards carry the run's question, but may omit an existing fact's metadata.
+  const storedFact = initialReview.kind === "fact" && "reason" in initialReview.item && initialReview.item.reason === "missing"
+    ? facts.find((fact) => fact.key === initialReview.item.key) : undefined;
+  const review: Review = initialReview.kind === "fact" && storedFact
+    ? { ...initialReview, item: { ...initialReview.item, ...storedFact } } : initialReview;
+  const [text, setText] = useState(review.kind === "prose" ? review.item.text : review.kind === "fact" ? "reason" in review.item && review.item.reason === "missing" && !storedFact ? "" : valueText(review.item.value) : "");
+  const [factKey, setFactKey] = useState(review.kind === "fact" ? review.item.key ?? "" : "");
+  const [editingProse, setEditingProse] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [label, setLabel] = useState(review.kind === "question" ? review.item.question.sample_label : "");
-  const [valueType, setValueType] = useState<Fact["value_type"]>("text");
+  const [label, setLabel] = useState(review.kind === "question" ? review.item.question.sample_label : review.kind === "fact" ? review.item.label ?? ("missing_fact" in review.item ? review.item.missing_fact : null) ?? "" : "");
+  const [valueType, setValueType] = useState<Fact["value_type"]>(review.kind === "fact" ? review.item.value_type ?? "text" : "text");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
   const title = review.kind === "prose" ? review.item.question_label ?? "Written answer"
-    : review.kind === "fact" ? review.item.label
+    : review.kind === "fact" ? review.item.label ?? ("missing_fact" in review.item ? review.item.missing_fact : null) ?? "Missing fact"
       : review.kind === "question" ? review.item.question.sample_label
         : review.item.question_label ?? review.item.expression ?? "Suggested pattern";
 
@@ -49,26 +56,26 @@ export function ReviewForm({ review, facts, onDone, onBack }: {
     event.preventDefault();
     void save(async (token) => {
       if (review.kind === "prose") return apiRequest(`/v1/jobs/prose/${review.item.id}`, token, {
-        method: "PATCH", body: JSON.stringify({ text, approved: true }),
+        method: "PATCH", body: JSON.stringify({ text, approved: true, origin }),
       });
       if (review.kind === "fact") {
-        const type = review.item.value_type;
+        const type = valueType;
         const value = ["boolean", "number", "list", "object"].includes(type) ? JSON.parse(text) : text;
-        return apiRequest(`/v1/jobs/facts/${encodeURIComponent(review.item.key)}`, token, {
-          method: "PUT", body: JSON.stringify({ value, verified: true }),
+        return apiRequest(`/v1/jobs/facts/${encodeURIComponent(factKey)}`, token, {
+          method: "PUT", body: JSON.stringify({ value, verified: true, origin, ...(!review.item.key || !review.item.value_type ? { label, value_type: valueType } : {}) }),
         });
       }
       if (review.kind === "pattern") return apiRequest(`/v1/jobs/patterns/${review.item.id}`, token, {
-        method: "PATCH", body: JSON.stringify({ status: "active" }),
+        method: "PATCH", body: JSON.stringify({ status: "active", origin }),
       });
       if (adding) {
         const value = ["boolean", "number", "list", "object"].includes(valueType) ? JSON.parse(text) : text;
         await apiRequest(`/v1/jobs/facts/${encodeURIComponent(factKey)}`, token, {
-          method: "PUT", body: JSON.stringify({ value, label, value_type: valueType, verified: true }),
+          method: "PUT", body: JSON.stringify({ value, label, value_type: valueType, verified: true, origin }),
         });
       }
       return apiRequest("/v1/jobs/patterns", token, {
-        method: "POST", body: JSON.stringify({ kind: "binding", question_id: review.item.question.id, fact_key: factKey, status: "active", origin: "inbox" }),
+        method: "POST", body: JSON.stringify({ kind: "binding", question_id: review.item.question.id, fact_key: factKey, status: "active", origin }),
       });
     });
   }
@@ -81,11 +88,27 @@ export function ReviewForm({ review, facts, onDone, onBack }: {
       <fieldset disabled={busy}>
         {review.kind === "prose" ? <>
           <p className="muted">{review.item.company_name ?? "Application answer"}. Edit this answer, then approve it for future applications.</p>
-          <p className="metadata-empty">Origin highlights are not available yet.</p>
-          <label>Answer<textarea autoFocus onChange={(event) => setText(event.target.value)} required rows={8} value={text} /></label>
+          <p className="muted">{review.item.origin && `Cause: ${review.item.origin} · `}{review.item.submitted ? "Submitted answer" : "Not submitted"}</p>
+          {review.item.provenance == null && <p className="metadata-empty">Origin highlights were not recorded for this answer.</p>}
+          {review.item.provenance != null && !editingProse ? <>
+            <p className="prose-legend"><span className="prose-model">Model</span> · <span className="prose-previous">Previous answer</span> · Your text is plain</p>
+            <ProseOrigins item={review.item} />
+            <button className="text-button" onClick={() => setEditingProse(true)} type="button">Edit answer</button>
+          </> : <label>Answer<textarea autoFocus onChange={(event) => setText(event.target.value)} required rows={8} value={text} /></label>}
         </> : review.kind === "fact" ? <>
-          <p className="muted">Confirm this fact before reusing it. An empty text value or [] means None. {review.item.value_type === "boolean" ? "Use true or false." : ["list", "object"].includes(review.item.value_type) ? "Enter valid JSON." : ""}</p>
-          <label>Value<textarea autoFocus onChange={(event) => setText(event.target.value)} required={["boolean", "number", "list", "object"].includes(review.item.value_type)} rows={3} value={text} /></label>
+          <p className="muted">Confirm this fact before reusing it. An empty text value or [] means None. {valueType === "boolean" ? "Use true or false." : ["list", "object"].includes(valueType) ? "Enter valid JSON." : ""}</p>
+          {"reason" in review.item && <>
+            <p className="muted">Cause: {review.item.reason}</p>
+            {review.item.question && <p>Question: {review.item.question}</p>}
+            {review.item.missing_fact && <p>Needed: {review.item.missing_fact}</p>}
+            <ReplayResult check={review.item.check} />
+          </>}
+          {!review.item.key && <label>Fact key<input onChange={(event) => setFactKey(event.target.value)} pattern="[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+" required value={factKey} /></label>}
+          {(!review.item.key || !review.item.value_type) && <>
+            <label>Label<input onChange={(event) => setLabel(event.target.value)} required value={label} /></label>
+            <label>Type<select onChange={(event) => setValueType(event.target.value as Fact["value_type"])} value={valueType}>{["text", "boolean", "number", "date", "choice", "list", "object"].map((type) => <option key={type}>{type}</option>)}</select></label>
+          </>}
+          <label>Value<textarea autoFocus onChange={(event) => setText(event.target.value)} required={["boolean", "number", "list", "object"].includes(valueType)} rows={3} value={text} /></label>
         </> : review.kind === "question" ? <>
           <p className="muted">Choose the fact that answers this question. This link will apply to future forms.</p>
           <label>Fact
@@ -106,18 +129,20 @@ export function ReviewForm({ review, facts, onDone, onBack }: {
         </> : <>
           <p className="muted">This suggested pattern will answer matching questions using the fact below.</p>
           <div className="fact-preview"><span>{review.item.fact_key}</span><strong>{selectedFact ? factDisplayValue(selectedFact.value) : "Fact not found. Add it before accepting this pattern."}</strong></div>
+          <ReplayResult check={review.check} />
+          {review.item.origin && <p className="muted">Cause: {review.item.origin}</p>}
           {review.item.formatter && <p className="muted">Format: {review.item.formatter}</p>}
         </>}
         {review.kind === "question" && selectedFact && !adding && <div className="fact-preview"><span>Current answer</span><strong>{factDisplayValue(selectedFact.value)}</strong></div>}
         {review.kind === "question" && review.item.answers.length > 0 && <details className="previous-answers"><summary>Previous answers</summary>{review.item.answers.map((answer, index) => <p key={index}><strong>{answer.company_name}</strong>: {answer.answer_text}</p>)}</details>}
         <div className="review-actions">
-          <button className="button button-primary" disabled={busy || !text.trim() && (review.kind === "prose" || review.kind === "fact" && ["boolean", "number", "list", "object"].includes(review.item.value_type)) || review.kind === "pattern" && !selectedFact || review.kind === "question" && !factKey} type="submit">
+          <button className="button button-primary" disabled={busy || !text.trim() && (review.kind === "prose" || review.kind === "fact" && ["boolean", "number", "list", "object"].includes(valueType)) || review.kind === "pattern" && !selectedFact || review.kind === "question" && !factKey} type="submit">
             <Check aria-hidden="true" />{busy ? "Saving…" : review.kind === "prose" ? "Approve for reuse" : review.kind === "fact" ? "Save verified fact" : review.kind === "question" ? adding ? "Save fact and link" : "Link fact" : "Accept pattern"}
           </button>
-          {review.kind === "pattern" && <button className="button button-secondary" onClick={() => void save((token) => apiRequest(`/v1/jobs/patterns/${review.item.id}`, token, { method: "PATCH", body: JSON.stringify({ status: "rejected" }) }))} type="button">Reject</button>}
-          {review.kind === "prose" && !review.item.approved && <button className="button button-secondary" disabled={!text.trim()} onClick={() => void save((token) => apiRequest(`/v1/jobs/prose/${review.item.id}`, token, { method: "PATCH", body: JSON.stringify({ text, approved: false }) }))} type="button">Save draft</button>}
-          {review.kind === "prose" && <button className="text-button" onClick={() => void save((token) => apiRequest(`/v1/jobs/prose/${review.item.id}`, token, { method: "DELETE" }))} type="button">{review.item.approved ? "Delete writing" : "Discard draft"}</button>}
-          {review.kind === "question" && <button className="text-button" onClick={() => void save((token) => apiRequest(`/v1/jobs/questions/${review.item.question.id}`, token, { method: "PATCH", body: JSON.stringify({ disposition: "one_off" }) }))} type="button">Answer only on the form</button>}
+          {review.kind === "pattern" && <button className="button button-secondary" onClick={() => void save((token) => apiRequest(`/v1/jobs/patterns/${review.item.id}`, token, { method: "PATCH", body: JSON.stringify({ status: "rejected", origin }) }))} type="button">Reject</button>}
+          {review.kind === "prose" && !review.item.approved && <button className="button button-secondary" disabled={!text.trim()} onClick={() => void save((token) => apiRequest(`/v1/jobs/prose/${review.item.id}`, token, { method: "PATCH", body: JSON.stringify({ text, approved: false, origin }) }))} type="button">Save draft</button>}
+          {review.kind === "prose" && <button className="text-button" onClick={() => void save((token) => apiRequest(`/v1/jobs/prose/${review.item.id}`, token, { method: "DELETE", body: JSON.stringify({ origin }) }))} type="button">{review.item.approved ? "Delete writing" : "Discard draft"}</button>}
+          {review.kind === "question" && <button className="text-button" onClick={() => void save((token) => apiRequest(`/v1/jobs/questions/${review.item.question.id}`, token, { method: "PATCH", body: JSON.stringify({ disposition: "one_off", origin }) }))} type="button">Answer only on the form</button>}
         </div>
       </fieldset>
       {error && <p className="gap-error" role="alert">{error}</p>}
@@ -131,4 +156,18 @@ export function isNoneValue(value: unknown): boolean {
 
 export function factDisplayValue(value: unknown): string {
   return isNoneValue(value) ? "None" : valueText(value);
+}
+
+// Backend offsets count Unicode code points, whereas String.slice counts UTF-16 units.
+function ProseOrigins({ item }: { item: Prose }) {
+  const characters = Array.from(item.text);
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  for (const span of item.provenance ?? []) {
+    parts.push(characters.slice(cursor, span.start).join(""));
+    parts.push(<mark className={`prose-${span.source}`} key={span.start} title={span.source === "model" ? "Model" : "Previous answer"}>{characters.slice(span.start, span.end).join("")}</mark>);
+    cursor = span.end;
+  }
+  parts.push(characters.slice(cursor).join(""));
+  return <div aria-label="Answer origins" className="prose-origins">{parts}</div>;
 }

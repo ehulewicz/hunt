@@ -30,7 +30,7 @@ function device(overrides: Partial<Device> = {}): Device {
 const RUN: RunSnapshot = {
   key: "k", origin: "page", reference: "12", phase: "running", note: "up to date at 4c1946d",
   run_id: "r1", company: "Acme", title: "Software Engineer Intern", remote: true, outcome: null,
-  letter: null, gaps: [], tab: "T1",
+  letter: null, gaps: [], fixes: [], tab: "T1",
 };
 
 test("the device list says who is up, ready, changed, and busy", () => {
@@ -281,4 +281,19 @@ test("a session starts on a ready online device", () => {
   expect(defaultDevice([device({ id: "a", online: false }), device({ id: "b", ready: false, problem: "x" }), device({ id: "c" })])).toBe("c");
   expect(defaultDevice([device({ id: "b", ready: false, problem: "x" })])).toBe("b");
   expect(defaultDevice([device({ id: "a", online: false })])).toBeNull();
+});
+
+
+test("live fixes restore from a snapshot, update, and clear with a new run", () => {
+  const fix = { key: "fix1", question: "Portfolio", cause: "widget", state: "testing" as const, attempt: 2, note: "Running checks" };
+  let state = sessionReducer(initialSession, { type: "message", message: { type: "run", run: { ...RUN, fixes: [fix] } } });
+  expect(state.fixes).toEqual([fix]);
+  state = sessionReducer(state, { type: "message", message: { type: "fixes", items: [{ ...fix, state: "kept", note: "abc1234 Read upload" }] } });
+  expect(state.fixes[0].state).toBe("kept");
+  renderRun({ run: RUN, fixes: state.fixes, gaps: GAPS });
+  expect(screen.getByRole("region", { name: "Live fixes" })).toHaveTextContent("Portfolio");
+  expect(screen.getByText("Attempt 2/3")).toBeInTheDocument();
+  expect(screen.getByText("abc1234 Read upload")).toBeInTheDocument();
+  state = sessionReducer(state, { type: "message", message: { type: "run", run: null } });
+  expect(state.fixes).toEqual([]);
 });

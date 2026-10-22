@@ -105,7 +105,7 @@ test("a confirmed ended run clears a stale busy heartbeat immediately", async ()
   const handlers = vi.mocked(openDeviceSession).mock.calls[0][2];
   act(() => handlers.onMessage({ type: "run", run: {
     key: "k1", run_id: "r1", phase: "ended", company: "Acme", title: "SWE Intern", outcome: "submitted",
-    origin: "page", reference: null, note: null, remote: true, letter: null, gaps: [], tab: null,
+    origin: "page", reference: null, note: null, remote: true, letter: null, gaps: [], fixes: [], tab: null,
   } }));
   fireEvent.click(screen.getByRole("button", { name: "Back to overview" }));
   await waitFor(() => expect(screen.getByRole("button", { name: "Next on board" })).toBeEnabled());
@@ -153,6 +153,6 @@ test("reviewing prose saves an explicit approval through the API", async () => {
   expect(fetcher.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Approve for reuse" }));
   await waitFor(() => expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("/prose/prose1"), expect.objectContaining({
-    method: "PATCH", body: JSON.stringify({ text: "I build tools people use.", approved: true }),
+    method: "PATCH", body: JSON.stringify({ text: "I build tools people use.", approved: true, origin: "inbox" }),
   })));
 });

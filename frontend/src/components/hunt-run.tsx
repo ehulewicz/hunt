@@ -3,7 +3,7 @@
 import { type FormEvent, memo, useLayoutEffect, useRef, useState } from "react";
 import { CheckCheck, ChevronDown, FileText, ListChecks, Terminal } from "lucide-react";
 
-import type { Gap, LogLine, RunSnapshot, Span } from "@/lib/device";
+import type { Fix, Gap, LogLine, RunSnapshot, Span } from "@/lib/device";
 
 const CONTROLS = [
   { action: "save", label: "Save", help: "Record the answers picked up so far" },
@@ -124,6 +124,7 @@ export const HuntRun = memo(function HuntRun({
   log,
   letter,
   gaps,
+  fixes = run?.fixes ?? [],
   results,
   starting,
   startError,
@@ -143,6 +144,7 @@ export const HuntRun = memo(function HuntRun({
   log: LogLine[];
   letter: string | null;
   gaps: Gap[];
+  fixes?: Fix[];
   results: Record<string, { ok: boolean; message: string }>;
   starting?: boolean;
   startError?: string | null;
@@ -243,6 +245,14 @@ export const HuntRun = memo(function HuntRun({
       </div>
 
       <div hidden={!showGaps}>
+      {fixes.length > 0 && <section aria-label="Live fixes" className="gap-list" aria-live="polite">
+        <h2>Live fixes</h2>
+        {fixes.map((fix) => <div className="gap-row" key={fix.key}>
+          <div className="gap-question"><strong>{fix.question}</strong><span className={fix.state === "kept" ? "status-pill" : "status-pill status-pill-muted"}>{fix.state.replace(/_/g, " ")}</span></div>
+          <p className="muted">{fix.cause.replace(/_/g, " ")} · <span>Attempt {fix.attempt}/3</span></p>
+          {fix.note && <p className="fix-note">{fix.note}</p>}
+        </div>)}
+      </section>}
       {gaps.length > 0 && (
         <section aria-label="Left for you" className="gap-list">
           <h2>Left for you</h2>
@@ -258,7 +268,7 @@ export const HuntRun = memo(function HuntRun({
           ))}
         </section>
       )}
-      {workspace && showGaps && gaps.length === 0 && <div className="panel-empty run-clear"><CheckCheck aria-hidden="true" /><h3>{active ? "Nothing needs your input yet" : run ? "Application recorded" : "Getting things ready"}</h3><p>{active ? "Questions that need an answer will appear here. You can also work directly in Chrome." : run ? "Return to the overview to choose your next application." : "Your application will open beside this panel."}</p></div>}
+      {workspace && showGaps && gaps.length === 0 && fixes.length === 0 && <div className="panel-empty run-clear"><CheckCheck aria-hidden="true" /><h3>{active ? "Nothing needs your input yet" : run ? "Application recorded" : "Getting things ready"}</h3><p>{active ? "Questions that need an answer will appear here. You can also work directly in Chrome." : run ? "Return to the overview to choose your next application." : "Your application will open beside this panel."}</p></div>}
       </div>
       </div>
       <details className="run-log-drawer" open={workspace ? undefined : true}>

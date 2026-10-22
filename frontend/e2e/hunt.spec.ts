@@ -9,7 +9,7 @@ const ACCOUNT = {
 const RUN = {
   key: "k", origin: "page", reference: null, phase: "running", note: "Ready for your review",
   run_id: "r1", company: "Acme", title: "Software Engineer Intern", remote: true, outcome: null,
-  letter: null as string | null, gaps: [] as object[], tab: "T2",
+  letter: null as string | null, gaps: [] as object[], fixes: [] as object[], tab: "T2",
 };
 const APPLICATION = {
   id: "a1", posting_id: "p1", company_name: "Acme", title: "Software Engineer Intern",
@@ -24,6 +24,12 @@ const FACTS = [
   { key: "contact.phone_extension", label: "Phone extension", value: "", value_type: "text", verified_at: "2026-10-20T12:00:00Z" },
   { key: "education.certifications", label: "Certifications", value: [], value_type: "list", verified_at: null },
 ];
+const CHANGE = {
+  id: "c1", subject: "pattern", subject_id: "pat3", action: "update", before: { status: "active" }, after: { status: "retired" },
+  origin: "repair", run_id: "r1", question_key: null, failure_issue_id: "i1", status: "failed", sampled: 7, failed: 2,
+  created_at: "2026-10-20T12:00:00Z", verified_at: "2026-10-20T12:01:00Z",
+};
+const FIX = { key: "fix1", question: "Portfolio upload", cause: "widget", state: "testing", attempt: 2, note: "Checking the upload control" };
 const GAP = { question: "Date of birth", cause: "fact_gap", required: true, note: "Add your date of birth to finish this field.", fact_key: "identity.birth_date", missing_fact: null, label: "Date of birth", value_type: "date", settable: true };
 let jpeg: Buffer;
 
@@ -90,11 +96,14 @@ async function setup(page: Page, busy = false) {
       { id: "pat2", question_id: "q2", question_label: "Your email?", expression: null, fact_key: "contact.email", formatter: null, status: "active" },
       { id: "pat3", question_id: null, question_label: null, expression: "email address", fact_key: "contact.email", formatter: null, status: "retired" },
     ] });
+    if (url.includes("/jobs/changes?")) return route.fulfill({ json: url.includes("subject=code") ? [{ ...CHANGE, subject: "code", subject_id: "abc1234", after: { commit: "abc1234", summary: "Read portfolio uploads", cause: "widget", question: "Portfolio upload", attempts: 2, files: ["upload.py"], probe: { ok: true }, pushed: true, diff: "+read_upload()" } }] : [CHANGE] });
     if (url.includes("/jobs/listings?")) return route.fulfill({ json: { total: 284, items: [], limit: 1, offset: 0 } });
     if (url.endsWith("/jobs/inbox")) return route.fulfill({ json: {
       questions: [{ question: { id: "q1", sample_label: "Will you need visa sponsorship?" }, answers: [] }],
       prose: [{ id: "pr1", question_label: "Why do you want to work at Acme?", company_name: "Acme", text: "I enjoy building tools that make complicated work feel simple.", approved: false }],
-      candidates: [{ pattern: { id: "pat1", question_label: "Are you a US citizen?", fact_key: "work_auth.us_citizen", status: "candidate" }, answers: [] }],
+      facts: FACTS.filter((fact) => !fact.verified_at).map((fact) => ({ ...fact, reason: "unverified", question: null, missing_fact: null, issue_id: null, check: null })),
+      checks: [], unsolved: [{ issue_id: "issue1", category: "wall", question: "Account verification", control_kind: null, note: "Verification could not be completed", occurrence_count: 2, last_seen_at: "2026-10-20T12:00:00Z" }],
+      candidates: [{ check: null, pattern: { id: "pat1", question_label: "Are you a US citizen?", fact_key: "work_auth.us_citizen", status: "candidate" }, answers: [] }],
     } });
     return route.fulfill({ json: ACCOUNT });
   });
@@ -123,6 +132,7 @@ async function setup(page: Page, busy = false) {
     fromPage, runs, writes, sockets: () => sockets,
     send(message: Record<string, unknown>) {
       if (activeRun && message.type === "letter") activeRun = { ...activeRun, letter: message.text as string };
+      if (activeRun && message.type === "fixes") activeRun = { ...activeRun, fixes: message.items as object[] };
       if (activeRun && message.type === "gaps") activeRun = { ...activeRun, gaps: message.items as object[] };
       socket?.send(JSON.stringify(message));
     },
@@ -251,7 +261,7 @@ test("facts, writing and pattern checks are reviewed in place with explicit writ
   await page.getByRole("button", { name: "Review Available start date" }).click();
   await page.getByRole("textbox", { name: "Value", exact: true }).fill("2027-05-24");
   await page.getByRole("button", { name: "Save verified fact" }).click();
-  await expect.poll(() => agent.writes).toContainEqual({ url: "https://api.test/v1/jobs/facts/availability.start_date", body: { value: "2027-05-24", verified: true } });
+  await expect.poll(() => agent.writes).toContainEqual({ url: "https://api.test/v1/jobs/facts/availability.start_date", body: { value: "2027-05-24", verified: true, origin: "inbox" } });
   await page.getByRole("button", { name: /Writing 1/ }).click();
   await page.getByRole("button", { name: "Review Why do you want to work at Acme?" }).click();
   await page.getByRole("textbox", { name: "Answer", exact: true }).fill("I build tools people use.");
@@ -262,7 +272,7 @@ test("facts, writing and pattern checks are reviewed in place with explicit writ
   await page.getByRole("button", { name: "Review Are you a US citizen?" }).click();
   await expect(page.getByText("true", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Accept pattern" }).click();
-  await expect.poll(() => agent.writes).toContainEqual({ url: "https://api.test/v1/jobs/patterns/pat1", body: { status: "active" } });
+  await expect.poll(() => agent.writes).toContainEqual({ url: "https://api.test/v1/jobs/patterns/pat1", body: { status: "active", origin: "inbox" } });
   expect(agent.sockets()).toBe(0);
 });
 
@@ -277,7 +287,7 @@ test("a new typed fact is saved before its question is linked", async ({ page })
   await page.getByRole("textbox", { name: "Value", exact: true }).fill("false");
   await page.getByRole("button", { name: "Save fact and link" }).click();
   await expect.poll(() => agent.writes).toEqual([
-    { url: "https://api.test/v1/jobs/facts/work_auth.needs_sponsorship", body: { value: false, label: "Needs sponsorship", value_type: "boolean", verified: true } },
+    { url: "https://api.test/v1/jobs/facts/work_auth.needs_sponsorship", body: { value: false, label: "Needs sponsorship", value_type: "boolean", verified: true, origin: "inbox" } },
     { url: "https://api.test/v1/jobs/patterns", body: { kind: "binding", question_id: "q1", fact_key: "work_auth.needs_sponsorship", status: "active", origin: "inbox" } },
   ]);
 });
@@ -288,10 +298,10 @@ test("a suggested pattern can be rejected without approving it", async ({ page }
   await page.getByRole("button", { name: /Pattern checks 1/ }).click();
   await page.getByRole("button", { name: "Review Are you a US citizen?" }).click();
   await page.getByRole("button", { name: "Reject", exact: true }).click();
-  await expect.poll(() => agent.writes).toEqual([{ url: "https://api.test/v1/jobs/patterns/pat1", body: { status: "rejected" } }]);
+  await expect.poll(() => agent.writes).toEqual([{ url: "https://api.test/v1/jobs/patterns/pat1", body: { status: "rejected", origin: "inbox" } }]);
 });
 
-test("Library exposes saved records with unavailable history and works on mobile", async ({ page }) => {
+test("Library exposes saved records, history and code changes and works on mobile", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const agent = await setup(page);
   await page.goto("/hunt");
@@ -306,12 +316,12 @@ test("Library exposes saved records with unavailable history and works on mobile
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await expect(page).toHaveScreenshot("hunt-library.png", { animations: "disabled" });
   await page.getByRole("button", { name: "View email address" }).click();
-  await expect(page.getByText("Pattern history is not available yet.")).toBeVisible();
+  await expect(page.getByText("replay changed 2 of 7 accepted answers")).toBeVisible();
   await expect(page.getByText("alex.example@example.com", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: /Writing 1/ }).click();
   await page.getByRole("button", { name: "Review Career goals" }).click();
   await expect(page.getByRole("textbox", { name: "Answer" })).toHaveValue("Build useful tools for people.\nKeep learning from their feedback.");
-  await expect(page.getByText("Origin highlights are not available yet.")).toBeVisible();
+  await expect(page.getByText("Origin highlights were not recorded for this answer.")).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await noHorizontalOverflow(page);
   await page.getByRole("button", { name: /Facts 5/ }).click();
@@ -319,13 +329,13 @@ test("Library exposes saved records with unavailable history and works on mobile
   await page.getByRole("button", { name: "Review Phone extension" }).click();
   await expect(page.getByRole("textbox", { name: "Value", exact: true })).toHaveValue("");
   await page.getByRole("button", { name: "Save verified fact" }).click();
-  await expect.poll(() => agent.writes).toEqual([{ url: "https://api.test/v1/jobs/facts/contact.phone_extension", body: { value: "", verified: true } }]);
+  await expect.poll(() => agent.writes).toEqual([{ url: "https://api.test/v1/jobs/facts/contact.phone_extension", body: { value: "", verified: true, origin: "you" } }]);
   await page.getByRole("button", { name: "Inbox", exact: true }).click();
   await page.getByRole("button", { name: /Facts to verify/ }).click();
   await page.getByRole("button", { name: "Review Certifications" }).click();
   await expect(page.getByRole("textbox", { name: "Value", exact: true })).toHaveValue("[]");
   await page.getByRole("button", { name: "Save verified fact" }).click();
-  await expect.poll(() => agent.writes).toContainEqual({ url: "https://api.test/v1/jobs/facts/education.certifications", body: { value: [], verified: true } });
+  await expect.poll(() => agent.writes).toContainEqual({ url: "https://api.test/v1/jobs/facts/education.certifications", body: { value: [], verified: true, origin: "inbox" } });
   expect(agent.sockets()).toBe(0);
 });
 
@@ -341,4 +351,57 @@ test("the dashboard and application stay usable on a phone", async ({ page }) =>
   await expect(page.getByRole("application").locator("img")).toHaveAttribute("src", /^blob:/);
   await noHorizontalOverflow(page);
   await expect(page).toHaveScreenshot("hunt-application-mobile.png", { fullPage: true, animations: "disabled" });
+});
+
+
+test("live fixes update beside unresolved input and retain the kept commit note", async ({ page }) => {
+  const agent = await setup(page, true);
+  await page.goto("/hunt");
+  await page.getByRole("button", { name: "Open application at Acme" }).click();
+  await expect(page.getByRole("application").locator("img")).toHaveAttribute("src", /^blob:/);
+  agent.send({ type: "gaps", items: [GAP] });
+  agent.send({ type: "fixes", items: [FIX] });
+  const fixes = page.getByRole("region", { name: "Live fixes" });
+  await expect(fixes).toContainText("Attempt 2/3");
+  await expect(fixes).toContainText("testing");
+  await expect(page.getByRole("region", { name: "Left for you" })).toBeVisible();
+  agent.send({ type: "fixes", items: [{ ...FIX, state: "kept", note: "abc1234 Read portfolio uploads" }] });
+  await expect(fixes).toContainText("abc1234 Read portfolio uploads");
+  await page.getByRole("button", { name: "Back to overview" }).click();
+  await page.getByRole("button", { name: "Open application at Acme" }).click();
+  await expect(page.getByRole("region", { name: "Live fixes" })).toContainText("abc1234 Read portfolio uploads");
+});
+
+test("Unsolved notes and recorded code fixes are readable without a device session", async ({ page }) => {
+  const agent = await setup(page);
+  await page.goto("/hunt");
+  await page.getByRole("button", { name: /Unsolved 1/ }).click();
+  await expect(page.getByText("Verification could not be completed")).toBeVisible();
+  await page.getByRole("button", { name: "Library", exact: true }).click();
+  await page.getByRole("button", { name: "Code", exact: true }).click();
+  await expect(page.getByText("Read portfolio uploads", { exact: true })).toBeVisible();
+  await page.getByText("Diff", { exact: true }).click();
+  await expect(page.getByText("+read_upload()", { exact: true })).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  expect(agent.sockets()).toBe(0);
+});
+
+test("writing shows one provenance-tinted answer and switches to the editor", async ({ page }) => {
+  await setup(page);
+  await page.route("https://api.test/v1/jobs/inbox", (route) => route.fulfill({ json: {
+    questions: [], candidates: [], checks: [], facts: [], unsolved: [],
+    prose: [{ id: "pr1", question_label: "Why Acme?", company_name: "Acme", approved: false, origin: "model", submitted: true,
+      text: "😀 mine model previous", provenance: [{ start: 7, end: 12, source: "model" }, { start: 13, end: 21, source: "previous" }] }],
+  } }));
+  await page.goto("/hunt");
+  await page.getByRole("button", { name: /Writing 1/ }).click();
+  await page.getByRole("button", { name: "Review Why Acme?" }).click();
+  const answer = page.getByLabel("Answer origins");
+  await expect(answer).toHaveText("😀 mine model previous");
+  await expect(answer.locator("mark.prose-model")).toHaveText("model");
+  await expect(answer.locator("mark.prose-previous")).toHaveText("previous");
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.getByRole("button", { name: "Edit answer" }).click();
+  await expect(answer).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Answer", exact: true })).toHaveValue("😀 mine model previous");
 });

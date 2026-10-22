@@ -121,12 +121,17 @@ export type JobApplication = {
   updated_at: string;
 };
 
+export type ProseSpan = { start: number; end: number; source: "model" | "previous" };
+
 export type Prose = {
   id: string;
   question_label: string | null;
   company_name: string | null;
   text: string;
   approved: boolean;
+  origin: "manual" | "model" | "archive";
+  provenance: ProseSpan[] | null;
+  submitted: boolean;
 };
 
 export type Pattern = {
@@ -135,6 +140,7 @@ export type Pattern = {
   question_label: string | null;
   expression: string | null;
   fact_key: string;
+  origin: string;
   formatter: string | null;
   status: string;
 };
@@ -144,11 +150,72 @@ export type InboxQuestion = {
   question: { id: string; sample_label: string };
   answers: AnswerSeen[];
 };
-export type InboxCandidate = { pattern: Pattern; answers: AnswerSeen[] };
+export type Change = {
+  id: string;
+  subject: "pattern" | "fact" | "prose" | "question" | "strategy" | "code";
+  subject_id: string;
+  action: "create" | "update" | "retire" | "reject" | "delete";
+  before: unknown;
+  after: unknown;
+  origin: "you" | "inbox" | "model" | "repair" | "worker";
+  run_id: string | null;
+  question_key: string | null;
+  failure_issue_id: string | null;
+  status: "pending" | "passed" | "failed" | null;
+  sampled: number | null;
+  failed: number | null;
+  created_at: string;
+  verified_at: string | null;
+};
+
+export type CodeChangeDetail = {
+  commit?: string;
+  cause?: string;
+  question?: string;
+  summary?: string;
+  attempts?: number;
+  files?: string[];
+  probe?: unknown;
+  pushed?: boolean;
+  diff?: string;
+};
+
+export type InboxFact = {
+  reason: "unverified" | "missing" | "contradicted";
+  key: string | null;
+  label: string | null;
+  value: unknown;
+  value_type: Fact["value_type"] | null;
+  question: string | null;
+  missing_fact: string | null;
+  issue_id: string | null;
+  check: Change | null;
+};
+
+export type InboxUnsolved = {
+  issue_id: string;
+  category: string;
+  question: string | null;
+  control_kind: string | null;
+  note: string | null;
+  occurrence_count: number;
+  last_seen_at: string;
+};
+
+export type InboxCandidate = { pattern: Pattern; answers: AnswerSeen[]; check: Change | null };
+
+export function loadHuntChanges(accessToken: string, subject: Change["subject"], subjectId?: string): Promise<Change[]> {
+  const query = new URLSearchParams({ subject });
+  if (subjectId !== undefined) query.set("subject_id", subjectId);
+  query.set("limit", "100");
+  return apiRequest<Change[]>(`/v1/jobs/changes?${query}`, accessToken);
+}
 export type Inbox = {
   candidates: InboxCandidate[];
   // Learned patterns whose replay changed an answer you accepted.
-  checks?: InboxCandidate[];
+  checks: InboxCandidate[];
+  facts: InboxFact[];
+  unsolved: InboxUnsolved[];
   questions: InboxQuestion[];
   prose: Prose[];
 };
@@ -173,7 +240,7 @@ export async function loadHuntLibrary(accessToken: string): Promise<HuntLibrary>
     apiRequest<Question[]>("/v1/jobs/questions", accessToken),
     apiRequest<Fact[]>("/v1/jobs/facts", accessToken),
     apiRequest<Prose[]>("/v1/jobs/prose", accessToken),
-    apiRequest<Pattern[]>("/v1/jobs/patterns?status=active&status=candidate&status=rejected&status=retired", accessToken),
+    apiRequest<Pattern[]>("/v1/jobs/patterns?status=active&status=candidate&status=repaired&status=validated&status=rejected&status=retired", accessToken),
   ]);
   return { questions, facts, prose, patterns };
 }

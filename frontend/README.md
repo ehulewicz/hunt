@@ -75,31 +75,47 @@ already active on a device opens without starting another one, including runs
 started in a terminal. Starting a busy or unready device is disabled.
 
 The answer panel switches between Inbox and Library. Inbox separates Questions,
-Facts to verify, Writing, and Pattern checks. Unbound questions can be linked to
-an existing fact or a new typed fact. Unverified facts and every fact marked None
-(an empty string or list, displayed as None) remain visible for verification,
-including previously verified blanks. Empty text is saved unchanged; lists use
-JSON, including `[]`. Writing is one editable text, with separate actions to save
-an unapproved draft, approve it for reuse, or discard it. Suggested patterns show
-their fact's current value and can be accepted or rejected.
+Facts to verify, Writing, Pattern checks, and Unsolved. Facts to verify comes from
+`/v1/jobs/inbox`: unverified facts, missing facts with the question that needed them,
+and contradicted facts with replay counts. Unsolved shows failures the run could
+not fix, including their notes and occurrence counts. Cause tags use recorded
+origins, fact reasons, replay disagreements, or failure categories where known.
+Unbound questions can be linked to an existing fact or a new typed fact. Empty
+text is saved unchanged; lists use JSON, including `[]`, and both display as None.
+Writing is one text, with model and previous-answer spans tinted separately and
+the user's text plain. Edit answer switches that text into the editor; highlights
+are not reused against edited text. Older writing without provenance says so.
+The current API leaves provenance unchanged after a text edit; reopening edited
+writing can therefore show stale offsets until the API clears or recomputes them.
+Writing can be saved as an unapproved draft, approved for reuse, or discarded.
+Failed pattern checks come before suggestions and show how many accepted answers
+the replay changed. Patterns show their fact's current value and can be accepted
+or rejected. Inbox review requests send `origin: "inbox"`; direct Library edits
+send `origin: "you"`. The prose DELETE endpoint does not record a supplied origin.
 
 Library loads on opening and refreshes every 30 seconds, independently of the
 overview. Its searchable Questions, Facts, Writing, and Patterns categories read
-the existing `/v1/jobs/questions`, `/facts`, `/prose`, and `/patterns` endpoints.
-It includes approved writing, verified facts, and all pattern statuses, including
-rejected and retired records. Facts and writing use the same editors as Inbox;
-questions and patterns expose their stored details. Failed loads offer retry and
-retain the last successful records. Cause tags, writing origin highlights, pattern
-verification results, and pattern history have explicit unavailable empty states
-until the API supplies them. The frontend does not infer this metadata.
+`/v1/jobs/questions`, `/facts`, `/prose`, and `/patterns`. It includes approved
+writing, verified facts, and all pattern statuses, including rejected and retired
+records, plus repaired and validated patterns. Facts and writing use the same
+editors as Inbox; questions and patterns expose their stored details. Each item's
+history loads from `/v1/jobs/changes`,
+showing when, who, action, before and after, and replay verification. Code lists
+code changes newest first, including commit, cause, question, summary, attempts,
+files, live probe, push status, and diff when recorded. History refreshes every
+30 seconds while open. Failed loads offer retry and retain the last successful
+records; empty history says no changes were recorded.
 
 A successful start or an explicit Open action replaces the overview with an
 application workspace. Its default split gives answers one third and Chrome two
 thirds; the header can switch to equal widths. The left panel holds the current
 application's Save, Submitted, Skip, and Stop controls, "To finish" questions,
-a cover letter tab, and a collapsible run log. Fact gaps accept a value inline,
-which the run stores and fills. The cover letter is edited here and "Use this
-letter" sends it back; a terminal run's letter stays in VS Code. Unsent letter
+a cover letter tab, and a collapsible run log. Live fixes appear alongside
+"Left for you", restoring from the run snapshot and updating from device socket
+messages. Each shows the question, cause, state,
+attempt out of three, and note, including the commit note for a kept fix.
+Fact gaps accept a value inline, which the run stores and fills. The cover letter
+is edited here and "Use this letter" sends it back; a terminal run's letter stays in VS Code. Unsent letter
 edits and unsent fact inputs survive a trip to the overview during the page's
 lifetime and remain scoped to their run. Returning to the
 overview closes only the browser's device session, not the application run.
@@ -175,8 +191,8 @@ src/app/              App Router. (workspace)/ is the authenticated shell group;
                       from the supplied design reference and its OFL license.
 src/components/       workspace.tsx is the auth gate, app-shell.tsx the sidebar
                       layout, plus account-menu and empty-page. hunt-dashboard and
-                      hunt-inbox own the overview; hunt-library and hunt-review
-                      provide the saved-answer library and shared editors;
+                      hunt-inbox own the overview; hunt-library, hunt-history, and
+                      hunt-review provide the saved-answer library and shared editors;
                       hunt-devices, hunt-run, and
                       hunt-live own device selection and the application workspace;
                       use-device-session.ts is its connection state.

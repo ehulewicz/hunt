@@ -23,6 +23,15 @@ export type Gap = {
   hint?: string;
 };
 
+export type Fix = {
+  key: string;
+  question: string;
+  cause: string;
+  state: "queued" | "writing" | "testing" | "waiting" | "probing" | "kept" | "unsolved" | "missing_fact";
+  attempt: number;
+  note: string | null;
+};
+
 export type RunSnapshot = {
   key: string;
   origin: "page" | "terminal";
@@ -36,6 +45,7 @@ export type RunSnapshot = {
   outcome: string | null;
   letter: string | null;
   gaps: Gap[];
+  fixes: Fix[];
   tab: string | null;
 };
 
@@ -57,6 +67,7 @@ export type AgentMessage =
   | { type: "tabs"; tabs: Tab[]; current: string | null }
   | { type: "letter"; text: string }
   | { type: "gaps"; items: Gap[] }
+  | { type: "fixes"; items: Fix[] }
   | { type: "fact_result"; question: string; ok: boolean; message: string }
   | { type: "stream"; state: "unavailable" | "lost"; message?: string };
 
