@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Application | Staged Robotics</title><link rel="stylesheet" href="site.css"></head>
+<body>
+  <header><a href="index.html">Staged Robotics</a></header>
+  <main>
+    <h1>Apply to Staged Robotics</h1>
+    <p>This staged form keeps values in this tab only. Its submit button does nothing.</p>
+    <form id="application">
+      <label for="name">Full name</label>
+      <input id="name" name="name" autocomplete="name" required>
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="email" required>
+      <label for="phone">Phone</label>
+      <input id="phone" name="phone" type="tel" autocomplete="tel">
+      <label for="resume">Resume</label>
+      <input id="resume" name="resume" type="file" accept=".pdf" required>
+      <label for="why">Why do you want to work at Staged Robotics?</label>
+      <textarea id="why" name="why" rows="5"></textarea>
+      <label for="location">Preferred location</label>
+      <select id="location" name="location">
+        <option value="">Choose a location</option>
+        <option>Atlanta, GA</option><option>Remote</option>
+      </select>
+      <fieldset>
+        <legend>Are you authorized to work in the United States?</legend>
+        <label><input type="radio" name="authorized" value="Yes"> Yes</label>
+        <label><input type="radio" name="authorized" value="No"> No</label>
+      </fieldset>
+      <section>
+        <h2 id="years-label">Years of programming</h2>
+        <div id="years" role="slider" tabindex="0" aria-labelledby="years-label"
+             aria-valuemin="0" aria-valuemax="10" aria-valuenow="0">
+          <span id="years-value" aria-hidden="true">0 years</span>
+        </div>
+        <p>Click the scale or use arrow keys, Page Up/Down, Home, and End.</p>
+      </section>
+      <section>
+        <h2 id="team-label">Preferred team</h2>
+        <div id="team" role="radiogroup" aria-labelledby="team-label">
+          <div role="radio" tabindex="0" aria-checked="false">Autonomy</div>
+          <div role="radio" tabindex="-1" aria-checked="false">Research</div>
+          <div role="radio" tabindex="-1" aria-checked="false">Platform</div>
+        </div>
+      </section>
+      <button type="button">Submit application</button>
+    </form>
+  </main>
+  <script src="widgets.js"></script>
+</body>
+</html>

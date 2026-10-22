@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Open roles | Staged Robotics</title><link rel="stylesheet" href="site.css"></head>
+<body>
+  <header><a href="index.html">Staged Robotics</a></header>
+  <main>
+    <h1>Open roles</h1>
+    <form action="jobs.html" method="get" role="search">
+      <label for="query">Search roles</label>
+      <input id="query" name="q" type="search" placeholder="Search by role">
+      <button type="submit">Search</button>
+    </form>
+    <p id="status" role="status">Search to see matching roles.</p>
+    <ul id="results"></ul>
+  </main>
+  <script>
+    const roles = [
+      { title: 'Software Engineering Intern (Summer 2027)', href: 'jobs/101.html' },
+      { title: 'Hardware Engineering Intern (Summer 2027)', href: 'jobs/102.html' },
+    ];
+    const query = new URLSearchParams(location.search).get('q') || '';
+    document.querySelector('#query').value = query;
+    const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    const matches = words.length ? roles.filter(role =>
+      words.every(word => role.title.toLowerCase().includes(word))) : [];
+    for (const role of matches) {
+      const link = document.createElement('a');
+      link.textContent = role.title;
+      link.href = role.href;
+      const item = document.createElement('li');
+      item.append(link);
+      document.querySelector('#results').append(item);
+    }
+    if (words.length) document.querySelector('#status').textContent =
+      matches.length ? `${matches.length} matching role(s)` : 'No matching roles.';
+  </script>
+</body>
+</html>

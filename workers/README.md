@@ -292,6 +292,26 @@ tab, restores what the run already asked, spent and decided, and fills only
 what is still empty. Each fix's state goes to the page as `fixes`. `--no-claude`
 and `--dry-run` run no fixer.
 
+For a repeatable local run, serve the static Staged Robotics fixture from the
+repository root:
+
+```bash
+python3 -m http.server 8765 -d workers/tests/fixtures/staged_site
+```
+
+Open `http://localhost:8765/index.html` in the device's Chrome (Windows reaches
+WSL through localhost forwarding), and use **Software Engineering Intern
+(Summer 2027)** at **Staged Robotics** as the target. The careers link leads to
+a query-string job search, then posting `jobs/101.html` and its Apply link.
+The form has ordinary fields and two deliberately unsupported widgets: Years
+of programming (an ARIA slider) and Preferred team (a div-based radio group).
+Both work with clicks and keys and expose their values through ARIA. There is
+no submit endpoint; Submit application does nothing. Uploaded files stay in
+the tab. `uv run pytest -q tests/test_staged_site.py` from `workers/` checks
+the navigation, unknown-control audit, widgets, and inert submit using a
+temporary loopback server and headless Playwright. Stop the manual server with
+Ctrl+C when finished.
+
 ## The gate between a posting and its form
 
 `jobs/gateway.py` captures the ways into an application on a page that offers
