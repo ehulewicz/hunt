@@ -13,8 +13,8 @@ import os
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
-from pathlib import Path
+from dataclasses import dataclass, field
+from pathlib import Path, PurePosixPath
 
 # A fix may change worker code and add tests, nothing else.
 ALLOWED = ("workers/src/personal_os_worker/jobs/", "workers/tests/")
@@ -48,6 +48,8 @@ class Change:
 
     status: str
     path: str
+    mode: str = field(default="100644", compare=False)
+    old_mode: str = field(default="100644", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,15 +71,37 @@ def refusal(changes: list[Change]) -> str | None:
         return "the fix changed nothing"
     for change in changes:
         path = change.path
+        canonical = PurePosixPath(path)
+        if (str(canonical) != path or canonical.is_absolute() or ".." in canonical.parts
+                or "\\" in path or any(ord(char) < 32 for char in path)):
+            return f"{path!r} is not a canonical relative path"
         if not path.startswith(ALLOWED):
             return f"{path} is outside the worker code and tests a fix may change"
         if any(path == item or (item.endswith("/") and path.startswith(item))
                for item in DENYLIST):
             return f"{path} is never changed by a fix"
+        # A package or bytecode/extension file can take the import name of a
+        # protected module even though it is not the protected .py file.
+        folded = path.casefold()
+        if any(folded == item.casefold().rstrip("/")
+               or folded.startswith(item.casefold().removesuffix(".py").rstrip("/") + "/")
+               or folded.startswith(item.casefold().removesuffix(".py").rstrip("/") + ".")
+               for item in DENYLIST):
+            return f"{path} shadows code that is never changed by a fix"
         if change.status != "A" and path.startswith("workers/tests/"):
             return f"{path} is an existing test; a fix adds tests and never edits one"
         if change.status in {"D", "R"}:
             return f"{path} would be deleted or renamed; a fix only adds and edits"
+        if change.status not in {"A", "M"} or change.mode != "100644" \
+                or (change.status == "M" and change.old_mode != change.mode):
+            return f"{path} is not an ordinary file edit (symlinks and mode changes are refused)"
+        if path.startswith(ALLOWED[1]):
+            if canonical.name in {"conftest.py", "__init__.py"}:
+                return f"{path} changes how existing tests run"
+            if not path.startswith("workers/tests/fixtures/") and not (
+                canonical.name.startswith("test_") and canonical.suffix == ".py"
+            ):
+                return f"{path} is not a new regression test or fixture"
     return None
 
 
@@ -95,6 +119,7 @@ class Scratch:
     def __init__(self, repo: Path, root: Path) -> None:
         self.repo = repo
         self.root = root
+        self._base = self.git("rev-parse", "HEAD").strip()
 
     @classmethod
     def create(cls, repo: Path, root: Path) -> Scratch:
@@ -116,10 +141,15 @@ class Scratch:
     @property
     def base(self) -> str:
         """The commit the clone started from, which the fix is a diff against."""
-        return self.git("rev-parse", "HEAD").strip()
+        return self._base
 
     def write(self, relative: str, content: bytes) -> Path:
         path = self.root / relative
+        if (PurePosixPath(relative).is_absolute() or ".." in PurePosixPath(relative).parts
+                or "\\" in relative or not path.resolve().is_relative_to(self.root.resolve())
+                or any(parent.is_symlink() for parent in (path, *path.parents)
+                       if parent.is_relative_to(self.root))):
+            raise ValueError("a scratch write must stay inside the clone without symlinks")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
         return path
@@ -127,22 +157,28 @@ class Scratch:
     def changes(self) -> list[Change]:
         """Every path the fix touched, new files included, against the base commit."""
         self.git("add", "-A")
-        lines = self.git("diff", "--cached", "--name-status", "--no-renames", "HEAD")
+        records = self.git("diff", "--cached", "--raw", "-z", "--no-renames", self.base)
         found: list[Change] = []
-        for line in lines.splitlines():
-            status, _, path = line.partition("\t")
-            if path:
-                found.append(Change(status[:1], path))
+        parts = records.rstrip("\0").split("\0") if records else []
+        for header, path in zip(parts[::2], parts[1::2], strict=True):
+            old_mode, mode, _, _, status = header.removeprefix(":").split()
+            found.append(Change(status, path, mode, old_mode))
+        # An ignored .pyc or .py can be imported during gates/probes without
+        # ever appearing in the patch. Refuse these uncommittable additions.
+        ignored = self.git("ls-files", "--others", "--ignored", "--exclude-standard",
+                           "-z", "--", *ALLOWED)
+        found.extend(Change("I", path) for path in ignored.split("\0") if path)
         return found
 
     def diff(self) -> str:
         """The fix as one patch against the base commit, new files included."""
         self.git("add", "-A")
-        return self.git("diff", "--cached", "--binary", "--no-renames", "HEAD")
+        return self.git("diff", "--cached", "--binary", "--no-renames", self.base)
 
     def _run(self, name: str, command: list[str]) -> Gate:
         environment = dict(os.environ)
         environment["PYTHONPATH"] = str(self.root / "workers/src")
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
         try:
             process = subprocess.run(
                 command, cwd=self.root / "workers", capture_output=True, text=True,

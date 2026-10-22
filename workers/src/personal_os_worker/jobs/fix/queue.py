@@ -17,6 +17,7 @@ import subprocess
 import tempfile
 import threading
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -24,7 +25,7 @@ from typing import Any
 from personal_os_worker.jobs import model
 from personal_os_worker.jobs.fix import lane
 from personal_os_worker.jobs.fix.keep import KeepError, Kept, keep
-from personal_os_worker.jobs.fix.scratch import Scratch, interpreter
+from personal_os_worker.jobs.fix.scratch import Scratch, interpreter, refusal
 from personal_os_worker.jobs.model_errors import ModelError
 from personal_os_worker.jobs.options import normalize_answer_question
 
@@ -57,6 +58,7 @@ class Ready:
     answer: lane.Answer
     check: lane.Check
     attempt: int
+    diff: str = ""
     done: threading.Event = field(default_factory=threading.Event)
     probe: dict[str, Any] | None = None
     kept: Kept | None = None
@@ -72,22 +74,28 @@ def run_probe(ready: Ready, args: dict[str, Any]) -> dict[str, Any]:
         path = Path(handle.name)
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(ready.scratch.root / "workers/src")
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
     try:
         process = subprocess.run(
             [str(interpreter(ready.scratch.repo)), "-m", "personal_os_worker.jobs.fix.probe",
              str(path)],
-            capture_output=True, text=True, timeout=PROBE_TIMEOUT_SECONDS, env=environment,
+            cwd=ready.scratch.root / "workers", capture_output=True, text=True,
+            timeout=PROBE_TIMEOUT_SECONDS, env=environment,
         )
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "note": "the probe did not finish"}
+    except (OSError, subprocess.SubprocessError) as error:
+        return {"ok": False, "note": f"the probe could not finish: {error}"}
     finally:
         path.unlink(missing_ok=True)
+    if process.returncode != 0:
+        return {"ok": False, "note": "the probe crashed: " + process.stderr.strip()[-500:]}
     lines = [line for line in process.stdout.splitlines() if line.strip().startswith("{")]
     try:
         result = json.loads(lines[-1])
     except (IndexError, json.JSONDecodeError):
         return {"ok": False, "note": "the probe crashed: " + process.stderr.strip()[-500:]}
-    return result if isinstance(result, dict) else {"ok": False, "note": "no probe result"}
+    if not isinstance(result, dict) or type(result.get("ok")) is not bool:
+        return {"ok": False, "note": "no valid probe result"}
+    return result
 
 
 class FixQueue:
@@ -119,8 +127,10 @@ class FixQueue:
         self._problems: queues.Queue[lane.Problem | None] = queues.Queue()
         self._ready: Ready | None = None
         self._lock = threading.Lock()
+        self._safe_lock = threading.Lock()
         self._busy = False
         self._kept = 0
+        self._pending = 0
         self.model_error: str | None = None
         self._closed = False
         self._settled = threading.Event()
@@ -132,13 +142,17 @@ class FixQueue:
     def submit(self, problem: lane.Problem) -> bool:
         """Queue a problem once a run; False when it is known or the run's fixes are spent."""
         with self._lock:
-            if self.model_error is not None or problem.key in self.statuses:
+            if self._closed or self.model_error is not None or problem.key in self.statuses:
                 return False
             if len(self.statuses) >= MAX_PROBLEMS:
                 return False
             self.statuses[problem.key] = Status(problem.key, problem.question, problem.cause)
-        self._problems.put(problem)
         self._announce(problem.key, "queued", note=problem.note)
+        with self._lock:
+            if self._closed:
+                return False
+            self._pending += 1
+            self._problems.put(problem)
         return True
 
     def at_safe_point(self, args: Callable[[], dict[str, Any]]) -> bool:
@@ -147,22 +161,32 @@ class FixQueue:
         `args` builds what the probe needs (the browser, the tab, the run's
         knowledge) from the run as it is now.
         """
-        ready = self._take_ready()
-        if ready is not None:
-            self._announce(ready.problem.key, "probing", attempt=ready.attempt)
-            ready.probe = self.prober(ready, args())
-            if ready.probe.get("ok"):
-                ready.kept = self._keep(ready)
-            ready.done.set()
-            if ready.kept is not None:
-                # Its thread only tidies up now; let it, so the answer is current.
-                self._settled.wait(timeout=10)
+        with self._safe_lock:
+            ready = self._take_ready()
+            if ready is not None:
+                try:
+                    self._announce(ready.problem.key, "probing", attempt=ready.attempt)
+                    if (refusal(ready.scratch.changes()) is not None
+                            or ready.scratch.diff() != ready.diff):
+                        raise KeepError("the fix changed after verification")
+                    ready.probe = self.prober(ready, args())
+                    with self._lock:
+                        closed = self._closed
+                    if ready.probe.get("ok") is True and not closed:
+                        ready.kept = self._keep(ready)
+                except Exception as error:
+                    ready.probe = {"ok": False, "note": f"the probe/keep failed: {error}"}
+                finally:
+                    ready.done.set()
+                if ready.kept is not None:
+                    # Its thread only tidies up now; let it, so the answer is current.
+                    self._settled.wait(timeout=10)
         with self._lock:
-            return self._kept > 0 and not self._busy and self._ready is None \
-                and self._problems.empty()
+            return self._kept > 0 and self._pending == 0
 
     def has_kept(self) -> bool:
-        return self._kept > 0
+        with self._lock:
+            return self._kept > 0
 
     def consume_kept(self) -> None:
         """The kept fixes already did their work here; they need no reload."""
@@ -171,10 +195,10 @@ class FixQueue:
 
     def close(self) -> None:
         """Stop after the current step; an attempt waiting for the run is let go."""
-        self._closed = True
-        self._problems.put(None)
         with self._lock:
-            ready = self._ready
+            self._closed = True
+            ready, self._ready = self._ready, None
+            self._problems.put(None)
         if ready is not None:
             ready.done.set()
 
@@ -182,6 +206,8 @@ class FixQueue:
 
     def _take_ready(self) -> Ready | None:
         with self._lock:
+            if self._closed:
+                return None
             ready, self._ready = self._ready, None
             return ready
 
@@ -191,15 +217,20 @@ class FixQueue:
             if problem is None:
                 return
             with self._lock:
+                closed = self._closed or self.model_error is not None
                 self._busy = True
                 self._settled.clear()
             try:
-                self._fix(problem)
+                if closed:
+                    self._finish(problem, "unsolved", "the fixer stopped before this problem")
+                else:
+                    self._fix(problem)
             except Exception as error:  # a fixer bug must never end the run
                 self._finish(problem, "unsolved", f"the fixer failed: {str(error)[:200]}")
             finally:
                 with self._lock:
                     self._busy = False
+                    self._pending -= 1
                 self._settled.set()
 
     def _fix(self, problem: lane.Problem) -> None:
@@ -209,12 +240,23 @@ class FixQueue:
             fixtures = lane.write_fixtures(scratch, problem)
             feedback: str | None = None
             for attempt in range(1, MAX_ATTEMPTS + 1):
+                with self._lock:
+                    closed = self._closed
+                if closed:
+                    self._finish(problem, "unsolved", "the run closed during the fix")
+                    return
                 self._announce(problem.key, "writing", attempt=attempt)
                 try:
                     answer = lane.write(scratch, problem, fixtures, feedback, runner=self.runner)
                 except (ModelError, OSError, subprocess.TimeoutExpired) as error:
-                    self.model_error = str(error) or "the model is unavailable"
+                    with self._lock:
+                        self.model_error = str(error) or "the model is unavailable"
                     self._finish(problem, "unsolved", self.model_error)
+                    return
+                with self._lock:
+                    closed = self._closed
+                if closed:
+                    self._finish(problem, "unsolved", "the run closed during the fix")
                     return
                 if answer is None:
                     feedback = "Your answer was not the JSON asked for. Answer as instructed."
@@ -231,13 +273,23 @@ class FixQueue:
                 if not checked.passed:
                     feedback = checked.feedback
                     continue
-                ready = Ready(problem, scratch, answer, checked, attempt)
+                ready = Ready(problem, scratch, answer, checked, attempt, diff=scratch.diff())
                 with self._lock:
-                    self._ready = ready
+                    closed = self._closed
+                    if not closed:
+                        self._ready = ready
+                if closed:
+                    self._finish(problem, "unsolved", "the run closed during verification")
+                    return
                 self._announce(problem.key, "waiting", attempt=attempt,
                                note="tested; tried on the page at the next pause")
                 ready.done.wait()
-                if ready.kept is not None or self._closed:
+                if ready.kept is not None:
+                    return
+                with self._lock:
+                    closed = self._closed
+                if closed:
+                    self._finish(problem, "unsolved", "the run closed before the fix was kept")
                     return
                 feedback = (
                     "It passed the tests but failed on the live page: "
@@ -253,6 +305,10 @@ class FixQueue:
     def _keep(self, ready: Ready) -> Kept | None:
         problem = ready.problem
         diff = ready.scratch.diff()
+        changes = ready.scratch.changes()
+        if refusal(changes) is not None or diff != ready.diff:
+            raise KeepError("the fix changed after verification or during the live probe")
+        files = [change.path for change in changes]
         message = (
             f"Fix {problem.cause.replace('_', ' ')} for {problem.question!r}\n\n"
             f"{ready.answer.summary}\n\n"
@@ -264,6 +320,11 @@ class FixQueue:
         except KeepError as error:
             ready.probe = {"ok": False, "note": f"it could not be kept: {error}"}
             return None
+        # Once committed, metadata/UI failures must not turn this into another
+        # attempt or leave the background thread believing it was not kept.
+        ready.kept = kept
+        with self._lock:
+            self._kept += 1
         replay = next((gate for gate in ready.check.gates if gate.name == "replay"), None)
         verification = _verification(replay.output if replay else "")
         try:
@@ -275,20 +336,18 @@ class FixQueue:
                 verification=verification,
                 detail={"cause": problem.cause, "question": problem.question,
                         "summary": ready.answer.summary, "attempts": ready.attempt,
-                        "files": [change.path for change in ready.scratch.changes()],
+                        "files": files,
                         "tests": [gate.name for gate in ready.check.gates if gate.passed],
                         "probe": ready.probe, "pushed": kept.pushed, "diff": diff[:100_000]},
             )
         except Exception as error:
-            self.report(f"kept {kept.commit[:7]}, but recording it failed: {error}")
+            self._report(f"kept {kept.commit[:7]}, but recording it failed: {error}")
         self._issue(problem, {"status": "fixed", "fixed_commit": kept.commit,
                               "diagnosis": ready.answer.summary,
                               "proposed_patch": diff[:200_000],
                               "verification_notes": f"attempt {ready.attempt}: "
                               f"{(ready.probe or {}).get('note')}"
                               + ("" if kept.pushed else f"; {kept.note}")})
-        with self._lock:
-            self._kept += 1
         self._announce(problem.key, "kept", attempt=ready.attempt,
                        note=f"{kept.commit[:7]} {ready.answer.summary}"
                        + ("" if kept.pushed else " (not pushed)"))
@@ -304,7 +363,12 @@ class FixQueue:
         try:
             self.api.update_autofill_failure(problem.issue_id, changes)
         except Exception as error:
-            self.report(f"could not update the failure record: {str(error)[:200]}")
+            self._report(f"could not update the failure record: {str(error)[:200]}")
+
+    def _report(self, line: str) -> None:
+        # A disconnected terminal must not strand a committed fix.
+        with suppress(Exception):
+            self.report(line)
 
     def _announce(self, key: str, state: str, *, attempt: int | None = None,
                   note: str | None = None) -> None:
@@ -317,9 +381,10 @@ class FixQueue:
                 status.note = note
             items = [item.item() for item in self.statuses.values()]
             line = f"fix {state}: {status.question}" + (f" — {status.note}" if status.note else "")
-        self.report(line)
+        self._report(line)
         if self.publish is not None:
-            self.publish(items)
+            with suppress(Exception):
+                self.publish(items)
 
 
 def _verification(output: str) -> dict[str, int] | None:

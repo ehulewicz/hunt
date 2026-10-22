@@ -22,7 +22,7 @@ from dataclasses import fields as dataclass_fields
 from pathlib import Path
 from typing import Any
 
-from playwright.sync_api import Browser, Error, Page, sync_playwright
+from playwright.sync_api import Browser, Page, sync_playwright
 
 from personal_os_worker.jobs.resolve import Knowledge
 
@@ -45,6 +45,7 @@ def find_page(browser: Browser, target_id: str | None, url: str) -> Page | None:
         for page in pages:
             if cdp_target_id(page) == target_id:
                 return page
+        return None
     return next((page for page in pages if page.url == url), None)
 
 
@@ -54,13 +55,14 @@ def probe_field(page: Page, target: dict[str, Any], knowledge: Knowledge) -> dic
     from personal_os_worker.jobs.registry.kinds import classify
     from personal_os_worker.jobs.repair.repairer import find_field, repair_strategy
     from personal_os_worker.jobs.resolve import Resolver
-    from personal_os_worker.jobs.safety import armed
+    from personal_os_worker.jobs.safety import refuse_submit
 
     question = str(target["question"])
     fields = inspect_fields(page)
     field = find_field(fields, question)
     if field is None:
         return {"ok": False, "note": f"the fix's code still does not capture {question!r}"}
+    refuse_submit(field)
     kind = classify(field)
     resolution = Resolver(knowledge).resolve(
         dict(field) | {"label": question, "options": offered_options(fields, field)}
@@ -68,8 +70,7 @@ def probe_field(page: Page, target: dict[str, Any], knowledge: Knowledge) -> dic
     if resolution is None or resolution.value is None:
         return {"ok": True, "filled": False, "kind": kind,
                 "note": f"captured as {kind}; no fact answers it yet"}
-    with armed(page):
-        candidate = repair_strategy(page, field, str(resolution.value))
+    candidate = repair_strategy(page, field, str(resolution.value))
     if candidate is None:
         return {"ok": False, "kind": kind,
                 "note": f"captured as {kind}, but no strategy read back {resolution.value!r}"}
@@ -103,24 +104,49 @@ def probe_route(page: Page, target: dict[str, Any]) -> dict[str, Any]:
 
 
 def probe(page: Page, target: dict[str, Any], knowledge: Knowledge) -> dict[str, Any]:
+    from personal_os_worker.jobs.safety import ARMABLE_GUARD_SCRIPT, armed
+
     try:
-        if target.get("kind") == "route":
-            return probe_route(page, target)
-        return probe_field(page, target, knowledge)
-    except (Error, RuntimeError, KeyError) as error:
+        session = page.context.new_cdp_session(page)
+        identifier: str | None = None
+        try:
+            session.send("Page.enable")
+            # armed() guards the current document. New documents otherwise start
+            # disarmed, so routes need a temporary, removable CDP init script.
+            identifier = session.send("Page.addScriptToEvaluateOnNewDocument", {
+                "source": "window.__personalOsArmed = true;\n" + ARMABLE_GUARD_SCRIPT,
+            })["identifier"]
+            # Capture modules are scratch code too: guard detection as well.
+            with armed(page):
+                if target.get("kind") == "route":
+                    return probe_route(page, target)
+                if target.get("kind") == "field":
+                    return probe_field(page, target, knowledge)
+                return {"ok": False, "note": "unknown probe target kind"}
+        finally:
+            try:
+                if identifier is not None:
+                    session.send("Page.removeScriptToEvaluateOnNewDocument",
+                                 {"identifier": identifier})
+            finally:
+                session.detach()
+    except Exception as error:
         return {"ok": False, "note": f"the probe failed: {str(error)[:300]}"}
 
 
 def main(argv: list[str]) -> int:
-    args = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
-    with sync_playwright() as playwright:
-        # Attached, never launched: leaving the block disconnects and Chrome runs on.
-        browser = playwright.chromium.connect_over_cdp(str(args["cdp_url"]))
-        page = find_page(browser, args.get("target_id"), str(args.get("page_url") or ""))
-        if page is None:
-            result: dict[str, Any] = {"ok": False, "note": "the run's tab is gone"}
-        else:
-            result = probe(page, dict(args["target"]), knowledge_of(args["knowledge"]))
+    try:
+        args = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
+        with sync_playwright() as playwright:
+            # Attached, never launched: leaving the block disconnects and Chrome runs on.
+            browser = playwright.chromium.connect_over_cdp(str(args["cdp_url"]))
+            page = find_page(browser, args.get("target_id"), str(args.get("page_url") or ""))
+            if page is None:
+                result: dict[str, Any] = {"ok": False, "note": "the run's tab is gone"}
+            else:
+                result = probe(page, dict(args["target"]), knowledge_of(args["knowledge"]))
+    except Exception as error:
+        result = {"ok": False, "note": f"the probe crashed: {str(error)[:300]}"}
     print(json.dumps(result))
     return 0
 

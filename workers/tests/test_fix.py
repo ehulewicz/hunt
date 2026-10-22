@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -420,3 +422,403 @@ def test_a_kept_fix_reloads_the_run_at_the_next_pause(page: Any) -> None:
     with pytest.raises(ReloadForFix):
         session.sleep()
     assert saved == [True]
+
+
+@pytest.mark.parametrize("path", [
+    f"{JOBS}/../model.py", f"{JOBS}/fix/../browser.py", f"{JOBS}//safety.py",
+    f"{JOBS}/safety/__init__.py", f"{JOBS}/model.pyc", f"{JOBS}/fix.py",
+    "workers/tests/conftest.py", "workers/tests/nested/conftest.py",
+    "workers/tests/__init__.py", "workers/tests/sitecustomize.py",
+])
+def test_refusal_rejects_path_and_import_bypasses(path: str) -> None:
+    assert refusal([Change("A", path)]) is not None
+
+
+def test_scratch_rejects_symlinks_and_mode_changes(repo: Path, tmp_path: Path) -> None:
+    scratch = Scratch.create(repo, tmp_path / "scratch")
+    (scratch.root / JOBS / "other.py").chmod(0o755)
+    assert refusal(scratch.changes()) is not None
+    (scratch.root / JOBS / "other.py").chmod(0o644)
+    (scratch.root / JOBS / "new.py").symlink_to(repo / JOBS / "other.py")
+    assert refusal(scratch.changes()) is not None
+
+
+@pytest.mark.parametrize("relative", ["../outside.txt", "/tmp/fixer-escape.txt", JOBS + "/link/x"])
+def test_scratch_write_cannot_escape_clone(repo: Path, tmp_path: Path, relative: str) -> None:
+    scratch = Scratch.create(repo, tmp_path / "scratch")
+    (scratch.root / JOBS / "link").symlink_to(tmp_path, target_is_directory=True)
+    with pytest.raises(ValueError):
+        scratch.write(relative, b"escaped")
+    assert not (tmp_path / "x").exists()
+
+
+def test_scratch_base_cannot_be_moved_to_hide_changes(repo: Path, tmp_path: Path) -> None:
+    scratch = Scratch.create(repo, tmp_path / "scratch")
+    base = scratch.base
+    (scratch.root / JOBS / "other.py").write_text("VALUE = 2\n")
+    git(scratch.root, "-c", "user.name=test", "-c", "user.email=test@example.com",
+        "commit", "-qam", "hide")
+    assert scratch.base == base
+    assert Change("M", f"{JOBS}/other.py") in scratch.changes()
+
+
+@pytest.mark.parametrize("answer", [
+    "not json", "[]", '{"kind": "wrong"}',
+    '{"kind": "code", "summary": [], "missing_fact": "", "test": "x"}',
+    '{"kind": "code"}',
+])
+def test_invalid_model_answers_are_never_success(answer: str) -> None:
+    assert lane.answer_of(answer) is None
+
+
+def test_code_answer_requires_the_named_new_regression_test(repo: Path, tmp_path: Path) -> None:
+    scratch = Scratch.create(repo, tmp_path / "scratch")
+    (scratch.root / JOBS / "strategies.py").write_text(SLIDER)
+    checked = lane.check(scratch, slider_problem())
+    assert not checked.passed and "test" in checked.feedback.lower()
+
+
+def test_keep_preserves_staged_edits_to_the_same_file(repo: Path, tmp_path: Path) -> None:
+    diff = a_fix(repo, tmp_path)
+    staged = STRATEGIES.replace("return 3", "return 33")
+    (repo / JOBS / "strategies.py").write_text(staged)
+    git(repo, "add", f"{JOBS}/strategies.py")
+    (repo / JOBS / "strategies.py").write_text(staged.replace("return 2", "return 22"))
+    kept = keep(repo, diff, "fix", push=False)
+    assert "return 33" not in git(repo, "show", f"{kept.commit}:{JOBS}/strategies.py")
+    index = git(repo, "show", f":{JOBS}/strategies.py")
+    assert "slider" in index and "return 33" in index and "return 22" not in index
+    assert "return 22" in (repo / JOBS / "strategies.py").read_text()
+
+
+def test_keep_apply_failure_leaves_head_index_and_worktree_unchanged(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keeping = importlib.import_module("personal_os_worker.jobs.fix.keep")
+    diff = a_fix(repo, tmp_path)
+    parent = git(repo, "rev-parse", "HEAD")
+    before = git(repo, "write-tree")
+    original = keeping._git
+
+    def fail_apply(repo: Path, *args: str, **kwargs: Any) -> Any:
+        if args[0] == "apply" and len(args) == 2:
+            raise KeepError("injected worktree failure")
+        return original(repo, *args, **kwargs)
+
+    monkeypatch.setattr(keeping, "_git", fail_apply)
+    with pytest.raises(KeepError):
+        keep(repo, diff, "fix", push=False)
+    assert git(repo, "rev-parse", "HEAD") == parent
+    assert git(repo, "write-tree") == before
+    assert (repo / JOBS / "strategies.py").read_text() == STRATEGIES
+    assert not (repo / "workers/tests/test_fix_x.py").exists()
+
+
+def test_probe_route_is_guarded_even_when_route_clicks_submit(
+    page: Any, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from personal_os_worker.jobs import routes
+
+    page.set_content('<button onclick="window.submitted=true">Submit application</button>')
+
+    def route(page: Any, target: Any) -> None:
+        page.locator("button").click()
+
+    monkeypatch.setattr(routes, "route_for", lambda _: route)
+    result = probe(page, {"kind": "route", "goal": "form", "title": "Engineer",
+                          "company": "Example"}, Knowledge())
+    assert not result["ok"]
+    assert page.evaluate("window.submitted === true") is False
+
+
+def test_probe_crash_returns_failure(page: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    probing = importlib.import_module("personal_os_worker.jobs.fix.probe")
+
+    def crash(*args: Any) -> Any:
+        raise ValueError("broken capture")
+
+    monkeypatch.setattr(probing, "probe_field", crash)
+    assert probe(page, {"kind": "field", "question": "x"}, Knowledge())["ok"] is False
+
+
+def test_close_during_model_call_finishes_without_waiting_for_safe_point(
+    repo: Path, tmp_path: Path,
+) -> None:
+    entered, release = threading.Event(), threading.Event()
+    api = Api()
+
+    def blocked(*args: Any, **kwargs: Any) -> str:
+        entered.set()
+        assert release.wait(5)
+        return writes_the_strategy(*args, **kwargs)
+
+    queue = FixQueue(repo=repo, workdir=tmp_path / "fixes", api=api, run_id="r",
+                     report=lambda _: None, runner=blocked, checker=passing)
+    queue.submit(slider_problem())
+    assert entered.wait(5)
+    queue.close()
+    release.set()
+    queue._thread.join(5)
+    assert not queue._thread.is_alive()
+    assert api.issues[-1][1]["status"] == "unsolved"
+    assert not queue.submit(lane.Problem("other", "wall", "q", "", {"kind": "route"}))
+
+
+def test_probe_exception_releases_waiting_attempt(repo: Path, tmp_path: Path) -> None:
+    def crash(*args: Any) -> Any:
+        raise ValueError("probe crashed")
+
+    queue = FixQueue(repo=repo, workdir=tmp_path / "fixes", api=Api(), run_id="r",
+                     report=lambda _: None, runner=writes_the_strategy, checker=passing,
+                     prober=crash)
+    queue.submit(slider_problem())
+    until(lambda: queue.statuses[slider_problem().key].state == "waiting")
+    try:
+        assert queue.at_safe_point(lambda: {}) is False
+    finally:
+        queue.close()
+        queue._thread.join(5)
+    assert not queue._thread.is_alive()
+
+
+def test_model_file_tools_are_confined_to_scratch(repo: Path, tmp_path: Path) -> None:
+    scratch = Scratch.create(repo, tmp_path / "scratch")
+
+    def runner(command: list[str], *, cwd: Path, timeout: float) -> str:
+        assert cwd == scratch.root
+        assert "--restricted" in command and "--strict-mcp-config" in command
+        assert command[command.index("--tools") + 1] == "Read,Edit,Write,Glob,Grep"
+        return '{"kind":"impossible","summary":"no route","missing_fact":"","test":""}'
+
+    assert lane.write(scratch, slider_problem(), [], None, runner=runner) is not None
+
+
+def test_guard_survives_route_navigation_and_restores_manual_submit(
+    page: Any, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from personal_os_worker.jobs import routes
+
+    def route(page: Any, target: Any) -> None:
+        page.goto("data:text/html,<button onclick='window.submitted=true'>Submit</button>")
+        page.locator("button").click()
+
+    monkeypatch.setattr(routes, "route_for", lambda _: route)
+    probe(page, {"kind": "route", "goal": "form", "title": "Engineer",
+                 "company": "Example"}, Knowledge())
+    assert page.evaluate("window.submitted === true") is False
+    page.locator("button").click()
+    assert page.evaluate("window.submitted === true") is True
+
+
+def test_crashed_probe_process_cannot_report_success(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from personal_os_worker.jobs.fix.queue import Ready, run_probe
+
+    scratch = Scratch.create(repo, tmp_path / "scratch")
+    ready = Ready(slider_problem(), scratch, lane.Answer("code", "x"), lane.Check(True, ""), 1)
+    def crashed(*args: Any, **kwargs: Any) -> Any:
+        assert kwargs["cwd"] == scratch.root / "workers"
+        assert kwargs["env"]["PYTHONPATH"] == str(scratch.root / "workers/src")
+        return subprocess.CompletedProcess(args[0], 1, '{"ok":true}\n', "crashed after printing")
+
+    monkeypatch.setattr(subprocess, "run", crashed)
+    assert run_probe(ready, {})["ok"] is False
+
+
+def test_keep_handles_binary_new_files_and_quoted_paths(repo: Path, tmp_path: Path) -> None:
+    scratch = Scratch.create(repo, tmp_path / "scratch")
+    path = "workers/tests/fixtures/a space é.png"
+    content = bytes(range(256))
+    scratch.write(path, content)
+    kept = keep(repo, scratch.diff(), "fixture", push=False)
+    assert (repo / path).read_bytes() == content
+    assert git(repo, "status", "--porcelain") == ""
+    assert git(repo, "diff", kept.parent, kept.commit, "--name-only").strip()
+
+
+def test_keep_does_not_take_an_index_lock_held_by_another_session(
+    repo: Path, tmp_path: Path,
+) -> None:
+    diff = a_fix(repo, tmp_path)
+    lock = repo / ".git/index.lock"
+    lock.write_text("another session")
+    parent = git(repo, "rev-parse", "HEAD")
+    with pytest.raises(KeepError):
+        keep(repo, diff, "fix", push=False)
+    assert lock.read_text() == "another session"
+    assert git(repo, "rev-parse", "HEAD") == parent
+
+
+def test_keep_retries_a_moved_head_without_sweeping_in_other_work(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from contextlib import contextmanager
+
+    keeping = importlib.import_module("personal_os_worker.jobs.fix.keep")
+    transaction = keeping._ref_transaction
+    moved: list[str] = []
+
+    @contextmanager
+    def move_once(repo: Path, commit: str, parent: str) -> Any:
+        if not moved:
+            tree = git(repo, "rev-parse", "HEAD^{tree}").strip()
+            other = subprocess.run(["git", "commit-tree", tree, "-p", parent], cwd=repo,
+                                   input="other session\n", capture_output=True, text=True,
+                                   check=True).stdout.strip()
+            git(repo, "update-ref", "refs/heads/main", other, parent)
+            moved.append(other)
+        with transaction(repo, commit, parent):
+            yield
+
+    monkeypatch.setattr(keeping, "_ref_transaction", move_once)
+    kept = keep(repo, a_fix(repo, tmp_path), "fix", push=False)
+    assert kept.parent == moved[0]
+    assert git(repo, "status", "--porcelain") == ""
+
+
+def test_index_install_failure_rolls_back_worktree(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keeping = importlib.import_module("personal_os_worker.jobs.fix.keep")
+    diff = a_fix(repo, tmp_path)
+    parent = git(repo, "rev-parse", "HEAD")
+
+    def fail(*args: Any) -> None:
+        raise OSError("disk failure")
+
+    monkeypatch.setattr(keeping, "_replace_index", fail)
+    with pytest.raises(KeepError):
+        keep(repo, diff, "fix", push=False)
+    assert git(repo, "rev-parse", "HEAD") == parent
+    assert git(repo, "status", "--porcelain") == ""
+
+
+def test_close_waiting_attempt_removes_scratch_and_unsolves_issue(
+    repo: Path, tmp_path: Path,
+) -> None:
+    api = Api()
+    queue = FixQueue(repo=repo, workdir=tmp_path / "fixes", api=api, run_id="r",
+                     report=lambda _: None, runner=writes_the_strategy, checker=passing)
+    queue.submit(slider_problem())
+    until(lambda: queue.statuses[slider_problem().key].state == "waiting")
+    queue.close()
+    queue._thread.join(5)
+    assert not queue._thread.is_alive()
+    assert api.issues[-1][1]["status"] == "unsolved"
+    assert not (tmp_path / "fixes" / slider_problem().slug).exists()
+
+
+def test_metadata_and_ui_failures_do_not_repeat_a_kept_fix(repo: Path, tmp_path: Path) -> None:
+    class Offline(Api):
+        def record_code_change(self, *args: Any, **kwargs: Any) -> Any:
+            raise OSError("offline")
+
+    def disconnected(*args: Any) -> Any:
+        raise OSError("disconnected")
+
+    queue = FixQueue(repo=repo, workdir=tmp_path / "fixes", api=Offline(), run_id="r",
+                     report=disconnected, publish=disconnected, runner=writes_the_strategy,
+                     checker=passing, prober=lambda *_: {"ok": True},
+                     keeper=lambda *_: Kept("abc", "def", True))
+    queue.submit(slider_problem())
+    until(lambda: queue.statuses[slider_problem().key].state == "waiting")
+    assert queue.at_safe_point(lambda: {})
+    queue.close()
+    queue._thread.join(5)
+    assert queue.statuses[slider_problem().key].state == "kept"
+
+
+def test_gates_cannot_change_the_code_that_will_be_probed(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scratch = Scratch.create(repo, tmp_path / "scratch")
+    (scratch.root / JOBS / "strategies.py").write_text(SLIDER)
+    scratch.write(f"workers/tests/test_fix_{slider_problem().slug}.py", b"def test_x(): pass\n")
+
+    def mutating_gates(self: Scratch) -> list[lane.Gate]:
+        (self.root / JOBS / "safety.py").write_text("# removed the guards\n")
+        return [lane.Gate("pytest", True, "")]
+
+    monkeypatch.setattr(Scratch, "gates", mutating_gates)
+    monkeypatch.setattr(Scratch, "replay", lambda *args, **kwargs: lane.Gate("replay", True, ""))
+    assert not lane.check(scratch, slider_problem()).passed
+
+
+def test_ignored_python_can_never_bypass_refusal(repo: Path, tmp_path: Path) -> None:
+    scratch = Scratch.create(repo, tmp_path / "scratch")
+    (scratch.root / ".git/info/exclude").write_text("*.pyc\n")
+    scratch.write(f"{JOBS}/model.pyc", b"untrusted bytecode")
+    scratch.write("workers/tests/test_new.py", b"def test_x(): pass\n")
+    assert refusal(scratch.changes()) is not None
+
+
+def test_failed_keep_retries_then_unsolves_without_recording_a_fix(
+    repo: Path, tmp_path: Path,
+) -> None:
+    api = Api()
+    calls: list[str] = []
+
+    def refuse(*args: Any) -> Kept:
+        calls.append("keep")
+        raise KeepError("conflict")
+
+    queue = FixQueue(repo=repo, workdir=tmp_path / "fixes", api=api, run_id="r",
+                     report=lambda _: None, runner=writes_the_strategy, checker=passing,
+                     prober=lambda *_: {"ok": True}, keeper=refuse)
+    queue.submit(slider_problem())
+    for attempt in range(1, 4):
+        until(lambda attempt=attempt: queue.statuses[slider_problem().key].state == "waiting"
+              and queue.statuses[slider_problem().key].attempt == attempt)
+        assert not queue.at_safe_point(lambda: {})
+    until(lambda: queue.statuses[slider_problem().key].state == "unsolved")
+    queue.close()
+    queue._thread.join(5)
+    assert len(calls) == 3 and not api.changes and not queue.has_kept()
+    assert [changes["status"] for _, changes in api.issues] == ["fixing", "unsolved"]
+
+
+def test_changing_scratch_after_a_probe_never_keeps_untested_code(
+    repo: Path, tmp_path: Path,
+) -> None:
+    def mutate(ready: Any, args: Any) -> dict[str, Any]:
+        (ready.scratch.root / JOBS / "other.py").write_text("VALUE = 9000\n")
+        return {"ok": True}
+
+    queue = FixQueue(repo=repo, workdir=tmp_path / "fixes", api=Api(), run_id="r",
+                     report=lambda _: None, runner=writes_the_strategy, checker=passing,
+                     prober=mutate, keeper=lambda *_: pytest.fail("untested patch was kept"))
+    queue.submit(slider_problem())
+    until(lambda: queue.statuses[slider_problem().key].state == "waiting")
+    try:
+        assert not queue.at_safe_point(lambda: {})
+        assert not queue.has_kept()
+    finally:
+        queue.close()
+        queue._thread.join(5)
+
+
+def test_close_during_failed_check_does_not_start_another_model_attempt(
+    repo: Path, tmp_path: Path,
+) -> None:
+    entered, release = threading.Event(), threading.Event()
+    calls: list[str] = []
+
+    def runner(*args: Any, **kwargs: Any) -> str:
+        calls.append("model")
+        return writes_the_strategy(*args, **kwargs)
+
+    def blocked_check(*args: Any) -> lane.Check:
+        entered.set()
+        assert release.wait(5)
+        return lane.Check(False, "test failed")
+
+    queue = FixQueue(repo=repo, workdir=tmp_path / "fixes", api=Api(), run_id="r",
+                     report=lambda _: None, runner=runner, checker=blocked_check)
+    queue.submit(slider_problem())
+    assert entered.wait(5)
+    queue.close()
+    release.set()
+    queue._thread.join(5)
+    assert not queue._thread.is_alive()
+    assert calls == ["model"]
