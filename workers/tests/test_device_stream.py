@@ -7,11 +7,13 @@ import pytest
 
 from personal_os_worker.device import stream
 from personal_os_worker.device.stream import (
+    fit_width,
     key_events,
     layout_size,
     mouse_params,
     page_point,
     screencast_size,
+    text_span,
     wheel_params,
 )
 
@@ -221,6 +223,80 @@ async def test_the_shown_tab_fills_the_pane_at_the_viewers_pixel_density() -> No
     await view.close()
 
 
+def test_a_tab_fitted_to_its_text_is_laid_out_narrower_and_rendered_denser() -> None:
+    assert layout_size({"width": 1190, "height": 745, "dpr": 1}, fit=1010) == {
+        "width": 1010, "height": 632, "deviceScaleFactor": 1.178, "mobile": False,
+    }
+    dense = layout_size({"width": 1190, "height": 745, "dpr": 2.5}, fit=850)
+    assert dense is not None and dense["deviceScaleFactor"] == 3.0
+
+
+def test_the_text_span_ignores_a_stray_label_at_the_very_edge() -> None:
+    # Ashby at 1190 wide: a centered form with a sidebar, and a skip link at x=0.
+    boxes = [[0, 40, 3]] + [[104, 300, 40]] * 20 + [[330, 1072, 60]] * 50
+    assert text_span(boxes) == (104.0, 1072.0)
+    assert text_span([]) is None
+    assert text_span([["x", 1, 1]]) is None
+
+
+def test_the_layout_narrows_until_the_text_has_a_small_margin_either_side() -> None:
+    # A centered form keeps 16px either side.
+    assert fit_width(1190, 1190, 1175, (104, 1072)) == 1016
+    # A form against the left edge is not narrowed.
+    assert fit_width(1190, 1190, 1175, (10, 700)) == 1190
+    # Text wider than the page widens it again, never past the pane's layout.
+    assert fit_width(1000, 1190, 985, (4, 1100)) == 1190
+    # Never so narrow that a board shows its phone layout.
+    assert fit_width(1190, 1190, 1175, (500, 680)) == 800
+
+
+async def test_the_shown_tab_is_refitted_to_its_text() -> None:
+    view, cdp, _, _ = await started(run_tab="T1")
+    await view.resize({"width": 1190, "height": 745, "dpr": 1})
+    answer = cdp.send
+
+    async def measured(method: str, params: Any = None, session_id: Any = None) -> dict[str, Any]:
+        if method == "Runtime.evaluate":
+            boxes = [[104, 300, 40]] * 20 + [[330, 1072, 60]] * 50
+            return {"result": {"value": {"width": 1175, "boxes": boxes}}}
+        return await answer(method, params, session_id)
+
+    cdp.send = measured  # type: ignore[method-assign]
+    cdp.handler("Page.loadEventFired", {}, "S-T1")
+    await asyncio.sleep(0.01)
+    override = [params for method, params, _ in cdp.sent
+                if method == "Emulation.setDeviceMetricsOverride"][-1]
+    assert override["width"] == 1016 and override["height"] == 636
+    assert view.fit == 1016
+    # A new pane starts again from the pane, then fits again.
+    await view.resize({"width": 1400, "height": 800, "dpr": 1})
+    assert view.fit is None
+    assert [params for method, params, _ in cdp.sent
+            if method == "Emulation.setDeviceMetricsOverride"][-1]["width"] == 1400
+    await view.close()
+
+
+async def test_an_override_another_client_cleared_is_put_back() -> None:
+    view, cdp, _, _ = await started(run_tab="T1")
+    await view.resize({"width": 1190, "height": 745, "dpr": 1})
+    sent = len([1 for method, _, _ in cdp.sent if method == "Emulation.setDeviceMetricsOverride"])
+    # The tab drops back to its window: the shape of the monitor Chrome is on.
+    for number in (1, 2):
+        cdp.handler("Page.screencastFrame", {
+            "data": base64.b64encode(b"jpeg").decode(), "sessionId": number,
+            "metadata": {"deviceWidth": 1080, "deviceHeight": 1751},
+        }, "S-T1")
+        await asyncio.sleep(0.01)
+    overrides = [(params, session) for method, params, session in cdp.sent
+                 if method == "Emulation.setDeviceMetricsOverride"]
+    # Restored once, not once per frame Chrome had already painted.
+    assert len(overrides) == sent + 1
+    assert overrides[-1] == (
+        {"width": 1190, "height": 745, "deviceScaleFactor": 1.0, "mobile": False}, "S-T1"
+    )
+    await view.close()
+
+
 async def test_a_tab_gets_its_own_size_back_once_nobody_watches_it() -> None:
     view, cdp, _, _ = await started(run_tab="T1")
     await view.switch("T2")
@@ -320,6 +396,7 @@ def test_frame_headers_are_length_prefixed_json() -> None:
 def _quiet_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     # The first-frame screenshot fallback would wait a second and a half per test.
     monkeypatch.setattr(stream, "FIRST_FRAME_SECONDS", 0.0)
+    monkeypatch.setattr(stream, "FIT_SECONDS", 0.0)
 
 
 async def test_a_switch_asked_for_while_opening_waits_for_the_open() -> None:

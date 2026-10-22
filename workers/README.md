@@ -102,6 +102,14 @@ distro; `os device status` says what it is doing.
   the panel's size, never narrower than 1024 CSS pixels, at the viewer's pixel
   density. Chrome sizes a tab in a minimized window as it likes (2560×1271 for
   one, 1065×1751 for the next), which made the panel scroll or shrank the page.
+  Once the page settles, on every load, in-page step, and panel resize, it
+  measures where the page's text and controls sit and narrows the layout until
+  16 CSS pixels are left either side of them (never below 800), rendering at the
+  matching higher density so the zoomed text stays sharp. Chrome keeps one
+  override per tab, not per client, so the run's own connection or any other
+  client clearing one leaves the tab at its window's size, the shape of
+  whichever monitor it is on. A frame at any other width says so, and the
+  override is put back, at most once a second.
   A tab gets its own size back once the viewer leaves it or disconnects, so a
   run nobody watches fills at Chrome's size. It screencasts as quality-90 JPEG at
   the panel's device-pixel width, up to 2560 pixels. Each frame is acknowledged once delivered, which is

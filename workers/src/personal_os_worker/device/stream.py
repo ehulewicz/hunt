@@ -19,6 +19,7 @@ import base64
 import contextlib
 import itertools
 import json
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
@@ -30,6 +31,20 @@ DEFAULT_SIZE = (1280, 800)
 # Narrower than this, most boards switch to their tablet layout.
 MIN_LAYOUT_WIDTH = 1024
 MAX_SCALE = 3.0
+# Zoomed to its text, a page is laid out no narrower than this, where boards
+# still show a form rather than a phone's.
+MIN_FIT_WIDTH = 800
+# The room left either side of the text, in the page's own pixels.
+FIT_MARGIN = 16
+# A fit that would move the layout less than this keeps it, so the page never jitters.
+FIT_STEP = 24
+# How long a page is given to paint its form before its text is measured.
+FIT_SECONDS = 0.8
+# Ignoring the outermost few percent of text on each side drops a skip link or a
+# stray icon at the very edge without dropping a real column.
+FIT_TRIM = 0.02
+# Another client clearing its own override clears this one too; how often it is restored.
+REASSERT_SECONDS = 1.0
 # A minimized or idle tab may not paint; one screenshot shows it until it does.
 FIRST_FRAME_SECONDS = 1.5
 # How long a tab switch waits for the stream to finish opening.
@@ -70,11 +85,13 @@ def screencast_size(view: dict[str, Any]) -> tuple[int, int]:
     return max(200, min(MAX_SIDE, width)), max(200, min(MAX_SIDE, height))
 
 
-def layout_size(view: dict[str, Any]) -> dict[str, Any] | None:
+def layout_size(view: dict[str, Any], fit: int | None = None) -> dict[str, Any] | None:
     """The viewport the shown tab is laid out at: the viewer's pane, at its pixel density.
 
     A pane narrower than a desktop keeps the desktop layout at the pane's shape,
-    and is shown smaller. None when the viewer gave no usable size.
+    and is shown smaller. `fit` lays it out narrower than the pane, so the text
+    is shown larger, rendered at the zoomed density rather than stretched. None
+    when the viewer gave no usable size.
     """
     try:
         width = float(view["width"])
@@ -84,13 +101,73 @@ def layout_size(view: dict[str, Any]) -> dict[str, Any] | None:
         return None
     if width <= 0 or height <= 0:
         return None
-    layout_width = max(MIN_LAYOUT_WIDTH, round(width))
+    layout_width = fit or max(MIN_LAYOUT_WIDTH, round(width))
+    zoom = max(1.0, width / layout_width)
     return {
         "width": layout_width,
         "height": round(layout_width * height / width),
-        "deviceScaleFactor": min(MAX_SCALE, max(1.0, ratio)),
+        "deviceScaleFactor": round(min(MAX_SCALE, max(1.0, ratio * zoom)), 3),
         "mobile": False,
     }
+
+
+# Where the page's text and controls sit across the viewport, with how much each one weighs.
+TEXT_BOXES = r"""(() => {
+  const boxes = [], width = document.documentElement.clientWidth;
+  const add = (box, weight) => {
+    if (box.width >= 2 && box.height >= 2 && box.right > 0 && box.left < width) {
+      boxes.push([box.left, box.right, weight]);
+    }
+  };
+  const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const range = document.createRange();
+  for (let node; (node = walk.nextNode()) && boxes.length < 5000;) {
+    const text = node.data.trim();
+    if (!text) continue;
+    range.selectNodeContents(node);
+    for (const box of range.getClientRects()) add(box, text.length);
+  }
+  const controls = 'input:not([type=hidden]),textarea,select,button,[role=combobox]';
+  for (const control of document.querySelectorAll(controls)) {
+    add(control.getBoundingClientRect(), 10);
+  }
+  return {width, boxes};
+})()"""
+
+
+def text_span(boxes: list[Any]) -> tuple[float, float] | None:
+    """The left and right edges of the page's text, past the outermost few percent of it."""
+    rows: list[tuple[float, float, float]] = []
+    for box in boxes:
+        with contextlib.suppress(TypeError, ValueError, IndexError):
+            rows.append((float(box[0]), float(box[1]), max(1.0, float(box[2]))))
+    if not rows:
+        return None
+    trim = FIT_TRIM * sum(weight for _, _, weight in rows)
+
+    def edge(values: list[tuple[float, float]]) -> float:
+        passed = 0.0
+        for value, weight in values:
+            passed += weight
+            if passed > trim:
+                return value
+        return values[-1][0]
+
+    left = edge(sorted((row[0], row[2]) for row in rows))
+    right = edge(sorted(((row[1], row[2]) for row in rows), reverse=True))
+    return (left, right) if right > left else None
+
+
+def fit_width(current: int, base: int, client_width: float, span: tuple[float, float]) -> int:
+    """The layout width that leaves FIT_MARGIN either side of the text.
+
+    Both sides narrow by the same amount, so a centered form ends up centered with
+    the margin on each side and a form against one edge is not narrowed at all.
+    Text wider than the page widens it again, up to the pane's own layout.
+    """
+    left, right = span
+    spare = min(left, client_width - right) - FIT_MARGIN
+    return max(MIN_FIT_WIDTH, min(base, round(current - 2 * spare)))
 
 
 def _fraction(value: Any) -> float:
@@ -334,6 +411,12 @@ class Stream:
         self.session: str | None = None
         self.meta: dict[str, Any] | None = None
         self.view: dict[str, Any] = {}
+        # The layout width the shown tab's text fits, and the override last sent for it.
+        self.fit: int | None = None
+        self.metrics: dict[str, Any] | None = None
+        self._fits = itertools.count(1)
+        self._fitting = 0
+        self._reasserted = 0.0
         # Wheel turns not yet in Chrome, summed in pixels; see wheel().
         self._wheel: dict[str, Any] | None = None
         self._wheeling = False
@@ -396,7 +479,7 @@ class Stream:
                     await cdp.send("Emulation.clearDeviceMetricsOverride", {}, self.session)
                 with contextlib.suppress(CdpError):
                     await cdp.send("Target.detachFromTarget", {"sessionId": self.session})
-            self.session, self.meta, self._wheel = None, None, None
+            self.session, self.meta, self._wheel, self.fit = None, None, None, None
             attached = await cdp.send(
                 "Target.attachToTarget", {"targetId": target_id, "flatten": True}
             )
@@ -408,6 +491,7 @@ class Stream:
             await self._start(cdp)
         await self._emit_tabs()
         self._spawn(self._first_frame(target_id))
+        self._refit()
 
     async def _restore_window(self, cdp: Cdp, target_id: str) -> None:
         """A minimized window paints nothing, so a viewer un-minimizes it."""
@@ -422,12 +506,9 @@ class Stream:
     async def _start(self, cdp: Cdp) -> None:
         # Chrome lays out a tab in a minimized window at whatever size it likes
         # (2560x1271 for one tab, 1065x1751 for the next): the pane then had to
-        # scroll, or shrink the page. Laid out at the pane, a frame fills it
-        # exactly, one image pixel to each of the viewer's, and every wheel turn
-        # scrolls Chrome.
-        metrics = layout_size(self.view)
-        if metrics is not None:
-            await cdp.send("Emulation.setDeviceMetricsOverride", metrics, self.session)
+        # scroll, or shrink the page. Laid out at the pane's shape, a frame fills
+        # it exactly, and every wheel turn scrolls Chrome.
+        await self._override(cdp)
         width, _ = screencast_size(self.view)
         await cdp.send(
             "Page.startScreencast",
@@ -435,6 +516,57 @@ class Stream:
              "everyNthFrame": 1},
             self.session,
         )
+
+    async def _override(self, cdp: Cdp) -> None:
+        self.metrics = layout_size(self.view, self.fit)
+        if self.metrics is not None:
+            await cdp.send("Emulation.setDeviceMetricsOverride", self.metrics, self.session)
+
+    def _refit(self) -> None:
+        """Measure the shown page's text once it settles; only the latest request runs."""
+        self._fitting = next(self._fits)
+        self._spawn(self._fit(self._fitting))
+
+    async def _fit(self, number: int) -> None:
+        await asyncio.sleep(FIT_SECONDS)
+        cdp, session = self._cdp, self.session
+        if cdp is None or session is None or number != self._fitting or self.metrics is None:
+            return
+        answer = await cdp.send(
+            "Runtime.evaluate", {"expression": TEXT_BOXES, "returnByValue": True}, session
+        )
+        page = (answer.get("result") or {}).get("value") or {}
+        span = text_span(page.get("boxes") or [])
+        if span is None or not page.get("width") or number != self._fitting:
+            return
+        current = int(self.metrics["width"])
+        base = int((layout_size(self.view) or self.metrics)["width"])
+        width = fit_width(current, base, float(page["width"]), span)
+        if abs(width - current) < FIT_STEP or session != self.session:
+            return
+        self.fit = None if width == base else width
+        await self._override(cdp)
+
+    async def _reassert(self, meta: dict[str, Any]) -> None:
+        """Put the override back when the frames say Chrome dropped it.
+
+        Chrome keeps one override per tab, not one per client: the apply run's own
+        connection clearing its override, or any other client detaching, leaves
+        the tab at its window's size, which is the shape of whatever monitor it
+        is on. A frame at any other width than the one set says that happened.
+        """
+        metrics, cdp = self.metrics, self._cdp
+        if metrics is None or cdp is None:
+            return
+        try:
+            if abs(float(meta.get("deviceWidth") or 0) - metrics["width"]) <= 1:
+                return
+        except (TypeError, ValueError):
+            return
+        if time.monotonic() - self._reasserted < REASSERT_SECONDS:
+            return
+        self._reasserted = time.monotonic()
+        await cdp.send("Emulation.setDeviceMetricsOverride", metrics, self.session)
 
     async def _first_frame(self, target_id: str) -> None:
         await asyncio.sleep(FIRST_FRAME_SECONDS)
@@ -468,6 +600,7 @@ class Stream:
             self.meta = dict(params.get("metadata") or {})
             with contextlib.suppress(Exception):
                 await self._send_frame(self._header(self.meta), base64.b64decode(params["data"]))
+            self._spawn(self._reassert(self.meta))
         # Acknowledged only once delivered, so Chrome sends no faster than the viewer reads.
         await cdp.send("Page.screencastFrameAck", {"sessionId": params.get("sessionId")},
                        session_id)
@@ -491,6 +624,11 @@ class Stream:
                 self._spawn(self.show(target_id))
             else:
                 self._spawn(self._emit_tabs())
+            return
+        if method in {"Page.loadEventFired", "Page.navigatedWithinDocument"}:
+            # A new page, or a form's next step, has its own width of text.
+            if session_id is not None and session_id == self.session:
+                self._refit()
             return
         if method == "Target.targetDestroyed":
             target_id = str(params.get("targetId") or "")
@@ -543,8 +681,10 @@ class Stream:
         if not await self._opened():
             return
         if self._cdp is not None and self.session is not None:
+            self.fit = None
             await self._cdp.send("Page.stopScreencast", {}, self.session)
             await self._start(self._cdp)
+            self._refit()
 
     async def pointer(self, message: dict[str, Any]) -> None:
         if self._cdp is not None and self.session is not None and self.meta:
