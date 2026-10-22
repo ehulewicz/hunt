@@ -36,6 +36,8 @@ os hunt facts set education.gpa 3.78
 os hunt facts set identity.middle_name Alexander   # the catalog gives a known key its type and label
 os hunt facts set address.line_2 --none            # the answer is none: free text gets N/A
 os hunt facts set work_auth.security_clearance no --type boolean --label "Holds a security clearance"
+os hunt facts delete education.gpa       # confirm deleting a stored override
+os hunt facts delete address.line_2 --yes # skip confirmation
 
 os hunt resume build      # republish main.json and the PDF from the career record
 os hunt resume       # = os hunt resume edit --open
@@ -78,6 +80,13 @@ os hunt changes show 3        # one change in full, a code change's diff include
 os hunt fixes                 # failures the fixer took on, and how each went
 os hunt sites                 # each site's latest run and its model calls
 ```
+
+`facts delete KEY` shows the stored value and asks for confirmation; `--yes`
+skips the prompt. It records the deletion through the API. Removing a stored
+override lets the career record decide that fact again. A career-derived key
+without a stored row must be changed with `os hunt resume edit`; other
+computed-only facts belong to code and cannot be deleted. Unknown keys are
+reported without sending a delete request.
 
 ```bash
 os device install    # once per machine: identity, tailscale serve, logon task, doctor

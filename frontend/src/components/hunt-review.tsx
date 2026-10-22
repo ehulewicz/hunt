@@ -4,7 +4,7 @@ import { ArrowLeft, Check } from "lucide-react";
 import { type FormEvent, type ReactNode, useRef, useState } from "react";
 
 import { ReplayResult } from "@/components/hunt-history";
-import { apiRequest, type Change, type Fact, type InboxFact, type InboxQuestion, type Pattern, type Prose } from "@/lib/api";
+import { apiRequest, deleteFact, type Change, type Fact, type InboxFact, type InboxQuestion, type Pattern, type Prose } from "@/lib/api";
 import { freshAccessToken } from "@/lib/device";
 
 export type Review = { kind: "fact"; item: Fact | InboxFact } | { kind: "question"; item: InboxQuestion }
@@ -14,8 +14,8 @@ export function valueText(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value, null, 2) ?? "";
 }
 
-export function ReviewForm({ review: initialReview, facts, onDone, onBack, origin = "you" }: {
-  review: Review; facts: Fact[]; origin?: "you" | "inbox"; onDone: () => void; onBack: () => void;
+export function ReviewForm({ review: initialReview, facts, onDone, onBack, origin = "you", allowDelete = false }: {
+  review: Review; facts: Fact[]; origin?: "you" | "inbox"; allowDelete?: boolean; onDone: (action?: "deleted") => void; onBack: () => void;
 }) {
   // Missing cards carry the run's question, but may omit an existing fact's metadata.
   const storedFact = initialReview.kind === "fact" && "reason" in initialReview.item && initialReview.item.reason === "missing"
@@ -30,20 +30,24 @@ export function ReviewForm({ review: initialReview, facts, onDone, onBack, origi
   const [valueType, setValueType] = useState<Fact["value_type"]>(review.kind === "fact" ? review.item.value_type ?? "text" : "text");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // /facts contains stored rows only. A matching key may be a removable
+  // override of a career fact; computed-only facts have no row to delete.
+  const canDelete = allowDelete && review.kind === "fact" && facts.some((fact) => fact.key === review.item.key);
   const inFlight = useRef(false);
   const title = review.kind === "prose" ? review.item.question_label ?? "Written answer"
     : review.kind === "fact" ? review.item.label ?? ("missing_fact" in review.item ? review.item.missing_fact : null) ?? "Missing fact"
       : review.kind === "question" ? review.item.question.sample_label
         : review.item.question_label ?? review.item.expression ?? "Suggested pattern";
 
-  async function save(operation: (token: string) => Promise<unknown>) {
+  async function save(operation: (token: string) => Promise<unknown>, action?: "deleted") {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
       await operation(await freshAccessToken());
-      onDone();
+      onDone(action);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not save. Try again.");
     } finally {
@@ -136,6 +140,11 @@ export function ReviewForm({ review: initialReview, facts, onDone, onBack, origi
         {review.kind === "question" && selectedFact && !adding && <div className="fact-preview"><span>Current answer</span><strong>{factDisplayValue(selectedFact.value)}</strong></div>}
         {review.kind === "question" && review.item.answers.length > 0 && <details className="previous-answers"><summary>Previous answers</summary>{review.item.answers.map((answer, index) => <p key={index}><strong>{answer.company_name}</strong>: {answer.answer_text}</p>)}</details>}
         <div className="review-actions">
+          {confirmingDelete && review.kind === "fact" && canDelete ? <>
+            <p role="alert">Delete {title}? This removes the stored fact. Any career-derived value with the same key will apply again.</p>
+            <button className="button button-secondary" onClick={() => void save((token) => deleteFact(token, factKey), "deleted")} type="button">{busy ? "Deleting…" : "Confirm delete"}</button>
+            <button className="text-button" onClick={() => { setConfirmingDelete(false); setError(null); }} type="button">Cancel</button>
+          </> : <>
           <button className="button button-primary" disabled={busy || !text.trim() && (review.kind === "prose" || review.kind === "fact" && ["boolean", "number", "list", "object"].includes(valueType)) || review.kind === "pattern" && !selectedFact || review.kind === "question" && !factKey} type="submit">
             <Check aria-hidden="true" />{busy ? "Saving…" : review.kind === "prose" ? "Approve for reuse" : review.kind === "fact" ? "Save verified fact" : review.kind === "question" ? adding ? "Save fact and link" : "Link fact" : "Accept pattern"}
           </button>
@@ -143,7 +152,10 @@ export function ReviewForm({ review: initialReview, facts, onDone, onBack, origi
           {review.kind === "prose" && !review.item.approved && <button className="button button-secondary" disabled={!text.trim()} onClick={() => void save((token) => apiRequest(`/v1/jobs/prose/${review.item.id}`, token, { method: "PATCH", body: JSON.stringify({ text, approved: false, origin }) }))} type="button">Save draft</button>}
           {review.kind === "prose" && <button className="text-button" onClick={() => void save((token) => apiRequest(`/v1/jobs/prose/${review.item.id}`, token, { method: "DELETE", body: JSON.stringify({ origin }) }))} type="button">{review.item.approved ? "Delete writing" : "Discard draft"}</button>}
           {review.kind === "question" && <button className="text-button" onClick={() => void save((token) => apiRequest(`/v1/jobs/questions/${review.item.question.id}`, token, { method: "PATCH", body: JSON.stringify({ disposition: "one_off", origin }) }))} type="button">Answer only on the form</button>}
+          {canDelete && <button className="text-button" onClick={() => { setConfirmingDelete(true); setError(null); }} type="button">Delete fact</button>}
+          </>}
         </div>
+        {allowDelete && review.kind === "fact" && !canDelete && <p className="muted">Only stored facts can be deleted. Change career-derived facts with <code>os hunt resume edit</code>; other derived facts change in code.</p>}
       </fieldset>
       {error && <p className="gap-error" role="alert">{error}</p>}
     </form>

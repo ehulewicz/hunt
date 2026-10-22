@@ -48,6 +48,7 @@ function frame(target: string): Buffer {
 }
 
 async function setup(page: Page, busy = false) {
+  let storedFacts = [...FACTS];
   let activeRun: typeof RUN | null = busy ? { ...RUN } : null;
   let socket: WebSocketRoute | null = null;
   let sockets = 0;
@@ -67,6 +68,11 @@ async function setup(page: Page, busy = false) {
   });
   await page.route("https://api.test/v1/**", (route) => {
     const url = route.request().url();
+    if (route.request().method() === "DELETE" && url.includes("/jobs/facts/")) {
+      writes.push({ url, body: null });
+      storedFacts = storedFacts.filter((fact) => fact.key !== decodeURIComponent(url.split("/").at(-1)!));
+      return route.fulfill({ status: 204 });
+    }
     if (["PATCH", "PUT", "POST", "DELETE"].includes(route.request().method()) && !url.endsWith("/bootstrap")) {
       writes.push({ url, body: route.request().postDataJSON() });
       return route.fulfill({ json: {} });
@@ -84,7 +90,7 @@ async function setup(page: Page, busy = false) {
       { ...APPLICATION, id: "a4", posting_id: "p4", company_name: "Notion", title: "Software Engineer Intern", status: "interview", applied_at: "2026-10-10T12:00:00Z" },
       { ...APPLICATION, id: "a5", posting_id: "p5", company_name: "Linear", title: "Software Engineer Intern", status: "applied", applied_at: "2026-10-15T12:00:00Z" },
     ] });
-    if (url.endsWith("/jobs/facts")) return route.fulfill({ json: FACTS });
+    if (url.endsWith("/jobs/facts")) return route.fulfill({ json: storedFacts });
     if (url.endsWith("/jobs/questions")) return route.fulfill({ json: [
       { id: "q2", sample_label: "Your email?", form: "short", disposition: "pattern", pattern_id: "pat2" },
       { id: "q3", sample_label: "Anything else?", form: "long", disposition: "long_form", pattern_id: null },
@@ -101,7 +107,7 @@ async function setup(page: Page, busy = false) {
     if (url.endsWith("/jobs/inbox")) return route.fulfill({ json: {
       questions: [{ question: { id: "q1", sample_label: "Will you need visa sponsorship?" }, answers: [] }],
       prose: [{ id: "pr1", question_label: "Why do you want to work at Acme?", company_name: "Acme", text: "I enjoy building tools that make complicated work feel simple.", approved: false }],
-      facts: FACTS.filter((fact) => !fact.verified_at).map((fact) => ({ ...fact, reason: "unverified", question: null, missing_fact: null, issue_id: null, check: null })),
+      facts: storedFacts.filter((fact) => !fact.verified_at).map((fact) => ({ ...fact, reason: "unverified", question: null, missing_fact: null, issue_id: null, check: null })),
       checks: [], unsolved: [{ issue_id: "issue1", category: "wall", question: "Account verification", control_kind: null, note: "Verification could not be completed", occurrence_count: 2, last_seen_at: "2026-10-20T12:00:00Z" }],
       candidates: [{ check: null, pattern: { id: "pat1", question_label: "Are you a US citizen?", fact_key: "work_auth.us_citizen", status: "candidate" }, answers: [] }],
     } });
@@ -336,6 +342,33 @@ test("Library exposes saved records, history and code changes and works on mobil
   await expect(page.getByRole("textbox", { name: "Value", exact: true })).toHaveValue("[]");
   await page.getByRole("button", { name: "Save verified fact" }).click();
   await expect.poll(() => agent.writes).toContainEqual({ url: "https://api.test/v1/jobs/facts/education.certifications", body: { value: [], verified: true, origin: "inbox" } });
+  expect(agent.sockets()).toBe(0);
+});
+
+test("Library fact deletion confirms and refreshes Library and Inbox", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const agent = await setup(page);
+  await page.goto("/hunt");
+  await page.getByRole("button", { name: "Library", exact: true }).click();
+  await page.getByRole("button", { name: "Facts 5", exact: true }).click();
+  await page.getByRole("button", { name: "Review Certifications", exact: true }).click();
+  await page.getByRole("button", { name: "Delete fact", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Delete Certifications?" })).toBeVisible();
+  expect(agent.writes).toEqual([]);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Confirm delete" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Delete fact", exact: true }).click();
+  await noHorizontalOverflow(page);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await expect(page).toHaveScreenshot("hunt-fact-delete.png", { animations: "disabled" });
+  await page.getByRole("button", { name: "Confirm delete" }).click();
+  await expect(page.getByText("Deleted.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Facts 4", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Review Certifications" })).toHaveCount(0);
+  expect(agent.writes).toEqual([{ url: "https://api.test/v1/jobs/facts/education.certifications", body: null }]);
+  await page.getByRole("button", { name: "Inbox", exact: true }).click();
+  await page.getByRole("button", { name: "Facts to verify 1", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Review Certifications" })).toHaveCount(0);
   expect(agent.sockets()).toBe(0);
 });
 

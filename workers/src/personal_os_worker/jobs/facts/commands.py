@@ -1,4 +1,4 @@
-"""`os hunt facts`: list, review, and set what is true about you.
+"""`os hunt facts`: list, review, set, and delete what is true about you.
 
 Review walks every unverified fact, shows what the archived answers said to
 similar questions beside it, and records your decision on the row itself.
@@ -23,6 +23,7 @@ from personal_os_worker.jobs.facts.catalog import entry
 from personal_os_worker.jobs.facts.derived import (
     CAREER_FACTS,
     DERIVED_FACTS,
+    POSTING_FACTS,
     career_facts,
     derive,
     shadowed,
@@ -201,6 +202,38 @@ def run_facts_list() -> int:
     finally:
         api.close()
     render_facts(facts, today=date.today(), career=career)
+    return 0
+
+
+def delete_fact(
+    api: WorkerApi, key: str, *, yes: bool = False, ask: Callable[[str], str] = input,
+) -> bool:
+    """Delete a stored row only, including an override of a career-derived value."""
+    stored = next((fact for fact in api.facts() if fact["key"] == key), None)
+    if stored is None:
+        if any(item.key == key for item in CAREER_FACTS):
+            raise RuntimeError(
+                f"{key} comes from the career record; change it with os hunt resume edit"
+            )
+        if any(item.key == key for item in (*DERIVED_FACTS, *POSTING_FACTS)):
+            raise RuntimeError(f"{key} is derived; change its inputs or calculation in code")
+        raise RuntimeError(f"No stored fact named {key}")
+    console.print(f"{key} = {display(stored.get('value'))}", markup=False)
+    if not yes and ask(f"Delete stored fact {key}? [y/N] ").strip().casefold() not in {"y", "yes"}:
+        console.print("Cancelled.")
+        return False
+    api.delete_fact(key)
+    console.print(f"Deleted {key}.", markup=False)
+    return True
+
+
+def run_facts_delete(key: str, *, yes: bool = False) -> int:
+    config, token = connected()
+    api = WorkerApi(config, token)
+    try:
+        delete_fact(api, key, yes=yes)
+    finally:
+        api.close()
     return 0
 
 

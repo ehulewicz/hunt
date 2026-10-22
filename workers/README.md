@@ -41,8 +41,8 @@ touching the record, and `resume import` loads `main.json` into an empty record
 once. Facts the resume determines — school, degree, graduation, GPA, whole years
 of experience, the current employer, every organization, every skill — are
 derived from the record by `jobs/facts/derived.py`; a stored fact with the same
-key still wins until the facts session removes it, and `os hunt facts` marks
-each one that disagrees with the record.
+key still wins until `os hunt facts delete KEY` removes that override, and
+`os hunt facts` marks each one that disagrees with the record.
 
 The CLI launches local FastAPI and the dedicated native Windows Chrome profile
 as needed. Chrome is launched only when nothing holds its debugging port; one that

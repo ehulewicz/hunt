@@ -106,6 +106,10 @@ export type Fact = {
   updated_at: string;
 };
 
+export function deleteFact(accessToken: string, key: string): Promise<void> {
+  return apiRequest<void>(`/v1/jobs/facts/${encodeURIComponent(key)}`, accessToken, { method: "DELETE" });
+}
+
 export type JobApplication = {
   id: string;
   posting_id: string;

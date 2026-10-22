@@ -62,7 +62,7 @@ export function HuntLibraryPanel({ onRefresh }: { onRefresh: () => void }) {
     <div className="panel-scroll attention-content">
       {error && <div className="library-error"><p className="gap-error" role="alert">{error}{library ? " Showing the last loaded records." : ""}</p><button className="text-button" onClick={() => setVersion((current) => current + 1)} type="button">Try again</button></div>}
       {notice && <p className="saved-notice" role="status"><Check aria-hidden="true" />{notice}</p>}
-      {section === "Code" ? <ItemHistory key="code" subject="code" /> : review ? <><ReviewForm facts={library?.facts ?? []} key={review.kind === "fact" ? review.item.key : review.kind === "question" ? review.item.question.id : review.item.id} onBack={() => setReview(null)} onDone={() => { setReview(null); setNotice("Saved."); setVersion((current) => current + 1); onRefresh(); }} review={review} /><ItemHistory key={`${review.kind}:${review.kind === "fact" ? review.item.key : review.kind === "question" ? review.item.question.id : review.item.id}`} subject={review.kind} subjectId={review.kind === "fact" ? review.item.key ?? undefined : review.kind === "question" ? review.item.question.id : review.item.id} /></>
+      {section === "Code" ? <ItemHistory key="code" subject="code" /> : review ? <><ReviewForm allowDelete facts={library?.facts ?? []} key={review.kind === "fact" ? review.item.key : review.kind === "question" ? review.item.question.id : review.item.id} onBack={() => setReview(null)} onDone={(action) => { setReview(null); setNotice(action === "deleted" ? "Deleted." : "Saved."); setVersion((current) => current + 1); onRefresh(); }} review={review} /><ItemHistory key={`${review.kind}:${review.kind === "fact" ? review.item.key : review.kind === "question" ? review.item.question.id : review.item.id}`} subject={review.kind} subjectId={review.kind === "fact" ? review.item.key ?? undefined : review.kind === "question" ? review.item.question.id : review.item.id} /></>
         : detail ? <div className="review-form">
           <button className="text-button" onClick={() => setDetail(null)} type="button"><ArrowLeft aria-hidden="true" />All items</button>
           <h3>{detail.kind === "question" ? detail.item.sample_label : detail.item.question_label ?? detail.item.expression ?? "Pattern"}</h3>
@@ -86,6 +86,6 @@ export function HuntLibraryPanel({ onRefresh }: { onRefresh: () => void }) {
                 </div>}
             </>}
     </div>
-    <footer className="panel-footnote">Saved answers, patterns, and code changes.</footer>
+    <footer className="panel-footnote">{section === "Facts" ? <div>Stored facts can be deleted here. Change career-derived facts with <code>os hunt resume edit</code>; other derived facts change in code.</div> : "Saved answers, patterns, and code changes."}</footer>
   </>;
 }

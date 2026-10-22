@@ -186,11 +186,14 @@ def build_parser() -> argparse.ArgumentParser:
     archive.add_argument("--markdown", help="Write archived long-form answers to this file")
 
     facts_parser = jobs_commands.add_parser(
-        "facts", help="List, review, or set what is true about you"
+        "facts", help="List, review, set, or delete what is true about you"
     )
     fact_commands = facts_parser.add_subparsers(dest="fact_command", required=True)
     fact_commands.add_parser("list", help="Stored and derived facts")
     fact_commands.add_parser("review", help="Accept, edit, or delete each unverified fact")
+    facts_delete = fact_commands.add_parser("delete", help="Delete one stored fact")
+    facts_delete.add_argument("key", help="Dotted key from 'os hunt facts list'")
+    facts_delete.add_argument("--yes", action="store_true", help="Skip the confirmation prompt")
     facts_set = fact_commands.add_parser("set", help="Set one fact; setting it verifies it")
     facts_set.add_argument("key", help="Dotted fact key, e.g. education.graduation_date")
     facts_set.add_argument("value", nargs="?", help="Value; JSON for list and object facts")
@@ -465,6 +468,8 @@ def _dispatch(args: argparse.Namespace) -> int:
                 return facts.run_facts_list()
             if args.fact_command == "review":
                 return facts.run_facts_review()
+            if args.fact_command == "delete":
+                return facts.run_facts_delete(args.key, yes=args.yes)
             if args.fact_command == "set":
                 if (args.value is None) != args.none:
                     raise RuntimeError("'facts set' takes a value or --none, not both")

@@ -98,7 +98,12 @@ overview. Its searchable Questions, Facts, Writing, and Patterns categories read
 `/v1/jobs/questions`, `/facts`, `/prose`, and `/patterns`. It includes approved
 writing, verified facts, and all pattern statuses, including rejected and retired
 records, plus repaired and validated patterns. Facts and writing use the same
-editors as Inbox; questions and patterns expose their stored details. Each item's
+editors as Inbox; questions and patterns expose their stored details. A stored
+fact's Delete action asks for confirmation, then refreshes Library and Inbox.
+Deleting an override lets the career-derived value apply again. The facts API
+lists stored rows only, so computed-only facts have no Delete action: change
+career-derived facts with `os hunt resume edit`, and other derived facts in code.
+Each item's
 history loads from `/v1/jobs/changes`,
 showing when, who, action, before and after, and replay verification. Code lists
 code changes newest first, including commit, cause, question, summary, attempts,
