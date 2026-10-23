@@ -26,6 +26,7 @@ from typing import Any
 import httpx
 
 from personal_os_worker.core.service import CHROME_EXE, chrome_profile
+from personal_os_worker.core.tls import tls
 
 # Must match an entry in the Supabase redirect allowlist. A fixed port keeps the
 # allowlist unambiguous; Supabase documents globbing for paths, not for ports.
@@ -216,6 +217,7 @@ def login(auth: SupabaseAuth, *, timeout_seconds: float = 300.0) -> Session:
         headers={"apikey": auth.publishable_key, "Content-Type": "application/json"},
         json={"auth_code": code, "code_verifier": verifier},
         timeout=30.0,
+        verify=tls(),
     )
     if response.status_code != 200:
         raise LoginError(
@@ -231,6 +233,7 @@ def refresh(auth: SupabaseAuth, session: Session) -> Session:
         headers={"apikey": auth.publishable_key, "Content-Type": "application/json"},
         json={"refresh_token": session.refresh_token},
         timeout=30.0,
+        verify=tls(),
     )
     if response.status_code != 200:
         raise LoginError(f"Token refresh failed with {response.status_code}: {response.text[:300]}")

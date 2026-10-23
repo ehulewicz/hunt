@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
@@ -9,6 +10,7 @@ import httpx
 
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.config import CliConfig
+from personal_os_worker.core.tls import tls
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,15 +48,41 @@ def run_doctor(
         api.close()
 
     try:
-        response = httpx.get(f"{config.cdp_url.rstrip('/')}/json/version", timeout=5)
+        response = httpx.get(f"{config.cdp_url.rstrip('/')}/json/version", timeout=5,
+                             verify=tls())
         response.raise_for_status()
         checks.append(DoctorCheck("Chrome CDP", True, "Visible Chrome is reachable"))
     except httpx.HTTPError as error:
         checks.append(DoctorCheck("Chrome CDP", False, _safe_http_error(error)))
 
     checks.append(command_check("Claude authentication", "claude", ["auth", "status"]))
+    checks.append(python_check())
     checks.extend(check() for check in extra)
     return checks
+
+
+PYTHON = (3, 13)
+
+
+def python_check(
+    version: tuple[int, ...] | None = None, executable: str | None = None
+) -> DoctorCheck:
+    """The interpreter `os` runs on, which must be the project's.
+
+    On Python 3.14 Playwright's sync API never frees the task it makes for each
+    call, so a run polling a page grows about 1.5 GB an hour.
+    """
+    found = tuple((version or sys.version_info)[:2])
+    path = executable or sys.executable
+    if found == PYTHON:
+        return DoctorCheck("Python", True, f"{path} is Python 3.13")
+    shown = ".".join(str(part) for part in found)
+    return DoctorCheck(
+        "Python", False,
+        f"{path} is Python {shown}, not 3.13, and a run's memory grows without bound there. "
+        "Reinstall it from the repository: "
+        "uv tool install --reinstall --python 3.13 --editable ./workers",
+    )
 
 
 def command_check(name: str, executable: str, arguments: list[str]) -> DoctorCheck:

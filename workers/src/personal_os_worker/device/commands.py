@@ -12,6 +12,7 @@ from personal_os_worker.core.commands import connected
 from personal_os_worker.core.config import load_cli_config
 from personal_os_worker.core.service import state_dir
 from personal_os_worker.core.tables import console
+from personal_os_worker.core.tls import tls
 from personal_os_worker.device.heartbeat import Presence, doctor_checks, readiness
 from personal_os_worker.device.identity import (
     AGENT_PORT,
@@ -30,7 +31,7 @@ LOG_LIMIT = 5_000_000
 
 def agent_running() -> bool:
     try:
-        return httpx.get(f"{AGENT_URL}/health", timeout=2.0).status_code == 200
+        return httpx.get(f"{AGENT_URL}/health", timeout=2.0, verify=tls()).status_code == 200
     except httpx.HTTPError:
         return False
 
@@ -140,7 +141,8 @@ def run_status() -> int:
         return 1
     _, token = connected()
     response = httpx.get(
-        f"{AGENT_URL}/status", headers={"Authorization": f"Bearer {token}"}, timeout=30.0
+        f"{AGENT_URL}/status", headers={"Authorization": f"Bearer {token}"}, timeout=30.0,
+        verify=tls(),
     )
     response.raise_for_status()
     status = response.json()

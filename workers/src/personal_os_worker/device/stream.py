@@ -25,6 +25,8 @@ from typing import Any, Protocol
 
 import httpx
 
+from personal_os_worker.core.tls import tls
+
 QUALITY = 90
 MAX_SIDE = 2560
 DEFAULT_SIZE = (1280, 800)
@@ -326,7 +328,7 @@ class CdpConnection:
     async def open(cls, cdp_url: str, on_event: EventHandler) -> CdpConnection:
         from websockets.asyncio.client import connect
 
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0, verify=tls()) as client:
             response = await client.get(f"{cdp_url.rstrip('/')}/json/version")
             response.raise_for_status()
             endpoint = str(response.json()["webSocketDebuggerUrl"])

@@ -20,6 +20,7 @@ from personal_os_worker.core.auth import LoginError
 from personal_os_worker.core.config import load_cli_config
 from personal_os_worker.core.service import ApiUnavailable, ChromeUnavailable
 from personal_os_worker.core.tables import ReferenceError, console
+from personal_os_worker.core.tls import tls
 from personal_os_worker.device import commands as devices
 from personal_os_worker.documents import resume as resumes
 from personal_os_worker.jobs import commands as hunt
@@ -369,6 +370,7 @@ def run_whoami() -> int:
         f"{config.api_url}/v1/me",
         headers={"Authorization": f"Bearer {access_token}"},
         timeout=30.0,
+        verify=tls(),
     )
     if response.status_code != 200:
         raise SystemExit(

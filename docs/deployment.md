@@ -32,7 +32,7 @@ Once per device (Windows + WSL, mirrored networking as the CLI already needs):
 1. Install Tailscale for Windows and sign in to the tailnet. Install it on each
    laptop or phone that will view the page, too.
 2. In WSL, reinstall the worker once so the agent's server packages are present
-   (`uv tool install --reinstall --editable ./workers` from the repository; later
+   (`uv tool install --reinstall --python 3.13 --editable ./workers` from the repository; later
    dependency changes are reinstalled by the agent itself). With `os login` done
    (Personal OS as `eahtree@gmail.com`; the automation Chrome signed into Google
    as before), run `os device install`. It records the device's id and address, runs

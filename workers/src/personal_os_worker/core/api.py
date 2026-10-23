@@ -8,6 +8,7 @@ import httpx
 from personal_os_worker.core.auth import LoginError, SupabaseAuth, renewed_access_token
 from personal_os_worker.core.config import CliConfig
 from personal_os_worker.core.tables import ReferenceError
+from personal_os_worker.core.tls import tls
 
 
 class RenewingBearer(httpx.Auth):
@@ -50,6 +51,7 @@ class WorkerApi:
             auth=RenewingBearer(access_token, renew or (lambda: renewed_access_token(auth))),
             timeout=30.0,
             follow_redirects=True,
+            verify=tls(),
         )
 
     def close(self) -> None:

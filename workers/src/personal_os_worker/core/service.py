@@ -26,6 +26,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from personal_os_worker.core.tls import tls
+
 API_EXECUTABLE = "personal-os-backend"
 STARTUP_TIMEOUT_SECONDS = 45.0
 _POLL_SECONDS = 0.25
@@ -182,7 +184,7 @@ def forget_service(name: str) -> None:
 
 def is_running(api_url: str, *, timeout: float = 2.0) -> bool:
     try:
-        response = httpx.get(f"{api_url.rstrip('/')}/health", timeout=timeout)
+        response = httpx.get(f"{api_url.rstrip('/')}/health", timeout=timeout, verify=tls())
     except httpx.HTTPError:
         return False
     return response.status_code == 200
@@ -261,7 +263,9 @@ def ensure_running(api_url: str, *, quiet: bool = False) -> bool:
 
 def chrome_is_running(cdp_url: str, *, timeout: float = 2.0) -> bool:
     try:
-        response = httpx.get(f"{cdp_url.rstrip('/')}/json/version", timeout=timeout)
+        response = httpx.get(
+            f"{cdp_url.rstrip('/')}/json/version", timeout=timeout, verify=tls()
+        )
     except httpx.HTTPError:
         return False
     return response.status_code == 200

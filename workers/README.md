@@ -4,9 +4,16 @@ Install the Python 3.13 CLI in editable mode:
 
 ```bash
 cd /home/eahtr/personal-os
-UV_CACHE_DIR=/tmp/personal-os-uv-cache uv tool install --editable ./backend
-UV_CACHE_DIR=/tmp/personal-os-uv-cache uv tool install --editable ./workers
+UV_CACHE_DIR=/tmp/personal-os-uv-cache uv tool install --python 3.13 --editable ./backend
+UV_CACHE_DIR=/tmp/personal-os-uv-cache uv tool install --python 3.13 --editable ./workers
 ```
+
+Name the interpreter: without `--python 3.13`, uv may build the tool on a newer
+system Python. On Python 3.14 Playwright's sync API never frees the task it
+makes for each call, so a run's memory climbs about 1.5 GB an hour; `os doctor`
+fails its Python check there and `os hunt apply` will not start. Every HTTP
+client shares one TLS context (`core/tls.py`), since a fresh context's first
+handshake keeps about half a megabyte for good.
 
 The installed entry point is `os`. Jobs commands live under `os hunt`:
 

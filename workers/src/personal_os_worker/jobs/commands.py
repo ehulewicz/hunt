@@ -15,7 +15,7 @@ from rich.markup import escape
 
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
-from personal_os_worker.core.doctor import run_doctor
+from personal_os_worker.core.doctor import python_check, run_doctor
 from personal_os_worker.core.secrets import secrets_check
 from personal_os_worker.core.service import ensure_chrome, open_external_url
 from personal_os_worker.core.tables import console, pick
@@ -523,6 +523,11 @@ def apply_posting(
 
     if remote and not socket_path().exists():
         raise RuntimeError("--remote is for runs this device's agent starts; none is listening")
+    # A run on the wrong interpreter fills as usual while its memory climbs
+    # until the machine runs out, so it never starts.
+    python = python_check()
+    if not python.ok:
+        raise RuntimeError(f"{python.name}: {python.detail}")
     # The cover letter is compiled mid-application, so a broken TeX install must
     # fail here rather than after twenty seconds of drafting on a live form.
     latex = latex_toolchain_check()

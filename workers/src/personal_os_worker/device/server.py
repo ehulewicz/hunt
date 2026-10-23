@@ -36,6 +36,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from personal_os_worker.core.config import CliConfig
+from personal_os_worker.core.tls import tls
 from personal_os_worker.device.heartbeat import HEARTBEAT_SECONDS, Presence
 from personal_os_worker.device.identity import DeviceIdentity
 from personal_os_worker.device.link import socket_path
@@ -74,7 +75,9 @@ class TokenVerifier:
             return True
         for attempt in range(2):
             try:
-                async with httpx.AsyncClient(timeout=15.0, transport=self._transport) as client:
+                async with httpx.AsyncClient(
+                    timeout=15.0, transport=self._transport, verify=tls()
+                ) as client:
                     response = await client.get(
                         f"{self._api_url}/v1/me", headers={"Authorization": f"Bearer {token}"}
                     )
