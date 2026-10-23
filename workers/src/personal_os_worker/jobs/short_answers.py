@@ -23,6 +23,7 @@ import json
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, Literal
 
 from personal_os_worker.jobs import model
@@ -69,7 +70,8 @@ class Verdict:
     expression: str | None = None
 
 
-run_claude = model.run
+# Learning: a site seen before should not need it again.
+run_claude = partial(model.run, purpose="learn")
 
 
 def _prompt(

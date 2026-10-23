@@ -116,7 +116,7 @@ YOUR EARLIER WRITING ON SIMILAR QUESTIONS: {json.dumps(references, default=str)[
     """.strip()
     fact_text = json.dumps({"resume": resume, "facts": facts, "base": base}, default=str)
     for _ in range(attempts):
-        output = model.run(model.argv(prompt, schema=schema))
+        output = model.run(model.argv(prompt, schema=schema), purpose="draft")
         try:
             payload = json.loads(output)
             structured = payload.get("structured_output", payload)

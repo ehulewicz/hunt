@@ -96,3 +96,48 @@ def test_claude_usage_ignores_output_that_carries_no_usage() -> None:
     assert claude_usage.usage_sample("not json") is None
     assert claude_usage.usage_sample(json.dumps({"result": "ok"})) is None
     assert claude_usage.usage_sample(json.dumps(["a"])) is None
+
+
+def test_each_model_call_is_counted_under_its_purpose(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    from personal_os_worker.jobs import answer_check, cover_letter, model, short_answers
+
+    process = subprocess.CompletedProcess(args=[], returncode=0, stdout=json.dumps(ENVELOPE))
+    monkeypatch.setattr(model.subprocess, "run", lambda *_, **__: process)
+    before = model.counts()
+    short_answers.run_claude(["claude", "-p"])
+    short_answers.run_claude(["claude", "-p"])
+    answer_check.run_claude(["claude", "-p"])
+    cover_letter.run_claude(["claude", "-p"])
+    model.run(["claude", "-p"], purpose="fix")
+    after = model.counts()
+
+    assert {purpose: after[purpose] - before[purpose] for purpose in model.PURPOSES} == {
+        "learn": 2, "check": 1, "draft": 1, "fix": 1,
+    }
+    assert model.calls("learn", "fix") - (before["learn"] + before["fix"]) == 3
+
+
+def test_a_timed_out_call_still_counts(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    from personal_os_worker.jobs import model
+
+    def timeout(*_: object, **__: object) -> None:
+        raise subprocess.TimeoutExpired(cmd="claude", timeout=1)
+
+    monkeypatch.setattr(model.subprocess, "run", timeout)
+    before = model.calls("learn")
+    with pytest.raises(subprocess.TimeoutExpired):
+        model.run(["claude", "-p"], purpose="learn")
+    assert model.calls("learn") == before + 1
+
+
+def test_the_closing_line_counts_calls_by_purpose() -> None:
+    messages: list[str] = []
+    timings = AutofillTimings(report=messages.append)
+    timings.close({"learn": 2, "check": 3, "draft": 1, "fix": 1})
+    assert messages == [
+        "Model calls this run: learn 2, check 3, draft 1, fix 1 (3 learning and fixing)"
+    ]

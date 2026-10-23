@@ -31,6 +31,7 @@ from rich.markup import escape
 
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.tables import console
+from personal_os_worker.jobs import model
 from personal_os_worker.jobs.account import (
     GOOGLE_HOST,
     AccountFlow,
@@ -281,6 +282,8 @@ class SessionState:
     # each long-form answer's provenance.
     origins: dict[str, tuple[str, tuple[str, ...]]] = field(default_factory=dict)
     similar_prose: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    # Model calls by purpose made by the processes this run reloaded from.
+    model_calls_base: dict[str, int] = field(default_factory=dict)
 
     # What a reload carries over: everything that says what this run already
     # did, asked, spent, and decided. What is read again from the page or the
@@ -291,7 +294,7 @@ class SessionState:
               "observations", "persisted_observations", "tier_answers", "tier_source",
               "tier_resolver", "tier_fact", "seed_resolver", "asked_claude", "model_error",
               "needed", "blanks", "withheld", "account_parked", "step", "form_seen",
-              "form_site", "issue_ids")
+              "form_site", "issue_ids", "model_calls_base")
 
     def export(self) -> dict[str, Any]:
         """This run's state as JSON, for the process that carries it on."""
@@ -524,6 +527,21 @@ class AutofillSession:
         self.page = context.page
         self._explainer: Explainer | None = None
         self.timings = AutofillTimings(report=lambda line: console.print(line, style="dim"))
+        # The process-wide counts when this session began, so each run counts its own.
+        self._calls_at_start = model.counts()
+        self._sent_calls = 0  # the learning and fixing calls the API was last told of
+
+    def model_calls(self) -> dict[str, int]:
+        """This run's model calls by purpose, the processes it reloaded from included."""
+        now = model.counts()
+        base = self.state.model_calls_base
+        return {purpose: int(base.get(purpose, 0)) + now[purpose] - self._calls_at_start[purpose]
+                for purpose in model.PURPOSES}
+
+    def learning_calls(self) -> int:
+        """The calls a site seen before should not need again: learning and fixing."""
+        calls = self.model_calls()
+        return calls["learn"] + calls["fix"]
 
     def call_model[T](self, operation: Callable[..., T], *args: Any, **kwargs: Any) -> T | None:
         """Keep model outages visible without ending the live application."""
@@ -543,6 +561,7 @@ class AutofillSession:
     def persist_step(self, run_id: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
         """Attach the exact inputs used for each attempt before storing its observation."""
         payload = dict(payload)
+        payload["model_calls"] = self._sent_calls = self.learning_calls()
         if "fill_events" in payload:
             knowledge = self.ctx.knowledge
             snapshot = {"facts": knowledge.facts, "types": knowledge.types, "seed": knowledge.seed}
@@ -652,6 +671,12 @@ class AutofillSession:
                 },
             )
             self.state.persisted_observations += len(batch)
+        if not pending and self.learning_calls() > self._sent_calls:
+            # A call since the last step, the fixer's in the background most often.
+            self.persist_step(
+                self.ctx.run_id,
+                {"step_number": self.state.step, "url": self.page.url, "observations": []},
+            )
         if not quiet:
             console.print(
                 f"  [dim]recorded {len(pending)} answer observation(s) for review[/dim]"
@@ -1204,9 +1229,17 @@ class AutofillSession:
             if candidate is None:
                 echo("failed", question, note=f"{stage}: nothing else took; left for you")
                 continue
-            self.ctx.api.update_autofill_failure(
-                str(issue["id"]), {"status": "repaired", "candidate": candidate}
-            )
+            try:
+                self.ctx.api.update_autofill_failure(
+                    str(issue["id"]), {"status": "repaired", "candidate": candidate}
+                )
+            except httpx.HTTPError as error:
+                # The repaired value stays on the page; only its record is lost.
+                self.warn_once(
+                    f"repair-record|{issue['id']}",
+                    f"Could not record the repair of {question!r} "
+                    f"({error.__class__.__name__}); the value stays on the page.",
+                )
             rule = candidate.get("strategy") if stage == "strategy" else candidate.get("formatter")
             echo("repaired", question, str(candidate.get("value") or ""), note=f"{stage}: {rule}")
 
@@ -2638,6 +2671,9 @@ class AutofillSession:
         if self.ctx.fixes.at_safe_point(self.probe_args):
             with contextlib.suppress(httpx.HTTPError, Error):
                 self.save_now()
+            # The next process starts counting from zero; it carries these on.
+            self.state.model_calls_base = self.model_calls()
+            self._calls_at_start = model.counts()
             raise ReloadForFix
 
     def report_review(self) -> None:
@@ -2905,7 +2941,9 @@ class AutofillSession:
             "Ctrl+D skips this listing · Ctrl+C stops and records[/dim]"
         )
         with self.ctx.keys:
-            return self._run()
+            outcome = self._run()
+        self.timings.close(self.model_calls())
+        return outcome
 
     def _run(self) -> dict[str, Any]:
         submitted = False

@@ -78,7 +78,7 @@ os hunt changes               # the 20 newest changes to what Jobs knows, and to
 os hunt changes 50 --subject code --status passed
 os hunt changes show 3        # one change in full, a code change's diff included
 os hunt fixes                 # failures the fixer took on, and how each went
-os hunt sites                 # each site's latest run and its model calls
+os hunt sites                 # each site's latest run and its learning and fixing calls
 ```
 
 `facts delete KEY` shows the stored value and asks for confirmation; `--yes`
@@ -347,6 +347,8 @@ fixed it, and the notes, which say what it tried or why it gave up.
 
 `os hunt sites` groups runs by site, the registrable host (its last two labels)
 of where each run ended up, else where it started, and shows each site's latest
-run: when, its model calls, and how many failure issues it hit are still open or
-unsolved. A site whose latest run made no model calls is marked `met`: the
-next application there should need none either.
+run: when, its learning and fixing model calls, and how many failure issues it
+hit are still open or unsolved. A site whose latest run made none is marked
+`met`: the next application there should need no learning or fixing either.
+Drafting prose and checking answers run on every application and are not
+counted here.

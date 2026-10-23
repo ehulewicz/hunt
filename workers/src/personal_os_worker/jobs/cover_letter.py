@@ -16,6 +16,7 @@ import shutil
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -155,7 +156,7 @@ CANONICAL RESUME: {json.dumps(resume, default=str)[:30000]}
     """.strip()
 
 
-run_claude = model.run
+run_claude = partial(model.run, purpose="draft")
 
 
 def draft_slots(

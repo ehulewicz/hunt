@@ -31,9 +31,11 @@ import json
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, Literal
 
-from personal_os_worker.jobs.short_answers import MAX_CONCURRENT_CALLS, run_claude
+from personal_os_worker.jobs import model
+from personal_os_worker.jobs.short_answers import MAX_CONCURRENT_CALLS
 
 Kind = Literal["right", "wrong", "unknown"]
 # Sources whose value the worker itself produced, so correcting it overwrites
@@ -61,6 +63,9 @@ SCHEMA = {
     },
     "required": ["judgements"],
 }
+
+# Checking runs on every application, so it is counted apart from learning.
+run_claude = partial(model.run, purpose="check")
 
 
 @dataclass(frozen=True, slots=True)

@@ -154,6 +154,77 @@ def test_save_now_sends_large_history_in_bounded_checkpoints() -> None:
     assert [len(step["observations"]) for step in api.steps] == [500, 1]
 
 
+def test_each_step_carries_the_runs_learning_and_fixing_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from personal_os_worker.jobs import model
+
+    counts = {"learn": 10, "check": 4, "draft": 7, "fix": 1}
+    monkeypatch.setattr(model, "counts", lambda: dict(counts))
+    api = FakeApi()
+    context = SimpleNamespace(api=api, run_id="run-test", page=SimpleNamespace(url="https://example.test"))
+    session = AutofillSession(cast(Any, context))
+    session.state.model_calls_base = {"learn": 2, "check": 5, "fix": 1}
+    counts.update(learn=13, check=9, draft=8, fix=2)
+
+    session.persist_step("run-test", {"step_number": 0, "url": "https://example.test"})
+
+    # The processes it reloaded from (2 + 1), then this one's learning and fixing (3 + 1).
+    assert api.steps[-1]["model_calls"] == 7
+    assert session.model_calls() == {"learn": 5, "check": 10, "draft": 1, "fix": 2}
+
+
+def test_a_late_fixing_call_reaches_the_api_with_nothing_else_to_save(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from personal_os_worker.jobs import model
+
+    counts = {"learn": 0, "check": 0, "draft": 0, "fix": 0}
+    monkeypatch.setattr(model, "counts", lambda: dict(counts))
+    api = FakeApi()
+    context = SimpleNamespace(api=api, run_id="run-test", page=SimpleNamespace(url="https://example.test"))
+    session = AutofillSession(cast(Any, context))
+    session.save_now()
+    assert api.steps == []
+    counts["fix"] = 1  # the fixer, in the background, after the last step
+
+    session.save_now()
+    session.save_now()
+
+    assert [(step["observations"], step["model_calls"]) for step in api.steps] == [([], 1)]
+
+
+def test_a_reload_carries_the_runs_model_calls_into_the_next_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+
+    from personal_os_worker.jobs import model
+    from personal_os_worker.jobs.autofill_session import ReloadForFix, SessionState
+
+    counts = {"learn": 0, "check": 0, "draft": 0, "fix": 0}
+    monkeypatch.setattr(model, "counts", lambda: dict(counts))
+    api = FakeApi()
+    page = SimpleNamespace(url="https://example.test")
+    fixes = SimpleNamespace(at_safe_point=lambda _probe: True)
+    session = AutofillSession(cast(Any, SimpleNamespace(api=api, run_id="run-test", page=page,
+                                                        fixes=fixes)))
+    counts.update(learn=3, check=2, fix=1)
+    with pytest.raises(ReloadForFix):
+        session.safe_point()
+    exported = json.loads(json.dumps(session.state.export()))
+
+    # The next process (`apply --continue-run`) counts from zero again.
+    counts.update(learn=0, check=0, draft=0, fix=0)
+    carried = AutofillSession(cast(Any, SimpleNamespace(api=api, run_id="run-test", page=page)))
+    carried.state = SessionState.restore(exported)
+    counts["learn"] = 1
+    carried.persist_step("run-test", {"step_number": 1, "url": "https://example.test"})
+
+    assert api.steps[-1]["model_calls"] == 5
+    assert carried.model_calls() == {"learn": 4, "check": 2, "draft": 0, "fix": 1}
+
+
 def test_repeated_question_on_two_controls_keeps_both_observations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

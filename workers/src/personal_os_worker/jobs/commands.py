@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import re
 from datetime import date
+from functools import partial
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -496,6 +497,7 @@ def apply_posting(
         repository_root,
         transcript_pdf_path,
     )
+    from personal_os_worker.jobs import model
     from personal_os_worker.jobs.autofill_session import (
         AutofillSession,
         ReloadForFix,
@@ -565,6 +567,7 @@ def apply_posting(
                 run_id=run_id,
                 report=lambda line: console.print(f"  [dim]{escape(line)}[/dim]"),
                 publish=link.fixes if link is not None else None,
+                runner=partial(model.run, purpose="fix"),
             )
         direct_url = str(run["application_url"])
         # A label for querying the fill events; every site is filled the same way.

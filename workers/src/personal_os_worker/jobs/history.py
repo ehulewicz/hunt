@@ -4,8 +4,9 @@
 prose, question, strategy, or code, who made it, the failure it fixed, and how
 its replay went. `os hunt fixes` lists the failures the fixer took on: being
 fixed, fixed by a commit, or unsolved with what it tried. `os hunt sites` shows
-each site's latest run and its model calls: a site whose latest run made none
-has met the goal, and the next application there needs no model either.
+each site's latest run and its learning and fixing model calls: a site whose
+latest run made none has met the goal, and the next application there needs no
+model to learn or fix either.
 All three only read.
 """
 
@@ -270,11 +271,11 @@ def run_fixes() -> int:
 
 def render_sites(sites: list[dict[str, Any]]) -> None:
     met = sum(1 for site in sites if site.get("model_calls") == 0)
-    view = table(f"Sites ({met} of {len(sites)} need no model calls)")
+    view = table(f"Sites ({met} of {len(sites)} need no learning or fixing)")
     view.add_column("site", no_wrap=True, overflow="ellipsis", ratio=1)
     view.add_column("runs", justify="right", no_wrap=True)
     view.add_column("latest", no_wrap=True)
-    view.add_column("model calls", justify="right", no_wrap=True)
+    view.add_column("learn+fix", justify="right", no_wrap=True)
     view.add_column("open", justify="right", no_wrap=True)
     view.add_column("unsolved", justify="right", no_wrap=True)
     view.add_column("goal", no_wrap=True)
@@ -296,8 +297,8 @@ def render_sites(sites: list[dict[str, Any]]) -> None:
 
 
 def run_sites() -> int:
-    """Each site's latest run: a site whose latest run made no model calls has met the
-    goal that the next application there needs none."""
+    """Each site's latest run: a site whose latest run made no learning or fixing calls
+    has met the goal that the next application there needs none."""
     config, token = connected()
     api = WorkerApi(config, token)
     try:

@@ -493,7 +493,14 @@ calls for that run. An answer check that returns no judgement remains a
 `model_error` on subsequent audits, so it cannot become a successful check by
 being omitted. Every `claude -p` call is built and run by `jobs/model.py`, which
 meters it and, through `model_errors.py`, interprets failure envelopes without
-logging their prompt, answer, or raw error payload.
+logging their prompt, answer, or raw error payload. It also counts each call
+under its purpose: `learn` (`short_answers.py`, the gate pass included), `fix`
+(the fixer), `check` (`answer_check.py`) and `draft` (prose and the letter's
+slots). Every step the run stores carries its `learn` plus `fix` calls so far
+as `model_calls`, a reload carries the count into the next process, and the
+run's closing line prints all four. Only learning and fixing count toward
+`os hunt sites` marking a site `met`; checking and drafting run on every
+application.
 `jobs/answer_check.py` is the other half: it reads back the answers the page
 already holds and asks whether a fact contradicts one, because an answer can be
 confidently filled and wrong. A wrong answer a pattern filled has its question

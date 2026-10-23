@@ -33,6 +33,13 @@ class AutofillTimings:
             })
             self.report(f"Timing step {step + 1}: {phase} {elapsed} ms ({outcome})")
 
+    def close(self, calls: dict[str, int]) -> None:
+        """The run's closing line: its model calls by purpose. Learning and fixing
+        are what the next application on this site should not need."""
+        by_purpose = ", ".join(f"{purpose} {count}" for purpose, count in calls.items())
+        learning = calls.get("learn", 0) + calls.get("fix", 0)
+        self.report(f"Model calls this run: {by_purpose} ({learning} learning and fixing)")
+
     def record_usage(self, phase: str, step: int, sample: dict[str, Any]) -> None:
         """Keep one Claude call's tokens and reported cost beside the phase timings."""
         self.samples.append({"kind": "claude_usage", "phase": phase, "step": step, **sample})

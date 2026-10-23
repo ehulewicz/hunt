@@ -247,6 +247,43 @@ def test_a_fill_repairs_in_place_on_any_site_and_stores_the_candidate(  # type: 
     assert "nothing else took" in printed  # the strategy failure had nothing to retry
 
 
+def test_a_repair_the_api_will_not_record_keeps_its_value_and_the_run(  # type: ignore[no-untyped-def]
+    page, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A 409 on the issue update warns once; the run and the repaired value carry on."""
+    from types import SimpleNamespace
+    from typing import cast
+
+    import httpx
+
+    from personal_os_worker.jobs.autofill_session import AutofillSession
+
+    page.set_content(TERMS_TYPEAHEAD + '<button type="submit">Submit application</button>')
+
+    def refuse(issue_id: str, body: dict[str, Any]) -> None:
+        request = httpx.Request("PATCH", f"https://api.test/v1/jobs/autofill/failures/{issue_id}")
+        raise httpx.HTTPStatusError(
+            "conflict", request=request, response=httpx.Response(409, request=request)
+        )
+
+    knowledge = Knowledge.build(
+        facts=[{"key": "education.graduation_date", "value": "2027-12-15", "value_type": "date"}],
+        career=None,
+    )
+    session = AutofillSession(cast(Any, SimpleNamespace(
+        page=page, api=SimpleNamespace(update_autofill_failure=refuse), knowledge=knowledge,
+    )))
+    failures = [{"stopped_at": "format", "question": "Expected graduation", "signature": "s1",
+                 "fact_key": "education.graduation_date", "formatter": "date_as_month_year"}]
+
+    session.repair_in_place(inspect_fields(page), failures, [{"id": "i1", "signature": "s1"}])
+
+    assert page.locator(".select__single-value").inner_text() == "Fall 2027"
+    printed = " ".join(capsys.readouterr().out.split())
+    assert "Could not record the repair" in printed and "HTTPStatusError" in printed
+    assert "repaired" in printed
+
+
 def test_a_radio_is_repaired_only_with_the_option_that_says_the_value(page) -> None:  # type: ignore[no-untyped-def]
     """A radio's readback is only "checked", so any value would have passed."""
     page.set_content(
