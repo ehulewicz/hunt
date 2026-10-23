@@ -286,6 +286,35 @@ async def test_every_fact_write_is_a_change_keyed_by_the_fact() -> None:
     assert created["question_key"] == "middle name"
     assert (updated["before"]["value"], updated["after"]["value"]) == ("Alexander", "A.")
     assert deleted["after"] is None and deleted["before"]["value"] == "A."
+    # No replay came with either value, so both wait for the next run to check
+    # them; marking a fact verified or deleting it changes no answer.
+    assert [change["status"] for change in connection.changes] == [
+        "pending", "pending", None, None
+    ]
+
+
+async def test_a_fact_set_with_its_replay_is_recorded_verified() -> None:
+    rows: dict[str, dict[str, Any]] = {}
+
+    def answer(query: str, params: Any) -> list[dict[str, Any]]:
+        key = params[1] if params else None
+        if "insert into app.jobs_facts" in query:
+            rows[key] = {"key": key, "label": params[2], "value": params[3].obj,
+                         "value_type": params[4], "verified_at": NOW, "updated_at": NOW}
+            return [rows[key]]
+        return [rows[key]] if key in rows and "from app.jobs_facts" in query else []
+
+    connection = ScriptConnection(answer)
+    store = PostgresFactStore(ScriptPool(connection), 5)  # type: ignore[arg-type]
+
+    await store.set_fact(USER_ID, "contact.phone", FactWrite(
+        value="555-0100", label="Phone", value_type="text",
+        verification=Verification(sampled=12, failed=1),
+    ))
+
+    (change,) = connection.changes
+    assert (change["status"], change["sampled"], change["failed"]) == ("failed", 12, 1)
+    assert change["verified_at"] is not None
 
 
 class FakeChangeStore:

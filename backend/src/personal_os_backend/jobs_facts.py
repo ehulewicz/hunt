@@ -6,7 +6,9 @@ database check enforces the same shape. No fact is hidden: Jobs is single-user
 and full visibility is what makes a fill readable. Derived facts (completed co-op
 rotations, graduation term) are computed by the worker and never stored.
 Every set, verification, and deletion is recorded in `jobs_changes` in the same
-transaction, keyed by the fact's key.
+transaction, keyed by the fact's key. A set that arrives without the worker's
+replay (the web Library, the CLI) is recorded pending, and the next run replays
+it; a verification or a deletion changes no answer and is never pending.
 """
 
 from __future__ import annotations
@@ -122,6 +124,7 @@ async def _record_fact(
     origin: Origin = "you",
     failure: Failure | None = None,
     verification: Verification | None = None,
+    pending: bool = False,
 ) -> None:
     def shown(row: dict[str, Any] | None) -> Any:
         return Fact.model_validate(row).model_dump(mode="json") if row else None
@@ -129,7 +132,7 @@ async def _record_fact(
     await record_change(
         connection, user_id, subject="fact", subject_id=key, action=action,
         before=shown(before), after=shown(after), origin=origin, failure=failure,
-        verification=verification,
+        verification=verification, pending=pending,
     )
 
 
@@ -190,9 +193,12 @@ class PostgresFactStore:
             row = await cursor.fetchone()
             if row is None:
                 raise RuntimeError("The fact write returned no row")
+            # A value no replay has checked yet waits pending: the next run or
+            # `os hunt replay` replays it and records what it found.
             await _record_fact(
                 connection, user_id, key, "update" if existing else "create", existing, row,
                 origin=item.origin, failure=item.failure, verification=item.verification,
+                pending=item.verification is None,
             )
         return Fact.model_validate(row)
 

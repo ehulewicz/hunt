@@ -160,13 +160,16 @@ JSON, who made it (`you`, `inbox`, `model`, `repair`, or `worker`), and, when
 the write names one, the failure it answered (a run of yours, the question's
 key, and the failure issue). A fact write may carry the worker's replay of the
 new value; your fact is saved either way, and a failed replay puts it in the
-Inbox as contradicted. A binding that
+Inbox as contradicted. A fact created or updated without one (the web Library,
+`os hunt facts set`) is recorded `pending`; the next `os hunt apply` or
+`os hunt replay` replays it and resolves it. A binding that
 replaces another records the one it retired too, as does marking its question
 one-off, long-form, or unbound. A pattern the worker learned
 arrives with its verification, the sightings it replayed and how many it made
 wrong; one that made any wrong cannot arrive active, so it waits in the Inbox,
 and `GET /v1/jobs/inbox` carries that failed change as the candidate's `check`.
-A change you make is recorded unverified. `POST /v1/jobs/changes` records a code
+Any other change you make, marking a fact verified or deleting one included, is
+recorded unverified. `POST /v1/jobs/changes` records a code
 change: its commit as the subject, origin `repair` by default (`worker` for the
 fixer), the commit it followed as `before`, its detail (diff, files, attempts,
 tests, replay, live readback) in `after`, and its verification, or `pending`
