@@ -157,6 +157,9 @@ def test_a_linked_run_that_fails_tells_the_page_why(
             sent.append("closed")
 
     class Api:
+        def changes(self, **_: Any) -> list[dict[str, Any]]:
+            return []  # no fact change waits for its replay
+
         def career(self) -> dict[str, Any]:
             return {"document": {}}
 

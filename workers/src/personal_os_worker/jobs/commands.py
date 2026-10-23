@@ -514,6 +514,7 @@ def apply_posting(
     )
     from personal_os_worker.jobs.fix.queue import FixQueue
     from personal_os_worker.jobs.keys import KeyWatcher
+    from personal_os_worker.jobs.knowledge import report_pending_facts, resolve_pending_facts
     from personal_os_worker.jobs.navigate import Target, is_posting, reach_posting
     from personal_os_worker.jobs.remote import LinkedKeys, RunLink, mirrored
     from personal_os_worker.jobs.sites import adapter_version, failure_signature
@@ -528,6 +529,9 @@ def apply_posting(
     config, token = connected()
     ensure_chrome(config.cdp_url)
     api = WorkerApi(config, token)
+    if continued is None:
+        # A fact you set on the web since the last run is checked before this one.
+        report_pending_facts(resolve_pending_facts(api))
     run_id: str | None = None
     link: RunLink | None = None
     fixes: FixQueue | None = None

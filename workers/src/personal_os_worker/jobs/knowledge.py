@@ -3,7 +3,9 @@
 `os hunt patterns` shows the loop's state: which questions fill
 deterministically (`active`), and which are waiting in the Inbox (`candidate`).
 `os hunt replay` replays the code as it stands against the answers you
-accepted, the check a code change passes before it is kept. `os hunt prose`
+accepted, the check a code change passes before it is kept. A fact set without
+its replay (the web Library) waits pending until the next run or replay checks
+it (`resolve_pending_facts`). `os hunt prose`
 manages saved long-form writing. `os hunt archive` reads the frozen old system:
 its answers, its retired rules with their translations, and its long-form
 writing as Markdown.
@@ -13,6 +15,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +33,7 @@ from personal_os_worker.jobs.archive.rules import RULES
 from personal_os_worker.jobs.options import normalize_answer_question
 from personal_os_worker.jobs.repair.commands import knowledge_for
 from personal_os_worker.jobs.replay import Replay, replay_code, replay_fact, sightings_of
+from personal_os_worker.jobs.resolve import Knowledge
 
 STATUS_STYLES = {"active": "green", "candidate": "yellow", "rejected": "red", "retired": "dim"}
 # Archived answers that are writing rather than a fact: a contextual row, or a long one.
@@ -114,6 +118,49 @@ def fact_replay(
     return replay_fact(sightings, knowledge, key, value, value_type=value_type)
 
 
+def resolve_pending_facts(api: WorkerApi) -> int:
+    """Replay every fact change still waiting for its check, and record what each
+    found; how many now disagree with an answer you accepted.
+
+    A value set without a replay (the web Library) is recorded pending. Each is
+    replayed from the fact as it was just before it, so an accepted answer with
+    no saved inputs still has its baseline. A deletion is never pending. When
+    the answers cannot be read, every change stays pending for the next run.
+    """
+    try:
+        pending = [change for change in api.changes(subject="fact", status="pending", limit=500)
+                   if isinstance(change.get("after"), dict)]
+        if not pending:
+            return 0
+        try:
+            career: dict[str, Any] | None = api.career()
+        except RuntimeError:
+            career = None
+        facts = api.facts()
+        patterns = tuple(api.patterns("active"))
+        sightings = sightings_of(api.sightings())
+    except (httpx.HTTPError, RuntimeError, ReferenceError):
+        return 0
+    disagree = 0
+    for change in reversed(pending):  # oldest first, as they were made
+        key, before, after = str(change["subject_id"]), change.get("before"), change["after"]
+        baseline = [fact for fact in facts if fact.get("key") != key]
+        if isinstance(before, dict):
+            baseline.append(before)
+        knowledge = replace(
+            Knowledge.build(facts=baseline, career=career, today=date.today()), patterns=patterns
+        )
+        replay = replay_fact(
+            sightings, knowledge, key, after.get("value"), value_type=after.get("value_type")
+        )
+        try:
+            api.resolve_change(str(change["id"]), replay.verification())
+        except httpx.HTTPError:
+            continue  # it stays pending; the next run checks it again
+        disagree += not replay.passed
+    return disagree
+
+
 def report_fact_replay(key: str, replay: Replay | None) -> None:
     """Say what a fact change makes disagree, when anything does."""
     if replay is None or replay.passed:
@@ -124,6 +171,16 @@ def report_fact_replay(key: str, replay: Replay | None) -> None:
             f"  {outcome.sighting.question.strip()!r}: now {outcome.now!r}, "
             f"you accepted {outcome.sighting.answer!r}",
             markup=False,
+        )
+
+
+def report_pending_facts(disagree: int) -> None:
+    """One line when a fact set since the last check disagrees with your answers."""
+    if disagree:
+        console.print(
+            f"{disagree} fact change(s) since the last check now disagree with answers you "
+            "accepted; the Inbox lists them.",
+            style="yellow", markup=False,
         )
 
 
@@ -143,12 +200,16 @@ def run_replay(
     """0 for a passing replay, 1 for a regression, 2 when the check could not run.
 
     `json_line` ends the output with the counts as one JSON line, which the
-    fixer records as a kept fix's verification.
+    fixer records as a kept fix's verification. Otherwise the fact changes
+    still pending are checked first; the fixer's check on scratch code writes
+    nothing.
     """
     try:
         config, token = connected()
         api = WorkerApi(config, token)
         try:
+            if not json_line:
+                report_pending_facts(resolve_pending_facts(api))
             replay = code_replay(api, question=question, fact_key=fact_key)
         finally:
             api.close()

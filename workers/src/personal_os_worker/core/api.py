@@ -279,6 +279,16 @@ class WorkerApi:
         payload = self._json(self._client.get("/v1/jobs/changes", params=filters), "Changes")
         return payload if isinstance(payload, list) else []
 
+    def resolve_change(self, change_id: str, verification: dict[str, int]) -> dict[str, Any]:
+        """Record the replay a pending change waited for; a verified one is never rewritten."""
+        payload = self._json(
+            self._client.patch(f"/v1/jobs/changes/{change_id}/verification", json=verification),
+            "Change",
+        )
+        if not isinstance(payload, dict):
+            raise RuntimeError("Change response was invalid")
+        return payload
+
     def record_code_change(
         self,
         commit: str,

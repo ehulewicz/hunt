@@ -182,6 +182,16 @@ them as unchecked; its summary reports unavailable baselines explicitly.
 The command exits 0 for a passing check, 1 for changed accepted answers, and 2
 when authentication, transport, or API errors prevent the check from completing. `--json`
 ends the output with the counts as one JSON line, which the fixer records.
+A fact set without its replay (the web Library, or the CLI when the sightings
+could not be read) is recorded pending. A new `os hunt apply` run (not a
+reload) and `os hunt replay` (not `--json`, the fixer's check, which writes
+nothing) first replay every pending fact change
+(`knowledge.resolve_pending_facts`): each from the stored facts with that fact
+as it was just before the change, so a sighting with no saved inputs still has
+its baseline, and record the result on the change. They print one line when
+any now disagrees; a disagreeing fact reaches the Inbox as contradicted. A
+change whose sightings cannot be read, or that the API will not resolve, stays
+pending for the next run.
 
 A fact change is replayed too (`replay_fact`): the sightings filled from the
 fact, or answered by a pattern that names it, are answered with each attempt's
