@@ -107,7 +107,9 @@ distro; `os device status` says what it is doing.
   <reference> --remote` (409 while a run is active; a reference is a board number,
   an id prefix, or a URL, never a flag); `WS /session` is the live session, one
   viewer at a time. The agent never runs a command it was sent. It re-executes
-  itself when its own source changes, between runs only.
+  itself when its own source changes, between runs only; a run counts until its
+  process is reaped, not just until it says it ended, so no run outlives the
+  agent's restart as a zombie.
 - `stream.py` is the live view: a raw CDP connection to the browser endpoint,
   separate from the run's Playwright. It attaches only to the tab being shown,
   and lays it out at the viewer's panel (`Emulation.setDeviceMetricsOverride`):

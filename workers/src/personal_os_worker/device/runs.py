@@ -147,7 +147,10 @@ class RunManager:
     # ----- what the page and the heartbeat ask ------------------------------
 
     def busy(self) -> bool:
-        return self.current is not None and self.current.active
+        # A run that said it ended stays busy until its process is reaped: the
+        # agent restarts itself when idle, and a restart before the wait would
+        # leave the process a zombie.
+        return (self.current is not None and self.current.active) or self._process is not None
 
     def active_run_id(self) -> str | None:
         return self.current.run_id if self.current is not None and self.current.active else None
@@ -204,17 +207,19 @@ class RunManager:
             return
         self._process = process
         assert process.stdout is not None
-        async for raw in process.stdout:
-            text = raw.decode(errors="replace").rstrip("\n")
-            if log is not None:
-                with contextlib.suppress(OSError):
-                    log.write(text + "\n")
-                    log.flush()
-            # Once the run is on the socket its console arrives there, styled.
-            if not state.linked:
-                await self._line(state, ansi_spans(text))
-        code = await process.wait()
-        self._process = None
+        try:
+            async for raw in process.stdout:
+                text = raw.decode(errors="replace").rstrip("\n")
+                if log is not None:
+                    with contextlib.suppress(OSError):
+                        log.write(text + "\n")
+                        log.flush()
+                # Once the run is on the socket its console arrives there, styled.
+                if not state.linked:
+                    await self._line(state, ansi_spans(text))
+        finally:
+            code = await process.wait()
+            self._process = None
         if log is not None:
             log.close()
         if state.active:

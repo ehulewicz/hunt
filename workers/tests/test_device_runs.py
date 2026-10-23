@@ -135,6 +135,36 @@ async def test_a_page_run_updates_first_then_reports_and_takes_answers(tmp_path:
     assert list((tmp_path / "runs").iterdir())
 
 
+LINGERING_RUN = textwrap.dedent(
+    """
+    import json, os, socket, sys, time
+    s = socket.socket(socket.AF_UNIX)
+    s.connect(sys.argv[1])
+    f = s.makefile("rwb")
+    def send(message):
+        f.write((json.dumps(message) + "\\n").encode())
+        f.flush()
+    send({"type": "hello", "agent_run": os.environ["PERSONAL_OS_AGENT_RUN"], "run_id": "r1"})
+    assert json.loads(f.readline())["type"] == "attached"
+    send({"type": "end", "outcome": "skipped"})
+    time.sleep(0.5)  # closing the browser and flushing, after it said it ended
+    """
+)
+
+
+async def test_a_run_that_said_it_ended_is_busy_until_its_process_is_reaped(
+    tmp_path: Path,
+) -> None:
+    """Idle means the agent may restart itself, and a restart before the wait
+    leaves the run's process a zombie for as long as the agent lives."""
+    async with Agent(tmp_path) as agent:
+        agent.script.write_text(LINGERING_RUN)
+        state = await agent.manager.start("12")
+        await agent.until(lambda: state.outcome == "skipped")
+        assert agent.manager.busy() and agent.manager.active_run_id() is None
+        await agent.until(lambda: not agent.manager.busy())
+
+
 async def test_a_second_run_waits_for_the_first(tmp_path: Path) -> None:
     async with Agent(tmp_path) as agent:
         state = await agent.manager.start(None)
