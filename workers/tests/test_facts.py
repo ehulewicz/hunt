@@ -12,10 +12,23 @@ from personal_os_worker.jobs.facts.commands import (
     parse_value,
     review_facts,
 )
-from personal_os_worker.jobs.facts.derived import completed_rotations, derive, graduation_term
+from personal_os_worker.jobs.facts.derived import (
+    career_facts,
+    completed_rotations,
+    derive,
+    graduation_term,
+)
 
-ANCHOR = {"count": 4, "as_of": "2026-08-01"}
 GRADUATION = date(2027, 12, 15)
+
+
+def job(kind: str, start: str, end: str | None, *, section: str = "experience") -> dict[str, Any]:
+    return {"section": section, "title": "Engineer", "org": "Acme", "employment_type": kind,
+            "start_date": start, "end_date": end}
+
+
+# Northwind: one co-op entry since May 2025, still current.
+COOP = [job("coop", "2025-05-01", None)]
 
 
 @pytest.mark.parametrize(
@@ -36,18 +49,44 @@ GRADUATION = date(2027, 12, 15)
 def test_completed_rotations_follow_the_boundaries_and_stop_at_graduation(
     today: date, expected: int
 ) -> None:
-    assert completed_rotations(ANCHOR, GRADUATION, today) == expected
+    assert completed_rotations(COOP, today, GRADUATION) == expected
 
 
 def test_completed_rotations_without_a_graduation_keep_counting() -> None:
-    assert completed_rotations(ANCHOR, None, date(2028, 8, 1)) == 10
+    assert completed_rotations(COOP, date(2028, 8, 1)) == 10
 
 
 @pytest.mark.parametrize(
-    "anchor", [None, {}, {"count": "4", "as_of": "2026-08-01"}, {"count": 4, "as_of": "soon"}]
+    ("entries", "rotations", "interned"),
+    [
+        # A spring co-op that ended in April completed its May 1 boundary.
+        ([job("coop", "2025-01-01", "2025-04-01")], 1, True),
+        # A current co-op past two boundaries has done an internship, though it has not ended.
+        ([job("coop", "2026-02-01", None)], 2, True),
+        # A current co-op not yet past a boundary has not.
+        ([job("coop", "2026-09-01", None)], 0, False),
+        ([job("internship", "2024-05-01", "2024-08-01")], 0, True),
+        ([job("internship", "2026-06-01", None)], 0, False),
+        # Two overlapping co-op entries pass each boundary once.
+        ([job("coop", "2025-05-01", "2025-12-01"), job("coop", "2025-06-01", "2025-12-01")],
+         2, True),
+        # Contracts, research and projects are not internships.
+        ([job("contract", "2023-05-01", "2023-12-01"),
+          job("coop", "2024-04-01", "2024-09-01", section="research")], 0, False),
+        ([], 0, False),
+    ],
 )
-def test_a_malformed_anchor_derives_nothing(anchor: object) -> None:
-    assert completed_rotations(anchor, GRADUATION, date(2026, 10, 8)) is None
+def test_coop_facts_come_from_the_career_record(
+    entries: list[dict[str, Any]], rotations: int, interned: bool
+) -> None:
+    facts = career_facts({"entries": entries}, date(2026, 10, 23))
+    assert facts["coop.completed_rotations"] == rotations
+    assert facts["experience.prior_internship"] is interned
+
+
+def test_no_rotation_counts_past_graduation() -> None:
+    record = {"education": {"graduation_date": "2026-06-15"}, "entries": COOP}
+    assert career_facts(record, date(2027, 1, 1))["coop.completed_rotations"] == 3
 
 
 @pytest.mark.parametrize(
@@ -127,16 +166,13 @@ def test_a_referral_belongs_to_the_application() -> None:
 
 def test_derive_skips_facts_whose_inputs_are_missing() -> None:
     facts = {
-        "coop.anchor": ANCHOR,
         "education.graduation_date": "2027-12-15",
         "compensation.minimum": {"amount": 40, "currency": "USD", "period": "hour"},
     }
     assert derive(facts, date(2026, 10, 8)) == {
-        "coop.completed_rotations": 4,
         "education.graduation_term": "Fall",
         "education.currently_enrolled": True,
         "compensation.minimum_annual": 83200,
-        "experience.prior_internship": True,
     }
     assert derive({}, date(2026, 10, 8)) == {}
 
@@ -155,7 +191,6 @@ def test_knowledge_presents_stored_derived_and_posting_facts() -> None:
         fact("address.country", "United States"),
         fact("work_auth.us_citizen", True) | {"value_type": "boolean"},
         fact("education.graduation_date", "2027-12-15") | {"value_type": "date"},
-        fact("coop.anchor", ANCHOR) | {"value_type": "object"},
         fact("compensation.minimum", {"amount": 40, "currency": "USD", "period": "hour"})
         | {"value_type": "object"},
         fact("contact.phone", "5550001111"),
@@ -331,6 +366,9 @@ def test_career_facts_follow_the_resume() -> None:
         "Example Nuclear Group", "Example Lab @ Example University",
     ]
     assert facts["skills.all"] == ["Python", "Java", "Git"]
+    # The Northwind co-op has passed Aug 2025, Nov 2025, May 2026 and Aug 2026.
+    assert facts["coop.completed_rotations"] == 4
+    assert facts["experience.prior_internship"] is True
 
 
 def test_a_form_gets_the_entrys_employer_and_job_title_over_its_heading() -> None:

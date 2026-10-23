@@ -264,9 +264,12 @@ Values are rendered from facts at fill time: pay requirements follow the
 requirements are $83,200 USD (or 83200 numeric). Graduation uses `Fall 2027`
 when a term is requested, `December 2027` otherwise, and whichever rendering a
 dropdown offers. An office choice bound to `preferences.location_strategy`
-follows the §9 tiers. Completed co-op rotations are derived, never stored: the
-`coop.anchor` fact says four were complete on 2026-08-01, and one more completes
-each May 1, August 1, and November 1 until graduation. Visa/work-permit
+follows the §9 tiers. Completed co-op rotations come from the career record,
+never a stored fact: each May 1, August 1, and November 1 that passed while a
+co-op entry ran (through the end of its last month, or today while current, and
+never past graduation) completes one, counted once across entries. A prior
+internship is an internship or co-op entry that has ended, or a co-op with a
+completed rotation. Change either with `os hunt resume edit`. Visa/work-permit
 expiration stays manual without a date.
 
 Facts are the single source the apply run fills from. `os hunt facts review`

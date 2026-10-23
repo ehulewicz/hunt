@@ -110,8 +110,8 @@ can only read it.
 the user's review. No fact is hidden from the worker, its terminal, or its model
 calls. Facts that
 change with time — completed co-op rotations, graduation term, annual minimum
-compensation — are derived by the worker and never stored; `coop.anchor` and
-`compensation.minimum` are their stored inputs. The worker picks a form-specific
+compensation — are derived by the worker and never stored; the career record
+and `compensation.minimum` are their inputs. The worker picks a form-specific
 rendering rather than copying facts per application. The former `jobs_profile`
 seeded `jobs_facts`; it is now `jobs_archive_profile`, read-only, and is dropped
 once every fact is verified.

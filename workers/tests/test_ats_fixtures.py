@@ -147,7 +147,7 @@ def test_ashby_megazone_fixture_fills_standing_facts(browser_page) -> None:  # t
         {
             "compensation.minimum": {"amount": 40, "currency": "USD", "period": "hour"},
             "education.graduation_date": "2027-12-15",
-            "coop.anchor": {"count": 4, "as_of": "2026-08-01"},
+            "coop.completed_rotations": 4,
             "availability.onsite": True,
         },
         company="Megazone",

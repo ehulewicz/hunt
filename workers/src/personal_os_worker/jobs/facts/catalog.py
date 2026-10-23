@@ -88,9 +88,8 @@ CATALOG = _entries(
     CatalogEntry(
         "education.currently_enrolled", "Currently enrolled as a student", "boolean", "derived"
     ),
-    CatalogEntry("coop.anchor", "Completed co-op rotations as of a date", "object"),
     CatalogEntry(
-        "coop.completed_rotations", "Completed co-op rotations as of today", "number", "derived"
+        "coop.completed_rotations", "Completed co-op rotations as of today", "number", "career"
     ),
     CatalogEntry("work_auth.us_citizen", "United States citizen", "boolean"),
     CatalogEntry(
@@ -180,7 +179,7 @@ CATALOG = _entries(
         "career",
     ),
     CatalogEntry(
-        "experience.prior_internship", "Has completed an internship or co-op", "boolean", "derived"
+        "experience.prior_internship", "Has completed an internship or co-op", "boolean", "career"
     ),
     CatalogEntry("employment.current_employer", "Current employer", "text", "career"),
     CatalogEntry("employment.current_title", "Job title at the current employer", "text", "career"),

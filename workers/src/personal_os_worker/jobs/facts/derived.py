@@ -5,7 +5,8 @@ persisted. Each one is a pure function of the base facts (keyed by their dotted
 names), the career record's rows, and the date it is asked on.
 
 Career-derived facts follow the resume: education from its primary row, tenure
-from the union of experience spans, the current employer, and every skill. Until
+from the union of experience spans, co-op rotations and prior internships from
+its co-op and internship entries, the current employer, and every skill. Until
 the facts session settles them, a stored fact with the same key wins (R51);
 `shadowed` names the ones where the two disagree.
 """
@@ -19,8 +20,11 @@ from datetime import date, timedelta
 from typing import Any
 
 # A co-op rotation is complete once its boundary is reached: spring on May 1,
-# summer on August 1, fall on November 1 (decided 2026-10-08).
+# summer on August 1, fall on November 1 (decided 2026-10-08). Rotations are
+# counted over each co-op entry's span on the career record (decided 2026-10-23).
 ROTATION_BOUNDARIES = ((5, 1), (8, 1), (11, 1))
+# Entries that count as having done an internship once they have ended.
+INTERNSHIP_TYPES = frozenset({"internship", "coop"})
 HOURS_PER_YEAR = 2080
 
 
@@ -33,11 +37,6 @@ class DerivedFact:
 
 DERIVED_FACTS = (
     DerivedFact(
-        "coop.completed_rotations",
-        "Completed co-op rotations as of today",
-        ("coop.anchor", "education.graduation_date"),
-    ),
-    DerivedFact(
         "education.graduation_term", "Graduation term", ("education.graduation_date",)
     ),
     DerivedFact(
@@ -47,11 +46,6 @@ DERIVED_FACTS = (
     ),
     DerivedFact(
         "compensation.minimum_annual", "Minimum annual compensation", ("compensation.minimum",)
-    ),
-    DerivedFact(
-        "experience.prior_internship",
-        "Has completed an internship or co-op",
-        ("coop.anchor", "education.graduation_date"),
     ),
     DerivedFact("identity.first_name", "First name", ("identity.legal_name",)),
     DerivedFact(
@@ -138,6 +132,16 @@ CAREER_FACTS = (
         "Whole years of professional experience (union of experience spans)",
         ("career.experience",),
     ),
+    DerivedFact(
+        "coop.completed_rotations",
+        "Completed co-op rotations as of today (boundaries passed in co-op entries)",
+        ("career.experience", "career.education"),
+    ),
+    DerivedFact(
+        "experience.prior_internship",
+        "Has completed an internship or co-op (an ended one, or a completed rotation)",
+        ("career.experience", "career.education"),
+    ),
     DerivedFact("employment.current_employer", "Current employer", ("career.experience",)),
     DerivedFact(
         "employment.current_title", "Job title at the current employer", ("career.experience",)
@@ -160,24 +164,6 @@ def _date(value: Any) -> date | None:
         return date.fromisoformat(str(value))
     except (TypeError, ValueError):
         return None
-
-
-def completed_rotations(anchor: Any, graduation: date | None, today: date) -> int | None:
-    """The anchor's count plus every boundary after it, up to today or graduation."""
-    if not isinstance(anchor, dict):
-        return None
-    count = anchor.get("count")
-    as_of = _date(anchor.get("as_of"))
-    if isinstance(count, bool) or not isinstance(count, int) or as_of is None:
-        return None
-    until = min(today, graduation) if graduation is not None else today
-    passed = sum(
-        1
-        for year in range(as_of.year, until.year + 1)
-        for month, day in ROTATION_BOUNDARIES
-        if as_of < date(year, month, day) <= until
-    )
-    return count + passed
 
 
 def graduation_term(graduation: date) -> str:
@@ -205,7 +191,6 @@ def annual_minimum(minimum: Any) -> int | float | None:
 def derive(facts: dict[str, Any], today: date) -> dict[str, Any]:
     """Every derived fact whose inputs are present, keyed by its dotted name."""
     graduation = _date(facts.get("education.graduation_date"))
-    rotations = completed_rotations(facts.get("coop.anchor"), graduation, today)
     city, state, postal, line_1 = (
         str(facts.get(key) or "").strip()
         for key in ("address.city", "address.state", "address.postal_code", "address.line_1")
@@ -224,11 +209,9 @@ def derive(facts: dict[str, Any], today: date) -> dict[str, Any]:
         for key in ("address.city", "address.state", "address.country")
     ]
     values: dict[str, Any] = {
-        "coop.completed_rotations": rotations,
         "education.graduation_term": graduation_term(graduation) if graduation else None,
         "education.currently_enrolled": today < graduation if graduation else None,
         "compensation.minimum_annual": annual_minimum(facts.get("compensation.minimum")),
-        "experience.prior_internship": rotations > 0 if rotations is not None else None,
         "identity.first_name": names[0] if names else None,
         "identity.preferred_is_legal": preferred.casefold() == names[0].casefold()
         if preferred and names
@@ -398,6 +381,47 @@ def years_of_experience(entries: list[dict[str, Any]], today: date) -> int | Non
     return int(covered // DAYS_PER_YEAR)
 
 
+def completed_rotations(
+    entries: list[dict[str, Any]], today: date, graduation: date | None = None
+) -> int:
+    """Rotation boundaries passed while a co-op entry ran, each counted once.
+
+    A current entry runs to today; an ended one through the end of its last
+    month, so a spring rotation ending in April completes on May 1. Nothing
+    counts past graduation.
+    """
+    passed: set[date] = set()
+    for entry in entries:
+        if entry.get("section") != "experience" or entry.get("employment_type") != "coop":
+            continue
+        start = _date(entry.get("start_date"))
+        if start is None:
+            continue
+        end = _date(entry.get("end_date"))
+        until = min(_next_month(end), today) if end is not None else today
+        if graduation is not None:
+            until = min(until, graduation)
+        passed.update(
+            boundary
+            for year in range(start.year, until.year + 1)
+            for month, day in ROTATION_BOUNDARIES
+            if start < (boundary := date(year, month, day)) <= until
+        )
+    return len(passed)
+
+
+def prior_internship(entries: list[dict[str, Any]], today: date, rotations: int) -> bool:
+    """An internship or co-op entry has ended, or a co-op has completed a rotation."""
+    ended = any(
+        entry.get("section") == "experience"
+        and entry.get("employment_type") in INTERNSHIP_TYPES
+        and (end := _date(entry.get("end_date"))) is not None
+        and end <= today
+        for entry in entries
+    )
+    return ended or rotations > 0
+
+
 def career_facts(record: dict[str, Any] | None, today: date) -> dict[str, Any]:
     """The facts the career record determines, keyed like stored facts."""
     if not isinstance(record, dict):
@@ -418,6 +442,11 @@ def career_facts(record: dict[str, Any] | None, today: date) -> dict[str, Any]:
             values["education.gpa"] = None
     entries = [entry for entry in record.get("entries") or [] if isinstance(entry, dict)]
     values["experience.years_professional"] = years_of_experience(entries, today)
+    rotations = completed_rotations(
+        entries, today, _date(values.get("education.graduation_date"))
+    )
+    values["coop.completed_rotations"] = rotations
+    values["experience.prior_internship"] = prior_internship(entries, today, rotations)
     current = next(
         (
             entry
