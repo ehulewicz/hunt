@@ -307,7 +307,9 @@ time in a background thread (`queue.py`):
 Any step that fails goes back to the model with what failed; after three
 attempts, or when the model names a missing fact or calls it impossible, the
 issue is `unsolved` and waits in the Inbox. A model outage stops the fixer for
-the run. Once a fix is kept and no other is mid-flight, the run saves its
+the run. An issue is recorded `unsolved` before the page is told, and a run that
+ends while a fix is under way records it `unsolved` as it closes, since the
+fixer's thread dies with the process and a `fixing` issue is never reopened. Once a fix is kept and no other is mid-flight, the run saves its
 observations, writes its state (`SessionState.export`) and re-executes itself
 (`apply --continue-run`, the same PID), so the device agent keeps the run: it
 announces `reload`, and the agent keeps its place for the new process. The new
@@ -517,7 +519,9 @@ calls for that run. An answer check that returns no judgement remains a
 `model_error` on subsequent audits, so it cannot become a successful check by
 being omitted. Every `claude -p` call is built and run by `jobs/model.py`, which
 meters it and, through `model_errors.py`, interprets failure envelopes without
-logging their prompt, answer, or raw error payload. It also counts each call
+logging their prompt, answer, or raw error payload: a failure names only its exit
+code and the envelope's codes (`subtype`, `api_error`, the HTTP status), or says
+no envelope came back. It also counts each call
 under its purpose: `learn` (`short_answers.py`, the gate pass included), `fix`
 (the fixer), `check` (`answer_check.py`) and `draft` (prose and the letter's
 slots). Every step the run stores carries its `learn` plus `fix` calls so far

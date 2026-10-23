@@ -564,6 +564,59 @@ def test_close_during_model_call_finishes_without_waiting_for_safe_point(
     assert not queue.submit(lane.Problem("other", "wall", "q", "", {"kind": "route"}))
 
 
+def test_a_run_that_ends_mid_fix_leaves_the_issue_unsolved_not_fixing(
+    repo: Path, tmp_path: Path,
+) -> None:
+    """The fixer's thread dies with the run's process, so close records the fix
+    unsolved itself; a `fixing` issue would never be taken again."""
+    from personal_os_worker.jobs.model_errors import ModelError
+
+    entered, release = threading.Event(), threading.Event()
+    api = Api()
+
+    def blocked(*args: Any, **kwargs: Any) -> str:
+        entered.set()
+        assert release.wait(5)
+        raise ModelError("Claude call failed (exit 130, no JSON envelope)")
+
+    queue = FixQueue(repo=repo, workdir=tmp_path / "fixes", api=api, run_id="r",
+                     report=lambda _: None, runner=blocked, checker=passing)
+    queue.submit(slider_problem())
+    assert entered.wait(5)
+    queue.close()
+    # Recorded before close returns, with the thread still inside the model call.
+    assert [changes["status"] for _, changes in api.issues] == ["fixing", "unsolved"]
+    assert api.issues[-1][1]["verification_notes"] == "the run ended before its fix finished"
+    release.set()
+    queue._thread.join(5)
+
+
+def test_an_unsolved_fix_is_recorded_before_the_page_is_told(repo: Path, tmp_path: Path) -> None:
+    from personal_os_worker.jobs.model_errors import ModelError
+
+    events: list[str] = []
+
+    class Recording(Api):
+        def update_autofill_failure(self, issue_id: str, changes: dict[str, Any]) -> dict[str, Any]:
+            events.append(f"recorded {changes['status']}")
+            return super().update_autofill_failure(issue_id, changes)
+
+    def fails(*args: Any, **kwargs: Any) -> str:
+        raise ModelError("Claude call failed (exit 1, error_during_execution)")
+
+    def publish(items: list[dict[str, Any]]) -> None:
+        events.append(f"shown {items[0]['state']}")
+
+    queue = FixQueue(repo=repo, workdir=tmp_path / "fixes", api=Recording(), run_id="r",
+                     report=lambda _: None, publish=publish, runner=fails, checker=passing)
+    queue.submit(slider_problem())
+    until(lambda: "shown unsolved" in events)
+    queue.close()
+    assert events.index("recorded unsolved") < events.index("shown unsolved")
+    assert queue.statuses["unknown_control|years"].note.endswith(
+        "(exit 1, error_during_execution)")
+
+
 def test_probe_exception_releases_waiting_attempt(repo: Path, tmp_path: Path) -> None:
     def crash(*args: Any) -> Any:
         raise ValueError("probe crashed")

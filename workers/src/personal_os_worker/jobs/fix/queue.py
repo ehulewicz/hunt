@@ -124,6 +124,9 @@ class FixQueue:
         self.keeper = keeper
         self.checker = checker
         self.statuses: dict[str, Status] = {}
+        # What each problem's failure issue was last recorded as, by problem key.
+        self._taken: dict[str, lane.Problem] = {}
+        self._recorded: dict[str, str] = {}
         self._problems: queues.Queue[lane.Problem | None] = queues.Queue()
         self._ready: Ready | None = None
         self._lock = threading.Lock()
@@ -147,6 +150,7 @@ class FixQueue:
             if len(self.statuses) >= MAX_PROBLEMS:
                 return False
             self.statuses[problem.key] = Status(problem.key, problem.question, problem.cause)
+            self._taken[problem.key] = problem
         self._announce(problem.key, "queued", note=problem.note)
         with self._lock:
             if self._closed:
@@ -194,13 +198,23 @@ class FixQueue:
             self._kept = 0
 
     def close(self) -> None:
-        """Stop after the current step; an attempt waiting for the run is let go."""
+        """Stop after the current step; an attempt waiting for the run is let go.
+
+        The background thread dies with the process, so a fix still under way is
+        recorded unsolved here, on the run's side, while the API is open:
+        otherwise its issue would stay `fixing`, which nothing ever reopens.
+        """
         with self._lock:
             self._closed = True
             ready, self._ready = self._ready, None
             self._problems.put(None)
+            unfinished = [problem for key, problem in self._taken.items()
+                          if self._recorded.get(key) == "fixing"]
         if ready is not None:
             ready.done.set()
+        for problem in unfinished:
+            self._issue(problem, {"status": "unsolved",
+                                  "verification_notes": "the run ended before its fix finished"})
 
     # ----- the background thread ----------------------------------------------
 
@@ -354,8 +368,9 @@ class FixQueue:
         return kept
 
     def _finish(self, problem: lane.Problem, state: str, note: str) -> None:
-        self._announce(problem.key, state, note=note)
+        # Recorded before it is shown, so what the page says is never ahead of the issue.
         self._issue(problem, {"status": "unsolved", "verification_notes": note[:30_000]})
+        self._announce(problem.key, state, note=note)
 
     def _issue(self, problem: lane.Problem, changes: dict[str, Any]) -> None:
         if problem.issue_id is None:
@@ -364,6 +379,10 @@ class FixQueue:
             self.api.update_autofill_failure(problem.issue_id, changes)
         except Exception as error:
             self._report(f"could not update the failure record: {str(error)[:200]}")
+            return
+        if "status" in changes:
+            with self._lock:
+                self._recorded[problem.key] = str(changes["status"])
 
     def _report(self, line: str) -> None:
         # A disconnected terminal must not strand a committed fix.
