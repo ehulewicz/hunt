@@ -16,6 +16,12 @@ class DoctorCheck:
     name: str
     ok: bool
     detail: str
+    # An advisory check that fails only warns: the machine still works without it.
+    advisory: bool = False
+
+    @property
+    def label(self) -> str:
+        return "OK" if self.ok else "WARN" if self.advisory else "FAIL"
 
 def run_doctor(
     config: CliConfig,

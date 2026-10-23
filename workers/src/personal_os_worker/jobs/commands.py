@@ -250,11 +250,13 @@ def account_flow(knowledge: Knowledge, company: str) -> AccountFlow | None:
 
 
 def run_doctor_command() -> int:
+    from personal_os_worker.jobs.readiness import fixer_check
+
     config, token = connected()
-    checks = run_doctor(config, token, extra=(*DOCUMENT_CHECKS, secrets_check))
+    checks = run_doctor(config, token, extra=(*DOCUMENT_CHECKS, secrets_check, fixer_check))
     for check in checks:
-        console.print(f"[{'OK' if check.ok else 'FAIL'}] {check.name}: {check.detail}")
-    return 0 if all(check.ok for check in checks) else 1
+        console.print(f"[{check.label}] {check.name}: {check.detail}", markup=False)
+    return 0 if all(check.ok or check.advisory for check in checks) else 1
 
 
 POSTING_URL = re.compile(r"^https?://", re.IGNORECASE)

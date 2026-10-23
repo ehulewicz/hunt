@@ -79,7 +79,12 @@ distro; `os device status` says what it is doing.
 - `heartbeat.py` sends the device's row through the local API every 30 seconds.
   Readiness is `os doctor`, run every ten minutes; a closed automation Chrome does
   not count against it, because the agent starts Chrome itself when a page connects
-  or a run starts.
+  or a run starts. `os doctor` also checks the fixer (`jobs/readiness.py`): the
+  checkout is on `main`, ruff, mypy and pytest run under the workspace
+  interpreter, `git ls-remote origin HEAD` answers within 10 seconds with
+  prompts off, and `claude` is on `PATH`. That check is advisory: a failure
+  prints `WARN`, leaves the exit code and the device's readiness alone, and a
+  run fills as before but fixes no code.
 - `memory.py` samples, every 30 seconds, the resident memory of the agent, every
   process under it, and a terminal run by the pid its hello gave, and appends one
   line to `memory.log` in the state directory (rotated at 5 MB). A process past
