@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { Globe2, Radio } from "lucide-react";
 
 import type { Frame, SessionStatus } from "@/components/use-device-session";
@@ -11,6 +11,11 @@ export function viewOf(element: HTMLElement | null): View {
   const width = element?.clientWidth || 960;
   const height = element?.clientHeight || Math.round(width * 0.625);
   return { width, height, dpr: typeof window === "undefined" ? 1 : window.devicePixelRatio || 1 };
+}
+
+// The tab's layout shape, which the pane scales the frame to; without one it shows at its own size.
+function frameRatio(frame: Frame): CSSProperties | undefined {
+  return frame.width > 0 && frame.height > 0 ? ({ "--frame-ratio": frame.width / frame.height } as CSSProperties) : undefined;
 }
 
 function statusMessage(status: SessionStatus, deviceName: string): string | null {
@@ -151,7 +156,7 @@ export function HuntLive({
           </div>
         ) : frame ? (
           // eslint-disable-next-line @next/next/no-img-element -- frames are object URLs streamed from the device
-          <img alt="" draggable={false} height={frame.height} ref={image} src={frame.url} width={frame.width} />
+          <img alt="" draggable={false} height={frame.height} ref={image} src={frame.url} style={frameRatio(frame)} width={frame.width} />
         ) : (
           <p className="live-waiting">{stream === "waiting" ? "Waiting for the first frame …" : streamMessage ?? "Chrome is not streaming."}</p>
         )}

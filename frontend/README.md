@@ -129,8 +129,9 @@ The device's Chrome occupies the right panel. Its tabs scroll horizontally;
 frames are JPEGs over an authenticated WebSocket. Clicks, wheel turns, and keys on
 the focused view go to Chrome, and Ctrl+V pastes this computer's clipboard.
 On connect, reconnect, and resize, the page sends the panel's size and pixel
-density, and the agent lays the tab out at that size. A frame fills the panel
-one image pixel to each screen pixel, the panel itself never scrolls, and every
+density, and the agent lays the tab out at that shape. A frame is scaled to fill
+the panel, up as well as down, since a layout the agent narrows to the page's
+text arrives at its narrower CSS size. The panel itself never scrolls, and every
 wheel turn scrolls Chrome. A frame of another shape is fitted inside the panel. A device this browser
 cannot reach explains the tailnet connection and offers a retry. A second window
 can take over a session. Run controls and answer submission are disabled while

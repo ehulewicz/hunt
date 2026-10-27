@@ -230,22 +230,25 @@ test("Chrome is asked for the pane's own view and the pane never scrolls itself"
   await page.getByRole("button", { name: "Open application at Acme" }).click();
   const surface = page.getByRole("application");
   await expect(surface.locator("img")).toHaveAttribute("src", /^blob:/);
-  for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 720 }]) {
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 720 }, { width: 2400, height: 1400 }]) {
     await page.setViewportSize(viewport);
     const expected = await surface.evaluate((element) => ({
       type: "view", width: element.clientWidth, height: element.clientHeight, dpr: window.devicePixelRatio,
     }));
     await expect.poll(() => agent.fromPage.filter((message) => message.type === "view").at(-1)).toEqual(expected);
-    // A 960x820 frame is taller than this pane; it is fitted, not scrolled.
+    // A 960x820 frame is taller than the smaller panes and smaller than the largest;
+    // it is fitted to fill the pane either way, never scrolled.
     const fit = await surface.evaluate((element) => {
       const pane = element.getBoundingClientRect();
       const image = element.querySelector("img")!.getBoundingClientRect();
       return {
         scrolls: element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth,
         inside: image.top >= pane.top - 1 && image.bottom <= pane.bottom + 1 && image.left >= pane.left - 1 && image.right <= pane.right + 1,
+        fills: Math.abs(image.width - pane.width) <= 1 || Math.abs(image.height - pane.height) <= 1,
+        shape: Math.abs(image.width / image.height - 960 / 820) < 0.01,
       };
     });
-    expect(fit).toEqual({ scrolls: false, inside: true });
+    expect(fit).toEqual({ scrolls: false, inside: true, fills: true, shape: true });
   }
   expect(agent.sockets()).toBe(1);
 });

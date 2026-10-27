@@ -276,24 +276,57 @@ async def test_the_shown_tab_is_refitted_to_its_text() -> None:
     await view.close()
 
 
-async def test_an_override_another_client_cleared_is_put_back() -> None:
-    view, cdp, _, _ = await started(run_tab="T1")
+def painted(number: int, width: int, height: int) -> dict[str, Any]:
+    return {"data": base64.b64encode(b"jpeg").decode(), "sessionId": number,
+            "metadata": {"deviceWidth": width, "deviceHeight": height}}
+
+
+def overrides(cdp: FakeCdp) -> list[tuple[dict[str, Any], str | None]]:
+    return [(params, session) for method, params, session in cdp.sent
+            if method == "Emulation.setDeviceMetricsOverride"]
+
+
+async def test_an_override_another_client_cleared_is_put_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(stream, "REASSERT_SECONDS", 0.05)
+    view, cdp, frames, _ = await started(run_tab="T1")
     await view.resize({"width": 1190, "height": 745, "dpr": 1})
-    sent = len([1 for method, _, _ in cdp.sent if method == "Emulation.setDeviceMetricsOverride"])
+    sent = len(overrides(cdp))
     # The tab drops back to its window: the shape of the monitor Chrome is on.
     for number in (1, 2):
-        cdp.handler("Page.screencastFrame", {
-            "data": base64.b64encode(b"jpeg").decode(), "sessionId": number,
-            "metadata": {"deviceWidth": 1080, "deviceHeight": 1751},
-        }, "S-T1")
+        cdp.handler("Page.screencastFrame", painted(number, 1080, 1751), "S-T1")
         await asyncio.sleep(0.01)
-    overrides = [(params, session) for method, params, session in cdp.sent
-                 if method == "Emulation.setDeviceMetricsOverride"]
+    # The viewer never sees the window's shape, and a size Chrome may still put
+    # back itself is given a moment first.
+    assert frames == []
+    assert len(overrides(cdp)) == sent
+    await asyncio.sleep(0.1)
     # Restored once, not once per frame Chrome had already painted.
-    assert len(overrides) == sent + 1
-    assert overrides[-1] == (
+    assert len(overrides(cdp)) == sent + 1
+    assert overrides(cdp)[-1] == (
         {"width": 1190, "height": 745, "deviceScaleFactor": 1.0, "mobile": False}, "S-T1"
     )
+    await view.close()
+
+
+async def test_a_full_page_screenshot_never_reaches_the_viewer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(stream, "REASSERT_SECONDS", 0.05)
+    view, cdp, frames, _ = await started(run_tab="T1")
+    await view.resize({"width": 1190, "height": 745, "dpr": 1})
+    sent = len(overrides(cdp))
+    # The run's evidence screenshot lays the tab out at the whole page while it
+    # shoots, and Chrome puts the override back by itself once it has.
+    cdp.handler("Page.screencastFrame", painted(1, 1175, 4080), "S-T1")
+    await asyncio.sleep(0.01)
+    cdp.handler("Page.screencastFrame", painted(2, 1190, 745), "S-T1")
+    await asyncio.sleep(0.1)
+    assert [(header["width"], header["height"]) for header, _ in frames] == [(1190, 745)]
+    assert len(overrides(cdp)) == sent
+    acks = [params for method, params, _ in cdp.sent if method == "Page.screencastFrameAck"]
+    assert acks == [{"sessionId": 1}, {"sessionId": 2}]
     await view.close()
 
 
@@ -308,18 +341,20 @@ async def test_a_tab_gets_its_own_size_back_once_nobody_watches_it() -> None:
 async def test_each_frame_reaches_the_viewer_before_it_is_acknowledged() -> None:
     view, cdp, frames, _ = await started(run_tab="T1")
     jpeg = b"\xff\xd8 fake jpeg"
+    # The 640x400 pane is laid out at 1024x640.
+    meta = {**META, "deviceWidth": 1024, "deviceHeight": 640}
     cdp.handler(
         "Page.screencastFrame",
-        {"data": base64.b64encode(jpeg).decode(), "metadata": META, "sessionId": 7},
+        {"data": base64.b64encode(jpeg).decode(), "metadata": meta, "sessionId": 7},
         "S-T1",
     )
     await asyncio.sleep(0.01)
     assert frames == [({"type": "frame", "target": "T1", **{
-        "width": 1280, "height": 720}}, jpeg)]
+        "width": 1024, "height": 640}}, jpeg)]
     assert ("Page.screencastFrameAck", {"sessionId": 7}, "S-T1") in cdp.sent
     await view.pointer({"event": "down", "x": 0.5, "y": 0.5, "button": 0, "buttons": 1})
     dispatched = [params for method, params, _ in cdp.sent if method == "Input.dispatchMouseEvent"]
-    assert dispatched[-1]["x"] == 640.0
+    assert dispatched[-1]["x"] == 512.0
 
 
 async def test_a_frame_from_a_tab_no_longer_shown_is_dropped() -> None:

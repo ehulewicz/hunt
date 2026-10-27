@@ -45,7 +45,9 @@ FIT_SECONDS = 0.8
 # Ignoring the outermost few percent of text on each side drops a skip link or a
 # stray icon at the very edge without dropping a real column.
 FIT_TRIM = 0.02
-# Another client clearing its own override clears this one too; how often it is restored.
+# How long the tab may stay at another size before the override is put back. A
+# full-page screenshot lays it out at the whole page for less than this, and
+# Chrome gives the override back itself.
 REASSERT_SECONDS = 1.0
 # A minimized or idle tab may not paint; one screenshot shows it until it does.
 FIRST_FRAME_SECONDS = 1.5
@@ -170,6 +172,16 @@ def fit_width(current: int, base: int, client_width: float, span: tuple[float, f
     left, right = span
     spare = min(left, client_width - right) - FIT_MARGIN
     return max(MIN_FIT_WIDTH, min(base, round(current - 2 * spare)))
+
+
+def laid_out(meta: dict[str, Any], metrics: dict[str, Any]) -> bool:
+    """Whether a frame shows the tab at the layout the stream set for it."""
+    try:
+        width = float(meta.get("deviceWidth") or 0) - float(metrics["width"])
+        height = float(meta.get("deviceHeight") or 0) - float(metrics["height"])
+    except (TypeError, ValueError):
+        return True
+    return abs(width) <= 1 and abs(height) <= 1
 
 
 def _fraction(value: Any) -> float:
@@ -418,7 +430,8 @@ class Stream:
         self.metrics: dict[str, Any] | None = None
         self._fits = itertools.count(1)
         self._fitting = 0
-        self._reasserted = 0.0
+        # When frames started arriving at another size than the layout; see _reassert().
+        self._astray: float | None = None
         # Wheel turns not yet in Chrome, summed in pixels; see wheel().
         self._wheel: dict[str, Any] | None = None
         self._wheeling = False
@@ -482,6 +495,7 @@ class Stream:
                 with contextlib.suppress(CdpError):
                     await cdp.send("Target.detachFromTarget", {"sessionId": self.session})
             self.session, self.meta, self._wheel, self.fit = None, None, None, None
+            self._astray = None
             attached = await cdp.send(
                 "Target.attachToTarget", {"targetId": target_id, "flatten": True}
             )
@@ -549,25 +563,21 @@ class Stream:
         self.fit = None if width == base else width
         await self._override(cdp)
 
-    async def _reassert(self, meta: dict[str, Any]) -> None:
+    async def _reassert(self, since: float) -> None:
         """Put the override back when the frames say Chrome dropped it.
 
         Chrome keeps one override per tab, not one per client: the apply run's own
         connection clearing its override, or any other client detaching, leaves
         the tab at its window's size, which is the shape of whatever monitor it
-        is on. A frame at any other width than the one set says that happened.
+        is on. The run's full-page evidence screenshot also lays the tab out at
+        the whole page while it shoots, then Chrome restores the override itself.
+        So only frames still at another size after REASSERT_SECONDS say it is gone.
         """
+        await asyncio.sleep(REASSERT_SECONDS)
         metrics, cdp = self.metrics, self._cdp
-        if metrics is None or cdp is None:
+        if self._astray != since or metrics is None or cdp is None:
             return
-        try:
-            if abs(float(meta.get("deviceWidth") or 0) - metrics["width"]) <= 1:
-                return
-        except (TypeError, ValueError):
-            return
-        if time.monotonic() - self._reasserted < REASSERT_SECONDS:
-            return
-        self._reasserted = time.monotonic()
+        self._astray = None
         await cdp.send("Emulation.setDeviceMetricsOverride", metrics, self.session)
 
     async def _first_frame(self, target_id: str) -> None:
@@ -599,10 +609,17 @@ class Stream:
         if cdp is None:
             return
         if session_id == self.session:
-            self.meta = dict(params.get("metadata") or {})
-            with contextlib.suppress(Exception):
-                await self._send_frame(self._header(self.meta), base64.b64decode(params["data"]))
-            self._spawn(self._reassert(self.meta))
+            meta = dict(params.get("metadata") or {})
+            if self.metrics is None or laid_out(meta, self.metrics):
+                self._astray = None
+                self.meta = meta
+                with contextlib.suppress(Exception):
+                    await self._send_frame(self._header(meta), base64.b64decode(params["data"]))
+            elif self._astray is None:
+                # Not shown: the viewer keeps the last frame at its layout, never a
+                # whole page squeezed into the pane.
+                self._astray = time.monotonic()
+                self._spawn(self._reassert(self._astray))
         # Acknowledged only once delivered, so Chrome sends no faster than the viewer reads.
         await cdp.send("Page.screencastFrameAck", {"sessionId": params.get("sessionId")},
                        session_id)

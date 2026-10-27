@@ -118,12 +118,16 @@ distro; `os device status` says what it is doing.
   one, 1065×1751 for the next), which made the panel scroll or shrank the page.
   Once the page settles, on every load, in-page step, and panel resize, it
   measures where the page's text and controls sit and narrows the layout until
-  16 CSS pixels are left either side of them (never below 800), rendering at the
-  matching higher density so the zoomed text stays sharp. Chrome keeps one
-  override per tab, not per client, so the run's own connection or any other
-  client clearing one leaves the tab at its window's size, the shape of
-  whichever monitor it is on. A frame at any other width says so, and the
-  override is put back, at most once a second.
+  16 CSS pixels are left either side of them (never below 800), at the matching
+  higher density. Only `Page.captureScreenshot` honors that density: a headful
+  Chrome screencasts at its window's own, so a narrowed frame arrives at its CSS
+  size and the panel scales it up. A frame at any other size than the layout is
+  never shown. The run's full-page evidence screenshot lays the tab out at the
+  whole page while it shoots, and Chrome restores the override's size itself
+  once it has (at density 1). Chrome keeps one override per tab, not per client,
+  so another client clearing one leaves the tab at its window's size, the shape
+  of whichever monitor it is on. Frames still at another size after a second say
+  so, and the override is put back.
   A tab gets its own size back once the viewer leaves it or disconnects, so a
   run nobody watches fills at Chrome's size. It screencasts as quality-90 JPEG at
   the panel's device-pixel width, up to 2560 pixels. Each frame is acknowledged once delivered, which is
