@@ -236,19 +236,20 @@ test("Chrome is asked for the pane's own view and the pane never scrolls itself"
       type: "view", width: element.clientWidth, height: element.clientHeight, dpr: window.devicePixelRatio,
     }));
     await expect.poll(() => agent.fromPage.filter((message) => message.type === "view").at(-1)).toEqual(expected);
-    // A 960x820 frame is taller than the smaller panes and smaller than the largest;
-    // it is fitted to fill the pane either way, never scrolled.
+    // A 960x820 frame is taller than the smaller panes and smaller than the largest:
+    // it shrinks to fit, never grows past 1x, and is never scrolled.
     const fit = await surface.evaluate((element) => {
       const pane = element.getBoundingClientRect();
       const image = element.querySelector("img")!.getBoundingClientRect();
+      const expected = Math.min(960, pane.width, pane.height * 960 / 820);
       return {
         scrolls: element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth,
         inside: image.top >= pane.top - 1 && image.bottom <= pane.bottom + 1 && image.left >= pane.left - 1 && image.right <= pane.right + 1,
-        fills: Math.abs(image.width - pane.width) <= 1 || Math.abs(image.height - pane.height) <= 1,
+        sized: Math.abs(image.width - expected) <= 1,
         shape: Math.abs(image.width / image.height - 960 / 820) < 0.01,
       };
     });
-    expect(fit).toEqual({ scrolls: false, inside: true, fills: true, shape: true });
+    expect(fit).toEqual({ scrolls: false, inside: true, sized: true, shape: true });
   }
   expect(agent.sockets()).toBe(1);
 });

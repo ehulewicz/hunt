@@ -223,12 +223,15 @@ async def test_the_shown_tab_fills_the_pane_at_the_viewers_pixel_density() -> No
     await view.close()
 
 
-def test_a_tab_fitted_to_its_text_is_laid_out_narrower_and_rendered_denser() -> None:
-    assert layout_size({"width": 1190, "height": 745, "dpr": 1}, fit=1010) == {
-        "width": 1010, "height": 632, "deviceScaleFactor": 1.178, "mobile": False,
+def test_a_tab_fitted_to_its_text_is_never_shown_past_1x() -> None:
+    # A pane narrower than a desktop: the fit brings the layout toward the pane.
+    assert layout_size({"width": 900, "height": 600, "dpr": 1.25}, fit=976) == {
+        "width": 976, "height": 651, "deviceScaleFactor": 1.25, "mobile": False,
     }
-    dense = layout_size({"width": 1190, "height": 745, "dpr": 2.5}, fit=850)
-    assert dense is not None and dense["deviceScaleFactor"] == 3.0
+    # Never narrower than the pane, where the text would be shown larger than it is.
+    assert layout_size({"width": 1190, "height": 745, "dpr": 1}, fit=1010) == {
+        "width": 1190, "height": 745, "deviceScaleFactor": 1.0, "mobile": False,
+    }
 
 
 def test_the_text_span_ignores_a_stray_label_at_the_very_edge() -> None:
@@ -240,25 +243,32 @@ def test_the_text_span_ignores_a_stray_label_at_the_very_edge() -> None:
 
 
 def test_the_layout_narrows_until_the_text_has_a_small_margin_either_side() -> None:
-    # A centered form keeps 16px either side.
-    assert fit_width(1190, 1190, 1175, (104, 1072)) == 1016
+    # A 900-wide pane shows the 1024 desktop layout smaller; a form with room
+    # either side narrows it until 16px are left.
+    assert fit_width(1024, 900, 1009, (40, 960)) == 976
+    # A thin form stops at the pane: shown at 1x, it keeps its whitespace.
+    assert fit_width(1024, 900, 1009, (300, 700)) == 900
+    # A desktop pane is never narrowed at all.
+    assert fit_width(1190, 1190, 1175, (104, 1072)) == 1190
     # A form against the left edge is not narrowed.
-    assert fit_width(1190, 1190, 1175, (10, 700)) == 1190
-    # Text wider than the page widens it again, never past the pane's layout.
-    assert fit_width(1000, 1190, 985, (4, 1100)) == 1190
+    assert fit_width(1024, 900, 1009, (10, 700)) == 1024
+    # Text wider than the page widens it again, never past the desktop layout.
+    assert fit_width(950, 900, 935, (4, 1100)) == 1024
     # Never so narrow that a board shows its phone layout.
-    assert fit_width(1190, 1190, 1175, (500, 680)) == 800
+    assert fit_width(1024, 600, 1009, (400, 600)) == 800
 
 
 async def test_the_shown_tab_is_refitted_to_its_text() -> None:
     view, cdp, _, _ = await started(run_tab="T1")
-    await view.resize({"width": 1190, "height": 745, "dpr": 1})
+    await view.resize({"width": 900, "height": 600, "dpr": 1})
     answer = cdp.send
+    measures = []
 
     async def measured(method: str, params: Any = None, session_id: Any = None) -> dict[str, Any]:
         if method == "Runtime.evaluate":
-            boxes = [[104, 300, 40]] * 20 + [[330, 1072, 60]] * 50
-            return {"result": {"value": {"width": 1175, "boxes": boxes}}}
+            measures.append(session_id)
+            boxes = [[40, 300, 40]] * 20 + [[330, 960, 60]] * 50
+            return {"result": {"value": {"width": 1009, "boxes": boxes}}}
         return await answer(method, params, session_id)
 
     cdp.send = measured  # type: ignore[method-assign]
@@ -266,11 +276,14 @@ async def test_the_shown_tab_is_refitted_to_its_text() -> None:
     await asyncio.sleep(0.01)
     override = [params for method, params, _ in cdp.sent
                 if method == "Emulation.setDeviceMetricsOverride"][-1]
-    assert override["width"] == 1016 and override["height"] == 636
-    assert view.fit == 1016
-    # A new pane starts again from the pane, then fits again.
+    assert override["width"] == 976 and override["height"] == 651
+    assert view.fit == 976
+    # A desktop pane is laid out at the pane, at 1x, and nothing is measured.
     await view.resize({"width": 1400, "height": 800, "dpr": 1})
-    assert view.fit is None
+    measured_before = len(measures)
+    cdp.handler("Page.loadEventFired", {}, "S-T1")
+    await asyncio.sleep(0.01)
+    assert view.fit is None and len(measures) == measured_before
     assert [params for method, params, _ in cdp.sent
             if method == "Emulation.setDeviceMetricsOverride"][-1]["width"] == 1400
     await view.close()

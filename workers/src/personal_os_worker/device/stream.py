@@ -93,9 +93,9 @@ def layout_size(view: dict[str, Any], fit: int | None = None) -> dict[str, Any] 
     """The viewport the shown tab is laid out at: the viewer's pane, at its pixel density.
 
     A pane narrower than a desktop keeps the desktop layout at the pane's shape,
-    and is shown smaller. `fit` lays it out narrower than the pane, so the text
-    is shown larger, rendered at the zoomed density rather than stretched. None
-    when the viewer gave no usable size.
+    and is shown smaller. `fit` brings that layout toward the pane, never past
+    it, so the text is never shown larger than 1x. None when the viewer gave no
+    usable size.
     """
     try:
         width = float(view["width"])
@@ -105,12 +105,11 @@ def layout_size(view: dict[str, Any], fit: int | None = None) -> dict[str, Any] 
         return None
     if width <= 0 or height <= 0:
         return None
-    layout_width = fit or max(MIN_LAYOUT_WIDTH, round(width))
-    zoom = max(1.0, width / layout_width)
+    layout_width = max(round(width), fit or MIN_LAYOUT_WIDTH)
     return {
         "width": layout_width,
         "height": round(layout_width * height / width),
-        "deviceScaleFactor": round(min(MAX_SCALE, max(1.0, ratio * zoom)), 3),
+        "deviceScaleFactor": round(min(MAX_SCALE, max(1.0, ratio)), 3),
         "mobile": False,
     }
 
@@ -162,16 +161,18 @@ def text_span(boxes: list[Any]) -> tuple[float, float] | None:
     return (left, right) if right > left else None
 
 
-def fit_width(current: int, base: int, client_width: float, span: tuple[float, float]) -> int:
-    """The layout width that leaves FIT_MARGIN either side of the text.
+def fit_width(current: int, pane: int, client_width: float, span: tuple[float, float]) -> int:
+    """The layout width that leaves FIT_MARGIN either side of the text, at no more than 1x.
 
     Both sides narrow by the same amount, so a centered form ends up centered with
     the margin on each side and a form against one edge is not narrowed at all.
-    Text wider than the page widens it again, up to the pane's own layout.
+    It never narrows past the pane, so a thin form keeps the page's whitespace,
+    and text wider than the page widens it again, up to the desktop layout.
     """
     left, right = span
     spare = min(left, client_width - right) - FIT_MARGIN
-    return max(MIN_FIT_WIDTH, min(base, round(current - 2 * spare)))
+    base = max(MIN_LAYOUT_WIDTH, pane)
+    return max(MIN_FIT_WIDTH, pane, min(base, round(current - 2 * spare)))
 
 
 def laid_out(meta: dict[str, Any], metrics: dict[str, Any]) -> bool:
@@ -545,9 +546,14 @@ class Stream:
 
     async def _fit(self, number: int) -> None:
         await asyncio.sleep(FIT_SECONDS)
-        cdp, session = self._cdp, self.session
+        cdp, session, base = self._cdp, self.session, layout_size(self.view)
         if cdp is None or session is None or number != self._fitting or self.metrics is None:
             return
+        if base is None:
+            return
+        pane = round(float(self.view["width"]))
+        if base["width"] <= pane:
+            return  # laid out at the pane already, at 1x: nothing to narrow
         answer = await cdp.send(
             "Runtime.evaluate", {"expression": TEXT_BOXES, "returnByValue": True}, session
         )
@@ -556,11 +562,10 @@ class Stream:
         if span is None or not page.get("width") or number != self._fitting:
             return
         current = int(self.metrics["width"])
-        base = int((layout_size(self.view) or self.metrics)["width"])
-        width = fit_width(current, base, float(page["width"]), span)
+        width = fit_width(current, pane, float(page["width"]), span)
         if abs(width - current) < FIT_STEP or session != self.session:
             return
-        self.fit = None if width == base else width
+        self.fit = None if width == base["width"] else width
         await self._override(cdp)
 
     async def _reassert(self, since: float) -> None:
