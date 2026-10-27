@@ -116,13 +116,16 @@ distro; `os device status` says what it is doing.
   the panel's size, never narrower than 1024 CSS pixels, at the viewer's pixel
   density. Chrome sizes a tab in a minimized window as it likes (2560×1271 for
   one, 1065×1751 for the next), which made the panel scroll or shrank the page.
-  The page is never shown past 1x, so a panel at least a desktop wide is laid
-  out at exactly its own size, and a thin form keeps the page's whitespace. A
-  narrower panel shows the desktop layout smaller: once the page settles, on
-  every load, in-page step, and panel resize, the stream measures where the
-  page's text and controls sit and narrows that layout toward the panel until
-  16 CSS pixels are left either side of them, never past the panel and never
-  below 800. A frame at any other size than the layout is never shown. The run's full-page evidence screenshot lays the tab out at the
+  The layout is never narrower than the panel, so the page fills it and is
+  never shown past 1x, and a thin form keeps the page's whitespace. Once the
+  page settles, on every load, in-page step, and panel resize, the stream
+  measures it. A page that scrolls sideways is laid out wider until it fits,
+  zoomed out to no less than half size. Text a clipped box cuts off does not
+  scroll the page, so it zooms nothing out. A panel narrower than a desktop
+  shows the desktop layout smaller, and the stream narrows that layout toward
+  the panel until 16 CSS pixels are left either side of the page's text and
+  controls, never past the panel and never below 800. A frame at any other size
+  than the layout is never shown. The run's full-page evidence screenshot lays the tab out at the
   whole page while it shoots, and Chrome restores the override's size itself
   once it has (at density 1). Chrome keeps one override per tab, not per client,
   so another client clearing one leaves the tab at its window's size, the shape

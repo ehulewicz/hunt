@@ -13,11 +13,10 @@ export function viewOf(element: HTMLElement | null): View {
   return { width, height, dpr: typeof window === "undefined" ? 1 : window.devicePixelRatio || 1 };
 }
 
-// The tab's layout size, which the pane shrinks the frame to fit but never exceeds; without one
-// the frame shows at its own pixel size.
+// The tab's layout shape, which the pane fits the frame to; without one it shows at its own size.
 function frameSize(frame: Frame): CSSProperties | undefined {
   if (!(frame.width > 0 && frame.height > 0)) return undefined;
-  return { "--frame-ratio": frame.width / frame.height, "--frame-width": `${frame.width}px` } as CSSProperties;
+  return { "--frame-ratio": frame.width / frame.height } as CSSProperties;
 }
 
 function statusMessage(status: SessionStatus, deviceName: string): string | null {

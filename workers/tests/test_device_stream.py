@@ -232,6 +232,10 @@ def test_a_tab_fitted_to_its_text_is_never_shown_past_1x() -> None:
     assert layout_size({"width": 1190, "height": 745, "dpr": 1}, fit=1010) == {
         "width": 1190, "height": 745, "deviceScaleFactor": 1.0, "mobile": False,
     }
+    # Wider than the pane is zoomed out, still at the pane's shape.
+    assert layout_size({"width": 1190, "height": 745, "dpr": 1}, fit=1447) == {
+        "width": 1447, "height": 906, "deviceScaleFactor": 1.0, "mobile": False,
+    }
 
 
 def test_the_text_span_ignores_a_stray_label_at_the_very_edge() -> None:
@@ -245,47 +249,62 @@ def test_the_text_span_ignores_a_stray_label_at_the_very_edge() -> None:
 def test_the_layout_narrows_until_the_text_has_a_small_margin_either_side() -> None:
     # A 900-wide pane shows the 1024 desktop layout smaller; a form with room
     # either side narrows it until 16px are left.
-    assert fit_width(1024, 900, 1009, (40, 960)) == 976
+    assert fit_width(1024, 900, 1009, (40, 960), 1009) == 976
     # A thin form stops at the pane: shown at 1x, it keeps its whitespace.
-    assert fit_width(1024, 900, 1009, (300, 700)) == 900
+    assert fit_width(1024, 900, 1009, (300, 700), 1009) == 900
     # A desktop pane is never narrowed at all.
-    assert fit_width(1190, 1190, 1175, (104, 1072)) == 1190
+    assert fit_width(1190, 1190, 1175, (104, 1072), 1175) == 1190
     # A form against the left edge is not narrowed.
-    assert fit_width(1024, 900, 1009, (10, 700)) == 1024
+    assert fit_width(1024, 900, 1009, (10, 700), 1009) == 1024
     # Text wider than the page widens it again, never past the desktop layout.
-    assert fit_width(950, 900, 935, (4, 1100)) == 1024
+    assert fit_width(950, 900, 935, (4, 1100), 935) == 1024
     # Never so narrow that a board shows its phone layout.
-    assert fit_width(1024, 600, 1009, (400, 600)) == 800
+    assert fit_width(1024, 600, 1009, (400, 600), 1009) == 800
+
+
+def test_a_page_wider_than_the_pane_is_zoomed_out_until_it_fits() -> None:
+    # It scrolls sideways by 225px: widened by that and the margin either side.
+    assert fit_width(1190, 1190, 1175, (0, 1175), 1400) == 1447
+    # Zoomed out, a page that now fits stays put while its text fills it.
+    assert fit_width(1447, 1190, 1432, (16, 1416), 1432) == 1447
+    # A later step with a thin form goes back to the pane.
+    assert fit_width(1447, 1190, 1432, (400, 1000), 1432) == 1190
+    # Text cut off by a clipped carousel is not a page that scrolls: no zoom.
+    assert fit_width(1190, 1190, 1175, (20, 1900), 1175) == 1190
+    # Never smaller than half size.
+    assert fit_width(1190, 1190, 1175, (0, 1175), 5000) == 2380
 
 
 async def test_the_shown_tab_is_refitted_to_its_text() -> None:
     view, cdp, _, _ = await started(run_tab="T1")
     await view.resize({"width": 900, "height": 600, "dpr": 1})
     answer = cdp.send
-    measures = []
+    page: dict[str, Any] = {
+        "width": 1009, "scroll": 1009, "boxes": [[40, 300, 40]] * 20 + [[330, 960, 60]] * 50,
+    }
 
     async def measured(method: str, params: Any = None, session_id: Any = None) -> dict[str, Any]:
         if method == "Runtime.evaluate":
-            measures.append(session_id)
-            boxes = [[40, 300, 40]] * 20 + [[330, 960, 60]] * 50
-            return {"result": {"value": {"width": 1009, "boxes": boxes}}}
+            return {"result": {"value": page}}
         return await answer(method, params, session_id)
 
     cdp.send = measured  # type: ignore[method-assign]
     cdp.handler("Page.loadEventFired", {}, "S-T1")
     await asyncio.sleep(0.01)
-    override = [params for method, params, _ in cdp.sent
-                if method == "Emulation.setDeviceMetricsOverride"][-1]
-    assert override["width"] == 976 and override["height"] == 651
+    assert overrides(cdp)[-1][0]["width"] == 976 and overrides(cdp)[-1][0]["height"] == 651
     assert view.fit == 976
-    # A desktop pane is laid out at the pane, at 1x, and nothing is measured.
+    # A desktop pane is laid out at the pane, at 1x, a thin form and all.
     await view.resize({"width": 1400, "height": 800, "dpr": 1})
-    measured_before = len(measures)
+    page.update(width=1385, scroll=1385, boxes=[[400, 1000, 60]] * 50)
     cdp.handler("Page.loadEventFired", {}, "S-T1")
     await asyncio.sleep(0.01)
-    assert view.fit is None and len(measures) == measured_before
-    assert [params for method, params, _ in cdp.sent
-            if method == "Emulation.setDeviceMetricsOverride"][-1]["width"] == 1400
+    assert view.fit is None and overrides(cdp)[-1][0]["width"] == 1400
+    # A page that scrolls sideways there is zoomed out until it fits.
+    page.update(scroll=1600, boxes=[[0, 1600, 60]] * 50)
+    cdp.handler("Page.loadEventFired", {}, "S-T1")
+    await asyncio.sleep(0.01)
+    assert view.fit == 1647
+    assert overrides(cdp)[-1][0]["width"] == 1647 and overrides(cdp)[-1][0]["height"] == 941
     await view.close()
 
 

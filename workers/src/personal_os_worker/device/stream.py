@@ -38,6 +38,8 @@ MAX_SCALE = 3.0
 MIN_FIT_WIDTH = 800
 # The room left either side of the text, in the page's own pixels.
 FIT_MARGIN = 16
+# Zoomed out to fit a page that scrolls sideways, it is shown no smaller than this.
+MIN_ZOOM = 0.5
 # A fit that would move the layout less than this keeps it, so the page never jitters.
 FIT_STEP = 24
 # How long a page is given to paint its form before its text is measured.
@@ -94,8 +96,8 @@ def layout_size(view: dict[str, Any], fit: int | None = None) -> dict[str, Any] 
 
     A pane narrower than a desktop keeps the desktop layout at the pane's shape,
     and is shown smaller. `fit` brings that layout toward the pane, never past
-    it, so the text is never shown larger than 1x. None when the viewer gave no
-    usable size.
+    it, so the text is never shown larger than 1x, or widens it to zoom out a
+    page that scrolls sideways. None when the viewer gave no usable size.
     """
     try:
         width = float(view["width"])
@@ -134,7 +136,7 @@ TEXT_BOXES = r"""(() => {
   for (const control of document.querySelectorAll(controls)) {
     add(control.getBoundingClientRect(), 10);
   }
-  return {width, boxes};
+  return {width, boxes, scroll: document.documentElement.scrollWidth};
 })()"""
 
 
@@ -161,18 +163,26 @@ def text_span(boxes: list[Any]) -> tuple[float, float] | None:
     return (left, right) if right > left else None
 
 
-def fit_width(current: int, pane: int, client_width: float, span: tuple[float, float]) -> int:
+def fit_width(
+    current: int, pane: int, client_width: float, span: tuple[float, float], scroll_width: float
+) -> int:
     """The layout width that leaves FIT_MARGIN either side of the text, at no more than 1x.
 
-    Both sides narrow by the same amount, so a centered form ends up centered with
-    the margin on each side and a form against one edge is not narrowed at all.
-    It never narrows past the pane, so a thin form keeps the page's whitespace,
-    and text wider than the page widens it again, up to the desktop layout.
+    A page that scrolls sideways is widened until it fits, which zooms it out,
+    down to MIN_ZOOM. Otherwise both sides narrow by the same amount, so a
+    centered form ends up centered with the margin on each side and a form
+    against one edge is not narrowed at all. It never narrows past the pane, so
+    a thin form keeps the page's whitespace, and text wider than the page widens
+    it again, up to the desktop layout or the width it was already zoomed out to.
+    Text a clipped box cuts off does not scroll the page, so it zooms nothing out.
     """
+    base = max(MIN_LAYOUT_WIDTH, pane)
+    overflow = scroll_width - client_width
+    if overflow > 1:
+        return min(round(base / MIN_ZOOM), round(current + overflow) + 2 * FIT_MARGIN)
     left, right = span
     spare = min(left, client_width - right) - FIT_MARGIN
-    base = max(MIN_LAYOUT_WIDTH, pane)
-    return max(MIN_FIT_WIDTH, pane, min(base, round(current - 2 * spare)))
+    return max(MIN_FIT_WIDTH, pane, min(max(base, current), round(current - 2 * spare)))
 
 
 def laid_out(meta: dict[str, Any], metrics: dict[str, Any]) -> bool:
@@ -549,11 +559,9 @@ class Stream:
         cdp, session, base = self._cdp, self.session, layout_size(self.view)
         if cdp is None or session is None or number != self._fitting or self.metrics is None:
             return
-        if base is None:
+        if base is None:  # the viewer sent a size it could not lay out
             return
         pane = round(float(self.view["width"]))
-        if base["width"] <= pane:
-            return  # laid out at the pane already, at 1x: nothing to narrow
         answer = await cdp.send(
             "Runtime.evaluate", {"expression": TEXT_BOXES, "returnByValue": True}, session
         )
@@ -562,7 +570,9 @@ class Stream:
         if span is None or not page.get("width") or number != self._fitting:
             return
         current = int(self.metrics["width"])
-        width = fit_width(current, pane, float(page["width"]), span)
+        client_width = float(page["width"])
+        scroll_width = float(page.get("scroll") or client_width)
+        width = fit_width(current, pane, client_width, span, scroll_width)
         if abs(width - current) < FIT_STEP or session != self.session:
             return
         self.fit = None if width == base["width"] else width

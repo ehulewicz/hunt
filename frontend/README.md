@@ -130,9 +130,9 @@ frames are JPEGs over an authenticated WebSocket. Clicks, wheel turns, and keys 
 the focused view go to Chrome, and Ctrl+V pastes this computer's clipboard.
 On connect, reconnect, and resize, the page sends the panel's size and pixel
 density, and the agent lays the tab out at that shape, never narrower than the
-panel. A frame shrinks to fit the panel and never grows past 1x, one CSS pixel
-of the tab's layout to each of the panel's. The panel itself never scrolls, and
-every wheel turn scrolls Chrome. A frame of another shape is fitted inside the panel. A device this browser
+panel, so text is never shown past 1x, and wider when the page needs zooming
+out to fit. A frame is fitted to fill the panel. The panel itself never
+scrolls, and every wheel turn scrolls Chrome. A frame of another shape is fitted inside the panel. A device this browser
 cannot reach explains the tailnet connection and offers a retry. A second window
 can take over a session. Run controls and answer submission are disabled while
 disconnected. The console uses token classes for its styled spans, follows new
