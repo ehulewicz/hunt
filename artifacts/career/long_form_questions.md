@@ -40,6 +40,9 @@ enthusiasm. One combined answer per interest, 200 to 350 words, covering:
 
 ### 1.1 Robotics and autonomy
 
+Anchors: VEX Robotics (2021 to 2022) and FIRST Tech Challenge (2022 to 2023),
+engineer and programmer on both teams.
+
 ### 1.2 Automation and AI agents
 
 Include the origin in the games you played.
@@ -211,7 +214,9 @@ acceptance, identity isolated from wellness data across two Postgres databases.
 
 Anchors: fine-tuning MKDNet in PyTorch (NPR +39%, precision +33%, success
 +30%), the DiMP50 and LaTOT comparison that did not reproduce, the co-authored
-paper.
+paper "Tiny Object Tracking Applied to Shrimp Detection" (with Pauline Legendre
+and Eugénie Laugier), served at
+<https://hunt.example.com/research/tiny-object-tracking>.
 
 #### E1
 

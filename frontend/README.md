@@ -30,7 +30,7 @@ Current scope is deliberately small: Hunt is the only sidebar page, and `/` land
 on it. Integrations and Settings open from the account menu; Settings is still a
 routed placeholder.
 
-### Public resume
+### Public files
 
 `/resume` serves the published resume PDF directly, without Google sign-in or
 API access. A Next.js rewrite keeps `/resume` in the address bar while serving
@@ -46,6 +46,11 @@ root, then commit and deploy the updated public file:
 os hunt resume build
 cp artifacts/career/Alex_Example.pdf frontend/public/Alex_Example.pdf
 ```
+
+`/research/tiny-object-tracking` serves `public/Tiny_Object_Tracking.pdf` the
+same way: a rewrite plus an inline disposition naming the download after the
+paper's title. That PDF is a fixed copy of the Sample Lab paper, not generated
+from anything, so it is replaced only by committing a new file.
 
 ### Integrations
 
