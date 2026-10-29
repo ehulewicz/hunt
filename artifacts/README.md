@@ -22,6 +22,12 @@ posting-dependent slots, opens the result in VS Code, and then fills or uploads
 whatever you left in the file. Edit the prose and modules here; its numbers should
 match the resume.
 
+`career/long_form_questions.md` is the bank of base long-form questions you answer
+once, in your own words: interests, direction, evidence, a story bank, each
+experience and project, and short technical evidence notes. Application prose is
+composed from these answers. Each prompt says which application questions it
+serves.
+
 `career/Transcript.pdf`, when present, is uploaded to any file control the autofill
 worker recognizes as asking for a transcript (label or field name containing
 "transcript"), the same way the resume is. It is optional — its absence just leaves
@@ -51,6 +57,7 @@ career/Alex_Example.pdf     its generated one-page projection, ignored by Git
 career/Alex_Example.tex     build intermediate, untracked
 career/cover_letter.md        cover letter template: prose, {{slots}}, proof modules
 career/Cover_Letter.pdf       rendered cover letter
+career/long_form_questions.md base long-form questions to answer once, and what each serves
 career/Transcript.pdf         optional, auto-uploaded to transcript file controls
 career/defense.md             interview companion: what each compressed bullet
                               expands to, and what must not be overclaimed
