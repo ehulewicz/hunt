@@ -12,6 +12,13 @@ test("login and denied-account states are explicit and accessible", async ({ pag
   );
 });
 
+test("document pages send a signed-out visitor to login", async ({ page }) => {
+  await page.goto("/resume/edit");
+  await expect(page).toHaveURL(/\/login$/);
+  await page.goto("/library");
+  await expect(page).toHaveURL(/\/login$/);
+});
+
 test("callback failure returns to a fixed sign-in error", async ({ page }) => {
   await page.goto("/auth/callback");
   await expect(page).toHaveURL(/\/login\?reason=callback$/);

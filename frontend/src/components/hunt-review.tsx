@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ArrowLeft, Check } from "lucide-react";
 import { type FormEvent, type ReactNode, useRef, useState } from "react";
 
@@ -95,7 +96,7 @@ export function ReviewForm({ review: initialReview, facts, onDone, onBack, origi
           <p className="muted">{review.item.origin && `Cause: ${review.item.origin} · `}{review.item.submitted ? "Submitted answer" : "Not submitted"}</p>
           {review.item.provenance == null && <p className="metadata-empty">Origin highlights were not recorded for this answer.</p>}
           {review.item.provenance != null && !editingProse ? <>
-            <p className="prose-legend"><span className="prose-model">Model</span> · <span className="prose-previous">Previous answer</span> · Your text is plain</p>
+            <p className="prose-legend"><span className="prose-model">Model</span> · <span className="prose-previous">Previous answer</span> · Your text and library writing are plain</p>
             <ProseOrigins item={review.item} />
             <button className="text-button" onClick={() => setEditingProse(true)} type="button">Edit answer</button>
           </> : <label>Answer<textarea autoFocus onChange={(event) => setText(event.target.value)} required rows={8} value={text} /></label>}
@@ -155,7 +156,7 @@ export function ReviewForm({ review: initialReview, facts, onDone, onBack, origi
           {canDelete && <button className="text-button" onClick={() => { setConfirmingDelete(true); setError(null); }} type="button">Delete fact</button>}
           </>}
         </div>
-        {allowDelete && review.kind === "fact" && !canDelete && <p className="muted">Only stored facts can be deleted. Change career-derived facts with <code>os hunt resume edit</code>; other derived facts change in code.</p>}
+        {allowDelete && review.kind === "fact" && !canDelete && <p className="muted">Only stored facts can be deleted. Change career-derived facts in <Link href="/resume/edit">the resume editor</Link>; other derived facts change in code.</p>}
       </fieldset>
       {error && <p className="gap-error" role="alert">{error}</p>}
     </form>
@@ -177,7 +178,12 @@ function ProseOrigins({ item }: { item: Prose }) {
   let cursor = 0;
   for (const span of item.provenance ?? []) {
     parts.push(characters.slice(cursor, span.start).join(""));
-    parts.push(<mark className={`prose-${span.source}`} key={span.start} title={span.source === "model" ? "Model" : "Previous answer"}>{characters.slice(span.start, span.end).join("")}</mark>);
+    const content = characters.slice(span.start, span.end).join("");
+    if (span.source === "library") {
+      parts.push(<span key={span.start} title={`Library ${span.entry ?? "entry"}`}>{content}</span>);
+    } else {
+      parts.push(<mark className={`prose-${span.source}`} key={span.start} title={span.source === "model" ? "Model" : "Previous answer"}>{content}</mark>);
+    }
     cursor = span.end;
   }
   parts.push(characters.slice(cursor).join(""));

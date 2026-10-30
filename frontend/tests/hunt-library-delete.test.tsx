@@ -72,6 +72,6 @@ test("a failed delete preserves the fact and supports a deliberate retry", async
 test("facts without a stored row never offer Delete", () => {
   render(<ReviewForm allowDelete facts={[]} onBack={vi.fn()} onDone={vi.fn()} review={{ kind: "fact", item: { ...FACT, key: "education.school_name", label: "School" } }} />);
   expect(screen.queryByRole("button", { name: "Delete fact" })).not.toBeInTheDocument();
-  expect(screen.getByText(/os hunt resume edit/)).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "the resume editor" })).toHaveAttribute("href", "/resume/edit");
   expect(screen.getByText(/code/)).toBeInTheDocument();
 });

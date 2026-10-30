@@ -1,12 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { Check, CheckCheck, ChevronRight, FileText, Link2 } from "lucide-react";
 import { useState } from "react";
 
 import { ReplayResult } from "@/components/hunt-history";
 import { HuntLibraryPanel } from "@/components/hunt-library";
 import { factDisplayValue, ReviewForm, type Review } from "@/components/hunt-review";
-import type { Fact, Inbox } from "@/lib/api";
+import { resolveProseGap, type Fact, type Inbox, type ProseGap } from "@/lib/api";
+import { freshAccessToken } from "@/lib/device";
 
 type Section = "Questions" | "Facts to verify" | "Writing" | "Pattern checks" | "Unsolved";
 
@@ -16,9 +18,19 @@ export function HuntInbox({ inbox, facts, onRefresh }: { inbox: Inbox | null; fa
   const [review, setReview] = useState<Review | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const toVerify = inbox?.facts ?? [];
+
+  async function resolveGap(gap: ProseGap) {
+    try {
+      await resolveProseGap(await freshAccessToken(), gap.id);
+      setNotice("Resolved.");
+      onRefresh();
+    } catch {
+      setNotice("Could not resolve the gap.");
+    }
+  }
   // Failed checks first: each would change an answer you accepted.
   const patterns = inbox ? [...(inbox.checks ?? []), ...inbox.candidates] : [];
-  const counts = inbox ? { Questions: inbox.questions.length, "Facts to verify": toVerify.length, Writing: inbox.prose.length, "Pattern checks": patterns.length, Unsolved: inbox.unsolved?.length ?? 0 } : null;
+  const counts = inbox ? { Questions: inbox.questions.length, "Facts to verify": toVerify.length, Writing: inbox.prose.length + (inbox.gaps?.length ?? 0), "Pattern checks": patterns.length, Unsolved: inbox.unsolved?.length ?? 0 } : null;
   const total = counts ? Object.values(counts).reduce((sum, count) => sum + count, 0) : null;
 
   return (
@@ -38,11 +50,23 @@ export function HuntInbox({ inbox, facts, onRefresh }: { inbox: Inbox | null; fa
           {review ? <ReviewForm origin="inbox" facts={facts} key={review.kind === "fact" ? review.item.key : review.kind === "question" ? review.item.question.id : review.item.id} onBack={() => setReview(null)} onDone={() => { setReview(null); setNotice("Saved."); onRefresh(); }} review={review} />
             : !inbox ? <div className="panel-empty"><FileText aria-hidden="true" /><h3>Your review inbox</h3><p>Questions, facts, writing, and pattern checks appear here when your overview loads.</p></div>
               : <>
-                {counts?.[section] === 0 ? <div className="panel-empty"><CheckCheck aria-hidden="true" /><h3>{section === "Questions" ? "No questions to answer" : section === "Facts to verify" ? "No facts to verify" : section === "Writing" ? "No writing to review" : section === "Unsolved" ? "No unsolved issues" : "No pattern checks available"}</h3><p>{section === "Questions" ? "Questions needing your input will appear here." : section === "Facts to verify" ? "Facts needing verification, missing facts, and replay disagreements appear here." : section === "Writing" ? "Written answers appear here before you approve them for reuse." : section === "Unsolved" ? "Issues the run could not fix will appear here." : "Learned changes and their verification results will appear here when available."}</p></div>
+                {counts?.[section] === 0 ? <div className="panel-empty"><CheckCheck aria-hidden="true" /><h3>{section === "Questions" ? "No questions to answer" : section === "Facts to verify" ? "No facts to verify" : section === "Writing" ? "No writing to review" : section === "Unsolved" ? "No unsolved issues" : "No pattern checks available"}</h3><p>{section === "Questions" ? "Questions needing your input will appear here." : section === "Facts to verify" ? "Facts needing verification, missing facts, and replay disagreements appear here." : section === "Writing" ? "Written answers and uncovered long-form questions appear here." : section === "Unsolved" ? "Issues the run could not fix will appear here." : "Learned changes and their verification results will appear here when available."}</p></div>
                   : <div className="review-list">
                     {section === "Questions" && inbox.questions.map((item) => <button aria-label={`Review ${item.question.sample_label}`} className="review-row" key={item.question.id} onClick={() => setReview({ kind: "question", item })} type="button"><span className="review-icon"><Link2 aria-hidden="true" /></span><span><strong>{item.question.sample_label}</strong><small>{item.answers.length > 0 ? `${item.answers.length} previous answers` : "No previous answers"}</small></span><ChevronRight aria-hidden="true" /></button>)}
                     {section === "Facts to verify" && toVerify.map((item) => <button aria-label={`Review ${item.label ?? item.missing_fact ?? "Missing fact"}`} className="review-row" key={`${item.reason}:${item.issue_id ?? item.key}`} onClick={() => setReview({ kind: "fact", item })} type="button"><span className="review-icon"><Check aria-hidden="true" /></span><span><strong>{item.label ?? item.missing_fact ?? "Missing fact"}</strong><small>Cause: {item.reason}</small>{item.question && <small>Question: {item.question}</small>}{item.missing_fact && <small>Needed: {item.missing_fact}</small>}{item.reason !== "missing" && <small>{factDisplayValue(item.value)}</small>}<small><ReplayResult check={item.check} /></small></span><ChevronRight aria-hidden="true" /></button>)}
                     {section === "Writing" && inbox.prose.map((item) => <button aria-label={`Review ${item.question_label ?? "Written answer"}`} className="review-row" key={item.id} onClick={() => setReview({ kind: "prose", item })} type="button"><span className="review-icon"><FileText aria-hidden="true" /></span><span><strong>{item.question_label ?? "Written answer"}</strong><small>{item.company_name ?? "Application answer"}</small>{item.origin && <small>Cause: {item.origin}</small>}</span><ChevronRight aria-hidden="true" /></button>)}
+                    {section === "Writing" && (inbox.gaps ?? []).map((gap) => <div className="review-row review-row-static" key={gap.id}>
+                      <span className="review-icon"><FileText aria-hidden="true" /></span>
+                      <span><strong>{gap.question ?? "Long-form question"}</strong>
+                        <small>{[gap.company_name, gap.title].filter(Boolean).join(" · ") || "Any application"}</small>
+                        <small>{gap.coverage === "missing" ? "Not covered" : "Partly covered"} · {gap.family.replace(/_/g, " ")}</small>
+                        {gap.missing_detail && <small>{gap.missing_detail}</small>}
+                      </span>
+                      <span className="review-row-actions">
+                        <Link className="text-button" href="/library">Write in Library</Link>
+                        <button className="button button-secondary" onClick={() => void resolveGap(gap)} type="button">Resolve</button>
+                      </span>
+                    </div>)}
                     {section === "Pattern checks" && patterns.map(({ pattern, check }) => <button aria-label={`Review ${pattern.question_label ?? pattern.expression}`} className="review-row" key={pattern.id} onClick={() => setReview({ kind: "pattern", item: pattern, check })} type="button"><span className="review-icon"><Link2 aria-hidden="true" /></span><span><strong>{pattern.question_label ?? pattern.expression}</strong><small>{check ? <ReplayResult check={check} /> : `Suggested pattern: ${pattern.fact_key}`}</small>{(check || pattern.origin) && <small>Cause: {check ? "replay disagreement" : pattern.origin}</small>}</span><ChevronRight aria-hidden="true" /></button>)}
                     {section === "Unsolved" && inbox.unsolved.map((item) => <article className="unsolved-row" key={item.issue_id}>
                       <strong>{item.question ?? item.control_kind ?? "Application issue"}</strong>

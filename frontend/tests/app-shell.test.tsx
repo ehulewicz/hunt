@@ -17,9 +17,11 @@ test("account initials use the first and final names", () => {
   expect(accountInitials("Eah Middle Tree")).toBe("ET");
 });
 
-test("the shell links only Hunt, with Integrations in the account menu", () => {
+test("the shell links Hunt, Resume, and Library, with Integrations in the account menu", () => {
   render(<AppShell account={account} onSignOut={() => undefined}><h1>Hunt</h1></AppShell>);
   expect(screen.getByRole("link", { name: "Hunt" })).toHaveAttribute("href", "/hunt");
+  expect(screen.getByRole("link", { name: "Resume" })).toHaveAttribute("href", "/resume/edit");
+  expect(screen.getByRole("link", { name: "Library" })).toHaveAttribute("href", "/library");
   expect(screen.queryByRole("link", { name: "Integrations" })).not.toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Dashboard" })).not.toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Jobs" })).not.toBeInTheDocument();

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ArrowLeft, BookOpen, Check, ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -86,6 +87,6 @@ export function HuntLibraryPanel({ onRefresh }: { onRefresh: () => void }) {
                 </div>}
             </>}
     </div>
-    <footer className="panel-footnote">{section === "Facts" ? <div>Stored facts can be deleted here. Change career-derived facts with <code>os hunt resume edit</code>; other derived facts change in code.</div> : "Saved answers, patterns, and code changes."}</footer>
+    <footer className="panel-footnote">{section === "Facts" ? <div>Stored facts can be deleted here. Change career-derived facts in <Link href="/resume/edit">the resume editor</Link>; other derived facts change in code.</div> : "Saved answers, patterns, and code changes."}</footer>
   </>;
 }

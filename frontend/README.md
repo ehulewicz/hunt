@@ -26,26 +26,39 @@ the token travels with every request.
 Required browser environment: `NEXT_PUBLIC_SUPABASE_URL`,
 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_API_URL`.
 
-Current scope is deliberately small: Hunt is the only sidebar page, and `/` lands
-on it. Integrations and Settings open from the account menu; Settings is still a
-routed placeholder.
+The sidebar links Hunt (`/hunt`), Resume (`/resume/edit`), and Library
+(`/library`); `/` lands on Hunt. Integrations and Settings open from the account
+menu; Settings is still a routed placeholder.
+
+`/resume/edit` edits the career record as its JSON document: save parses,
+PUTs, and reloads what the API rendered back — the record gets stable entry
+ids — and a compile refusal from the PDF build shows inline. `/library` edits
+the narrative library: entries grouped by section with read-only prompt and
+guidance, a per-entry answer box with a live word count, and an unanswered
+filter; saving one entry PUTs its full write body under its code.
+
+Both use `document-editor.tsx`, the shared document editor: a labelled
+textarea (monospace where the text is structured), a save button, inline
+refusals and a saved notice. Its optional Ask Claude panel calls a device's
+agent — `lib/device.ts askClaude` posts `{surface, instruction, document}` to
+`/assist` — and shows the reply as a summary plus a diff (lines for monospace
+text, words otherwise) to Accept or Discard; accepting runs the caller's save
+path, and nothing is saved on its own. With no online ready device the panel
+says so; on an empty library answer it asks for a first draft first.
+
+The Hunt run's cover letter is the same editor: "Use this letter" sends the
+text through the run, and its Ask Claude proposal only replaces the draft.
 
 ### Public files
 
-`/resume` serves the published resume PDF directly, without Google sign-in or
-API access. A Next.js rewrite keeps `/resume` in the address bar while serving
-`public/Alex_Example.pdf`; the inline disposition opens the browser's PDF viewer
-with the applicant's name as the download filename. Workspace routes remain
-authenticated.
-
-The public PDF is a committed deployment copy of the career record's generated
-export, never an editable resume source. To refresh it, run from the repository
-root, then commit and deploy the updated public file:
-
-```bash
-os hunt resume build
-cp artifacts/career/Alex_Example.pdf frontend/public/Alex_Example.pdf
-```
+`/resume` serves the published resume PDF directly, without Google sign-in.
+A Next.js rewrite proxies `GET /v1/public/resume.pdf` on the API —
+`RESUME_PDF_URL` can point it elsewhere, and it defaults to
+`NEXT_PUBLIC_API_URL` — while keeping `/resume` in the address bar. The backend
+sends the inline disposition itself, so the browser's PDF viewer opens it with
+the applicant's name as the download filename. No copy is committed here; the
+published PDF refreshes when the career record is saved. Workspace routes
+remain authenticated.
 
 `/research/tiny-object-tracking` serves `public/Tiny_Object_Tracking.pdf` the
 same way: a rewrite plus an inline disposition naming the download after the
@@ -80,7 +93,9 @@ already active on a device opens without starting another one, including runs
 started in a terminal. Starting a busy or unready device is disabled.
 
 The answer panel switches between Inbox and Library. Inbox separates Questions,
-Facts to verify, Writing, Pattern checks, and Unsolved. Facts to verify comes from
+Facts to verify, Writing, Pattern checks, and Unsolved. Writing also lists open
+prose gaps — a long-form question the library covers only partly or not at all —
+with a link into the Library page and a Resolve action. Facts to verify comes from
 `/v1/jobs/inbox`: unverified facts, missing facts with the question that needed them,
 and contradicted facts with replay counts. Unsolved shows failures the run could
 not fix, including their notes and occurrence counts. Cause tags use recorded
@@ -88,7 +103,8 @@ origins, fact reasons, replay disagreements, or failure categories where known.
 Unbound questions can be linked to an existing fact or a new typed fact. Empty
 text is saved unchanged; lists use JSON, including `[]`, and both display as None.
 Writing is one text, with model and previous-answer spans tinted separately and
-the user's text plain. Edit answer switches that text into the editor; highlights
+the user's and library's text plain; a library span's hover names its entry
+code. Edit answer switches that text into the editor; highlights
 are not reused against edited text. Older writing without provenance says so.
 The current API leaves provenance unchanged after a text edit; reopening edited
 writing can therefore show stale offsets until the API clears or recomputes them.
@@ -107,7 +123,8 @@ editors as Inbox; questions and patterns expose their stored details. A stored
 fact's Delete action asks for confirmation, then refreshes Library and Inbox.
 Deleting an override lets the career-derived value apply again. The facts API
 lists stored rows only, so computed-only facts have no Delete action: change
-career-derived facts with `os hunt resume edit`, and other derived facts in code.
+career-derived facts in [the resume editor](/resume/edit), and other derived
+facts in code.
 Each item's
 history loads from `/v1/jobs/changes`,
 showing when, who, action, before and after, and replay verification. Code lists
@@ -201,19 +218,23 @@ src/app/              App Router. (workspace)/ is the authenticated shell group;
                       fonts/ holds the self-hosted Instrument Sans Latin subset
                       from the supplied design reference and its OFL license.
 src/components/       workspace.tsx is the auth gate, app-shell.tsx the sidebar
-                      layout, plus account-menu and empty-page. hunt-dashboard and
+                      layout, plus account-menu and empty-page. document-editor.tsx
+                      is the shared editor with the Ask Claude panel; resume-editor
+                      and library-editor are the document pages. hunt-dashboard and
                       hunt-inbox own the overview; hunt-library, hunt-history, and
                       hunt-review provide the saved-answer library and shared editors;
                       hunt-devices, hunt-run, and
                       hunt-live own device selection and the application workspace;
                       use-device-session.ts is its connection state.
 src/lib/              api.ts (the Cloud Run fetch layer), device.ts (the device
-                      fetch and WebSocket layer), and supabase.ts (browser client).
+                      fetch and WebSocket layer), diff.ts (proposal diffs), and
+                      supabase.ts (browser client).
 src/styles/           tokens.css is the single source of color and spacing values;
                       base.css, app.css, and hunt.css consume it.
 tests/                Vitest + Testing Library component tests (jsdom).
 e2e/                  Playwright specs for auth, shell, and the Hunt page, whose
                       device socket is stubbed with routeWebSocket.
 scripts/              check-ui-policy.mjs — the raw-color and gradient ban.
-public/               Site icon and the published resume PDF.
+public/               Site icon and the research paper PDF. The resume PDF is
+                      served from the API, not committed here.
 ```

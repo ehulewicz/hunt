@@ -125,7 +125,12 @@ export type JobApplication = {
   updated_at: string;
 };
 
-export type ProseSpan = { start: number; end: number; source: "model" | "previous" };
+export type ProseSpan = {
+  start: number;
+  end: number;
+  source: "model" | "previous" | "library";
+  entry?: string;
+};
 
 export type Prose = {
   id: string;
@@ -156,7 +161,7 @@ export type InboxQuestion = {
 };
 export type Change = {
   id: string;
-  subject: "pattern" | "fact" | "prose" | "question" | "strategy" | "code";
+  subject: "pattern" | "fact" | "prose" | "question" | "strategy" | "code" | "library";
   subject_id: string;
   action: "create" | "update" | "retire" | "reject" | "delete";
   before: unknown;
@@ -214,6 +219,20 @@ export function loadHuntChanges(accessToken: string, subject: Change["subject"],
   query.set("limit", "100");
   return apiRequest<Change[]>(`/v1/jobs/changes?${query}`, accessToken);
 }
+export type ProseGap = {
+  id: string;
+  question_id: string;
+  question: string | null;
+  application_id: string | null;
+  company_name: string | null;
+  title: string | null;
+  family: string;
+  coverage: "partial" | "missing";
+  missing_detail: string;
+  created_at: string;
+  resolved_at: string | null;
+};
+
 export type Inbox = {
   candidates: InboxCandidate[];
   // Learned patterns whose replay changed an answer you accepted.
@@ -222,6 +241,7 @@ export type Inbox = {
   unsolved: InboxUnsolved[];
   questions: InboxQuestion[];
   prose: Prose[];
+  gaps?: ProseGap[];
 };
 
 export type Question = {
@@ -271,4 +291,68 @@ export async function contactEmail(accessToken: string): Promise<string | null> 
   const facts = await apiRequest<Fact[]>("/v1/jobs/facts", accessToken);
   const value = facts.find((fact) => fact.key === "contact.email")?.value;
   return typeof value === "string" ? value : null;
+}
+
+export function resolveProseGap(accessToken: string, id: string): Promise<ProseGap> {
+  return apiRequest<ProseGap>(`/v1/jobs/prose/gaps/${id}/resolve`, accessToken, { method: "POST" });
+}
+
+// The career record: education, schools, entries, and skills rows plus the
+// v2 resume document rendered from them. Field shapes inside `document` stay
+// loose; it is shown and sent back as-is.
+export type CareerRecord = {
+  education: Record<string, unknown>;
+  schools: Record<string, unknown>[];
+  entries: Record<string, unknown>[];
+  skills: { category: string; items: string }[];
+  document: Record<string, unknown>;
+};
+
+export function loadCareer(accessToken: string): Promise<CareerRecord> {
+  return apiRequest<CareerRecord>("/v1/jobs/career", accessToken);
+}
+
+export function saveCareer(accessToken: string, document: unknown): Promise<CareerRecord> {
+  return apiRequest<CareerRecord>("/v1/jobs/career", accessToken, {
+    method: "PUT",
+    body: JSON.stringify(document),
+  });
+}
+
+export type LibrarySection = "interest" | "direction" | "evidence" | "story" | "entry" | "note";
+
+export type LibraryEntry = {
+  id: string;
+  code: string;
+  section: LibrarySection;
+  entry_id: string | null;
+  subject: string | null;
+  prompt: string;
+  guidance: string;
+  answer: string | null;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type LibraryEntryWrite = {
+  code: string;
+  section: LibrarySection;
+  entry_id: string | null;
+  subject: string | null;
+  prompt: string;
+  guidance: string;
+  answer: string | null;
+  display_order: number;
+};
+
+export function loadLibrary(accessToken: string): Promise<LibraryEntry[]> {
+  return apiRequest<LibraryEntry[]>("/v1/jobs/library", accessToken);
+}
+
+export function saveLibraryEntry(accessToken: string, entry: LibraryEntryWrite): Promise<LibraryEntry> {
+  return apiRequest<LibraryEntry>(`/v1/jobs/library/${entry.code}`, accessToken, {
+    method: "PUT",
+    body: JSON.stringify(entry),
+  });
 }

@@ -3,6 +3,7 @@
 import { type FormEvent, memo, useLayoutEffect, useRef, useState } from "react";
 import { CheckCheck, ChevronDown, FileText, ListChecks, Terminal } from "lucide-react";
 
+import { DocumentEditor } from "@/components/document-editor";
 import type { Fix, Gap, LogLine, RunSnapshot, Span } from "@/lib/device";
 
 const CONTROLS = [
@@ -166,6 +167,12 @@ export const HuntRun = memo(function HuntRun({
   const linked = active && run.phase === "running";
   const currentDraft = onDraft ? draft : edited;
   const text = currentDraft && currentDraft.runKey === (run?.key ?? null) && currentDraft.draft === letter ? currentDraft.text : letter ?? "";
+
+  function editLetter(value: string) {
+    const next = { runKey: run?.key ?? null, draft: letter ?? "", text: value };
+    if (onDraft) onDraft(next);
+    else setEdited(next);
+  }
   const showLetter = !workspace || pane === "letter" && letter !== null;
   const showGaps = !workspace || !showLetter;
 
@@ -232,15 +239,19 @@ export const HuntRun = memo(function HuntRun({
       <div className="run-content">
       <div hidden={!showLetter}>
       {letter !== null && (
-        <form
-          aria-label="Cover letter"
-          className="letter-editor"
-          onSubmit={(event) => { event.preventDefault(); onLetter(text); }}
-        >
-          <label htmlFor="cover-letter"><strong>Cover letter</strong> <span className="muted">The run waits for it.</span></label>
-          <textarea id="cover-letter" onChange={(event) => { const value = { runKey: run?.key ?? null, draft: letter, text: event.target.value }; if (onDraft) onDraft(value); else setEdited(value); }} rows={16} value={text} />
-          <button className="button button-primary" disabled={!connected || !linked} type="submit">Use this letter</button>
-        </form>
+        <DocumentEditor
+          claude={{
+            surface: "cover_letter",
+            onAccept: (proposal) => editLetter(proposal),
+          }}
+          disabled={!connected || !linked}
+          hint="The run waits for it."
+          label="Cover letter"
+          onChange={editLetter}
+          onSave={async (value) => { onLetter(value); }}
+          saveLabel="Use this letter"
+          value={text}
+        />
       )}
       </div>
 

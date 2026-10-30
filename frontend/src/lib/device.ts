@@ -260,3 +260,24 @@ export function openDeviceSession(
     },
   };
 }
+
+export type AssistRequest = {
+  surface: "resume" | "library" | "cover_letter";
+  instruction: string;
+  document: string;
+};
+
+export type AssistResponse = { proposal: string; summary: string };
+
+// A bounded model call run on the device itself; it can take minutes. The
+// caller shows the returned proposal for review; nothing is saved here.
+export function askClaude(
+  device: Pick<Device, "url">,
+  request: AssistRequest,
+  token?: () => Promise<string>,
+): Promise<AssistResponse> {
+  return deviceRequest<AssistResponse>(device, "/assist", {
+    method: "POST",
+    body: JSON.stringify(request),
+  }, token);
+}
