@@ -22,7 +22,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from personal_os_worker.jobs import model
 from personal_os_worker.jobs.fix import lane
 from personal_os_worker.jobs.fix.keep import KeepError, Kept, keep
 from personal_os_worker.jobs.fix.scratch import Scratch, interpreter, refusal
@@ -108,7 +107,7 @@ class FixQueue:
         run_id: str,
         report: Callable[[str], None],
         publish: Callable[[list[dict[str, Any]]], None] | None = None,
-        runner: lane.Runner = model.run,
+        runner: lane.Runner = lane.run_claude,
         prober: Prober = run_probe,
         keeper: Callable[[Path, str, str], Kept] = keep,
         checker: Callable[[Scratch, lane.Problem], lane.Check] = lane.check,

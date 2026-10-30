@@ -322,15 +322,10 @@ retry cannot reach the form; apply's own retry can, because it works on your
 signed-in page.
 
 `os hunt apply failures list` and `show` read what runs could not settle, with
-its evidence. Fixing is the run's own job, during the run: a widget nothing can
-operate, a strategy or rendering the retries ran out of, a wall before the form,
-or a posting the site's search could not find goes to the fixer while the run
-goes on. It writes a code fix and a test in a scratch clone, tests and replays
-it, tries it on your page with the submit guards on, and commits and pushes it
-once the value reads back; the run then reloads on the same tab and carries on.
-The terminal and the page show each fix as it goes (`fix writing`, `testing`,
-`waiting`, `probing`, `kept`, `unsolved`). What three attempts could not fix is
-outlined and waits in the Inbox.
+its evidence. The run's code fixer is switched off: a widget nothing can
+operate, a strategy or rendering the retries ran out of, a wall before the
+form, or a posting the site's search could not find stays an open failure
+issue here until a change closes it.
 
 ## History
 

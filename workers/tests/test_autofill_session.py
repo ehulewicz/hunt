@@ -154,18 +154,33 @@ def test_save_now_sends_large_history_in_bounded_checkpoints() -> None:
     assert [len(step["observations"]) for step in api.steps] == [500, 1]
 
 
+def _stub_model_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every `model.run` succeeds without spawning; calls still count for real."""
+    import json
+    import subprocess
+
+    from personal_os_worker.jobs import model
+
+    process = subprocess.CompletedProcess(
+        args=[], returncode=0, stdout=json.dumps({"type": "result", "result": "ok"})
+    )
+    monkeypatch.setattr(model.subprocess, "run", lambda *_, **__: process)
+
+
 def test_each_step_carries_the_runs_learning_and_fixing_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from personal_os_worker.jobs import model
+    from personal_os_worker.jobs.autofill_session import SessionState
 
-    counts = {"learn": 10, "check": 4, "draft": 7, "fix": 1}
-    monkeypatch.setattr(model, "counts", lambda: dict(counts))
+    _stub_model_run(monkeypatch)
     api = FakeApi()
     context = SimpleNamespace(api=api, run_id="run-test", page=SimpleNamespace(url="https://example.test"))
     session = AutofillSession(cast(Any, context))
-    session.state.model_calls_base = {"learn": 2, "check": 5, "fix": 1}
-    counts.update(learn=13, check=9, draft=8, fix=2)
+    session.carry_on(SessionState(model_calls_base={"learn": 2, "check": 5, "fix": 1}))
+    for purpose in ("learn", "learn", "learn",
+                    "check", "check", "check", "check", "check", "draft", "fix"):
+        model.run(["claude", "-p"], purpose=cast(Any, purpose))
 
     session.persist_step("run-test", {"step_number": 0, "url": "https://example.test"})
 
@@ -179,14 +194,13 @@ def test_a_late_fixing_call_reaches_the_api_with_nothing_else_to_save(
 ) -> None:
     from personal_os_worker.jobs import model
 
-    counts = {"learn": 0, "check": 0, "draft": 0, "fix": 0}
-    monkeypatch.setattr(model, "counts", lambda: dict(counts))
+    _stub_model_run(monkeypatch)
     api = FakeApi()
     context = SimpleNamespace(api=api, run_id="run-test", page=SimpleNamespace(url="https://example.test"))
     session = AutofillSession(cast(Any, context))
     session.save_now()
     assert api.steps == []
-    counts["fix"] = 1  # the fixer, in the background, after the last step
+    model.run(["claude", "-p"], purpose="fix")  # the fixer, in the background, after the last step
 
     session.save_now()
     session.save_now()
@@ -202,23 +216,23 @@ def test_a_reload_carries_the_runs_model_calls_into_the_next_process(
     from personal_os_worker.jobs import model
     from personal_os_worker.jobs.autofill_session import ReloadForFix, SessionState
 
-    counts = {"learn": 0, "check": 0, "draft": 0, "fix": 0}
-    monkeypatch.setattr(model, "counts", lambda: dict(counts))
+    _stub_model_run(monkeypatch)
     api = FakeApi()
     page = SimpleNamespace(url="https://example.test")
     fixes = SimpleNamespace(at_safe_point=lambda _probe: True)
     session = AutofillSession(cast(Any, SimpleNamespace(api=api, run_id="run-test", page=page,
                                                         fixes=fixes)))
-    counts.update(learn=3, check=2, fix=1)
+    for purpose in ("learn", "learn", "learn", "check", "check", "fix"):
+        model.run(["claude", "-p"], purpose=cast(Any, purpose))
     with pytest.raises(ReloadForFix):
         session.safe_point()
     exported = json.loads(json.dumps(session.state.export()))
 
     # The next process (`apply --continue-run`) counts from zero again.
-    counts.update(learn=0, check=0, draft=0, fix=0)
+    model.end_run()
     carried = AutofillSession(cast(Any, SimpleNamespace(api=api, run_id="run-test", page=page)))
-    carried.state = SessionState.restore(exported)
-    counts["learn"] = 1
+    carried.carry_on(SessionState.restore(exported))
+    model.run(["claude", "-p"], purpose="learn")
     carried.persist_step("run-test", {"step_number": 1, "url": "https://example.test"})
 
     assert api.steps[-1]["model_calls"] == 5
@@ -924,6 +938,9 @@ def test_session_seeds_long_form_records_every_answer_and_ends_on_submit(
         description="Build things.",
         drafter=drafter,
         short_drafter=lambda *_args, **_kwargs: {},
+        checker=lambda answers, **__: {
+            answer.question: Judgement(answer.question, "right") for answer in answers
+        },
         use_claude=True,
         poll_seconds=0.05,
         keys=ScriptedKeys([set(), set(), {"save"}]),
@@ -1053,6 +1070,9 @@ def test_the_model_teaches_a_pattern_and_the_pattern_pass_fills_the_field(
         title="Backend Engineer Intern",
         description=None,
         short_drafter=short_drafter,
+        checker=lambda answers, **__: {
+            answer.question: Judgement(answer.question, "right") for answer in answers
+        },
         poll_seconds=0.05,
         keys=ScriptedKeys([{"save"}]),
     )
@@ -1208,6 +1228,9 @@ def test_a_lesson_that_would_change_an_accepted_answer_is_not_kept_as_taught(
         title="Backend Engineer Intern",
         description=None,
         short_drafter=short_drafter,
+        checker=lambda answers, **__: {
+            answer.question: Judgement(answer.question, "right") for answer in answers
+        },
         poll_seconds=0.05,
         keys=InterruptingKeys([set()]),
     ))

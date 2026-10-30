@@ -18,8 +18,9 @@ A code change cannot be run as it was, so its before is what the worker filled
 then, known only when that was the accepted answer or nothing at all, and
 unknown for an answer from before fill events.
 
-Pure: the session and the maintenance path fetch the sightings and record
-what a replay found.
+Pure except the entry point: `main` connects, runs the code replay, and prints
+what it found; the session and the maintenance path fetch the sightings and
+record what a replay found.
 """
 
 from __future__ import annotations
@@ -28,7 +29,10 @@ import random
 import re
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from personal_os_worker.core.api import WorkerApi
 
 from personal_os_worker.jobs.formatters import BLANK, renderings
 from personal_os_worker.jobs.options import normalize_answer_question
@@ -365,3 +369,63 @@ def replay_fact(
         )
         outcomes.append(Outcome(sighting, before, after, before_known=known))
     return Replay(tuple(outcomes))
+
+
+def check_code(
+    api: WorkerApi, *, question: str | None = None, fact_key: str | None = None
+) -> Replay:
+    """The code as it stands, with your facts and active patterns, replayed against
+    the answers you accepted; `question` and `fact_key` name the failure it fixes."""
+    from personal_os_worker.jobs.repair.commands import knowledge_for
+
+    knowledge = replace(knowledge_for(api), patterns=tuple(api.patterns("active")))
+    key = normalize_answer_question(question or "")
+    return replay_code(
+        sightings_of(api.sightings()), knowledge, question_key=key or None,
+        fact_key=fact_key, seed=key,
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    """0 for a passing replay, 1 for a regression, 2 when the check could not run."""
+    import argparse
+    import json
+
+    import httpx
+
+    from personal_os_worker.core.api import WorkerApi
+    from personal_os_worker.core.auth import LoginError
+    from personal_os_worker.core.commands import connected
+
+    parser = argparse.ArgumentParser(
+        description="Replay the code as it stands against the answers you accepted."
+    )
+    parser.add_argument("--json", action="store_true",
+                        help="End with one JSON line of the counts")
+    parser.add_argument("--question", help="The failed question a code change fixes")
+    parser.add_argument("--fact", dest="fact_key",
+                        help="The fact that question is filled from")
+    args = parser.parse_args(argv)
+    try:
+        config, token = connected()
+        api = WorkerApi(config, token)
+        try:
+            replay = check_code(api, question=args.question, fact_key=args.fact_key)
+        finally:
+            api.close()
+    except (httpx.HTTPError, LoginError, RuntimeError, ReferenceError) as error:
+        print(f"Replay could not complete: {error}")
+        return 2
+    print(replay.summary())
+    for outcome in replay.failures:
+        print(
+            f"  {outcome.sighting.question.strip()!r}: now {outcome.now!r}, "
+            f"you accepted {outcome.sighting.answer!r}"
+        )
+    if args.json:
+        print(json.dumps(replay.verification() | {"unchecked": replay.unchecked}))
+    return 0 if replay.passed else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -13,7 +13,6 @@ writing as Markdown.
 
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -28,11 +27,11 @@ from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.auth import LoginError
 from personal_os_worker.core.commands import connected
 from personal_os_worker.core.tables import console, pick, short_id
+from personal_os_worker.jobs import replay
 from personal_os_worker.jobs.archive.lookup import translate
 from personal_os_worker.jobs.archive.rules import RULES
-from personal_os_worker.jobs.options import normalize_answer_question
 from personal_os_worker.jobs.repair.commands import knowledge_for
-from personal_os_worker.jobs.replay import Replay, replay_code, replay_fact, sightings_of
+from personal_os_worker.jobs.replay import Replay, replay_fact, sightings_of
 from personal_os_worker.jobs.resolve import Knowledge
 
 STATUS_STYLES = {"active": "green", "candidate": "yellow", "rejected": "red", "retired": "dim"}
@@ -90,19 +89,6 @@ def run_patterns(*, every: bool = False) -> int:
         return 0
     render_patterns(patterns)
     return 0
-
-
-def code_replay(
-    api: WorkerApi, *, question: str | None = None, fact_key: str | None = None
-) -> Replay:
-    """The code as it stands, with your facts and active patterns, replayed against
-    the answers you accepted; `question` and `fact_key` name the failure it fixes."""
-    knowledge = replace(knowledge_for(api), patterns=tuple(api.patterns("active")))
-    key = normalize_answer_question(question or "")
-    return replay_code(
-        sightings_of(api.sightings()), knowledge, question_key=key or None, fact_key=fact_key,
-        seed=key,
-    )
 
 
 def fact_replay(
@@ -184,16 +170,6 @@ def report_pending_facts(disagree: int) -> None:
         )
 
 
-def print_replay(replay: Replay) -> None:
-    console.print(replay.summary(), markup=False)
-    for outcome in replay.failures:
-        console.print(
-            f"  {outcome.sighting.question.strip()!r}: now {outcome.now!r}, "
-            f"you accepted {outcome.sighting.answer!r}",
-            markup=False,
-        )
-
-
 def run_replay(
     *, question: str | None = None, fact_key: str | None = None, json_line: bool = False
 ) -> int:
@@ -202,24 +178,25 @@ def run_replay(
     `json_line` ends the output with the counts as one JSON line, which the
     fixer records as a kept fix's verification. Otherwise the fact changes
     still pending are checked first; the fixer's check on scratch code writes
-    nothing.
+    nothing. The replay itself lives in `jobs/replay.py`.
     """
-    try:
-        config, token = connected()
-        api = WorkerApi(config, token)
+    if not json_line:
         try:
-            if not json_line:
+            config, token = connected()
+            api = WorkerApi(config, token)
+            try:
                 report_pending_facts(resolve_pending_facts(api))
-            replay = code_replay(api, question=question, fact_key=fact_key)
-        finally:
-            api.close()
-    except (httpx.HTTPError, LoginError, RuntimeError, ReferenceError) as error:
-        console.print(f"Replay could not complete: {error}", markup=False)
-        return 2
-    print_replay(replay)
-    if json_line:
-        print(json.dumps(replay.verification() | {"unchecked": replay.unchecked}))
-    return 0 if replay.passed else 1
+            finally:
+                api.close()
+        except (httpx.HTTPError, LoginError, RuntimeError, ReferenceError) as error:
+            console.print(f"Replay could not complete: {error}", markup=False)
+            return 2
+    argv = ["--json"] if json_line else []
+    if question:
+        argv += ["--question", question]
+    if fact_key:
+        argv += ["--fact", fact_key]
+    return replay.main(argv)
 
 
 def render_prose(items: list[dict[str, Any]]) -> None:

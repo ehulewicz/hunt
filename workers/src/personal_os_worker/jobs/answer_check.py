@@ -171,21 +171,21 @@ def check_answers(
         return {}
 
     def argv_for(answer: FilledAnswer) -> list[str]:
-        return [
-            "claude",
-            "-p",
-            "--safe-mode",
-            "--tools",
-            "",
-            "--no-session-persistence",
-            "--output-format",
-            "json",
-            "--json-schema",
-            json.dumps(SCHEMA, separators=(",", ":")),
-            _prompt(answer, posting=posting, facts=facts),
-        ]
+        return model.argv(_prompt(answer, posting=posting, facts=facts), schema=SCHEMA)
+
+    refused: list[model.BudgetSpent] = []
+
+    def ask(answer: FilledAnswer) -> str:
+        try:
+            return runner(argv_for(answer))
+        except model.BudgetSpent as spent:
+            # A cap spent mid-batch keeps the judgements already paid for.
+            refused.append(spent)
+            return ""
 
     with ThreadPoolExecutor(max_workers=min(len(answers), MAX_CONCURRENT_CALLS)) as pool:
-        outputs = list(pool.map(lambda answer: runner(argv_for(answer)), answers))
+        outputs = list(pool.map(ask, answers))
+    if len(refused) == len(answers):
+        raise refused[0]
     items = [item for output in outputs for item in _judgements_in(output)]
     return judgements_from(items, answers, {str(fact["key"]) for fact in facts})

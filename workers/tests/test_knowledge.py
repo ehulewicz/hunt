@@ -116,17 +116,17 @@ def test_a_change_the_api_will_not_resolve_stays_pending_and_the_rest_go_on() ->
 def test_replay_checks_pending_facts_first_but_the_fixers_check_writes_nothing(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from personal_os_worker.jobs.replay import Replay
-
     resolved: list[object] = []
+    argv_seen: list[list[str]] = []
     monkeypatch.setattr(knowledge, "connected", lambda: (None, None))
     monkeypatch.setattr(knowledge, "WorkerApi", lambda *_: type("Api", (), {
         "close": lambda self: None})())
     monkeypatch.setattr(knowledge, "resolve_pending_facts", lambda api: resolved.append(api) or 2)
-    monkeypatch.setattr(knowledge, "code_replay", lambda *_, **__: Replay(()))
+    monkeypatch.setattr(knowledge.replay, "main", lambda argv: argv_seen.append(argv) or 0)
 
     assert knowledge.run_replay(json_line=True) == 0
     assert resolved == []
     assert knowledge.run_replay() == 0
     assert len(resolved) == 1
+    assert argv_seen == [["--json"], []]
     assert "2 fact change(s) since the last check now disagree" in capsys.readouterr().out

@@ -276,54 +276,21 @@ What it cannot find is reported as `posting_not_found` with what the page
 offered, and the run watches the browser until you open the posting, so a run
 never ends because its URL was a careers home.
 
-## How the run fixes itself
+## How the run fixed itself
 
-`jobs/fix/` is the fixer. When the audit is done with a page step, what only
-code can settle goes to it (`AutofillSession.escalate`): a widget no kind
-captures, a question that cannot be read, a format or control error the repair
-lane ran out of renderings or strategies for, a wall the Apply control, gates
-and account flow did not pass (never the account flow itself, which is yours),
-and a posting the navigator could not find. A missing fact, a pattern gap and
-prose never are. The run keeps filling while the fixer works, one failure at a
-time in a background thread (`queue.py`):
+`jobs/fix/` is the fixer, and it is switched off: `os hunt apply` starts no
+fix queue and no run reloads for a kept fix. When it ran, a failure only code
+could settle — a widget no kind captures, a question that cannot be read, a
+format or control error the repair lane ran out of, a wall, a posting the
+navigator could not find — went to a model that wrote the smallest code fix
+and a regression test in a scratch clone (`lane.py`), which the worker gated
+on ruff, mypy, the whole suite, a replay, and a live readback before keeping
+it (`queue.py`, `keep.py`, `probe.py`, `scratch.py`).
 
-1. `scratch.py` clones the repository (`git clone --shared`) under the state
-   directory and writes the live page's evidence in as fixtures.
-2. `lane.py` asks a model, with file tools only and the scratch clone as its
-   working directory, for the smallest code change and a regression test
-   against those fixtures. It may change `jobs/` code and add tests; it may not
-   edit an existing test, delete a file, or touch the denylist (`safety.py`,
-   the account and mail, the model call sites, `learn.py`, `replay.py`, the
-   fixer).
-3. The worker checks the paths, then runs ruff, mypy and the whole worker suite
-   on the scratch code (the workspace interpreter, the scratch source first on
-   `PYTHONPATH`), then `os hunt replay --json` against the answers you
-   accepted.
-4. At the run's next safe point (between polls, after an audit) `probe.py`
-   runs in its own process on the scratch code, attaches to the run's tab over
-   CDP, arms the submit guards, and operates only the target: the field from
-   its fact, read back (a control it now captures that no fact answers counts
-   as detected), or the route, read back as the posting or the form.
-5. `keep.py` commits exactly the fix's hunks on `main` from a temporary index,
-   moving `main` only if it has not moved, applies them to the working tree
-   without disturbing anyone's staged or unstaged work, and pushes; a refused
-   push leaves the commit local and says so. The change is recorded with its
-   parent, diff, attempts, gates, replay counts and probe, and the issue is
-   `fixed`.
-
-Any step that fails goes back to the model with what failed; after three
-attempts, or when the model names a missing fact or calls it impossible, the
-issue is `unsolved` and waits in the Inbox. A model outage stops the fixer for
-the run. An issue is recorded `unsolved` before the page is told, and a run that
-ends while a fix is under way records it `unsolved` as it closes, since the
-fixer's thread dies with the process and a `fixing` issue is never reopened. Once a fix is kept and no other is mid-flight, the run saves its
-observations, writes its state (`SessionState.export`) and re-executes itself
-(`apply --continue-run`, the same PID), so the device agent keeps the run: it
-announces `reload`, and the agent keeps its place for the new process. The new
-process reads the facts and patterns as they are now, continues on the same
-tab, restores what the run already asked, spent and decided, and fills only
-what is still empty. Each fix's state goes to the page as `fixes`. `--no-claude`
-and `--dry-run` run no fixer.
+Now a failure like that stays an open failure issue, stored with its evidence
+(`persist_open`, `report_wall`, `queue_repairs`) and listed by the Inbox and
+`os hunt apply failures`; `os doctor` still checks the fixer's readiness
+(`jobs/readiness.py`).
 
 For a repeatable local run, serve the static Staged Robotics fixture from the
 repository root:
@@ -538,9 +505,13 @@ under its purpose: `learn` (`short_answers.py`, the gate pass included), `fix`
 (the fixer), `check` (`answer_check.py`) and `draft` (prose and the letter's
 slots). Every step the run stores carries its `learn` plus `fix` calls so far
 as `model_calls`, a reload carries the count into the next process, and the
-run's closing line prints all four. Only learning and fixing count toward
-`os hunt sites` marking a site `met`; checking and drafting run on every
-application.
+run's closing lines print all four with their tokens. While a run is active
+each purpose is capped — 20 `learn`, 30 `check`, 10 `draft`; `fix` is uncapped
+— and the counts carry across a reload. A spent cap stops only that purpose:
+it is said once, calls already made are kept, and what is left is said to be
+yours. A usage limit still stops every call. Outside a run nothing is capped.
+Only learning and fixing count toward `os hunt sites` marking a site `met`;
+checking and drafting run on every application.
 `jobs/answer_check.py` is the other half: it reads back the answers the page
 already holds and asks whether a fact contradicts one, because an answer can be
 confidently filled and wrong. A wrong answer a pattern filled has its question

@@ -5,13 +5,11 @@ from __future__ import annotations
 import contextlib
 import re
 from datetime import date
-from functools import partial
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 from playwright.sync_api import Error
-from rich.markup import escape
 
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
@@ -496,10 +494,8 @@ def apply_posting(
     from personal_os_worker.documents.doctor import latex_toolchain_check
     from personal_os_worker.documents.resume import (
         ensure_resume,
-        repository_root,
         transcript_pdf_path,
     )
-    from personal_os_worker.jobs import model
     from personal_os_worker.jobs.autofill_session import (
         AutofillSession,
         ReloadForFix,
@@ -515,6 +511,7 @@ def apply_posting(
         rendered_body_text,
     )
     from personal_os_worker.jobs.fix.queue import FixQueue
+    from personal_os_worker.jobs.fix.scratch import clear_stale
     from personal_os_worker.jobs.keys import KeyWatcher
     from personal_os_worker.jobs.knowledge import report_pending_facts, resolve_pending_facts
     from personal_os_worker.jobs.navigate import Target, is_posting, reach_posting
@@ -539,6 +536,8 @@ def apply_posting(
     if continued is None:
         # A fact you set on the web since the last run is checked before this one.
         report_pending_facts(resolve_pending_facts(api))
+        # Scratch clones from a run that never got to tidy up are gone by now.
+        clear_stale(state_dir() / "fix")
     run_id: str | None = None
     link: RunLink | None = None
     fixes: FixQueue | None = None
@@ -570,16 +569,6 @@ def apply_posting(
             mirror.enter_context(mirrored(link))
         elif remote:
             raise RuntimeError("This device's agent did not take the run")
-        if not no_claude and not dry_run:
-            fixes = FixQueue(
-                repo=repository_root(),
-                workdir=state_dir() / "fix" / run_id,
-                api=api,
-                run_id=run_id,
-                report=lambda line: console.print(f"  [dim]{escape(line)}[/dim]"),
-                publish=link.fixes if link is not None else None,
-                runner=partial(model.run, purpose="fix"),
-            )
         direct_url = str(run["application_url"])
         # A label for querying the fill events; every site is filled the same way.
         ats = str(run.get("ats") or "generic")
@@ -751,7 +740,7 @@ def apply_posting(
                 )
             )
             if continued is not None:
-                session.state = SessionState.restore(dict(continued["session"]))
+                session.carry_on(SessionState.restore(dict(continued["session"])))
                 console.print("  [dim]carrying the run on with the fix just kept[/dim]")
             try:
                 outcome = session.run()
@@ -843,8 +832,8 @@ def continue_run(state: Path) -> int:
 def run_autofill_failure_command(action: str | None, reference: str | None) -> int:
     """List what runs could not settle, or show one with its evidence.
 
-    Fixing is the run's own job now: the fixer (`jobs/fix/`) writes, tests, and
-    keeps code for a failure while the run goes on.
+    The code fixer is switched off: a failure only code can settle stays an
+    open issue here until a change closes it.
     """
     from personal_os_worker.core.tables import short_id
 

@@ -527,16 +527,17 @@ class AutofillSession:
         self.page = context.page
         self._explainer: Explainer | None = None
         self.timings = AutofillTimings(report=lambda line: console.print(line, style="dim"))
-        # The process-wide counts when this session began, so each run counts its own.
-        self._calls_at_start = model.counts()
+        model.begin_run()
         self._sent_calls = 0  # the learning and fixing calls the API was last told of
+
+    def carry_on(self, state: SessionState) -> None:
+        """Adopt the previous process's state and keep counting from its call counts."""
+        self.state = state
+        model.begin_run(state.model_calls_base)
 
     def model_calls(self) -> dict[str, int]:
         """This run's model calls by purpose, the processes it reloaded from included."""
-        now = model.counts()
-        base = self.state.model_calls_base
-        return {purpose: int(base.get(purpose, 0)) + now[purpose] - self._calls_at_start[purpose]
-                for purpose in model.PURPOSES}
+        return model.run_counts()
 
     def learning_calls(self) -> int:
         """The calls a site seen before should not need again: learning and fixing."""
@@ -549,6 +550,10 @@ class AutofillSession:
             return None
         try:
             return operation(*args, **kwargs)
+        except model.BudgetSpent as spent:
+            # Only its purpose is spent; say it once and keep the other lanes running.
+            self.warn_once(f"budget-{spent.purpose}", str(spent))
+            return None
         except (ModelError, subprocess.TimeoutExpired, OSError) as error:
             self.state.model_error = str(error) if isinstance(error, ModelError) else (
                 "Claude timed out or could not start; drafting and answer checks unavailable"
@@ -1820,7 +1825,9 @@ class AutofillSession:
             if unchecked.question not in judgements:
                 self.state.check_findings[unchecked.question] = Finding(
                     unchecked.question, "model_error", unchecked.question in required,
-                    self.state.model_error or "the answer check returned no judgement",
+                    self.state.model_error
+                    or (str(model.BudgetSpent("check")) if model.remaining("check") == 0
+                        else "the answer check returned no judgement"),
                     answer=unchecked.answer, source=unchecked.source,
                 )
         for judgement in judgements.values():
@@ -2673,7 +2680,6 @@ class AutofillSession:
                 self.save_now()
             # The next process starts counting from zero; it carries these on.
             self.state.model_calls_base = self.model_calls()
-            self._calls_at_start = model.counts()
             raise ReloadForFix
 
     def report_review(self) -> None:
@@ -2942,7 +2948,7 @@ class AutofillSession:
         )
         with self.ctx.keys:
             outcome = self._run()
-        self.timings.close(self.model_calls())
+        self.timings.close(model.run_usage(), model.CAPS)
         return outcome
 
     def _run(self) -> dict[str, Any]:

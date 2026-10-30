@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
@@ -48,6 +49,9 @@ GOALS = {
     "posting_not_found": "the run could not find the posting on this site: add a route for "
     "this site in jobs/routes/ that reaches the posting from where the page is",
 }
+
+# Fixing: a model edits the scratch clone, never the run's checkout.
+run_claude = partial(model.run, purpose="fix")
 
 
 @dataclass(frozen=True)
@@ -198,7 +202,7 @@ def write(
     fixtures: list[str],
     feedback: str | None,
     *,
-    runner: Runner = model.run,
+    runner: Runner = run_claude,
 ) -> Answer | None:
     """One model session in the scratch clone; None when it gave no usable answer."""
     command = model.argv(prompt(problem, fixtures, feedback), schema=SCHEMA, tools=TOOLS)

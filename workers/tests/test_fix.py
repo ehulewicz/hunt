@@ -875,3 +875,26 @@ def test_close_during_failed_check_does_not_start_another_model_attempt(
     queue._thread.join(5)
     assert not queue._thread.is_alive()
     assert calls == ["model"]
+
+
+def test_clear_stale_removes_every_clone_a_dead_run_left(tmp_path: Path) -> None:
+    from personal_os_worker.jobs.fix.scratch import clear_stale
+
+    root = tmp_path / "fix"
+    (root / "run-a" / "scratch").mkdir(parents=True)
+    (root / "run-a" / "scratch" / "file.py").write_text("x = 1\n")
+    (root / "run-b").mkdir()
+    (root / "note.txt").write_text("left behind\n")
+
+    clear_stale(root)
+
+    assert root.exists()
+    assert list(root.iterdir()) == []
+    clear_stale(root / "gone")  # a missing root is fine
+
+
+def test_clear_stale_leaves_the_root_itself(tmp_path: Path) -> None:
+    from personal_os_worker.jobs.fix.scratch import clear_stale
+
+    clear_stale(tmp_path / "never-made")
+    assert not (tmp_path / "never-made").exists()

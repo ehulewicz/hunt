@@ -1,5 +1,7 @@
 from typing import Any
 
+import pytest
+
 from personal_os_worker.jobs.learn import Lesson
 from personal_os_worker.jobs.registry.events import value_hash
 from personal_os_worker.jobs.replay import (
@@ -223,3 +225,35 @@ def test_a_fact_nothing_answers_from_touches_no_answer() -> None:
 
     replay = replay_fact(ACCEPTED, knowledge(*NAMES), "identity.preferred_name", "E")
     assert replay.outcomes == () and replay.passed
+
+
+def test_main_exit_codes(monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:
+    import httpx
+
+    from personal_os_worker.jobs import replay
+    from personal_os_worker.jobs.replay import Outcome, Replay
+
+    api = type("Api", (), {"close": lambda self: None})()
+    monkeypatch.setattr("personal_os_worker.core.commands.connected", lambda: (None, None))
+    monkeypatch.setattr("personal_os_worker.core.api.WorkerApi", lambda *_: api)
+
+    monkeypatch.setattr(replay, "check_code", lambda *_, **__: Replay(()))
+    assert replay.main([]) == 0
+    assert "none changed for the worse" in capsys.readouterr().out
+
+    sighting = Sighting(question="Email", question_key="email", kind="text_entry",
+                        attributes={}, control="text", options=(), answer="a@b.example",
+                        fact_key=None, value_hash=None)
+    failing = Replay((Outcome(sighting, None, Answer("x@y.example")),))
+    monkeypatch.setattr(replay, "check_code", lambda *_, **__: failing)
+    assert replay.main(["--json", "--question", "Email"]) == 1
+    out = capsys.readouterr().out
+    assert "now 'x@y.example'" in out and "you accepted 'a@b.example'" in out
+    assert out.strip().endswith('{"sampled": 1, "failed": 1, "unchecked": 0}')
+
+    def offline(*_: Any, **__: Any) -> None:
+        raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(replay, "check_code", offline)
+    assert replay.main([]) == 2
+    assert "Replay could not complete" in capsys.readouterr().out

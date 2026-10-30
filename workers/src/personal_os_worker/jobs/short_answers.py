@@ -173,7 +173,19 @@ def draft_short_answers(
             _prompt(question, posting=posting, facts=facts, likely=likely), schema=SCHEMA
         )
 
+    refused: list[model.BudgetSpent] = []
+
+    def ask(question: ShortQuestion) -> str:
+        try:
+            return runner(argv_for(question))
+        except model.BudgetSpent as spent:
+            # A cap spent mid-batch keeps the verdicts already paid for.
+            refused.append(spent)
+            return ""
+
     with ThreadPoolExecutor(max_workers=min(len(questions), MAX_CONCURRENT_CALLS)) as pool:
-        outputs = list(pool.map(lambda question: runner(argv_for(question)), questions))
+        outputs = list(pool.map(ask, questions))
+    if len(refused) == len(questions):
+        raise refused[0]
     items = [item for output in outputs for item in _answers_in(output)]
     return verdicts_from(items, questions, {str(fact["key"]) for fact in facts})

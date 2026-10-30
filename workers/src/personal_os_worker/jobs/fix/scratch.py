@@ -113,6 +113,18 @@ def interpreter(repo: Path) -> Path:
     return Path(sys.executable)
 
 
+def clear_stale(root: Path) -> None:
+    """Remove every clone a previous run's fixer left under `root`; a missing
+    root is fine."""
+    if not root.is_dir():
+        return
+    for entry in root.iterdir():
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry, ignore_errors=True)
+        else:
+            entry.unlink(missing_ok=True)
+
+
 class Scratch:
     """A clone the fix is written in; removed once the fix is kept or given up."""
 
@@ -210,7 +222,7 @@ class Scratch:
         check could not run, which never counts as passing.
         """
         python = str(interpreter(self.repo))
-        command = [python, "-m", "personal_os_worker", "hunt", "replay", "--json"]
+        command = [python, "-m", "personal_os_worker.jobs.replay", "--json"]
         if question:
             command += ["--question", question]
         if fact_key:

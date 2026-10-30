@@ -33,12 +33,30 @@ class AutofillTimings:
             })
             self.report(f"Timing step {step + 1}: {phase} {elapsed} ms ({outcome})")
 
-    def close(self, calls: dict[str, int]) -> None:
-        """The run's closing line: its model calls by purpose. Learning and fixing
-        are what the next application on this site should not need."""
-        by_purpose = ", ".join(f"{purpose} {count}" for purpose, count in calls.items())
-        learning = calls.get("learn", 0) + calls.get("fix", 0)
+    def close(self, usage: dict[str, dict[str, int]], caps: dict[str, int]) -> None:
+        """The run's closing lines: its model calls against each cap, then its
+        tokens. Learning and fixing are what the next application on this site
+        should not need."""
+        by_purpose = ", ".join(
+            f"{purpose} {sums['calls']} of {caps[purpose]}"
+            if purpose in caps else f"{purpose} {sums['calls']}"
+            for purpose, sums in usage.items()
+        )
+        learning = usage.get("learn", {}).get("calls", 0) + usage.get("fix", {}).get("calls", 0)
         self.report(f"Model calls this run: {by_purpose} ({learning} learning and fixing)")
+
+        def tokens(purpose: str) -> str:
+            sums = usage.get(purpose, {})
+            line = (
+                f"{purpose} {sums.get('input_tokens', 0)} in / "
+                f"{sums.get('output_tokens', 0)} out"
+            )
+            cached = sums.get("cache_read_input_tokens", 0)
+            if cached:
+                line += f" ({cached} cached)"
+            return line
+
+        self.report("Model tokens this run: " + ", ".join(map(tokens, usage)))
 
     def record_usage(self, phase: str, step: int, sample: dict[str, Any]) -> None:
         """Keep one Claude call's tokens and reported cost beside the phase timings."""

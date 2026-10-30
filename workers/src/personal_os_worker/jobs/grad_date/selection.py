@@ -20,8 +20,11 @@ from __future__ import annotations
 import json
 import subprocess
 from collections.abc import Callable
+from functools import partial
 
+from personal_os_worker.jobs import model
 from personal_os_worker.jobs.grad_date.variants import CANONICAL_GRADUATION
+from personal_os_worker.jobs.model_errors import ModelError
 
 SCHEMA = {
     "type": "object",
@@ -34,15 +37,8 @@ SCHEMA = {
 }
 
 
-def run_claude(argv: list[str]) -> str:
-    process = subprocess.run(
-        argv,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    return process.stdout if process.returncode == 0 else ""
+# Checking runs on every application, so it is counted apart from learning.
+run_claude = partial(model.run, purpose="check")
 
 
 def _prompt(description: str) -> str:
@@ -67,20 +63,11 @@ def requires_later_graduation(
     text = (description or "").strip()
     if not text:
         return False
-    argv = [
-        "claude",
-        "-p",
-        "--safe-mode",
-        "--tools",
-        "",
-        "--no-session-persistence",
-        "--output-format",
-        "json",
-        "--json-schema",
-        json.dumps(SCHEMA, separators=(",", ":")),
-        _prompt(text),
-    ]
-    output = runner(argv)
+    argv = model.argv(_prompt(text), schema=SCHEMA)
+    try:
+        output = runner(argv)
+    except (ModelError, subprocess.TimeoutExpired, OSError):
+        return False
     try:
         payload = json.loads(output)
         structured = payload.get("structured_output", payload)

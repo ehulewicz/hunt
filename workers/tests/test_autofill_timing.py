@@ -135,9 +135,19 @@ def test_a_timed_out_call_still_counts(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_the_closing_line_counts_calls_by_purpose() -> None:
+    from personal_os_worker.jobs import model
+
     messages: list[str] = []
     timings = AutofillTimings(report=messages.append)
-    timings.close({"learn": 2, "check": 3, "draft": 1, "fix": 1})
+    usage = {
+        purpose: {"calls": calls, "input_tokens": 0, "output_tokens": 0,
+                  "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
+        for purpose, calls in (("learn", 2), ("check", 3), ("draft", 1), ("fix", 1))
+    }
+    timings.close(usage, model.CAPS)
     assert messages == [
-        "Model calls this run: learn 2, check 3, draft 1, fix 1 (3 learning and fixing)"
+        "Model calls this run: learn 2 of 20, check 3 of 30, draft 1 of 10, "
+        "fix 1 (3 learning and fixing)",
+        "Model tokens this run: learn 0 in / 0 out, check 0 in / 0 out, "
+        "draft 0 in / 0 out, fix 0 in / 0 out",
     ]
