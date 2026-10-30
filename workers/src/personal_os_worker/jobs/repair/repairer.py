@@ -20,6 +20,7 @@ from personal_os_worker.jobs.autofill import FormFill, choice_group_key
 from personal_os_worker.jobs.browser import (
     fresh_control,
     inspect_fields,
+    registrable_site,
     verify_control,
 )
 from personal_os_worker.jobs.options import choose_option, normalize_answer_question
@@ -112,6 +113,40 @@ def repair_strategy(
                 "question": question_of(field),
                 "value": shown,
             }
+    learned_shown = _learned_attempt(page, field, fill, kind)
+    if learned_shown is not None:
+        return {
+            "kind": "strategy",
+            "control_kind": kind,
+            "attributes": control_attributes(field),
+            "strategy": learned_shown[0],
+            "question": question_of(field),
+            "value": learned_shown[1],
+        }
+    return None
+
+
+def _learned_attempt(
+    page: Page, field: dict[str, Any], fill: FormFill, kind: str
+) -> tuple[str, str] | None:
+    """A site's learned strategies for this kind, after the built-ins failed."""
+    from personal_os_worker.jobs import registry
+    from personal_os_worker.jobs.registry.api import WidgetHandle
+
+    for strategy in registry.learned("strategies", registrable_site(page.url)):
+        if strategy.kind != kind:
+            continue
+        try:
+            control = fresh_control(page, field)
+            result = strategy.operate(WidgetHandle(page, control), str(fill.value))
+        except (Error, RuntimeError):
+            continue
+        expected = result if result is not None else fill.value
+        try:
+            if verify_control(page, field, expected):
+                return f"learned:{strategy.name}", str(expected)
+        except (Error, RuntimeError):
+            continue
     return None
 
 

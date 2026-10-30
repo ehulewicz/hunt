@@ -264,7 +264,7 @@ def _choose_among(
             return Rendering(chosen, f"{rendering.formatter}_option")
     return None
 
-def render(
+def _render(
     key: str,
     value: Any,
     value_type: str,
@@ -356,6 +356,46 @@ def render(
     if isinstance(limit, int) and limit > 0 and len(rendering.value) > limit:
         return None
     return rendering
+
+
+def render(
+    key: str,
+    value: Any,
+    value_type: str,
+    *,
+    field: dict[str, Any],
+    question: str,
+    prefer: str | None = None,
+    seed: str = "",
+    context: Mapping[str, Any] | None = None,
+    site: str = "",
+) -> Rendering | None:
+    """The built-in rendering, else the site's learned formats, or None."""
+    built_in = _render(
+        key, value, value_type, field=field, question=question, prefer=prefer,
+        seed=seed, context=context,
+    )
+    if built_in is not None or not site:
+        return built_in
+    from personal_os_worker.jobs import registry
+    from personal_os_worker.jobs.registry.api import FormatInput
+
+    for learned_format in registry.learned("formats", site):
+        if key not in learned_format.fact_keys:
+            continue
+        written = learned_format.render(
+            FormatInput(
+                value=value,
+                value_type=value_type,
+                options=tuple(_options(field)),
+                question=question,
+                input_type=_input_type(field),
+            )
+        )
+        if written is not None:
+            module = str(getattr(learned_format, "__module__", "")).rsplit(".", 1)[-1]
+            return Rendering(written, f"learned:{module}")
+    return None
 
 
 def renderings(

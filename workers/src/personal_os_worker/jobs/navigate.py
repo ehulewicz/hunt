@@ -318,6 +318,17 @@ def find_posting(
             report("opened the site's open roles")
             continue
         break
+    # Built-ins failed: the site's learned routes get a turn with the handles.
+    from personal_os_worker.jobs import registry
+    from personal_os_worker.jobs.registry.api import SiteHandle
+
+    for learned_route in registry.learned("routes", registrable_site(page.url)):
+        if learned_route.goal != "posting":
+            continue
+        report("following the site's learned route")
+        with suppress(Error, RuntimeError):
+            if learned_route.run(SiteHandle(page), target.title, target.company) and found():
+                return True
     return found()
 
 

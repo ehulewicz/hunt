@@ -508,6 +508,7 @@ def apply_posting(
         inspect_fields,
         looks_like_application_form,
         page_evidence,
+        registrable_site,
         rendered_body_text,
     )
     from personal_os_worker.jobs.fix.queue import FixQueue
@@ -585,6 +586,7 @@ def apply_posting(
             prior_applications=list(run.get("duplicate_company_applications") or []),
             title=str(run["title"]),
             referral={"referred": referred is not None, "name": referred or None},
+            site=registrable_site(direct_url),
         )
         if knowledge.facts.get("availability.conflicts_with_school"):
             console.print(

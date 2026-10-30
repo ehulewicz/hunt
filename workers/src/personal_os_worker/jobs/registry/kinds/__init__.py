@@ -101,3 +101,87 @@ def question_of(field: dict[str, Any]) -> str:
         identity = field.get("name") or field.get("selector") or field.get("index")
         return f"Unidentified question ({identity})"
     return str(field.get("label") or field.get("name") or "").strip()
+
+
+# ----- learned kinds ---------------------------------------------------------
+
+# The read script the worker composes from a Kind's `reads`; a declaration
+# never carries JavaScript. "selected" reads the texts of selected options or
+# of pressed/selected/checked items the widget holds.
+_READ_SCRIPTS = {
+    "text": "element => String(element.innerText || element.textContent || '').trim()",
+    "value": "element => String(element.value || '')",
+    "selected": """element => (element.tagName === 'SELECT'
+  ? [...element.selectedOptions]
+  : [...element.querySelectorAll(
+      '[aria-selected="true"], [aria-pressed="true"], [aria-checked="true"]')])
+    .map(node => String(node.textContent || '').trim()).join(', ')""",
+}
+# A kind's read returns {value, label?, options?, required?, filled?}: the
+# compose below wraps the reads expression the same way custom kinds do.
+
+
+def _reads_script(reads: str) -> str:
+    """The JS `read` one Kind's `reads` composes to, or None for an unknown one."""
+    if reads in _READ_SCRIPTS:
+        return _READ_SCRIPTS[reads]
+    if reads.startswith("attribute:"):
+        name = reads[len("attribute:"):]
+        return f"element => String(element.getAttribute({name!r}) || '')"
+    return ""
+
+
+def _as_custom(kind: Any) -> Any:
+    """A learned Kind shaped like a custom kind: same capture, same read."""
+    from personal_os_worker.jobs.registry.kinds.custom import CustomKind
+
+    script = _reads_script(kind.reads)
+    return CustomKind(
+        name=kind.name,
+        selector=kind.selector,
+        read=f"element => ({{value: ({script})(element)}})",
+        strategies={
+            name: lambda _attempt: None for name in kind.strategies
+        },
+    )
+
+
+def learned_kinds(site: str) -> list[Any]:
+    """The site's learned kinds, as custom-kind-shaped objects for capture."""
+    from personal_os_worker.jobs import registry
+
+    return [
+        _as_custom(kind)
+        for kind in registry.learned("kinds", site)
+        if _reads_script(kind.reads)
+    ]
+
+
+def learned_kind(name: str, site: str) -> Any | None:
+    """The one learned kind by name for a site, custom-shaped, or None."""
+    return next(
+        (kind for kind in learned_kinds(site) if kind.name == name), None
+    )
+
+
+def learned_question(control: Any, site: str) -> str:
+    """The question a site's readers give this control's group, or the empty string."""
+    from personal_os_worker.jobs import registry
+
+    for reader in registry.learned("questions", site):
+        try:
+            text = control.evaluate(
+                r"""(element, [group_selector, question_selector]) => {
+  const group = element.closest(group_selector);
+  return group
+    ? (group.querySelector(question_selector)?.textContent || '')
+        .replace(/\s+/g, ' ').trim()
+    : '';
+}""",
+                [reader.group_selector, reader.question_selector],
+            )
+        except Exception:
+            continue
+        if str(text or "").strip():
+            return str(text).strip()
+    return ""

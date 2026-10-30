@@ -38,6 +38,7 @@ class Kind:
     reads: str
     strategies: tuple[str, ...]
     site: str
+    examples: tuple[Example, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,7 @@ class Strategy:
     kind: str
     operate: Callable[[WidgetHandle, str], str | None]
     site: str
+    examples: tuple[Example, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -69,6 +71,7 @@ class Format:
     fact_keys: tuple[str, ...]
     render: Callable[[FormatInput], str | None]
     site: str
+    examples: tuple[tuple[FormatInput, str | None], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -83,6 +86,7 @@ class QuestionReader:
     group_selector: str
     question_selector: str
     site: str
+    examples: tuple[Example, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -92,10 +96,30 @@ class Route:
     site: str
     goal: Literal["posting", "form"]
     run: Callable[[SiteHandle, str, str], bool]
+    examples: tuple[Example, ...] = ()
 
 
 class Refused(RuntimeError):
     """A handle was asked to submit, sign in, or leave the site."""
+
+
+class NoMatch(RuntimeError):
+    """A pick found no option matching the value: a format stop, not a safety one."""
+
+
+@dataclass(frozen=True)
+class Example:
+    """One checkable example of a declaration on a saved fixture page.
+
+    `fixture` is an HTML file in the fix's fixture folder; `selector` the
+    control's CSS selector in it; `value` what the strategy or kind is run
+    with; `expected` what must read back (a kind's read, a reader's question).
+    """
+
+    fixture: str
+    selector: str
+    value: str
+    expected: str
 
 
 # Keys a handle will press: navigation and editing, never Enter.
@@ -162,7 +186,7 @@ class WidgetHandle:
             )
             chosen = choose_option([str(option) for option in options], text)
             if chosen is None:
-                raise Refused(f"no option matches {text!r}")
+                raise NoMatch(f"no option matches {text!r}")
             self._control.select_option(label=chosen, timeout=CONTROL_TIMEOUT_MS)
             return chosen
         owned_id = self._control.get_attribute(
@@ -178,7 +202,7 @@ class WidgetHandle:
         ]
         chosen = choose_option([text for text in texts if text], text)
         if chosen is None:
-            raise Refused(f"no option matches {text!r}")
+            raise NoMatch(f"no option matches {text!r}")
         items.nth(texts.index(chosen)).click(timeout=CONTROL_TIMEOUT_MS)
         return chosen
 

@@ -519,6 +519,41 @@ class FillObserver(Protocol):
         ...
 
 
+def _learned_attempts(
+    page: Page,
+    control: Any,
+    field: dict[str, Any],
+    fill: FormFill,
+    attempts: list[tuple[str, str | None]],
+    events: list[dict[str, Any]],
+    offered: list[str],
+    first_error: Exception | None,
+    expected: Any,
+) -> tuple[str | None, Any, Exception | None]:
+    """The site's learned strategies, after every built-in candidate failed."""
+    from personal_os_worker.jobs import registry
+    from personal_os_worker.jobs.registry.api import WidgetHandle
+
+    for strategy in registry.learned("strategies", registrable_site(page.url)):
+        if strategy.kind != classify(field):
+            continue
+        name = f"learned:{strategy.name}"
+        try:
+            result = strategy.operate(WidgetHandle(page, control), str(fill.value))
+        except (Error, RuntimeError) as error:
+            first_error = first_error or error
+            attempts.append(
+                (name, str(error).splitlines()[0][:200] if str(error) else type(error).__name__)
+            )
+            events.append(_attempt_event(field, fill, name, stopped_stage(error), False, offered))
+            continue
+        attempts.append((name, None))
+        if result is not None:
+            expected = result
+        return name, expected, first_error
+    return None, expected, first_error
+
+
 def apply_autofill(
     page: Page,
     fields: list[dict[str, Any]],
@@ -591,6 +626,11 @@ def apply_autofill(
             if result is not None:
                 expected = result
             break
+        if operated is None:
+            operated, expected, first_error = _learned_attempts(
+                page, control, field, fill, attempts, events, offered,
+                first_error, expected,
+            )
         if operated is None and first_error is not None:
             message = str(first_error)
             if field.get("required") is True:
@@ -681,9 +721,12 @@ def fresh_control(page: Page, field: dict[str, Any]) -> Any:
         if locator.count() == 1:
             return locator
     if field.get("custom"):
+        from personal_os_worker.jobs.registry.kinds import learned_kind
         from personal_os_worker.jobs.registry.kinds.custom import load
 
-        kind = load().get(str(field["custom"]))
+        kind = load().get(str(field["custom"])) or learned_kind(
+            str(field["custom"]), registrable_site(page.url)
+        )
         if kind is None:
             raise RuntimeError(f"no custom kind {field['custom']!r} is registered")
         widgets = frame.locator(kind.selector)
@@ -715,9 +758,14 @@ def verify_control(
     control = fresh_control(page, field)
     try:
         if field.get("custom"):
+            from personal_os_worker.jobs.registry.kinds import learned_kind
             from personal_os_worker.jobs.registry.kinds.custom import load, read
 
-            kind = load()[str(field["custom"])]
+            kind = load().get(str(field["custom"])) or learned_kind(
+                str(field["custom"]), registrable_site(page.url)
+            )
+            if kind is None:
+                return False
             held = str(read(control, kind).get("value") or "")
             expected = str(value or "")
             return same_entry(held, expected) or option_match([held], expected) is not None
@@ -1228,9 +1276,11 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
             item["frame_url"] = frame.url
             results.append(item)
     # Widgets a custom kind captures (`registry/kinds/custom.py`), after the form inputs.
+    from personal_os_worker.jobs.registry.kinds import learned_kinds
     from personal_os_worker.jobs.registry.kinds.custom import capture, load
 
-    for kind in load().values():
+    # Built-ins first: a site's learned kinds capture only after them.
+    for kind in [*load().values(), *learned_kinds(registrable_site(page.url))]:
         for frame_index, frame in enumerate(page.frames):
             try:
                 captured = capture(frame, kind)
@@ -1241,6 +1291,21 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
                 item["frame_index"] = frame_index
                 item["frame_url"] = frame.url
                 results.append(item)
+    # A radio group with no question of its own asks the site's learned readers.
+    from personal_os_worker.jobs.registry.kinds import learned_question
+
+    for item in results:
+        if (
+            str(item.get("type") or "").casefold() == "radio"
+            and not str(item.get("group") or "").strip()
+        ):
+            try:
+                control = fresh_control(page, item)
+                text = learned_question(control, registrable_site(page.url))
+            except (Error, RuntimeError):
+                continue
+            if text:
+                item["group"] = text
     return results
 
 

@@ -575,14 +575,32 @@ reports each fill to a `FillObserver` before and after operating it, which
 
 **The registry layout.** `jobs/registry/` is where built-ins and learned
 fixes share one layout, one package per category: `kinds/` classifies controls
-and `kinds/custom.py` holds kinds a site taught (learned ones in `learned/`);
-`strategies/` holds the operations that operate each kind by family (native,
-combobox, buttons, upload, suggestions) beside the candidate tables and
-`OPERATIONS`; `formats/` renders a fact per family (dates, money, phone,
-choices, places, text) behind `render`/`renderings`; `questions/` and `routes/`
-hold question readers and per-site posting routes. `api.py` declares what a
-learned file may say, and `learned()` returns a site's own declarations after
-the built-ins.
+and `kinds/custom.py` holds kinds a site taught; `strategies/` holds the
+operations that operate each kind by family (native, combobox, buttons, upload,
+suggestions) beside the candidate tables and `OPERATIONS`; `formats/` renders a
+fact per family (dates, money, phone, choices, places, text) behind
+`render`/`renderings`; `questions/` and `routes/` hold question readers and
+per-site posting routes. `api.py` is the only module a learned file may import:
+it declares what a fix can say (one frozen declaration per file) and the two
+handles it sees a page through, both of which refuse to submit or sign in.
+
+**Learned files.** A category's `learned/` package holds one site's own
+declarations, one file each. `registry/policy.py` checks a file before it is
+ever imported — only `re` and the API import, no private names, no escape
+builtins, exactly one declaration naming its site — and `learned(category,
+site)` returns a site's passing declarations in filename order, refused ones
+kept in `refused()`. `load_file` checks and imports one kept fix without a
+restart. Built-ins always go first: learned kinds capture after the custom
+kinds in `inspect_fields`, learned question readers name radio groups with no
+question, learned strategies run in `apply_autofill` and the repair lane only
+once every built-in candidate has failed, learned formats render only when the
+built-ins return None for a fact they name, and learned routes reach a posting
+or form after the navigator and its routes give up. Every learned file carries
+`examples` proving itself on HTML fixtures
+(`workers/tests/fixtures/learned/<category>/<module>/`), run in the protected
+`jobs/fix/examples.py` and kept honest by `tests/test_learned.py`; the
+reference declarations the fixer's prompt shows live in
+`fixtures/learned_examples/` and are run through the same policy.
 
 **How it is operated.** `jobs/registry/` names what the fill path does. `kinds.py` classifies every
 detected control into one of seven kinds — `text_entry`, `native_select`,

@@ -759,6 +759,8 @@ class AutofillSession:
                 wall_reported = wall_reported or result is not None
             elif self.pass_the_gate():
                 continue
+            if not wall_reported and self._learned_form_route():
+                continue
             if not wall_reported:
                 self.report_wall(
                     "navigation_wall",
@@ -770,6 +772,28 @@ class AutofillSession:
                     "form. Use the open browser to reach it; I am watching the page."
                 )
             self.sleep()
+
+    def _learned_form_route(self) -> bool:
+        """Whether the site's learned route reached a form; tried before a wall."""
+        from personal_os_worker.jobs import registry
+        from personal_os_worker.jobs.registry.api import SiteHandle
+
+        for route in registry.learned("routes", registrable_site(self.page.url)):
+            if route.goal != "form":
+                continue
+            try:
+                if route.run(SiteHandle(self.page), "", ""):
+                    fields = inspect_fields(self.page)
+                    if (
+                        classify_application_page(
+                            self.page, fields, self.state.navigation
+                        )
+                        == ApplicationPageState.FORM
+                    ):
+                        return True
+            except (Error, RuntimeError):
+                continue
+        return False
 
     # ----- the account wall --------------------------------------------------
 

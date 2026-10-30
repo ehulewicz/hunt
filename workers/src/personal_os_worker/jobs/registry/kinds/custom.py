@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -63,11 +64,13 @@ def load() -> dict[str, CustomKind]:
     global _loaded
     if not _loaded:
         _loaded = True
-        learned = importlib.import_module(
-            "personal_os_worker.jobs.registry.kinds.learned"
-        )
-        for module in pkgutil.iter_modules(learned.__path__):
-            importlib.import_module(f"{learned.__name__}.{module.name}")
+        # Custom kinds are ordinary modules beside this file; a site's learned
+        # kinds load only through `registry.learned`, never here.
+        package = sys.modules[__name__.rsplit(".", 1)[0]]
+        for module in pkgutil.iter_modules(package.__path__):
+            if module.name in {"custom", "learned"} or module.name.startswith("_"):
+                continue
+            importlib.import_module(f"{package.__name__}.{module.name}")
     return KINDS
 
 

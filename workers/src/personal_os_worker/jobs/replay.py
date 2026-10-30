@@ -375,13 +375,34 @@ def replay_fact(
 
 
 def check_code(
-    api: WorkerApi, *, question: str | None = None, fact_key: str | None = None
+    api: WorkerApi,
+    *,
+    question: str | None = None,
+    fact_key: str | None = None,
+    learned: str | None = None,
 ) -> Replay:
     """The code as it stands, with your facts and active patterns, replayed against
-    the answers you accepted; `question` and `fact_key` name the failure it fixes."""
+    the answers you accepted; `question` and `fact_key` name the failure it fixes.
+    `learned` is one candidate format or question reader checked and loaded so the
+    sightings replay as that file's site."""
     from personal_os_worker.jobs.repair.commands import knowledge_for
 
     knowledge = replace(knowledge_for(api), patterns=tuple(api.patterns("active")))
+    if learned is not None:
+        from personal_os_worker.jobs import registry
+
+        site = ""
+        for category in ("formats", "questions"):
+            try:
+                declarations = registry.load_file(learned, category=category)
+            except ValueError:
+                continue
+            if declarations:
+                site = declarations[0].site
+                break
+        if not site:
+            raise RuntimeError(f"{learned} declares no format or question reader")
+        knowledge = replace(knowledge, site=site)
     key = normalize_answer_question(question or "")
     return replay_code(
         sightings_of(api.sightings()), knowledge, question_key=key or None,
@@ -408,12 +429,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--question", help="The failed question a code change fixes")
     parser.add_argument("--fact", dest="fact_key",
                         help="The fact that question is filled from")
+    parser.add_argument("--learned", metavar="FILE",
+                        help="A candidate format or question reader to check, load, "
+                        "and replay every sighting against as its site")
     args = parser.parse_args(argv)
     try:
         config, token = connected()
         api = WorkerApi(config, token)
         try:
-            replay = check_code(api, question=args.question, fact_key=args.fact_key)
+            replay = check_code(api, question=args.question, fact_key=args.fact_key,
+                        learned=args.learned)
         finally:
             api.close()
     except (httpx.HTTPError, LoginError, RuntimeError, ReferenceError) as error:

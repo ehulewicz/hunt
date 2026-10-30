@@ -69,6 +69,8 @@ class Knowledge:
     seed: str = ""
     # Control identity -> the strategy a validated repair found for it.
     preferences: dict[str, str] = field(default_factory=dict)
+    # The registrable site whose learned declarations may run after built-ins.
+    site: str = ""
 
     @classmethod
     def build(
@@ -85,6 +87,7 @@ class Knowledge:
         prior_applications: Iterable[dict[str, Any]] | None = None,
         title: str = "",
         referral: dict[str, Any] | None = None,
+        site: str = "",
     ) -> Knowledge:
         """Stored facts over career-derived ones (R51), then derived and posting facts."""
         day = today or date.today()
@@ -127,6 +130,7 @@ class Knowledge:
                 for item in preferences
                 if item.get("control_kind") and item.get("strategy")
             },
+            site=site,
         )
 
     def for_model(self) -> list[dict[str, Any]]:
@@ -238,6 +242,7 @@ class Resolver:
             prefer=prefer,
             seed=self.knowledge.seed,
             context=self.knowledge.facts,
+            site=self.knowledge.site,
         )
 
     def _from_pattern(
