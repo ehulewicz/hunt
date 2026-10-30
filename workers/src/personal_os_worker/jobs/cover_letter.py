@@ -1,29 +1,29 @@
 """The cover letter: fixed prose from `artifacts/career/cover_letter.md`, four
-posting-dependent slots drafted by Claude, edited in VS Code, then filled or
-uploaded.
+posting-dependent slots drafted by Claude, reviewed on the Hunt page, then
+filled or uploaded.
 
-This is the one place the worker opens an editor. A letter is read for
-judgment, not facts, so the user sees the whole thing before it goes in.
+No editor opens on this machine: `jobs/letter_review.py` sends the letter to
+the Hunt page when the run is linked and leaves it for the page otherwise.
+The API compiles the upload PDF; the worker never builds one.
 """
 
 from __future__ import annotations
 
 import datetime as dt
-import hashlib
 import json
 import re
-import shutil
-import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from personal_os_worker.documents.resume import repository_root
-from personal_os_worker.documents.resume_pdf import PREAMBLE, build_header, compile_pdf, escape
 from personal_os_worker.jobs import model
 from personal_os_worker.jobs.answers import TAG_LEAK
+
+if TYPE_CHECKING:
+    from personal_os_worker.core.api import WorkerApi
 
 SLOT = re.compile(r"\{\{(\w+)\}\}")
 CLAUDE_SLOTS = ("hook", "why_this", "tie")
@@ -196,46 +196,18 @@ def draft_slots(
     return slots
 
 
-# ----- editing and output ---------------------------------------------------
-
-def edit_in_vscode(path: Path) -> None:
-    """Block until the tab closes; the file's content is then the letter."""
-    editor = shutil.which("code") or shutil.which("code.exe")
-    if editor is None:
-        raise RuntimeError("VS Code command 'code' was not found; install its shell command")
-    subprocess.run(
-        [editor, "--wait", "--reuse-window", str(path)],
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-
-def build_letter_latex(
-    contact: dict[str, Any], text: str, *, date: str, company: str
-) -> str:
-    trailer_id = hashlib.sha256(text.encode()).hexdigest()[:32].upper()
-    parts = [PREAMBLE, rf"\pdftrailerid{{<{trailer_id}><{trailer_id}>}}", r"\begin{document}"]
-    parts.extend(build_header(contact))
-    parts.append(r"\vspace{10pt}")
-    parts.append(rf"\noindent {escape(date)}\par\vspace{{4pt}}")
-    parts.append(rf"\noindent {escape(company)}\par\vspace{{10pt}}")
-    for paragraph in re.split(r"\n\s*\n", text.strip()):
-        lines = [escape(line.strip()) for line in paragraph.splitlines() if line.strip()]
-        parts.append(r"\noindent " + r" \\ ".join(lines) + r"\par\vspace{8pt}")
-    parts.append(r"\end{document}")
-    return "\n".join(parts) + "\n"
-
+# ----- output -----------------------------------------------------------------
 
 def today() -> str:
     return dt.date.today().strftime("%B %-d, %Y")
 
 
-def letter_pdf(contact: dict[str, Any], text: str, directory: Path, *, company: str) -> Path:
-    """Compile the letter to `<directory>/<Name>_Cover_Letter.pdf`, one page."""
+def letter_pdf(
+    api: WorkerApi, contact: dict[str, Any], text: str, directory: Path, *, company: str
+) -> Path:
+    """The API-compiled letter as `<directory>/<Name>_Cover_Letter.pdf`, one page."""
     name = re.sub(r"[^A-Za-z0-9]+", "_", str(contact.get("name") or "Cover")).strip("_")
-    latex = build_letter_latex(contact, text, date=today(), company=company)
-    pdf = compile_pdf(latex, directory, "cover_letter", pages=1)
+    directory.mkdir(parents=True, exist_ok=True)
     final = directory / f"{name}_Cover_Letter.pdf"
-    final.write_bytes(pdf.read_bytes())
+    final.write_bytes(api.cover_letter_pdf(text, company=company, date=today()))
     return final

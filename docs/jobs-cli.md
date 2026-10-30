@@ -39,9 +39,8 @@ os hunt facts set work_auth.security_clearance no --type boolean --label "Holds 
 os hunt facts delete education.gpa       # confirm deleting a stored override
 os hunt facts delete address.line_2 --yes # skip confirmation
 
-os hunt resume build      # republish main.json and the PDF from the career record
-os hunt resume       # = os hunt resume edit --open
-os hunt resume import     # once: load main.json into an empty career record
+os hunt resume get        # print the record's resume document as JSON
+os hunt resume put FILE   # validate and save a resume document
 
 os hunt queue
 os hunt queue add 3 7
@@ -85,7 +84,7 @@ os hunt sites                 # each site's latest run and its learning and fixi
 `facts delete KEY` shows the stored value and asks for confirmation; `--yes`
 skips the prompt. It records the deletion through the API. Removing a stored
 override lets the career record decide that fact again. A career-derived key
-without a stored row must be changed with `os hunt resume edit`; other
+without a stored row must be changed with `os hunt resume put`; other
 computed-only facts belong to code and cannot be deleted. Unknown keys are
 reported without sending a delete request.
 
@@ -146,11 +145,10 @@ is `active`, and the next application fills that question deterministically;
 `os hunt patterns` shows the state of the loop. Prose is reused only once
 approved; `prose add` saves writing directly, approved.
 
-The career record's exports and the transcript are portable Git artifacts:
+The letter template and the transcript are portable Git artifacts:
 
 ```text
-artifacts/career/main.json
-artifacts/career/Alex_Example.pdf
+artifacts/career/cover_letter.md
 artifacts/career/Transcript.pdf
 ```
 
@@ -270,7 +268,7 @@ never a stored fact: each May 1, August 1, and November 1 that passed while a
 co-op entry ran (through the end of its last month, or today while current, and
 never past graduation) completes one, counted once across entries. A prior
 internship is an internship or co-op entry that has ended, or a co-op with a
-completed rotation. Change either with `os hunt resume edit`. Visa/work-permit
+completed rotation. Change either with `os hunt resume put`. Visa/work-permit
 expiration stays manual without a date.
 
 Facts are the single source the apply run fills from. `os hunt facts review`
@@ -287,13 +285,13 @@ the checkout current first (a clean checkout of `main` fast-forwards; one with
 local changes runs as it is, and the page says so), then runs `os hunt apply <ref>
 --remote`. Its Chrome tab is beside the run, live and clickable: you sign in, solve
 a captcha, and press Submit there, then press Submitted. Save, Submitted, Skip, and
-Stop on the page are Ctrl+S, Ctrl+A, Ctrl+D, and Ctrl+C. The cover letter opens on
-the page instead of VS Code, and a "Left for you" fact gap takes its value on the
+Stop on the page are Ctrl+S, Ctrl+A, Ctrl+D, and Ctrl+C. The cover letter is reviewed on
+the page, and a "Left for you" fact gap takes its value on the
 page: the run stores the fact and fills the field, exactly as `--ask-facts` would.
 
 `os hunt apply` in a terminal works as before. When the device's agent is running,
 the run registers with it, so it appears on the page too and the page's controls
-work; its letter stays in VS Code. A device runs one application at a time: the
+work; its letter is reviewed on the page too. A device runs one application at a time: the
 page cannot start a run while one is active, and a second terminal run while the
 page shows one just runs unmirrored.
 

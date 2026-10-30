@@ -716,7 +716,7 @@ def test_cover_letter_is_drafted_once_edited_in_the_editor_then_filled_and_uploa
         edited.append(path)
         path.write_text(path.read_text().replace("Hook.", "Edited hook."))
 
-    def renderer(contact: Any, text: str, directory: Path, *, company: str) -> Path:
+    def renderer(api: Any, contact: Any, text: str, directory: Path, *, company: str) -> Path:
         rendered.append(text)
         pdf = directory / "Alex_Example_Cover_Letter.pdf"
         pdf.write_bytes(b"%PDF-1.4\n%%EOF")
@@ -762,7 +762,7 @@ def test_cover_letter_is_drafted_once_edited_in_the_editor_then_filled_and_uploa
     assert saved["Cover Letter"]["source"] == "model"
     assert saved["Cover Letter"]["form"] == "short"  # the letter is not saved as prose
     printed = capsys.readouterr().out
-    assert "Cover letter open in VS Code" in printed
+    assert "Cover letter ready for review" in printed
     assert printed.count("drafting the cover letter slots") == 1
 
 
@@ -792,7 +792,7 @@ def test_cover_letter_pdf_build_failure_reports_the_latex_error_not_a_readback_m
         "! ==> Fatal error occurred, no output PDF file produced!"
     )
 
-    def renderer(contact: Any, text: str, directory: Path, *, company: str) -> Path:
+    def renderer(api: Any, contact: Any, text: str, directory: Path, *, company: str) -> Path:
         raise RuntimeError(message)
 
     api = FakeApi()

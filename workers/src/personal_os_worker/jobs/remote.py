@@ -201,18 +201,22 @@ class RunLink:
             self._tab = target
             self._client.send({"type": "tab", "target": target})
 
-    def edit_letter(self, path: Path) -> None:
-        """The --remote letter editor: the page edits the draft, the file gets the result."""
+    def edit_letter(self, path: Path) -> bool:
+        """The Hunt page's letter review: it edits the draft, the file gets the result.
+
+        True when the page answered; False when the agent went away first,
+        which the caller treats as "not reviewed".
+        """
         self._client.send({"type": "letter", "text": path.read_text(encoding="utf-8")})
         while True:
             try:
                 text = self._letters.get(timeout=LETTER_POLL_SECONDS)
             except queue.Empty:
                 if self.closed:
-                    return  # the agent went away; the draft stands
+                    return False
                 continue
             path.write_text(text, encoding="utf-8")
-            return
+            return True
 
     def end(self, outcome: str) -> None:
         self._client.send({"type": "end", "outcome": outcome})

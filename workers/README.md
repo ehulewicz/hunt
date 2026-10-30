@@ -39,13 +39,12 @@ os device install
 os device status
 ```
 
-The resume is the career record in the database. `os hunt resume` (= `resume
-edit --open`) opens a working copy as JSON in VS Code and sends each save to the
-API; an accepted save republishes the exports `artifacts/career/main.json`
-(committed) and `Alex_Example.pdf` (generated, ignored by Git). `resume build` republishes
-them from the record, `resume build --input FILE` compiles a file without
-touching the record, and `resume import` loads `main.json` into an empty record
-once. Facts the resume determines — school, degree, graduation, GPA, whole years
+The resume is the career record in the database, edited at /resume/edit or
+with `os hunt resume get` (the document as JSON on stdout) and
+`os hunt resume put <file>` (validates and saves it; a refusal prints the API's
+reason). The backend builds the one-page PDF on each save and serves it at
+/resume; a run downloads that PDF once for every upload in it. Facts the resume
+determines — school, degree, graduation, GPA, whole years
 of experience, the current employer, every organization, every skill — are
 derived from the record by `jobs/facts/derived.py`; a stored fact with the same
 key still wins until `os hunt facts delete KEY` removes that override, and
@@ -152,7 +151,7 @@ one is listening, in any terminal: its console is teed to the page line by line,
 it reports its tab's CDP target id, the audit's gaps go out as structured items,
 the page's Save, Submitted, and Skip join the terminal keys, and Stop is the same
 KeyboardInterrupt as Ctrl+C. `--remote` is the agent's own run: the page edits its
-cover letter instead of VS Code, and its fact gaps are answered on the page;
+cover letter reviewed on the page, and its fact gaps are answered there;
 `AutofillSession.set_fact_and_fill` is the one body behind both that and
 `--ask-facts`. With no agent listening a run behaves exactly as it always has.
 

@@ -96,7 +96,6 @@ from personal_os_worker.jobs.cover_letter import (
     LetterSlots,
     LetterTemplate,
     draft_slots,
-    edit_in_vscode,
     letter_pdf,
     load_template,
     placeholder_slots,
@@ -114,6 +113,7 @@ from personal_os_worker.jobs.gateway import (
 )
 from personal_os_worker.jobs.keys import KeyWatcher, NoKeys
 from personal_os_worker.jobs.learn import Lesson, binding_refusal, lesson_for
+from personal_os_worker.jobs.letter_review import review_letter
 from personal_os_worker.jobs.model_errors import ModelError
 from personal_os_worker.jobs.options import (
     choose_option,
@@ -173,6 +173,11 @@ LetterDrafter = Callable[..., LetterSlots | None]
 LetterRenderer = Callable[..., Path]
 
 
+def leave_letter_for_you(path: Path) -> None:
+    """The default letter review: no page, no accept — left for the Hunt page."""
+    review_letter(path, link=None, accept=False)
+
+
 @dataclass
 class SessionContext:
     api: WorkerApi
@@ -199,7 +204,7 @@ class SessionContext:
     checker: AnswerChecker = check_answers
     letter_drafter: LetterDrafter = draft_slots
     letter_template: Callable[[], LetterTemplate] = load_template
-    editor: Callable[[Path], None] = edit_in_vscode
+    editor: Callable[[Path], None] = leave_letter_for_you
     letter_renderer: LetterRenderer = letter_pdf
     letter_dir: Path | None = None  # where the editable letter and its PDF live
     use_claude: bool = True
@@ -1664,7 +1669,7 @@ class AutofillSession:
         path = directory / "cover_letter.md"
         path.write_text(text, encoding="utf-8")
         echo("letter", "Cover letter", note=note)
-        console.print("  [bold]Cover letter open in VS Code[/bold] — close the tab to continue.")
+        console.print("  [dim]Cover letter ready for review[/dim]")
         self.ctx.editor(path)
         self.state.cover_letter = path.read_text(encoding="utf-8").strip() + "\n"
         return self.state.cover_letter
@@ -1680,7 +1685,7 @@ class AutofillSession:
             return
         text = self.cover_letter_text()
         if not text.strip():
-            echo("left", "Cover letter", note="the file was empty")
+            echo("left", "Cover letter", note="not reviewed; left for you")
             return
         for item in targets:
             question = str(item.get("label") or "Cover letter").strip()
@@ -1692,6 +1697,7 @@ class AutofillSession:
                 # "the DOM refused my value" need different responses.
                 try:
                     pdf = self.ctx.letter_renderer(
+                        self.ctx.api,
                         self.ctx.resume_json.get("contact", {}),
                         text,
                         self.letter_directory(),

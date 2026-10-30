@@ -142,7 +142,7 @@ a cover letter tab, and a collapsible run log. Live fixes appear alongside
 messages. Each shows the question, cause, state,
 attempt out of three, and note, including the commit note for a kept fix.
 Fact gaps accept a value inline, which the run stores and fills. The cover letter
-is edited here and "Use this letter" sends it back; a terminal run's letter stays in VS Code. Unsent letter
+is edited here and "Use this letter" sends it back; a terminal run's letter comes to the page too. Unsent letter
 edits and unsent fact inputs survive a trip to the overview during the page's
 lifetime and remain scoped to their run. Returning to the
 overview closes only the browser's device session, not the application run.

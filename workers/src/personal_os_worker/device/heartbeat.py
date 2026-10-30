@@ -28,7 +28,6 @@ from personal_os_worker.device.identity import (
     tailnet_url,
 )
 from personal_os_worker.device.update import Checkout, read_checkout
-from personal_os_worker.documents.doctor import CHECKS as DOCUMENT_CHECKS
 
 HEARTBEAT_SECONDS = 30.0
 DOCTOR_SECONDS = 600.0
@@ -67,7 +66,7 @@ def heartbeat_payload(
 
 def doctor_checks(config: CliConfig, token: str) -> list[DoctorCheck]:
     """Exactly what `os doctor` checks on this machine."""
-    return run_doctor(config, token, extra=(*DOCUMENT_CHECKS, secrets_check))
+    return run_doctor(config, token, extra=(secrets_check,))
 
 
 class Presence:

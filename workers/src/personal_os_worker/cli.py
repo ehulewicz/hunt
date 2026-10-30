@@ -7,6 +7,7 @@ can be added later without claiming more names on PATH.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -215,27 +216,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     resume = jobs_commands.add_parser(
-        "resume", help="Edit or build the one-page resume from the career record"
+        "resume", help="Read or write the career record's resume document"
     )
     resume_commands = resume.add_subparsers(dest="resume_command", required=True)
-    resume_build = resume_commands.add_parser(
-        "build", help="Republish main.json and the PDF from the career record"
+    resume_commands.add_parser(
+        "get", help="Print the record's resume document as JSON to stdout"
     )
-    resume_build.add_argument(
-        "--input", help="Compile this resume JSON file instead; the record is not touched"
+    resume_put = resume_commands.add_parser(
+        "put", help="Save a resume JSON file as the career record"
     )
-    resume_build.add_argument("--output", help="Stable PDF output path (with --input)")
-    resume_edit = resume_commands.add_parser(
-        "edit", help="Edit the career record as JSON; each save is validated and published"
-    )
-    resume_edit.add_argument(
-        "--open", action="store_true", help="Open an auto-refreshing PDF preview"
-    )
-    resume_edit.add_argument("--interval", type=float, default=0.5)
-    resume_import = resume_commands.add_parser(
-        "import", help="Load a resume JSON into the empty career record, once"
-    )
-    resume_import.add_argument("--input", help="Resume JSON path; defaults to main.json")
+    resume_put.add_argument("file", help="The resume document JSON to save")
 
     autofill = jobs_commands.add_parser(
         "apply",
@@ -314,6 +304,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Do not fill anything; record that you applied to this listing yourself",
     )
     autofill.add_argument(
+        "--accept-letter",
+        action="store_true",
+        help="Use the filled cover letter as is, without review, when no [slot] prompt is left",
+    )
+    autofill.add_argument(
         "--remote",
         action="store_true",
         help="Driven from the Hunt page through this device's agent (the agent passes this)",
@@ -390,28 +385,35 @@ def run_whoami() -> int:
 
 
 def run_resume(args: argparse.Namespace) -> int:
-    if args.resume_command == "build" and args.input:
-        output = Path(args.output).expanduser() if args.output else None
-        result = resumes.build_resume(Path(args.input).expanduser(), output)
-        console.print(f"Resume built: {result.pdf}")
-        return 0
-    if args.resume_command == "build" and args.output:
-        raise RuntimeError("--output applies to --input builds; the record publishes in place")
     config, token = services.connected()
     api = WorkerApi(config, token)
     try:
-        if args.resume_command == "build":
-            result = resumes.publish_record(api)
-            console.print(f"Resume published: {result.source} and {result.pdf}")
-        elif args.resume_command == "import":
-            source = Path(args.input).expanduser() if args.input else None
-            result = resumes.import_resume(api, source)
-            console.print(f"Career record imported; published {result.source} and {result.pdf}")
-        else:
-            resumes.edit_resume(api, interval=args.interval, open_preview=args.open)
+        if args.resume_command == "get":
+            document = api.career().get("document")
+            if not isinstance(document, dict):
+                raise RuntimeError("The career record response carried no document")
+            # Plain stdout, so `os hunt resume get > file` writes only the JSON.
+            sys.stdout.write(json.dumps(document, indent=2, ensure_ascii=False) + "\n")
+            return 0
+        source = Path(args.file).expanduser()
+        try:
+            document = json.loads(source.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            console.print(
+                f"Resume JSON is invalid at line {error.lineno}, "
+                f"column {error.colno}: {error.msg}",
+                markup=False,
+            )
+            return 1
+        try:
+            api.put_career(document)
+        except httpx.HTTPStatusError as error:
+            console.print(f"Resume not saved: {resumes.rejection(error)}", markup=False)
+            return 1
+        console.print("Resume saved; /resume serves the new PDF.")
+        return 0
     finally:
         api.close()
-    return 0
 
 
 def _dispatch(args: argparse.Namespace) -> int:
@@ -536,6 +538,7 @@ def _dispatch(args: argparse.Namespace) -> int:
                     step=args.step,
                     ask_facts=args.ask_facts,
                     remote=args.remote,
+                    accept_letter=args.accept_letter,
                 )
             if args.ats:
                 raise RuntimeError("--ats picks the top row; do not give a row with it")
@@ -552,6 +555,7 @@ def _dispatch(args: argparse.Namespace) -> int:
                 company=args.company,
                 title=args.title,
                 remote=args.remote,
+                accept_letter=args.accept_letter,
             )
     return 2
 
@@ -559,8 +563,8 @@ def _dispatch(args: argparse.Namespace) -> int:
 def expand_shorthand(arguments: list[str]) -> list[str]:
     """The short spellings of the everyday commands.
 
-    `hunt` is `hunt list`, `hunt 20` is `hunt list 20`, `hunt facts` is
-    `hunt facts list`, and `hunt resume` is `hunt resume edit --open`.
+    `hunt` is `hunt list`, `hunt 20` is `hunt list 20`, and `hunt facts` is
+    `hunt facts list`.
     """
     if not arguments or arguments[0] != "hunt":
         return arguments
@@ -569,8 +573,6 @@ def expand_shorthand(arguments: list[str]) -> list[str]:
         return ["hunt", "list", *rest]
     if rest == ["facts"]:
         return ["hunt", "facts", "list"]
-    if rest == ["resume"]:
-        return ["hunt", "resume", "edit", "--open"]
     if rest[0] not in (*HUNT_COMMANDS, "list") and not rest[0].startswith("-"):
         raise SystemExit(
             f"os hunt: unknown command {rest[0]!r}. Use a number of rows, or one of: "

@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import re
 from datetime import date
+from functools import partial
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -18,7 +19,6 @@ from personal_os_worker.core.secrets import secrets_check
 from personal_os_worker.core.service import ensure_chrome, open_external_url
 from personal_os_worker.core.tables import console, pick
 from personal_os_worker.device.link import socket_path
-from personal_os_worker.documents.doctor import CHECKS as DOCUMENT_CHECKS
 from personal_os_worker.jobs.account import AccountFlow
 from personal_os_worker.jobs.resolve import Knowledge
 from personal_os_worker.jobs.tables import render_applications, render_listings
@@ -251,7 +251,7 @@ def run_doctor_command() -> int:
     from personal_os_worker.jobs.readiness import fixer_check
 
     config, token = connected()
-    checks = run_doctor(config, token, extra=(*DOCUMENT_CHECKS, secrets_check, fixer_check))
+    checks = run_doctor(config, token, extra=(secrets_check, fixer_check))
     for check in checks:
         console.print(f"[{check.label}] {check.name}: {check.detail}", markup=False)
     return 0 if all(check.ok or check.advisory for check in checks) else 1
@@ -377,6 +377,7 @@ def run_autofill(
     company: str | None = None,
     title: str | None = None,
     remote: bool = False,
+    accept_letter: bool = False,
 ) -> int:
     config, token = connected()
     api = WorkerApi(config, token)
@@ -387,7 +388,7 @@ def run_autofill(
     apply_posting(
         str(listing["id"]), dry_run=dry_run, no_claude=no_claude, repair=repair,
         fresh=fresh, explain=explain, step=step, ask_facts=ask_facts, referred=referred,
-        remote=remote,
+        remote=remote, accept_letter=accept_letter,
     )
     return 0
 
@@ -404,6 +405,7 @@ def run_autofill_top(
     step: bool = False,
     ask_facts: bool = False,
     remote: bool = False,
+    accept_letter: bool = False,
 ) -> int:
     """Apply the first board row (or first of today), on the given ATS when one is named."""
     families = list(DEFAULT_TECHNICAL_FAMILIES)
@@ -428,6 +430,7 @@ def run_autofill_top(
     apply_posting(
         str(listing["id"]), dry_run=dry_run, no_claude=no_claude, repair=repair,
         fresh=fresh, explain=explain, step=step, ask_facts=ask_facts, remote=remote,
+        accept_letter=accept_letter,
     )
     return 0
 
@@ -479,8 +482,12 @@ def apply_posting(
     ask_facts: bool = False,
     referred: str | None = None,
     remote: bool = False,
+    accept_letter: bool = False,
 ) -> str:
     """Run one interactive apply session: "submitted", "skipped", or "stopped".
+
+    `accept_letter` keeps the filled cover letter without a review; remote runs
+    never pass it.
 
     `referred` is None unless this application came through a referral: then it
     is the referrer's name, or "" when none was given. With this device's agent
@@ -488,9 +495,8 @@ def apply_posting(
     `remote` is a run the page started, whose letter and facts the page answers.
     """
     from personal_os_worker.core.service import state_dir
-    from personal_os_worker.documents.doctor import latex_toolchain_check
     from personal_os_worker.documents.resume import (
-        ensure_resume,
+        download_resume_pdf,
         transcript_pdf_path,
     )
     from personal_os_worker.jobs.autofill_session import (
@@ -510,6 +516,7 @@ def apply_posting(
     from personal_os_worker.jobs.fix.scratch import clear_stale
     from personal_os_worker.jobs.keys import KeyWatcher
     from personal_os_worker.jobs.knowledge import report_pending_facts, resolve_pending_facts
+    from personal_os_worker.jobs.letter_review import review_letter
     from personal_os_worker.jobs.navigate import Target, is_posting, reach_posting
     from personal_os_worker.jobs.remote import LinkedKeys, RunLink, mirrored
     from personal_os_worker.jobs.sites import adapter_version, failure_signature
@@ -521,11 +528,6 @@ def apply_posting(
     python = python_check()
     if not python.ok:
         raise RuntimeError(f"{python.name}: {python.detail}")
-    # The cover letter is compiled mid-application, so a broken TeX install must
-    # fail here rather than after twenty seconds of drafting on a live form.
-    latex = latex_toolchain_check()
-    if not latex.ok:
-        raise RuntimeError(f"{latex.name}: {latex.detail}")
     config, token = connected()
     ensure_chrome(config.cdp_url)
     api = WorkerApi(config, token)
@@ -541,7 +543,7 @@ def apply_posting(
     try:
         career = api.career()
         resume_json = dict(career["document"])
-        resume = ensure_resume(api)
+        resume_pdf = download_resume_pdf(api, state_dir() / "resume")
         version = adapter_version()
         run = api.create_autofill_run(
                 posting_id=posting_id, ats="generic", adapter_version=version
@@ -711,14 +713,13 @@ def apply_posting(
                 console.print(
                     "  [dim]repair on: a field that fails is retried here, on this page[/dim]"
                 )
-            resume_pdf = resume.pdf
             console.print(f"  [dim]resume  {resume_pdf}[/dim]")
             linked: dict[str, Any] = {}
             if link is not None:
                 linked = {"link": link, "keys": LinkedKeys(link, KeyWatcher())}
-                if remote:
-                    # The page edits the letter; a terminal run keeps VS Code.
-                    linked["editor"] = link.edit_letter
+            # The letter review goes to the Hunt page when a run is linked, and
+            # leaves the letter for the page otherwise.
+            linked["editor"] = partial(review_letter, link=link, accept=accept_letter)
             session = AutofillSession(
                 SessionContext(
                     api=api,

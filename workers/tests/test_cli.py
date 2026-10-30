@@ -82,11 +82,11 @@ def test_everyday_commands_have_short_spellings() -> None:
     assert expand_shorthand(["hunt", "--faang"]) == ["hunt", "list", "--faang"]
     assert expand_shorthand(["hunt", "--ats", "lever"]) == ["hunt", "list", "--ats", "lever"]
     assert expand_shorthand(["hunt", "20", "--ats=ashby"]) == ["hunt", "list", "20", "--ats=ashby"]
-    assert expand_shorthand(["hunt", "resume"]) == ["hunt", "resume", "edit", "--open"]
+    assert expand_shorthand(["hunt", "resume"]) == ["hunt", "resume"]
     # anything already spelled out is left alone
     assert expand_shorthand(["hunt", "apply", "7"]) == ["hunt", "apply", "7"]
     assert expand_shorthand(["hunt", "inbox"]) == ["hunt", "inbox"]
-    assert expand_shorthand(["hunt", "resume", "build"]) == ["hunt", "resume", "build"]
+    assert expand_shorthand(["hunt", "resume", "get"]) == ["hunt", "resume", "get"]
     assert expand_shorthand(["status"]) == ["status"]
     assert expand_shorthand(["hunt", "-h"]) == ["hunt", "-h"]  # help is the hunt help
     assert build_parser().parse_args(expand_shorthand(["hunt", "20"])).limit == 20
@@ -198,23 +198,20 @@ def test_apps_lists_or_marks_one_with_a_lifecycle_status() -> None:
         build_parser().parse_args(["hunt", "apps", "1", "submitted"])
 
 
-def test_resume_build_edit_and_import_are_cli_commands() -> None:
-    build = build_parser().parse_args(
-        ["hunt", "resume", "build", "--input", "/tmp/x.json", "--output", "/tmp/main.pdf"]
-    )
-    assert (build.hunt_command, build.resume_command, build.input, build.output) == (
-        "resume",
-        "build",
-        "/tmp/x.json",
-        "/tmp/main.pdf",
-    )
-    edit = build_parser().parse_args(["hunt", "resume", "edit", "--open", "--interval", "0.25"])
-    assert edit.resume_command == "edit" and edit.open is True
-    assert edit.interval == 0.25
-    imported = build_parser().parse_args(["hunt", "resume", "import"])
-    assert imported.resume_command == "import" and imported.input is None
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(["hunt", "resume", "watch"])
+def test_resume_get_and_put_are_cli_commands() -> None:
+    get = build_parser().parse_args(["hunt", "resume", "get"])
+    assert (get.hunt_command, get.resume_command) == ("resume", "get")
+    put = build_parser().parse_args(["hunt", "resume", "put", "/tmp/x.json"])
+    assert (put.hunt_command, put.resume_command, put.file) == ("resume", "put", "/tmp/x.json")
+    # The removed subcommands no longer parse.
+    for removed in ("build", "edit", "import"):
+        try:
+            build_parser().parse_args(["hunt", "resume", removed])
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError(f"hunt resume {removed} should not parse")
+
 
 
 def test_autofill_requires_a_saved_listing_reference_and_has_no_lentra_provider() -> None:

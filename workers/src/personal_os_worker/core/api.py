@@ -188,7 +188,9 @@ class WorkerApi:
         """The career record: its rows and the resume document rendered from them."""
         response = self._client.get("/v1/jobs/career")
         if response.status_code == 404:
-            raise RuntimeError("No career record yet; run 'os hunt resume import'")
+            raise RuntimeError(
+                "No career record yet; save one at /resume/edit or with 'os hunt resume put'"
+            )
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict):
@@ -203,17 +205,27 @@ class WorkerApi:
             raise RuntimeError("Career response was invalid")
         return payload
 
-    def import_career(self, document: dict[str, Any]) -> dict[str, Any]:
-        response = self._client.post("/v1/jobs/career/import", json=document)
-        if response.status_code == 409:
+    def resume_pdf(self) -> bytes:
+        """The published resume PDF, stored when the career record is saved."""
+        response = self._client.get("/v1/public/resume.pdf")
+        if response.status_code == 404:
             raise RuntimeError(
-                "The career record already exists; edit it with 'os hunt resume edit'"
+                "No published resume yet: save the career record once at /resume/edit"
+                " or with os hunt resume put"
             )
         response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise RuntimeError("Career response was invalid")
-        return payload
+        return response.content
+
+    def cover_letter_pdf(self, text: str, *, company: str, date: str) -> bytes:
+        response = self._client.post(
+            "/v1/jobs/cover-letter/pdf",
+            json={"text": text, "company": company, "date": date},
+        )
+        if response.status_code == 422:
+            detail = response.json().get("detail") if response.content else None
+            raise RuntimeError(str(detail or "The cover letter did not compile"))
+        response.raise_for_status()
+        return response.content
 
     def _json(self, response: httpx.Response, kind: str) -> Any:
         if response.status_code == 404:

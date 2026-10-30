@@ -189,10 +189,8 @@ def test_a_linked_run_that_fails_tells_the_page_why(
     monkeypatch.setattr(hunt, "ensure_chrome", lambda url: None)
     monkeypatch.setattr(hunt, "WorkerApi", lambda config, token: Api())
     monkeypatch.setattr(
-        "personal_os_worker.documents.doctor.latex_toolchain_check",
-        lambda: type("Ok", (), {"ok": True})(),
+        "personal_os_worker.documents.resume.download_resume_pdf", lambda api, directory: None
     )
-    monkeypatch.setattr("personal_os_worker.documents.resume.ensure_resume", lambda api: None)
     monkeypatch.setattr("personal_os_worker.jobs.browser.VisibleBrowser", Gone)
     monkeypatch.setattr("personal_os_worker.jobs.remote.RunLink.connect", lambda **_: Link())
 
