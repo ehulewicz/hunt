@@ -82,14 +82,29 @@ Who you are, what you build, what you are looking for. 150 to 250 words.
 Serves: personal summary (3 companies, optional), anything else (6, optional),
 introductions.
 
-### 2.2 Why software engineering, and what kind of engineering work energizes you most
+### 2.2 Why software engineering, and what draws you to each kind of engineering you are open to
 
-Say which you prefer and why, with evidence: backend, full stack, or ML;
-customer-facing or forward-deployed work, or core product and infrastructure.
+Your engineering interests are a set with no order. An area-of-interest menu
+is answered from the posting, else one is picked at random, so no ranking is
+needed here. What is needed is why each one draws you, so "why this role" can
+speak to the posting's kind of work. Open with two or three sentences on why
+software engineering at all. Then write two to four sentences for each interest
+below, with evidence:
+
+- Backend Engineering
+- Machine Learning / AI Engineering
+- Full-Stack Engineering
+- Forward Deployed Engineering
+- Simulation & Modeling Engineering
+- Scientific Computing
+- Algorithms Engineering
+- Robotics & Autonomous Systems
+- Research Engineering
+- Applied Software Engineering
+- Systems Engineering
 
 Serves: why this role or team (6), Palantir's Forward Deployed versus Software
-Engineer choice, Viget's role choice, area-of-interest picks (SeatGeek,
-Cloudflare, Pinterest, ZipRecruiter).
+Engineer choice, Viget's role choice.
 
 ### 2.3 What are you looking for in your next internship, and what do you want to learn there
 

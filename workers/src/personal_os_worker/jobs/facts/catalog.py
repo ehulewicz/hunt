@@ -155,6 +155,12 @@ CATALOG = _entries(
         "preferences.location_strategy", "Office selection policy (design §9)", "object"
     ),
     CatalogEntry(
+        "preferences.engineering_focus",
+        "Engineering interests, unordered: the posting decides which one, "
+        "else one is drawn at random",
+        "list",
+    ),
+    CatalogEntry(
         "preferences.application_source",
         "How you came to a posting, in a free-text box; menus rank the employer's site, "
         "a job board, then Other",
@@ -202,6 +208,7 @@ CATALOG = _entries(
         "boolean",
         "derived",
     ),
+    CatalogEntry("posting.title", "The posting's title", "text", "derived"),
     CatalogEntry("skills.all", "Every skill on the resume, in order", "list", "career"),
     CatalogEntry(
         "referral.referred", "Referred for this application (apply --referred)", "boolean",

@@ -19,6 +19,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from personal_os_worker.jobs.facts.derived import HOURS_PER_YEAR, graduation_term
+from personal_os_worker.jobs.focus import choose_focus, focus_text
 from personal_os_worker.jobs.office import choose_offices
 from personal_os_worker.jobs.office import parse as parse_place
 from personal_os_worker.jobs.options import (
@@ -559,6 +560,21 @@ def render(
     options = _options(field)
     if key in LIVE_MENU:
         return _standing(key, value, field, options, context)
+    if key == "preferences.engineering_focus" and isinstance(value, list) and value:
+        title = str((context or {}).get("posting.title") or "")
+        interests = [str(item) for item in value if str(item).strip()]
+        if options:
+            focused = choose_focus(
+                options,
+                interests,
+                title=title,
+                seed=seed,
+                question=question,
+                multiple=_multiple(field),
+            )
+            return Rendering(MULTI.join(focused), "focus_choice") if focused else None
+        text = focus_text(interests, title=title, seed=seed)
+        return Rendering(text, "focus_text") if text else None
     phone = _phone_country(key, value, context)
     if phone is not None and calling_code_menu(options):
         chosen = calling_code_option(options, *phone)
@@ -615,6 +631,10 @@ def renderings(
     """
     if value is None:
         return []
+    if key == "preferences.engineering_focus" and isinstance(value, list):
+        return [
+            Rendering(str(item), "focus_item") for item in value if str(item).strip()
+        ]
     found: list[Rendering] = []
     for rendering in _text_candidates(key, value, value_type, field, question):
         if rendering.value not in {item.value for item in found}:

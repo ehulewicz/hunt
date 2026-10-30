@@ -90,6 +90,7 @@ DERIVED_FACTS = (
 )
 # Derived from the posting being filled, so only known during an application.
 POSTING_FACTS = (
+    DerivedFact("posting.title", "The posting's title", ("the posting's title",)),
     DerivedFact(
         "employment.worked_for",
         "Has worked or researched at the company in this posting",
@@ -321,6 +322,8 @@ def posting_facts(
     """Facts about you and this posting: its company, its term, how you came to it."""
     found: dict[str, Any] = {}
     day = today or date.today()
+    if title.strip():
+        found["posting.title"] = title.strip()
     start, end, term = internship_window(title, day, facts.get("availability.notice_period_weeks"))
     found["availability.earliest_start_date"] = start.isoformat()
     found["availability.internship_dates"] = f"{_long_date(start)} \u2013 {_long_date(end)}"

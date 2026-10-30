@@ -437,8 +437,8 @@ the question just above it holds or is planned to hold the other answer. No
 value that declines to answer is ever chosen.
 
 **Posting facts.** Some facts belong to the posting, not to you, and are derived
-per run in `jobs/facts/derived.py`: whether you worked at or applied to its
-company before, its term ("Summer 2027" in the title), your earliest start
+per run in `jobs/facts/derived.py`: its title, whether you worked at or applied
+to its company before, its term ("Summer 2027" in the title), your earliest start
 (two weeks from accepting, your notice period, or the term's start if later:
 winter January 4, spring January 11, summer May 18, fall August 31) and a
 twelve-week window from it, whether that window runs into your last semester
@@ -490,7 +490,12 @@ same way from the country of residence when it is the phone's country.
 Against options, the first rendering that one option matches wins; none is a
 `format` failure. `jobs/office.py` is the §9 office policy, read from
 `preferences.location_strategy` when a question is bound to it, with draws
-seeded by the application.
+seeded by the application. `jobs/focus.py` does the same for
+`preferences.engineering_focus`, an unordered set: a question bound to it takes
+the option the posting's title names, else one of your interests the menu
+offers, else any real option, drawn with the application's seed; a "second
+choice" takes the next of the same draw, and a free-text box gets that
+interest's name.
 
 **What an answer reveals.** A form can add questions once a choice is made
 (race after Hispanic/Latino, a referral name after "were you referred"). After
