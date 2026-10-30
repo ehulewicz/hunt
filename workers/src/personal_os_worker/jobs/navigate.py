@@ -367,10 +367,11 @@ def reach_posting(
     with suppress(Error):
         offered = visible_actions(page)
     message = f"Neither a link, the site's search, nor its open roles led to {target.title!r}"
-    issues = report_page_failure("posting_not_found", message, offered=offered) or []
+    report_page_failure("posting_not_found", message, offered=offered)
     if fixes is not None:
+        # The page failure stays for history; the fixer keeps its own problem row.
         hand_to_fixer(page, target, fixes, message=message, offered=offered, run_id=run_id,
-                      issue_id=str(issues[0].get("id")) if issues else None)
+                      issue_id=None)
     console.print(
         f"[yellow]Posting not found:[/yellow] open {target.title!r} in the browser; "
         "I am watching the page."
@@ -418,6 +419,7 @@ def hand_to_fixer(
         note=message,
         target={"kind": "route", "goal": "posting", "title": target.title,
                 "company": target.company},
+        site=registrable_site(page.url),
         evidence={"url": page.url, "offered": offered},
         tried=("a link naming the role, the site's search by the full and shorter titles, "
                "and its open roles",),

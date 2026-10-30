@@ -20,7 +20,7 @@ from personal_os_worker.documents.resume import repository_root
 from personal_os_worker.jobs.fix.scratch import interpreter
 
 NAME = "Fixer"
-GATE_TOOLS = ("ruff", "mypy", "pytest")
+GATE_TOOLS = ("ruff", "mypy")
 REMOTE_TIMEOUT_SECONDS = 10
 TOOL_TIMEOUT_SECONDS = 60
 

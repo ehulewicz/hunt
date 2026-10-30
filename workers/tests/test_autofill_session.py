@@ -167,28 +167,6 @@ def _stub_model_run(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(model.subprocess, "run", lambda *_, **__: process)
 
 
-def test_each_step_carries_the_runs_learning_and_fixing_calls(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from personal_os_worker.jobs import model
-    from personal_os_worker.jobs.autofill_session import SessionState
-
-    _stub_model_run(monkeypatch)
-    api = FakeApi()
-    context = SimpleNamespace(api=api, run_id="run-test", page=SimpleNamespace(url="https://example.test"))
-    session = AutofillSession(cast(Any, context))
-    session.carry_on(SessionState(model_calls_base={"learn": 2, "check": 5, "fix": 1}))
-    for purpose in ("learn", "learn", "learn",
-                    "check", "check", "check", "check", "check", "draft", "fix"):
-        model.run(["claude", "-p"], purpose=cast(Any, purpose))
-
-    session.persist_step("run-test", {"step_number": 0, "url": "https://example.test"})
-
-    # The processes it reloaded from (2 + 1), then this one's learning and fixing (3 + 1).
-    assert api.steps[-1]["model_calls"] == 7
-    assert session.model_calls() == {"learn": 5, "check": 10, "draft": 1, "fix": 2}
-
-
 def test_a_late_fixing_call_reaches_the_api_with_nothing_else_to_save(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -207,36 +185,6 @@ def test_a_late_fixing_call_reaches_the_api_with_nothing_else_to_save(
 
     assert [(step["observations"], step["model_calls"]) for step in api.steps] == [([], 1)]
 
-
-def test_a_reload_carries_the_runs_model_calls_into_the_next_process(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import json
-
-    from personal_os_worker.jobs import model
-    from personal_os_worker.jobs.autofill_session import ReloadForFix, SessionState
-
-    _stub_model_run(monkeypatch)
-    api = FakeApi()
-    page = SimpleNamespace(url="https://example.test")
-    fixes = SimpleNamespace(at_safe_point=lambda _probe: True)
-    session = AutofillSession(cast(Any, SimpleNamespace(api=api, run_id="run-test", page=page,
-                                                        fixes=fixes)))
-    for purpose in ("learn", "learn", "learn", "check", "check", "fix"):
-        model.run(["claude", "-p"], purpose=cast(Any, purpose))
-    with pytest.raises(ReloadForFix):
-        session.safe_point()
-    exported = json.loads(json.dumps(session.state.export()))
-
-    # The next process (`apply --continue-run`) counts from zero again.
-    model.end_run()
-    carried = AutofillSession(cast(Any, SimpleNamespace(api=api, run_id="run-test", page=page)))
-    carried.carry_on(SessionState.restore(exported))
-    model.run(["claude", "-p"], purpose="learn")
-    carried.persist_step("run-test", {"step_number": 1, "url": "https://example.test"})
-
-    assert api.steps[-1]["model_calls"] == 5
-    assert carried.model_calls() == {"learn": 4, "check": 2, "draft": 0, "fix": 1}
 
 
 def test_repeated_question_on_two_controls_keeps_both_observations(

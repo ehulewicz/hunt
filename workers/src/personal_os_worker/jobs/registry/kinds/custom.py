@@ -41,6 +41,9 @@ class CustomKind:
     selector: str
     read: str
     strategies: dict[str, Operation] = field(default_factory=dict)
+    # Passed to evaluate as an argument beside the element, never interpolated
+    # into the script text (an "attribute:" read's name travels this way).
+    read_arg: str = ""
 
 
 KINDS: dict[str, CustomKind] = {}
@@ -78,13 +81,13 @@ def load() -> dict[str, CustomKind]:
 # kind's `read` is composed into the expression Playwright sends over CDP, never
 # evaluated by the page, so a page's content security policy cannot refuse it.
 CAPTURE_SCRIPT = r"""
-(elements, read) => {
+(elements, read, readArg) => {
   return elements.map((element, position) => {
     if (!(element.offsetWidth || element.offsetHeight || element.getClientRects().length)) {
       return null;
     }
     let held = {};
-    try { held = read(element) || {}; } catch (error) { held = {}; }
+    try { held = read(element, readArg) || {}; } catch (error) { held = {}; }
     const labelledBy = element.getAttribute('aria-labelledby');
     const referenced = labelledBy
       ? labelledBy.split(/\s+/).map(id => document.getElementById(id)?.textContent || '')
@@ -111,7 +114,7 @@ CAPTURE_SCRIPT = r"""
 def capture(frame: Any, kind: CustomKind) -> list[dict[str, Any]]:
     """Every visible widget of this kind in a frame, as a field the planner can fill."""
     raw = frame.locator(kind.selector).evaluate_all(
-        f"elements => ({CAPTURE_SCRIPT})(elements, {kind.read})"
+        f"elements => ({CAPTURE_SCRIPT})(elements, {kind.read})", kind.read_arg
     )
     found: list[dict[str, Any]] = []
     for item in raw:
@@ -129,5 +132,10 @@ def capture(frame: Any, kind: CustomKind) -> list[dict[str, Any]]:
 
 def read(control: Any, kind: CustomKind) -> dict[str, Any]:
     """What one widget holds now, by its kind's own `read`."""
-    held = control.evaluate(f"element => ({kind.read})(element) || {{}}")
+    held = control.evaluate(
+        "(element, read_arg) => {"
+        f"const held = ({kind.read})(element, read_arg) || {{}}; return held;"
+        "}",
+        kind.read_arg,
+    )
     return held if isinstance(held, dict) else {}

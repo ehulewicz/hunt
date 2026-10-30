@@ -78,6 +78,7 @@ os hunt changes               # the 20 newest changes to what Jobs knows, and to
 os hunt changes 50 --subject code --status passed
 os hunt changes show 3        # one change in full, a code change's diff included
 os hunt fixes                 # failures the fixer took on, and how each went
+os hunt fixes --retry 3       # an unsolved problem row back on the queue
 os hunt sites                 # each site's latest run and its learning and fixing calls
 ```
 
@@ -340,8 +341,11 @@ it did in one line, the fields that differ before to after. `--subject`
 prints one change in full, with both sides as JSON and a code change's diff.
 
 `os hunt fixes` lists the failures the fixer took on (`fixing`, `fixed`,
-`unsolved`): the category, the question, how often it was seen, the commit that
-fixed it, and the notes, which say what it tried or why it gave up.
+`unsolved`): the category, the question, how often it was seen, its attempts
+(`attempts N of 3`), the commit that fixed it, and the notes, which say what
+it tried or why it gave up; a fixer's problem row is marked `problem:`.
+`os hunt fixes --retry N|ID` puts an unsolved row back on the queue and resets
+its attempts.
 
 `os hunt sites` groups runs by site, the registrable host (its last two labels)
 of where each run ended up, else where it started, and shows each site's latest

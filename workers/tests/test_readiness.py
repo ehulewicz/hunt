@@ -39,7 +39,7 @@ def test_a_device_ready_to_fix_passes(tmp_path: Path) -> None:
     check = fixer_check(tmp_path, run=shell, which=lambda _: "/usr/bin/claude")
     assert check.ok and check.advisory and check.label == "OK"
     tools = [command[2] for command, _ in shell.calls if command[1:2] == ["-m"]]
-    assert tools == ["ruff", "mypy", "pytest"]
+    assert tools == ["ruff", "mypy"]
 
 
 def test_every_missing_piece_is_named_and_only_warns(tmp_path: Path) -> None:

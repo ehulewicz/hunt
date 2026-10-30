@@ -9,6 +9,7 @@ only after interaction), and cardinality (one, many, boolean).
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 CONTROL_KINDS = (
@@ -109,8 +110,8 @@ def question_of(field: dict[str, Any]) -> str:
 # never carries JavaScript. "selected" reads the texts of selected options or
 # of pressed/selected/checked items the widget holds.
 _READ_SCRIPTS = {
-    "text": "element => String(element.innerText || element.textContent || '').trim()",
-    "value": "element => String(element.value || '')",
+    "text": "(element) => String(element.innerText || element.textContent || '').trim()",
+    "value": "(element) => String(element.value || '')",
     "selected": """element => (element.tagName === 'SELECT'
   ? [...element.selectedOptions]
   : [...element.querySelectorAll(
@@ -121,13 +122,26 @@ _READ_SCRIPTS = {
 # compose below wraps the reads expression the same way custom kinds do.
 
 
+_READS = re.compile(r"text|value|selected|attribute:[a-z][a-z0-9_:-]{0,40}$")
+# A selector must be plain CSS: no Playwright engine prefix, no chaining.
+_ENGINE_PREFIX = re.compile(r"^\s*(?:[a-z_-]+=|internal:[a-z_-]+=)")
+
+
+def _valid_selector(selector: str) -> bool:
+    return bool(selector.strip()) and not (
+        _ENGINE_PREFIX.match(selector) or ">>" in selector
+    )
+
+
 def _reads_script(reads: str) -> str:
-    """The JS `read` one Kind's `reads` composes to, or None for an unknown one."""
+    """The JS `read` one Kind's `reads` composes to, or "" for an unknown one."""
+    if _READS.fullmatch(reads) is None:
+        return ""
     if reads in _READ_SCRIPTS:
         return _READ_SCRIPTS[reads]
     if reads.startswith("attribute:"):
-        name = reads[len("attribute:"):]
-        return f"element => String(element.getAttribute({name!r}) || '')"
+        # The name travels as an argument, never inside the script text.
+        return "(element, name) => String(element.getAttribute(name) || '')"
     return ""
 
 
@@ -136,13 +150,15 @@ def _as_custom(kind: Any) -> Any:
     from personal_os_worker.jobs.registry.kinds.custom import CustomKind
 
     script = _reads_script(kind.reads)
+    read_arg = kind.reads[len("attribute:"):] if kind.reads.startswith("attribute:") else ""
     return CustomKind(
         name=kind.name,
         selector=kind.selector,
-        read=f"element => ({{value: ({script})(element)}})",
+        read=f"(element, arg) => ({{value: ({script})(element, arg)}})",
         strategies={
             name: lambda _attempt: None for name in kind.strategies
         },
+        read_arg=read_arg,
     )
 
 
@@ -153,7 +169,7 @@ def learned_kinds(site: str) -> list[Any]:
     return [
         _as_custom(kind)
         for kind in registry.learned("kinds", site)
-        if _reads_script(kind.reads)
+        if _reads_script(kind.reads) and _valid_selector(kind.selector)
     ]
 
 
@@ -169,6 +185,11 @@ def learned_question(control: Any, site: str) -> str:
     from personal_os_worker.jobs import registry
 
     for reader in registry.learned("questions", site):
+        if not (
+            _valid_selector(reader.group_selector)
+            and _valid_selector(reader.question_selector)
+        ):
+            continue
         try:
             text = control.evaluate(
                 r"""(element, [group_selector, question_selector]) => {

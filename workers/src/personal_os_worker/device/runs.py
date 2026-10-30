@@ -91,9 +91,6 @@ class RunState:
     # What the run's hello said its process is; a terminal run is not the agent's child.
     pid: int | None = None
     linked: bool = False
-    # The run said it is reloading with a kept fix: its next connection is the
-    # same run, so its socket closing does not end it.
-    reloading: bool = False
     stop_requested: bool = False
     started_at: float = field(default_factory=time.time)
     lines: deque[list[dict[str, Any]]] = field(default_factory=lambda: deque(maxlen=LOG_LINES))
@@ -276,8 +273,7 @@ class RunManager:
             writer.close()
             state.linked = False
             # A page run ends when its process does; a terminal run ends here,
-            # unless it is only reloading.
-            if state.active and state.origin == "terminal" and not state.reloading:
+            if state.active and state.origin == "terminal":
                 await self._end(state, state.outcome or "disconnected")
 
     def _claim(self, hello: dict[str, Any]) -> RunState | None:
@@ -286,12 +282,6 @@ class RunManager:
         handle = str(hello.get("agent_run") or "")
         if current is not None and current.active:
             if handle and handle == current.key and not current.linked:
-                current.reloading = False
-                return current
-            # A run that reloaded for a kept fix comes back under its own id.
-            if (current.reloading and not current.linked
-                    and str(hello.get("run_id") or "") == current.run_id):
-                current.reloading = False
                 return current
             return None
         state = RunState(key=str(uuid.uuid4()), origin="terminal", phase="starting")
@@ -318,8 +308,6 @@ class RunManager:
         elif kind == "fixes":
             state.fixes = [item for item in message.get("items") or [] if isinstance(item, dict)]
             await self._publish({"type": "fixes", "items": state.fixes})
-        elif kind == "reload":
-            state.reloading = True
         elif kind == "fact_result":
             if message.get("ok"):
                 question = message.get("question")

@@ -103,7 +103,62 @@ def probe_route(page: Page, target: dict[str, Any]) -> dict[str, Any]:
     return {"ok": opened, "note": "the form is open" if opened else "no form appeared"}
 
 
-def probe(page: Page, target: dict[str, Any], knowledge: Knowledge) -> dict[str, Any]:
+def probe_candidate(
+    page: Page, target: dict[str, Any], knowledge: Knowledge, declarations: list[Any],
+) -> dict[str, Any]:
+    """The candidate file's declarations, verified on the live page."""
+    from personal_os_worker.jobs.registry.api import (
+        Format,
+        Kind,
+        QuestionReader,
+        Route,
+        Strategy,
+    )
+    from personal_os_worker.jobs.registry.kinds import _as_custom
+    from personal_os_worker.jobs.registry.kinds.custom import capture, read
+
+    for declaration in declarations:
+        if isinstance(declaration, Kind):
+            custom = _as_custom(declaration)
+            for frame in page.frames:
+                found = capture(frame, custom)
+                if not found:
+                    continue
+                control = frame.locator(custom.selector).nth(
+                    int(found[0].get("custom_index") or 0)
+                )
+                held = read(control, custom)
+                return {"ok": True, "kind": declaration.name,
+                        "note": f"captured and read {held.get('value')!r}"}
+            return {"ok": False, "note": "the kind captured nothing on the page"}
+        if isinstance(declaration, (Strategy, Format)):
+            return probe_field(page, target, knowledge)
+        if isinstance(declaration, QuestionReader):
+            fields = probe_question(page, declaration)
+            return fields
+        if isinstance(declaration, Route):
+            return probe_route(page, target)
+    return {"ok": False, "note": "no usable declaration in the file"}
+
+
+def probe_question(page: Page, reader: Any) -> dict[str, Any]:
+    from personal_os_worker.jobs.browser import registrable_site
+    from personal_os_worker.jobs.registry.kinds import learned_question
+
+    for frame in page.frames:
+        radios = frame.locator('input[type="radio"]')
+        for index in range(radios.count()):
+            try:
+                text = learned_question(radios.nth(index), registrable_site(page.url))
+            except Exception:
+                continue
+            if text:
+                return {"ok": True, "note": f"question read: {text!r}"}
+    return {"ok": False, "note": "the reader named no radio group on the page"}
+
+
+def probe(page: Page, target: dict[str, Any], knowledge: Knowledge,
+          declarations: list[Any]) -> dict[str, Any]:
     from personal_os_worker.jobs.safety import ARMABLE_GUARD_SCRIPT, armed
 
     try:
@@ -118,11 +173,7 @@ def probe(page: Page, target: dict[str, Any], knowledge: Knowledge) -> dict[str,
             })["identifier"]
             # Capture modules are scratch code too: guard detection as well.
             with armed(page):
-                if target.get("kind") == "route":
-                    return probe_route(page, target)
-                if target.get("kind") == "field":
-                    return probe_field(page, target, knowledge)
-                return {"ok": False, "note": "unknown probe target kind"}
+                return probe_candidate(page, target, knowledge, declarations)
         finally:
             try:
                 if identifier is not None:
@@ -137,6 +188,9 @@ def probe(page: Page, target: dict[str, Any], knowledge: Knowledge) -> dict[str,
 def main(argv: list[str]) -> int:
     try:
         args = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
+        from personal_os_worker.jobs import registry
+
+        declarations = registry.load_file(Path(argv[2]), category=argv[3])
         with sync_playwright() as playwright:
             # Attached, never launched: leaving the block disconnects and Chrome runs on.
             browser = playwright.chromium.connect_over_cdp(str(args["cdp_url"]))
@@ -144,7 +198,8 @@ def main(argv: list[str]) -> int:
             if page is None:
                 result: dict[str, Any] = {"ok": False, "note": "the run's tab is gone"}
             else:
-                result = probe(page, dict(args["target"]), knowledge_of(args["knowledge"]))
+                result = probe(page, dict(args["target"]),
+                               knowledge_of(args["knowledge"]), declarations)
     except Exception as error:
         result = {"ok": False, "note": f"the probe crashed: {str(error)[:300]}"}
     print(json.dumps(result))

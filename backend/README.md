@@ -140,9 +140,10 @@ and formatter. `open` → `repaired` requires the candidate rule that worked;
 `repaired` → `validated` once you watched it, or back to `open`. The fixer
 moves an issue to `fixing` while it works on it, to `fixed` (which requires the
 commit, and dates the live readback) once a code fix is kept, or to `unsolved`
-when its attempts run out; an unsolved issue can be taken again. A fixed,
-validated, repaired, archived, or unsolved signature that fails again reopens;
-one being fixed stays with the fixer. Each step may carry the run's
+when its attempts run out. An unsolved issue stays unsolved on a new
+sighting — it goes back only through `os hunt fixes --retry` or a new fixer
+API version, and may be archived. A fixed, validated, repaired, or archived
+signature that fails again reopens; one being fixed stays with the fixer. Each step may carry the run's
 `model_calls` so far, and a run's count only grows. `GET /autofill/sites`
 folds runs by site, the last two labels of the final URL's host (else the
 application URL's), newest first: each site's run count and its latest run, with

@@ -236,18 +236,25 @@ def render_fixes(issues: list[dict[str, Any]]) -> None:
     view.add_column("question", overflow="ellipsis", ratio=2)
     view.add_column("status", no_wrap=True)
     view.add_column("seen", justify="right", no_wrap=True)
+    view.add_column("attempts", no_wrap=True)
     view.add_column("commit", no_wrap=True)
     view.add_column("notes", ratio=3)
     for index, issue in enumerate(issues, start=1):
+        notes = str(issue.get("verification_notes") or "-")
+        attempts = notes.split(";", 1)[0] if notes.startswith("attempts ") else "-"
+        category = str(issue.get("category") or "-")
+        if "problem|" in str(issue.get("signature") or ""):
+            category = "problem:" + category
         view.add_row(
             str(index),
             short_id(str(issue.get("id", ""))),
-            escape(str(issue.get("category") or "-")),
+            escape(category),
             escape(str(issue.get("field_label") or "-")),
             _styled(issue.get("status")),
             f"x{issue.get('occurrence_count') or 0}",
+            attempts,
             str(issue.get("fixed_commit") or "-")[:7],
-            escape(str(issue.get("verification_notes") or "-")),
+            escape(notes),
         )
     console.print(view)
 

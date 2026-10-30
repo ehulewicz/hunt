@@ -29,8 +29,40 @@ _FORBIDDEN = frozenset(
     {
         "eval", "exec", "compile", "open", "getattr", "setattr", "delattr",
         "type", "globals", "locals", "vars", "__import__", "breakpoint", "input",
+        "exit", "quit",
     }
 )
+# Attributes a learned file may reach: the api's public names, handle methods,
+# declaration fields, safe str/list/dict/tuple methods, re, and match methods.
+_ALLOWED_ATTRS = frozenset(
+    {
+        # api.py public names and declaration fields
+        "VERSION", "READS", "ALLOWED_KEYS", "Kind", "Strategy", "Format",
+        "FormatInput", "QuestionReader", "Route", "Example", "WidgetHandle",
+        "SiteHandle", "Refused", "NoMatch",
+        "name", "selector", "reads", "strategies", "site", "kind", "operate",
+        "fact_keys", "render", "group_selector", "question_selector", "goal",
+        "run", "examples", "fixture", "expected", "value", "value_type",
+        "options", "question", "input_type",
+        # handle methods
+        "click", "type", "press", "pick", "attribute", "text", "selected",
+        "wait", "wait_for_text", "click_text", "search", "open", "links",
+        "url",
+        # str
+        "strip", "lstrip", "rstrip", "lower", "upper", "casefold", "title",
+        "split", "rsplit", "splitlines", "join", "replace", "startswith",
+        "endswith", "isdigit", "isalpha", "isalnum", "isnumeric", "count",
+        "find", "index", "partition", "rpartition", "zfill", "removeprefix",
+        "removesuffix",
+        # re + match
+        "match", "fullmatch", "findall", "finditer", "sub",
+        "compile", "escape", "IGNORECASE", "I", "DOTALL", "S", "MULTILINE",
+        "M", "group", "groups", "groupdict", "start", "end", "span",
+        # list/dict/tuple
+        "append", "extend", "get", "items", "keys", "values",
+    }
+)
+
 _FORBIDDEN_NODES = (
     ast.While,
     ast.Global,
@@ -70,8 +102,8 @@ def check_source(source: str, *, category: str, site: str | None = None) -> list
         if isinstance(node, ast.Attribute):
             if node.attr.startswith("_"):
                 violations.append(f"attribute {node.attr!r} starts with an underscore")
-            elif node.attr == "format":
-                violations.append(".format is not allowed")
+            elif node.attr not in _ALLOWED_ATTRS:
+                violations.append(f"attribute {node.attr!r} is not allowed")
     violations.extend(_declaration_violations(tree, declaration, site))
     return violations
 

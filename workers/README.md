@@ -278,21 +278,33 @@ What it cannot find is reported as `posting_not_found` with what the page
 offered, and the run watches the browser until you open the posting, so a run
 never ends because its URL was a careers home.
 
-## How the run fixed itself
+## How the run fixes itself
 
-`jobs/fix/` is the fixer, and it is switched off: `os hunt apply` starts no
-fix queue and no run reloads for a kept fix. When it ran, a failure only code
-could settle — a widget no kind captures, a question that cannot be read, a
-format or control error the repair lane ran out of, a wall, a posting the
-navigator could not find — went to a model that wrote the smallest code fix
-and a regression test in a scratch clone (`lane.py`), which the worker gated
-on ruff, mypy, the whole suite, a replay, and a live readback before keeping
-it (`queue.py`, `keep.py`, `probe.py`, `scratch.py`).
+`jobs/fix/` is the fixer. A failure the lanes without code cannot settle — a
+widget no kind captures, a strategy or rendering the repair lane ran out of,
+an unreadable question, a wall, a posting the navigator cannot find — is one
+problem, one failure-issue row, handed to a background thread (`queue.py`).
+Each attempt is one tool-less model call (`lane.py`) that answers with one new
+file declaring one thing for the failing site under
+`jobs/registry/<category>/learned/`, written only against `registry/api.py`.
+The worker checks it against `registry/policy.py`, then ruff, mypy, and the
+file's embedded examples (`fix/examples.py`) — plus replay for formats and
+question readers — in one subprocess, tries it on the live page (`probe.py`),
+and keeps it only on a readback: `keep.py` commits exactly that file and its
+sanitized fixtures (`fix/sanitize.py`) on `main`, pushes, records it with the
+failure it fixed, and `load_file` puts it into the running run — no reload.
 
-Now a failure like that stays an open failure issue, stored with its evidence
-(`persist_open`, `report_wall`, `queue_repairs`) and listed by the Inbox and
-`os hunt apply failures`; `os doctor` still checks the fixer's readiness
-(`jobs/readiness.py`).
+A problem spends at most three attempts in total across runs (the row's
+verification notes carry "attempts N of 3"); there is no cap on problems, but
+three fully-unsolved problems in a row brake the fixer for the rest of the
+run. An unsolved problem row stays unsolved until `os hunt fixes --retry`
+puts it back on the queue or a new fixer API version reopens them all
+(`registry.reopen_for_version`); the queue's `problem_persists` re-checks
+every queued problem after a keep, so a problem a kept fix already answered
+spends nothing. `os hunt fixes` lists the rows (problem rows marked, attempts
+shown); `os doctor` checks the fixer's readiness (`jobs/readiness.py`: ruff
+and mypy under the workspace interpreter, `git ls-remote` without a prompt,
+claude on PATH).
 
 For a repeatable local run, serve the static Staged Robotics fixture from the
 repository root:

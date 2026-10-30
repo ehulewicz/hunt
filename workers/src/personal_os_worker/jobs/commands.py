@@ -479,7 +479,6 @@ def apply_posting(
     ask_facts: bool = False,
     referred: str | None = None,
     remote: bool = False,
-    continued: dict[str, Any] | None = None,
 ) -> str:
     """Run one interactive apply session: "submitted", "skipped", or "stopped".
 
@@ -487,8 +486,6 @@ def apply_posting(
     is the referrer's name, or "" when none was given. With this device's agent
     listening, the run registers with it so the Hunt page sees and drives it;
     `remote` is a run the page started, whose letter and facts the page answers.
-    `continued` is the state a run wrote when a kept fix made it reload: this
-    process carries the same run on, on the same tab, with the new code.
     """
     from personal_os_worker.core.service import state_dir
     from personal_os_worker.documents.doctor import latex_toolchain_check
@@ -498,9 +495,7 @@ def apply_posting(
     )
     from personal_os_worker.jobs.autofill_session import (
         AutofillSession,
-        ReloadForFix,
         SessionContext,
-        SessionState,
     )
     from personal_os_worker.jobs.browser import (
         VisibleBrowser,
@@ -534,15 +529,13 @@ def apply_posting(
     config, token = connected()
     ensure_chrome(config.cdp_url)
     api = WorkerApi(config, token)
-    if continued is None:
-        # A fact you set on the web since the last run is checked before this one.
-        report_pending_facts(resolve_pending_facts(api))
-        # Scratch clones from a run that never got to tidy up are gone by now.
-        clear_stale(state_dir() / "fix")
+    # A fact you set on the web since the last run is checked before this one.
+    report_pending_facts(resolve_pending_facts(api))
+    # Attempt folders from a run that never got to tidy up are gone by now.
+    clear_stale(state_dir() / "fix")
     run_id: str | None = None
     link: RunLink | None = None
     fixes: FixQueue | None = None
-    reload_state: Path | None = None
     mirror = contextlib.ExitStack()
     result = "failed"
     try:
@@ -550,13 +543,7 @@ def apply_posting(
         resume_json = dict(career["document"])
         resume = ensure_resume(api)
         version = adapter_version()
-        if continued is not None:
-            # The same run, with what it knows now: the fix may have taught some.
-            run = dict(continued["run"]) | {
-                "facts": api.facts(), "patterns": api.patterns("active"),
-            }
-        else:
-            run = api.create_autofill_run(
+        run = api.create_autofill_run(
                 posting_id=posting_id, ats="generic", adapter_version=version
             )
         run_id = str(run["run_id"])
@@ -611,6 +598,27 @@ def apply_posting(
             )
             if link is not None:
                 link.tab(page)
+            if not no_claude and not dry_run:
+                from personal_os_worker.jobs import registry
+                from personal_os_worker.jobs.fix.queue import FixQueue
+
+                reopened = registry.reopen_for_version(state_dir(), api)
+                if reopened:
+                    console.print(
+                        f"  [dim]reopened {reopened} unsolved fix problem(s) "
+                        "for the new fixer[/dim]"
+                    )
+                fixes = FixQueue(
+                    repo=Path(__file__).resolve().parents[4],
+                    workdir=state_dir() / "fix",
+                    api=api,
+                    run_id=run_id,
+                    report=lambda line: console.print(f"  [dim]{line}[/dim]"),
+                    publish=link.fixes if link is not None else None,
+                    loader=lambda path, category: registry.load_file(
+                        path, category=category
+                    ),
+                )
 
             def report_page_failure(
                 category: str,
@@ -741,32 +749,15 @@ def apply_posting(
                     **linked,
                 )
             )
-            if continued is not None:
-                session.carry_on(SessionState.restore(dict(continued["session"])))
-                console.print("  [dim]carrying the run on with the fix just kept[/dim]")
-            try:
-                outcome = session.run()
-            except ReloadForFix:
-                result = "reload"
-                reload_state = write_reload_state(
-                    state_dir() / "reload" / f"{run_id}.json",
-                    params={
-                        "posting_id": posting_id, "dry_run": False, "no_claude": no_claude,
-                        "repair": repair, "fresh": False, "explain": explain, "step": step,
-                        "ask_facts": ask_facts, "referred": referred, "remote": remote,
-                    },
-                    run=run,
-                    session=session.state.export(),
-                )
-            else:
-                result = finalize_application_outcome(
-                    api,
-                    run=run,
-                    run_id=run_id,
-                    outcome=outcome,
-                    page=page,
-                )
-                return result
+            outcome = session.run()
+            result = finalize_application_outcome(
+                api,
+                run=run,
+                run_id=run_id,
+                outcome=outcome,
+                page=page,
+            )
+            return result
     except KeyboardInterrupt:
         result = "stopped"
         if run_id is not None:
@@ -784,63 +775,24 @@ def apply_posting(
             fixes.close()
         mirror.close()
         if link is not None:
-            if reload_state is None:
-                link.end(result)
-            else:
-                link.reload()
+            link.end(result)
             link.close()
         api.close()
-    if reload_state is not None:
-        console.print("  [dim]a fix was kept; reloading with it on the same tab[/dim]")
-        reload_with(reload_state)
     return "stopped"
 
 
-def write_reload_state(
-    path: Path, *, params: dict[str, Any], run: dict[str, Any], session: dict[str, Any]
-) -> Path:
-    """What the next process needs to carry this run on: how it was started, the
-    run's context, and the session's state."""
-    import json
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"params": params, "run": run, "session": session},
-                               default=str), encoding="utf-8")
-    return path
-
-
-def reload_with(state: Path) -> None:
-    """Become a new process running the code as it is now; the same PID, so the
-    device agent and its pipe carry on with it."""
-    import os
-    import sys
-
-    sys.stdout.flush()
-    sys.stderr.flush()
-    os.execv(sys.executable, [sys.executable, "-m", "personal_os_worker", "hunt", "apply",
-                              "--continue-run", str(state)])
-
-
-def continue_run(state: Path) -> int:
-    """Carry on a run that reloaded for a kept fix."""
-    import json
-
-    data = json.loads(state.read_text(encoding="utf-8"))
-    state.unlink(missing_ok=True)
-    outcome = apply_posting(**dict(data["params"]), continued=data)
-    return 0 if outcome in {"submitted", "skipped", "stopped"} else 1
-
 
 def run_autofill_failure_command(action: str | None, reference: str | None) -> int:
-    """List what runs could not settle, or show one with its evidence.
+    """List what runs could not settle, show one, or retry an unsolved problem.
 
-    The code fixer is switched off: a failure only code can settle stays an
-    open issue here until a change closes it.
+    A fixer's problem is one failure-issue row (its signature carries
+    "problem|"); an unsolved one stays unsolved until `--retry` puts it back
+    on the queue or a new fixer API version reopens them all.
     """
     from personal_os_worker.core.tables import short_id
 
-    if action not in {"list", "show"}:
-        raise RuntimeError("Use: os hunt apply failures list|show")
+    if action not in {"list", "show", "retry"}:
+        raise RuntimeError("Use: os hunt fixes [list|show|--retry]")
     config, token = connected()
     api = WorkerApi(config, token)
     try:
@@ -850,11 +802,33 @@ def run_autofill_failure_command(action: str | None, reference: str | None) -> i
                 console.print("No autofill failures recorded.")
                 return 0
             for index, issue in enumerate(issues, 1):
+                notes = str(issue.get("verification_notes") or "")
+                attempts = notes.split()[1] if notes.startswith("attempts ") else ""
+                problem = "problem " if "problem|" in str(issue.get("signature") or "") else ""
                 console.print(
                     f"{index:>3} {short_id(str(issue.get('id')))} "
                     f"{issue.get('status')} {issue.get('ats')} {issue.get('category')} "
-                    f"{issue.get('field_label') or ''} x{issue.get('occurrence_count')}"
+                    f"{problem}{issue.get('field_label') or ''} "
+                    f"x{issue.get('occurrence_count')}"
+                    + (f" ({attempts})" if attempts else "")
                 )
+            return 0
+        if action == "retry":
+            if reference is None:
+                raise RuntimeError("'--retry' requires a failure row or id prefix")
+            issue = pick(issues, reference, kind="failures")
+            issue_id = str(issue["id"])
+            if str(issue.get("status")) != "unsolved":
+                raise RuntimeError(
+                    f"failure {short_id(issue_id)} is {issue.get('status')}, "
+                    "only an unsolved one goes back on the queue"
+                )
+            api.update_autofill_failure(
+                issue_id,
+                {"status": "open",
+                 "verification_notes": "attempts 0 of 3; reopened by --retry"},
+            )
+            console.print(f"failure {short_id(issue_id)} is back on the queue.")
             return 0
         if reference is None:
             raise RuntimeError("'show' requires a failure row or id prefix")

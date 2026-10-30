@@ -3,7 +3,7 @@
 Every call site builds its argv here and runs it through `run`, so each one is
 metered (`claude_usage`), and a usage limit or failed envelope raises
 `ModelError` instead of passing for an empty answer. Fill-time calls get no
-tools. Only the fixer (`jobs/fix/`) passes `tools` and a `cwd`: it edits a
+tools. No lane passes tools: every call answers text only
 scratch clone of the repository, never the live checkout.
 
 Each call names its purpose and is counted under it, process-wide. Learning
@@ -23,7 +23,7 @@ import json
 import subprocess
 import threading
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
@@ -75,7 +75,7 @@ _run_base: dict[str, int] = {}
 
 
 def begin_run(base: Mapping[str, int] | None = None) -> None:
-    """Start this run's counting; `base` carries calls the reloaded processes made."""
+    """Start this run's counting; `base` credits calls a prior process made."""
     global _run_calls, _run_tokens, _run_base
     with _calls_lock:
         _run_calls = {purpose: _calls[purpose] for purpose in PURPOSES}
@@ -166,22 +166,16 @@ def argv(
     prompt: str,
     *,
     schema: dict[str, Any] | None = None,
-    tools: Sequence[str] = (),
 ) -> list[str]:
-    """A `claude -p` command: no tools unless named, no session kept, a JSON envelope."""
+    """A `claude -p` command: no tools, no session kept, a JSON envelope."""
     command = [
         "claude",
         "-p",
         "--safe-mode",
-        "--tools",
-        ",".join(tools),
         "--no-session-persistence",
         "--output-format",
         "json",
     ]
-    if tools:
-        # Edits land in the scratch clone the call runs in, without a prompt.
-        command += ["--permission-mode", "acceptEdits"]
     if schema is not None:
         command += ["--json-schema", json.dumps(schema, separators=(",", ":"))]
     return [*command, prompt]

@@ -160,9 +160,6 @@ class SubmittedByUser(Exception):
     """Ctrl+A: the user says the application went in."""
 
 
-class ReloadForFix(Exception):
-    """A fix was kept: the run reloads with the new code and carries on, same tab."""
-
 
 class SkippedByUser(Exception):
     """Ctrl+D: the user passes on this listing; it leaves the board without an application."""
@@ -286,51 +283,6 @@ class SessionState:
     origins: dict[str, tuple[str, tuple[str, ...]]] = field(default_factory=dict)
     similar_prose: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     # Model calls by purpose made by the processes this run reloaded from.
-    model_calls_base: dict[str, int] = field(default_factory=dict)
-
-    # What a reload carries over: everything that says what this run already
-    # did, asked, spent, and decided. What is read again from the page or the
-    # API (misses, resolutions, sightings, the tab's navigation) is not.
-    _SETS = ("warnings", "judged", "repair_attempted", "na_flagged", "outlined", "gates_tried",
-             "account_tried", "fix_keys")
-    _PLAIN = ("review", "cover_letter", "collected", "seeds", "planned", "announced",
-              "observations", "persisted_observations", "tier_answers", "tier_source",
-              "tier_resolver", "tier_fact", "seed_resolver", "asked_claude", "model_error",
-              "needed", "blanks", "withheld", "account_parked", "step", "form_seen",
-              "form_site", "issue_ids", "model_calls_base")
-
-    def export(self) -> dict[str, Any]:
-        """This run's state as JSON, for the process that carries it on."""
-        data: dict[str, Any] = {name: getattr(self, name) for name in self._PLAIN}
-        data |= {name: sorted(getattr(self, name)) for name in self._SETS}
-        data["budget"] = {"spent": self.budget.spent, "total": self.budget.total}
-        data["held"] = [[question, fact, why] for (question, fact), why in self.held.items()]
-        data["origins"] = {question: [draft, list(previous)]
-                           for question, (draft, previous) in self.origins.items()}
-        data["persisted_gaps"] = sorted([cause, question]
-                                        for cause, question in self.persisted_gaps)
-        return data
-
-    @classmethod
-    def restore(cls, data: dict[str, Any]) -> SessionState:
-        state = cls()
-        for name in cls._PLAIN:
-            if name in data:
-                setattr(state, name, data[name])
-        for name in cls._SETS:
-            setattr(state, name, set(data.get(name) or ()))
-        state.review = [(question, source) for question, source in state.review]
-        state.seeds = {question: (text, source) for question, (text, source)
-                       in state.seeds.items()}
-        budget = data.get("budget") or {}
-        state.budget = Budget(spent=dict(budget.get("spent") or {}),
-                              total=int(budget.get("total") or 0))
-        state.held = {(question, fact): why for question, fact, why in data.get("held") or ()}
-        state.origins = {question: (draft, tuple(previous))
-                         for question, (draft, previous) in (data.get("origins") or {}).items()}
-        state.persisted_gaps = {(cause, question)
-                                for cause, question in data.get("persisted_gaps") or ()}
-        return state
 
 
 # Open causes stored as failure issues by the audit itself.
@@ -535,10 +487,6 @@ class AutofillSession:
         model.begin_run()
         self._sent_calls = 0  # the learning and fixing calls the API was last told of
 
-    def carry_on(self, state: SessionState) -> None:
-        """Adopt the previous process's state and keep counting from its call counts."""
-        self.state = state
-        model.begin_run(state.model_calls_base)
 
     def model_calls(self) -> dict[str, int]:
         """This run's model calls by purpose, the processes it reloaded from included."""
@@ -2674,10 +2622,30 @@ class AutofillSession:
     # ----- the fixer ------------------------------------------------------------
 
     def problem_key(self, cause: str, question: str) -> str:
-        """One fix per cause and question a run; a wall is one per site."""
+        """One problem per cause, site, and structure; a wall is one per site."""
+        site = registrable_site(self.page.url)
         if cause in {"wall", "posting_not_found"}:
-            return f"{cause}|{registrable_site(self.page.url)}"
-        return f"{cause}|{normalize_answer_question(question)}"
+            return f"{cause}|{site}"
+        structure = self._structure_for(cause, question)
+        key = f"{cause}|{site}|{structure}"
+        if cause == "format_error" and question:
+            key += f"|{question}"
+        return key
+
+    def _structure_for(self, cause: str, question: str) -> str:
+        """The widget's structural identity: identical widgets share a problem."""
+        from personal_os_worker.jobs.browser import fresh_control  # noqa: F401
+        from personal_os_worker.jobs.registry.kinds import control_key
+        from personal_os_worker.jobs.repair.repairer import find_field
+
+        try:
+            fields = inspect_fields(self.page)
+            field = find_field(fields, question)
+        except Exception:
+            field = None
+        if field is not None:
+            return control_key(field)
+        return normalize_answer_question(question)
 
     def escalate(self, findings: list[Finding]) -> None:
         """Hand the fixer what only code can settle; it works while the run goes on.
@@ -2686,6 +2654,8 @@ class AutofillSession:
         straight to it; a format or control error only once the repair lane
         has had its turn; a wall once the Apply control, the gates, and the
         navigator have. A missing fact, a pattern gap, and prose are never code.
+        Each problem is one failure-issue row; an unsolved or fixed row is never
+        handed over again — it waits for Retry or a new fixer API version.
         """
         if self.ctx.fixes is None or self.ctx.dry_run:
             return
@@ -2695,9 +2665,101 @@ class AutofillSession:
             key = self.problem_key(finding.cause, finding.question)
             if key in self.state.fix_keys:
                 continue
+            status = self._problem_issue(finding, key)
+            if status in {"unsolved", "fixed"}:
+                continue
             problem = self.problem_for(finding, key)
             if problem is not None and self.ctx.fixes.submit(problem):
                 self.state.fix_keys.add(key)
+
+    def _problem_issue(self, finding: Finding, key: str) -> str | None:
+        """The problem's one failure-issue row, upserted through persist_step;
+        its status, or None when it could not be read."""
+        from personal_os_worker.jobs.sites import failure_signature
+
+        evidence = dict(finding.evidence or {})
+        fingerprint = "problem|" + key
+        failure = {
+            "signature": failure_signature(self.ctx.ats, finding.cause, fingerprint),
+            "category": finding.cause,
+            "question": finding.question,
+            "field_label": finding.question,
+            "control_kind": evidence.get("role"),
+            "field_fingerprint": fingerprint,
+            "fact_key": finding.fact_key,
+            "error_message": finding.note,
+            "dom_signals": {
+                name: value
+                for name, value in (evidence | {"missing_fact": finding.missing_fact}).items()
+                if name != "html" and value is not None
+            },
+        }
+        try:
+            with contextlib.suppress(Error):
+                failure["artifact_paths"] = self.upload_evidence(
+                    page_evidence(self.page, inspect_fields(self.page),
+                                  console_errors=self.ctx.console_errors)
+                )
+            issues = self.persist_step(
+                self.ctx.run_id,
+                {"step_number": self.state.step, "url": self.page.url,
+                 "failures": [failure]},
+            )
+        except httpx.HTTPError:
+            return None
+        issue = next((row for row in issues
+                      if str(row.get("signature") or "") == failure["signature"]),
+                     issues[0] if issues else {})
+        issue_id = issue.get("id")
+        if issue_id is not None:
+            self.state.issue_ids[key] = str(issue_id)
+        return str(issue.get("status") or "open")
+
+    def problem_persists(self, problem: Problem) -> bool:
+        """Whether this problem's cause still fails on the page as it is now —
+        re-running that cause's detection before another attempt is spent."""
+        from personal_os_worker.jobs.browser import looks_like_application_form
+        from personal_os_worker.jobs.navigate import is_posting
+        from personal_os_worker.jobs.registry.kinds import learned_question
+        from personal_os_worker.jobs.repair.repairer import find_field, repair_strategy
+        from personal_os_worker.jobs.resolve import Resolver
+
+        try:
+            fields = inspect_fields(self.page)
+        except Error:
+            return True
+        if problem.target.get("kind") == "route":
+            if problem.target.get("goal") == "form":
+                return not looks_like_application_form(fields)
+            return not is_posting(self.page, self.ctx.title)
+        field = find_field(fields, problem.question)
+        if problem.cause == "unknown_control":
+            return field is None
+        if problem.cause == "detection_error":
+            radios = self.page.locator('input[type="radio"]')
+            for index in range(radios.count()):
+                with contextlib.suppress(Error):
+                    if learned_question(
+                        radios.nth(index), registrable_site(self.page.url)
+                    ):
+                        return False
+            return True
+        if field is None:
+            return True
+        try:
+            resolution = Resolver(self.ctx.knowledge).resolve(
+                dict(field) | {"label": problem.question,
+                               "options": field.get("options") or []}
+            )
+        except Exception:
+            return True
+        if resolution is None or resolution.value is None:
+            return True
+        if problem.cause == "control_error":
+            with contextlib.suppress(Exception):
+                return repair_strategy(self.page, field, str(resolution.value)) is None
+            return True
+        return False
 
     def problem_for(self, finding: Finding, key: str) -> Problem | None:
         try:
@@ -2712,18 +2774,21 @@ class AutofillSession:
             }
         else:
             target = {"kind": "field", "question": finding.question}
+        from personal_os_worker.jobs.fix.sanitize import sanitize_evidence
+
         return Problem(
             key=key,
             cause=finding.cause,
             question=finding.question,
             note=finding.note,
             target=target,
+            site=registrable_site(self.page.url),
             evidence=dict(finding.evidence or {}) | {"url": self.page.url},
             tried=TRIED.get(finding.cause, ()),
             fact_key=finding.fact_key,
             issue_id=self.state.issue_ids.get(key),
             run_id=self.ctx.run_id,
-            page_files=files,
+            page_files=sanitize_evidence(files, dict(self.ctx.knowledge.facts)),
         )
 
     def probe_args(self) -> dict[str, Any]:
@@ -2736,16 +2801,10 @@ class AutofillSession:
         }
 
     def safe_point(self) -> None:
-        """Between polls and after an audit: try a waiting fix on the page; reload
-        with the new code once one was kept and none is mid-flight."""
+        """Between polls and after an audit: the queue tries a waiting fix here."""
         if self.ctx.fixes is None:
             return
-        if self.ctx.fixes.at_safe_point(self.probe_args):
-            with contextlib.suppress(httpx.HTTPError, Error):
-                self.save_now()
-            # The next process starts counting from zero; it carries these on.
-            self.state.model_calls_base = self.model_calls()
-            raise ReloadForFix
+        self.ctx.fixes.at_safe_point(self.probe_args)
 
     def report_review(self) -> None:
         """List the long-form answers that came from a draft, once per step."""

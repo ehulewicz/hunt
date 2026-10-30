@@ -257,8 +257,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Failure command when ref is 'failures'",
     )
     autofill.add_argument("failure_ref", nargs="?", help="Failure row or id prefix")
-    # A run that reloaded for a kept fix carries itself on from this state file.
-    autofill.add_argument("--continue-run", type=Path, help=argparse.SUPPRESS)
     autofill.add_argument(
         "--dry-run",
         action="store_true",
@@ -355,8 +353,12 @@ def build_parser() -> argparse.ArgumentParser:
     changes.add_argument("ref", nargs="?", help="Row number from 'os hunt changes' or id prefix")
     changes.add_argument("--subject", choices=history.CHANGE_SUBJECTS)
     changes.add_argument("--status", dest="change_status", choices=history.CHANGE_STATUSES)
-    jobs_commands.add_parser(
+    fixes = jobs_commands.add_parser(
         "fixes", help="Failures the fixer took on: being fixed, fixed by a commit, or unsolved"
+    )
+    fixes.add_argument(
+        "--retry", metavar="N|ID",
+        help="Put an unsolved problem row (a fixes row or id prefix) back on the queue",
     )
     jobs_commands.add_parser(
         "sites", help="Each site's latest run and its model calls (0 meets the goal)"
@@ -502,12 +504,12 @@ def _dispatch(args: argparse.Namespace) -> int:
                 args.action, args.ref, subject=args.subject, status=args.change_status
             )
         if args.hunt_command == "fixes":
+            if args.retry:
+                return hunt.run_autofill_failure_command("retry", args.retry)
             return history.run_fixes()
         if args.hunt_command == "sites":
             return history.run_sites()
         if args.hunt_command == "apply":
-            if args.continue_run is not None:
-                return hunt.continue_run(args.continue_run)
             if args.ref == "failures":
                 return hunt.run_autofill_failure_command(args.failure_action, args.failure_ref)
             if args.failure_action or args.failure_ref:

@@ -156,3 +156,31 @@ def reload_learned() -> None:
     _cache.clear()
     _loaded_modules.clear()
     _refused.clear()
+
+
+def reopen_for_version(state_dir: Any, api: Any, *, ats: str = "") -> int:
+    """Reopen every unsolved problem row once when this device's fixer API is
+    older than api.VERSION; returns problems reopened."""
+    from personal_os_worker.jobs.registry.api import VERSION
+
+    marker = Path(state_dir) / "fixer-api-version"
+    previous = 0
+    with contextlib.suppress(Exception):
+        previous = int(marker.read_text().strip())
+    marker.write_text(str(VERSION))
+    if previous >= VERSION:
+        return 0
+    reopened = 0
+    try:
+        for issue in api.autofill_failures(status="unsolved") or []:
+            signature = str(issue.get("signature") or "")
+            if "problem|" not in signature:
+                continue
+            api.update_autofill_failure(issue["id"], {"status": "open"})
+            reopened += 1
+    except Exception:
+        return reopened
+    return reopened
+
+
+import contextlib  # noqa: E402
