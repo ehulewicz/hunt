@@ -33,7 +33,7 @@ def _lower(field: dict[str, Any], key: str) -> str:
 
 
 def classify(field: dict[str, Any]) -> str:
-    # A widget a custom kind captured is that kind (`registry/custom/`).
+    # A widget a custom kind captured is that kind (`registry/kinds/custom.py`).
     if field.get("custom"):
         return str(field["custom"])
     tag, field_type, role = _lower(field, "tag"), _lower(field, "type"), _lower(field, "role")

@@ -267,7 +267,7 @@ posting only when it holds the whole title or a heading is the title
 (`navigate.is_posting`); a page that already shows an application form with the
 company on it is taken as it is. Otherwise `jobs/navigate.py` looks for it the
 way you would, each step read back: the route written for that site
-(`jobs/routes/`, one module per site, each registering itself with
+(`jobs/registry/routes/`, one module per site, each registering itself with
 `@route("site.com")`), then a link whose text is the role, the site's search box
 with the full title and then shorter parts of it (without the parenthetical,
 what follows a separator, the term), and a link into the site's open roles, a
@@ -459,7 +459,7 @@ the pass leaves empty is still drafted. A question asking for a story —
 never filled by an expression, whose wording learned another question's;
 a binding still fills it.
 
-**How it is written.** `jobs/formatters.py` renders a fact for the control in
+**How it is written.** `jobs/registry/formats/` renders a fact for the control in
 front of it and names the formatter it used: a date as "December 2027", "Fall
 2027" ("Winter 2027" for November and December), "December", "2027", ISO, US, or
 month input, by the wording and the input type, or into a month-range option
@@ -573,11 +573,22 @@ resolver can `explain` a field without recording a miss, and `apply_autofill`
 reports each fill to a `FillObserver` before and after operating it, which
 `--step` uses to pause.
 
+**The registry layout.** `jobs/registry/` is where built-ins and learned
+fixes share one layout, one package per category: `kinds/` classifies controls
+and `kinds/custom.py` holds kinds a site taught (learned ones in `learned/`);
+`strategies/` holds the operations that operate each kind by family (native,
+combobox, buttons, upload, suggestions) beside the candidate tables and
+`OPERATIONS`; `formats/` renders a fact per family (dates, money, phone,
+choices, places, text) behind `render`/`renderings`; `questions/` and `routes/`
+hold question readers and per-site posting routes. `api.py` declares what a
+learned file may say, and `learned()` returns a site's own declarations after
+the built-ins.
+
 **How it is operated.** `jobs/registry/` names what the fill path does. `kinds.py` classifies every
 detected control into one of seven kinds — `text_entry`, `native_select`,
 `choice_group`, `multi_choice_group`, `toggle`, `dynamic_choice`, `file` — from
 generic HTML and ARIA alone, or into a custom kind. A custom kind
-(`registry/custom/`, one module each, usually written by the fixer) teaches a
+(`registry/kinds/learned/`, one module each, usually written by the fixer) teaches a
 widget with no form input of its own: a selector for its root, a script that
 reads what it holds, and its strategies. Registering one adds its strategies to
 the tables below, `inspect_fields` captures its widgets after the form inputs,

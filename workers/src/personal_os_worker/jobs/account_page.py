@@ -17,10 +17,12 @@ from playwright.sync_api import Error, Page
 
 from personal_os_worker.jobs.autofill import is_consent_field
 from personal_os_worker.jobs.browser import (
-    CONTROL_TIMEOUT_MS,
-    captcha_challenge_present,
     inspect_fields,
     looks_like_application_form,
+)
+from personal_os_worker.jobs.registry.strategies import (
+    CONTROL_TIMEOUT_MS,
+    captcha_challenge_present,
 )
 
 AccountView = Literal["sign_in", "create", "forgot", "new_password", "code", "check_email"]

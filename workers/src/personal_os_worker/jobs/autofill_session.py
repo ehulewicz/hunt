@@ -73,13 +73,11 @@ from personal_os_worker.jobs.autofill import (
 )
 from personal_os_worker.jobs.autofill_timing import AutofillTimings
 from personal_os_worker.jobs.browser import (
-    CONTROL_TIMEOUT_MS,
     BrowserClosedError,
     VisibleBrowser,
     apply_autofill,
     audit_filled_form,
     cdp_target_id,
-    combobox_options,
     fresh_control,
     has_submit_control,
     highlight_unfilled,
@@ -90,9 +88,7 @@ from personal_os_worker.jobs.browser import (
     plan_autofill,
     registrable_site,
     reveal_application_form,
-    set_registered_value,
     snapshot_entries,
-    upload_into,
     verify_control,
     visible_actions,
 )
@@ -110,7 +106,6 @@ from personal_os_worker.jobs.drafts import similar_answers
 from personal_os_worker.jobs.explain import Explainer
 from personal_os_worker.jobs.fix.lane import Problem
 from personal_os_worker.jobs.fix.queue import FixQueue
-from personal_os_worker.jobs.formatters import BLANK, polarity
 from personal_os_worker.jobs.gateway import (
     click_gateway,
     form_appeared,
@@ -138,7 +133,13 @@ from personal_os_worker.jobs.registry.events import (
     planned_events,
     unresolved_events,
 )
+from personal_os_worker.jobs.registry.formats import BLANK
+from personal_os_worker.jobs.registry.formats.choices import polarity
 from personal_os_worker.jobs.registry.kinds import question_of
+from personal_os_worker.jobs.registry.strategies import CONTROL_TIMEOUT_MS
+from personal_os_worker.jobs.registry.strategies.combobox import combobox_options
+from personal_os_worker.jobs.registry.strategies.native import set_registered_value
+from personal_os_worker.jobs.registry.strategies.upload import upload_into
 from personal_os_worker.jobs.remote import FACT_KEY, LinkedKeys, RunLink, gap_items
 from personal_os_worker.jobs.repair.repairer import find_field, repair_format, repair_strategy
 from personal_os_worker.jobs.replay import (

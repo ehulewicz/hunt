@@ -344,7 +344,7 @@ def reach_posting(
     tried on this tab, and opens the posting for you.
     """
     from personal_os_worker.jobs.browser import visible_actions
-    from personal_os_worker.jobs.routes import route_for
+    from personal_os_worker.jobs.registry.routes import route_for
 
     console.print("  [dim]this page is not the posting; looking for it on the site[/dim]")
     if find_posting(

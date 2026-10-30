@@ -36,7 +36,7 @@ SCHEMA = {
 # What each cause asks the code to do, in the words the prompt uses.
 GOALS = {
     "unknown_control": "the worker cannot see or operate this widget: teach it as a custom "
-    "kind, one new module in jobs/registry/custom/ (its docstring says how) that finds the "
+    "kind, one new module in jobs/registry/kinds/learned/ (its docstring says how) that finds the "
     "widget, reads what it holds, and operates it so the value reads back",
     "detection_error": "the worker captured this control but not its question: read the "
     "question correctly for this markup",
@@ -45,9 +45,10 @@ GOALS = {
     "format_error": "the fact is known but no rendering of it matches what the control "
     "accepts: add or fix the formatter so the fact is written the way this control needs",
     "wall": "the run could not get from the posting to its application form: add a route "
-    "for this site in jobs/routes/ (or fix the Apply or gate detection) that opens the form",
+    "for this site in jobs/registry/routes/learned/ (or fix the Apply or gate detection) "
+    "that opens the form",
     "posting_not_found": "the run could not find the posting on this site: add a route for "
-    "this site in jobs/routes/ that reaches the posting from where the page is",
+    "this site in jobs/registry/routes/learned/ that reaches the posting from where the page is",
 }
 
 # Fixing: a model edits the scratch clone, never the run's checkout.

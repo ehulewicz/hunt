@@ -32,16 +32,15 @@ from personal_os_worker.core.service import ensure_chrome
 from personal_os_worker.core.tables import ReferenceError, console
 from personal_os_worker.jobs.autofill import FormFill
 from personal_os_worker.jobs.browser import (
-    OPERATIONS,
-    Attempt,
     VisibleBrowser,
     fresh_control,
     inspect_fields,
     reveal_application_form,
     verify_control,
 )
-from personal_os_worker.jobs.formatters import render
 from personal_os_worker.jobs.options import normalize_answer_question
+from personal_os_worker.jobs.registry.formats import render
+from personal_os_worker.jobs.registry.strategies import OPERATIONS, Attempt
 from personal_os_worker.jobs.repair.repairer import find_field, repair_on_page
 from personal_os_worker.jobs.resolve import Knowledge
 from personal_os_worker.jobs.safety import install_guards

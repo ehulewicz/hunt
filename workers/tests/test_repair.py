@@ -9,7 +9,8 @@ from urllib.parse import quote
 import pytest
 from playwright.sync_api import Error, sync_playwright
 
-from personal_os_worker.jobs.browser import OPERATIONS, Attempt, inspect_fields
+from personal_os_worker.jobs.browser import inspect_fields
+from personal_os_worker.jobs.registry.strategies import OPERATIONS, Attempt
 from personal_os_worker.jobs.repair.repairer import (
     find_field,
     repair_format,

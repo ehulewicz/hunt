@@ -1,7 +1,7 @@
 """Strategies: the named ways of operating each control kind, in candidate order.
 
-This module is data. The operations themselves live beside the browser code
-that performs them (`browser.OPERATIONS`); this table decides which are
+This module is data. The operations themselves live in this package's family modules
+(`OPERATIONS`); this table decides which are
 candidates for a fill and in what order. The order mirrors the seeded
 `jobs_strategies` precedence. A kind's candidates are tried in turn until one
 operates; each attempt is recorded as a fill event.
@@ -10,10 +10,62 @@ operates; each attempt is recorded as a fill event.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+from playwright.sync_api import Error, Page
 
 from personal_os_worker.jobs.autofill import FILE_KINDS, FormFill
 from personal_os_worker.jobs.registry.kinds import BUTTON_GROUP
+
+# Playwright auto-waits 30s for a control before an action fails; a control that
+# vanished because the page moved on (the user submitted) must fail in seconds.
+CONTROL_TIMEOUT_MS = 4_000
+
+
+class NoMatchingOption(RuntimeError):
+    """The value has no unambiguous counterpart among the control's options."""
+
+
+class CaptchaPresent(RuntimeError):
+    """An interactive captcha is on the page, so the control is left to the user."""
+
+
+# An open captcha challenge: the image or puzzle frame a widget shows once it
+# is clicked or decides to test you. Only then does clicking anywhere else risk
+# dismissing or disturbing it, so only then are choices left to you (R64). A
+# checkbox widget waiting for you, an invisible-mode badge, or a hidden enclave
+# frame does not count, and nothing here ever solves a captcha.
+CAPTCHA_SCRIPT = """
+() => [...document.querySelectorAll(
+  'iframe[src*="recaptcha/api2/bframe" i], iframe[src*="recaptcha/enterprise/bframe" i],'
+  + ' iframe[src*="hcaptcha" i][src*="frame=challenge" i], iframe[title*="challenge" i]'
+)].some(element => {
+  const box = element.getBoundingClientRect();
+  if (box.width < 2 || box.height < 2) return false;
+  const style = getComputedStyle(element);
+  return style.visibility !== 'hidden' && style.display !== 'none'
+    && Number(style.opacity || 1) > 0;
+})
+"""
+
+
+def captcha_challenge_present(page: Page) -> bool:
+    try:
+        return bool(page.evaluate(CAPTCHA_SCRIPT))
+    except Error:
+        return False
+
+
+@dataclass(frozen=True, slots=True)
+class Attempt:
+    page: Page
+    control: Any
+    field: dict[str, Any]
+    fill: FormFill
+    document: Path | None
+
 
 CANDIDATES: dict[str, tuple[str, ...]] = {
     "file": ("upload_file",),
@@ -70,3 +122,28 @@ def candidates(
     return [
         name for name in CANDIDATES.get(kind, ()) if APPLIES[name](field, fill, has_document)
     ]
+
+
+from personal_os_worker.jobs.registry.strategies import (  # noqa: E402
+    buttons,
+    combobox,
+    native,
+    suggestions,
+    upload,
+)
+
+# Every strategy in the registry, by name. `CANDIDATES` decides which are
+# candidates for a fill and in what order.
+OPERATIONS: dict[str, Callable[[Attempt], str | None]] = {
+    "upload_file": upload._upload_file,
+    "type_and_pick_suggestion": suggestions._type_and_pick_suggestion,
+    "select_by_label": native._select_by_label,
+    "select_by_value": native._select_by_value,
+    "select_multiple": native._select_multiple,
+    "combobox_choose_from_menu": combobox._combobox_choose_from_menu,
+    "combobox_type_and_select": combobox._combobox_type_and_select,
+    "click_option_button": buttons._click_option_button,
+    "check_control": native._check_control,
+    "uncheck_control": native._uncheck_control,
+    "set_value": native._set_value,
+}

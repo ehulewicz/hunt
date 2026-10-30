@@ -34,12 +34,12 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from personal_os_worker.core.api import WorkerApi
 
-from personal_os_worker.jobs.formatters import BLANK, renderings
 from personal_os_worker.jobs.options import (
     expression_matches,
     normalize_answer_question,
 )
 from personal_os_worker.jobs.registry.events import value_hash
+from personal_os_worker.jobs.registry.formats import BLANK, renderings
 from personal_os_worker.jobs.registry.kinds import BUTTON_GROUP
 from personal_os_worker.jobs.resolve import Knowledge, Resolver
 

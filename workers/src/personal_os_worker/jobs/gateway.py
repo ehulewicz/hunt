@@ -22,13 +22,15 @@ from playwright.sync_api import Error, Page
 
 from personal_os_worker.jobs.account_page import inspect_account
 from personal_os_worker.jobs.browser import (
-    CONTROL_TIMEOUT_MS,
-    captcha_challenge_present,
     has_submit_control,
     inspect_fields,
     looks_like_application_form,
 )
 from personal_os_worker.jobs.registry.kinds import GATEWAY
+from personal_os_worker.jobs.registry.strategies import (
+    CONTROL_TIMEOUT_MS,
+    captcha_challenge_present,
+)
 from personal_os_worker.jobs.sites import option_match
 
 # What a gate never offers: the page's own submission, your account, and the

@@ -517,7 +517,7 @@ def test_keep_apply_failure_leaves_head_index_and_worktree_unchanged(
 def test_probe_route_is_guarded_even_when_route_clicks_submit(
     page: Any, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from personal_os_worker.jobs import routes
+    from personal_os_worker.jobs.registry import routes
 
     page.set_content('<button onclick="window.submitted=true">Submit application</button>')
 
@@ -649,7 +649,7 @@ def test_model_file_tools_are_confined_to_scratch(repo: Path, tmp_path: Path) ->
 def test_guard_survives_route_navigation_and_restores_manual_submit(
     page: Any, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from personal_os_worker.jobs import routes
+    from personal_os_worker.jobs.registry import routes
 
     def route(page: Any, target: Any) -> None:
         page.goto("data:text/html,<button onclick='window.submitted=true'>Submit</button>")

@@ -5,12 +5,13 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from personal_os_worker.jobs.formatters import BLANK, LIVE_MENU, polarity
 from personal_os_worker.jobs.options import (
     choose_option,
     normalize_question,
     same_name,
 )
+from personal_os_worker.jobs.registry.formats import BLANK, LIVE_MENU
+from personal_os_worker.jobs.registry.formats.choices import polarity
 from personal_os_worker.jobs.sites import is_non_answer_option
 
 FILE_KINDS = frozenset({"resume", "transcript"})

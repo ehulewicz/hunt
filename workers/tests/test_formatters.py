@@ -7,7 +7,8 @@ from typing import Any
 
 import pytest
 
-from personal_os_worker.jobs.formatters import Rendering, polarity, render, yes_no_option
+from personal_os_worker.jobs.registry.formats import Rendering, render
+from personal_os_worker.jobs.registry.formats.choices import polarity, yes_no_option
 
 GRADUATION = "2027-12-15"
 MINIMUM = {"amount": 40, "currency": "USD", "period": "hour"}
@@ -189,8 +190,8 @@ def test_a_date_picks_the_range_option_that_holds_it() -> None:
 
 
 def test_no_is_a_whole_word_and_a_typeahead_reads_yes_and_no_like_a_select() -> None:
-    from personal_os_worker.jobs.browser import _pick
     from personal_os_worker.jobs.options import choose_option
+    from personal_os_worker.jobs.registry.strategies.combobox import _pick
 
     assert choose_option(["Not Applicable", "Google employee"], "No") is None
     assert choose_option(["North Carolina", "No"], "No") == "No"
@@ -322,7 +323,7 @@ def test_the_standing_source_ranks_the_menu_and_names_a_referral() -> None:
 
 
 def test_a_shared_year_month_range_holds_its_date() -> None:
-    from personal_os_worker.jobs.formatters import choose_date_range
+    from personal_os_worker.jobs.registry.formats.dates import choose_date_range
 
     options = [
         "Already graduated", "Jan - April 2027", "May - Aug 2027",

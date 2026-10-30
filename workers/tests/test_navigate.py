@@ -8,7 +8,6 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from playwright.sync_api import Error, Route, sync_playwright
 
-from personal_os_worker.jobs import routes
 from personal_os_worker.jobs.navigate import (
     Target,
     find_posting,
@@ -18,6 +17,7 @@ from personal_os_worker.jobs.navigate import (
     title_queries,
     title_score,
 )
+from personal_os_worker.jobs.registry import routes
 
 TITLE = "Software Engineering Intern (Summer 2027) - Redmond"
 SITE = "https://careers.example.com"

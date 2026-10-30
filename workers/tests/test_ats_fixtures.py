@@ -10,11 +10,9 @@ from personal_os_worker.jobs.browser import (
     apply_autofill,
     audit_filled_form,
     click_safe_transition,
-    combobox_options,
     has_submit_control,
     inspect_fields,
     reveal_application_form,
-    set_registered_value,
     snapshot_entries,
     snapshot_values,
 )
@@ -24,6 +22,8 @@ from personal_os_worker.jobs.page_state import (
     classify_application_page,
 )
 from personal_os_worker.jobs.registry.kinds import question_of
+from personal_os_worker.jobs.registry.strategies.combobox import combobox_options
+from personal_os_worker.jobs.registry.strategies.native import set_registered_value
 from personal_os_worker.jobs.resolve import Knowledge, Resolver
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -1726,7 +1726,7 @@ customElements.define('city-picker', class extends HTMLElement {
 def test_shadow_dom_resume_dropzone_and_typeahead(browser_page, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
     """SmartRecruiters renders its form in shadow roots."""
     from personal_os_worker.jobs.autofill import is_resume_field
-    from personal_os_worker.jobs.browser import select_combobox_option
+    from personal_os_worker.jobs.registry.strategies.combobox import select_combobox_option
 
     browser_page.set_content(SHADOW_FORM)
     fields = inspect_fields(browser_page)

@@ -8,19 +8,19 @@ import pytest
 from playwright.sync_api import Error, sync_playwright
 
 from personal_os_worker.jobs.autofill import AnswerResolution, AutofillPlan, FormFill
-from personal_os_worker.jobs.browser import (
-    apply_autofill,
-    button_choice,
-    captcha_challenge_present,
-    inspect_fields,
-)
+from personal_os_worker.jobs.browser import apply_autofill, inspect_fields
 from personal_os_worker.jobs.registry.events import (
     planned_events,
     unresolved_events,
     value_hash,
 )
 from personal_os_worker.jobs.registry.kinds import classify, control_attributes
-from personal_os_worker.jobs.registry.strategies import CANDIDATES, candidates
+from personal_os_worker.jobs.registry.strategies import (
+    CANDIDATES,
+    candidates,
+    captcha_challenge_present,
+)
+from personal_os_worker.jobs.registry.strategies.buttons import button_choice
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

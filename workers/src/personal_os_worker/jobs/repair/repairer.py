@@ -18,16 +18,15 @@ from playwright.sync_api import Error, Page
 
 from personal_os_worker.jobs.autofill import FormFill, choice_group_key
 from personal_os_worker.jobs.browser import (
-    OPERATIONS,
-    Attempt,
     fresh_control,
     inspect_fields,
     verify_control,
 )
-from personal_os_worker.jobs.formatters import polarity, renderings, yes_no_option
 from personal_os_worker.jobs.options import choose_option, normalize_answer_question
+from personal_os_worker.jobs.registry.formats import renderings
+from personal_os_worker.jobs.registry.formats.choices import polarity, yes_no_option
 from personal_os_worker.jobs.registry.kinds import classify, control_attributes, question_of
-from personal_os_worker.jobs.registry.strategies import APPLIES, CANDIDATES
+from personal_os_worker.jobs.registry.strategies import APPLIES, CANDIDATES, OPERATIONS, Attempt
 from personal_os_worker.jobs.resolve import Knowledge
 from personal_os_worker.jobs.safety import refuse_submit
 

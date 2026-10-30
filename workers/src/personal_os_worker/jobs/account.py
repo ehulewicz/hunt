@@ -38,7 +38,6 @@ from personal_os_worker.jobs.account_page import (
     inspect_account,
     tick_account_terms,
 )
-from personal_os_worker.jobs.browser import CONTROL_TIMEOUT_MS
 from personal_os_worker.jobs.mail import (
     Inbox,
     MailKind,
@@ -47,6 +46,7 @@ from personal_os_worker.jobs.mail import (
     sender_hints,
     verification_code,
 )
+from personal_os_worker.jobs.registry.strategies import CONTROL_TIMEOUT_MS
 
 GOOGLE_HOST = "accounts.google.com"
 # What Google shows when it wants more than a tile click: those are yours.

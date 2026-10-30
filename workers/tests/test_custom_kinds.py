@@ -18,9 +18,8 @@ from personal_os_worker.jobs.browser import (
     inspect_unknown_controls,
     verify_control,
 )
-from personal_os_worker.jobs.registry import custom
-from personal_os_worker.jobs.registry.custom import CustomKind, register
-from personal_os_worker.jobs.registry.kinds import classify
+from personal_os_worker.jobs.registry.kinds import classify, custom
+from personal_os_worker.jobs.registry.kinds.custom import CustomKind, register
 from personal_os_worker.jobs.registry.strategies import APPLIES, CANDIDATES
 from personal_os_worker.jobs.resolve import Knowledge, Resolver
 

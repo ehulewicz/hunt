@@ -9,8 +9,8 @@ from personal_os_worker.jobs.autofill import (
     is_long_form_field,
 )
 from personal_os_worker.jobs.browser import audit_filled_form
-from personal_os_worker.jobs.formatters import affirmative_option, source_option
 from personal_os_worker.jobs.options import choose_option
+from personal_os_worker.jobs.registry.formats.choices import affirmative_option, source_option
 
 
 class Stub:

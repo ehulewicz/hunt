@@ -6,8 +6,6 @@ import json
 import re
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 from typing import Any, Literal, Protocol, cast
 from urllib.parse import urlsplit
@@ -27,25 +25,26 @@ from personal_os_worker.jobs.autofill import (
     is_sensitive_field,
     offered_options,
 )
-from personal_os_worker.jobs.formatters import (
-    affirmative_option,
-    choose_date_range,
-    source_option,
-    yes_no_option,
-)
-from personal_os_worker.jobs.options import choose_option, choose_synonym, normalize_question
 from personal_os_worker.jobs.registry.events import fill_event, form_of
 from personal_os_worker.jobs.registry.kinds import classify, control_key, question_of
-from personal_os_worker.jobs.registry.strategies import candidates
+from personal_os_worker.jobs.registry.strategies import (
+    CONTROL_TIMEOUT_MS,
+    OPERATIONS,
+    Attempt,
+    NoMatchingOption,
+    candidates,
+)
+from personal_os_worker.jobs.registry.strategies.buttons import (
+    BUTTON_GROUP_XPATH,
+    _button_group,
+    button_choice,
+)
+from personal_os_worker.jobs.registry.strategies.combobox import (
+    combobox_shows,
+    combobox_value,
+)
+from personal_os_worker.jobs.registry.strategies.upload import UPLOAD_SHOWN, _verify_upload
 from personal_os_worker.jobs.sites import failure_signature, option_match
-
-# Playwright auto-waits 30s for a control before an action fails; a control that
-# vanished because the page moved on (the user submitted) must fail in seconds.
-CONTROL_TIMEOUT_MS = 4_000
-
-# The nearest ancestor holding a group of aria-pressed buttons: the same
-# generic test the detector uses, so no site's class names are involved.
-BUTTON_GROUP_XPATH = "xpath=ancestor::*[count(.//button[@aria-pressed]) >= 2][1]"
 
 
 class BrowserClosedError(RuntimeError):
@@ -469,303 +468,10 @@ def plan_autofill(
     return fields, build_autofill_plan(fields, resolver=resolver)
 
 
-class NoMatchingOption(RuntimeError):
-    """The value has no unambiguous counterpart among the control's options."""
 
 
-class CaptchaPresent(RuntimeError):
-    """An interactive captcha is on the page, so the control is left to the user."""
 
 
-# An open captcha challenge: the image or puzzle frame a widget shows once it
-# is clicked or decides to test you. Only then does clicking anywhere else risk
-# dismissing or disturbing it, so only then are choices left to you (R64). A
-# checkbox widget waiting for you, an invisible-mode badge, or a hidden enclave
-# frame does not count, and nothing here ever solves a captcha.
-CAPTCHA_SCRIPT = """
-() => [...document.querySelectorAll(
-  'iframe[src*="recaptcha/api2/bframe" i], iframe[src*="recaptcha/enterprise/bframe" i],'
-  + ' iframe[src*="hcaptcha" i][src*="frame=challenge" i], iframe[title*="challenge" i]'
-)].some(element => {
-  const box = element.getBoundingClientRect();
-  if (box.width < 2 || box.height < 2) return false;
-  const style = getComputedStyle(element);
-  return style.visibility !== 'hidden' && style.display !== 'none'
-    && Number(style.opacity || 1) > 0;
-})
-"""
-
-
-def captcha_challenge_present(page: Page) -> bool:
-    try:
-        return bool(page.evaluate(CAPTCHA_SCRIPT))
-    except Error:
-        return False
-
-
-@dataclass(frozen=True, slots=True)
-class Attempt:
-    page: Page
-    control: Any
-    field: dict[str, Any]
-    fill: FormFill
-    document: Path | None
-
-
-def button_choice(texts: list[str], value: str) -> str | None:
-    """The one pressable button that answers the value."""
-    chosen = option_match(texts, value)
-    if chosen is None and {text.casefold() for text in texts} == {"yes", "no"}:
-        wanted = "yes" if value.strip().casefold() == "yes" else "no"
-        chosen = next(text for text in texts if text.casefold() == wanted)
-    return chosen
-
-
-def _button_group(control: Any) -> tuple[Any, list[str]]:
-    buttons = control.locator(BUTTON_GROUP_XPATH).locator("button[aria-pressed]")
-    texts = [str(buttons.nth(index).inner_text()).strip() for index in range(buttons.count())]
-    return buttons, texts
-
-
-# Whether a file control's upload is something you can see: its file is chosen,
-# and the control sits in a rendered part of the page (a styled-over input in a
-# visible dropzone counts) or the file's name shows. A file in a panel nobody
-# opened — JazzHR's "Attach resume" — is not shown to you, whatever the input holds.
-UPLOAD_SHOWN = """
-element => {
-  const files = [...(element.files || [])];
-  if (!files.length) return false;
-  if (element.parentElement && element.parentElement.getClientRects().length) return true;
-  const text = element.ownerDocument.body ? element.ownerDocument.body.innerText : '';
-  return files.some(file => text.includes(file.name));
-}
-"""
-
-# The one control that opens a file input's closed panel: a visible link or
-# button saying attach or upload in the field around it, which holds no other
-# file input. Never one that navigates, submits, pastes, or reaches a cloud drive.
-UPLOAD_OPENER = """
-element => {
-  if (element.parentElement && element.parentElement.getClientRects().length) return null;
-  let block = element.parentElement;
-  while (block && !block.getClientRects().length) block = block.parentElement;
-  if (!block || block === document.body || block === document.documentElement) return null;
-  if (block.querySelectorAll('input[type="file"]').length !== 1) return null;
-  const openers = [...block.querySelectorAll('a, button, [role="button"]')].filter(node => {
-    if (!node.getClientRects().length) return false;
-    const text = (node.textContent || '').trim();
-    if (!/\\b(attach|upload|browse|choose|select)\\b/i.test(text)) return false;
-    if (/paste|remove|delete|linkedin|dropbox|drive|indeed|submit|apply/i.test(text)) return false;
-    if (node.tagName === 'BUTTON' && node.type === 'submit') return false;
-    const href = (node.getAttribute('href') || '').trim();
-    return !(node.tagName === 'A' && href && !/^(#|javascript:)/i.test(href));
-  });
-  return openers.length === 1 ? openers[0] : null;
-}
-"""
-FILE_CHOOSER_WAIT_MS = 1_000
-
-
-def upload_into(page: Page, control: Any, document: Path) -> None:
-    """Choose a file the way you would: open the field's panel first when it is shut.
-
-    An opener that raises the browser's file dialog is answered with the file,
-    so no dialog ever waits in your window.
-    """
-    opener = control.evaluate_handle(UPLOAD_OPENER, timeout=CONTROL_TIMEOUT_MS).as_element()
-    if opener is not None:
-        try:
-            with page.expect_file_chooser(timeout=FILE_CHOOSER_WAIT_MS) as chooser:
-                opener.click(timeout=CONTROL_TIMEOUT_MS)
-            chooser.value.set_files(str(document), timeout=CONTROL_TIMEOUT_MS)
-            return
-        except Error:
-            pass  # no dialog came (the panel opened, or the click did not take)
-    control.set_input_files(str(document), timeout=CONTROL_TIMEOUT_MS)
-
-
-def _upload_file(attempt: Attempt) -> str | None:
-    upload_into(attempt.page, attempt.control, cast(Path, attempt.document))
-    attempt.page.wait_for_timeout(750)
-    return None
-
-
-def _select_by_label(attempt: Attempt) -> str | None:
-    options = [str(value) for value in attempt.field.get("options", [])]
-    matched = option_match(options, str(attempt.fill.value))
-    if matched is None:
-        raise NoMatchingOption("no unambiguous select option")
-    attempt.control.select_option(label=matched, timeout=CONTROL_TIMEOUT_MS)
-    return matched
-
-
-def _select_by_value(attempt: Attempt) -> str | None:
-    attempt.control.select_option(value=attempt.fill.value, timeout=CONTROL_TIMEOUT_MS)
-    return attempt.fill.value
-
-
-def _select_multiple(attempt: Attempt) -> str | None:
-    options = [str(value) for value in attempt.field.get("options", [])]
-    value = str(attempt.fill.value)
-    parts = [
-        part.strip() for part in value.split(MULTI if MULTI in value else ",") if part.strip()
-    ]
-    matched = [option_match(options, part) for part in parts]
-    chosen = [option for option in matched if option is not None]
-    if not parts or len(chosen) != len(parts):
-        raise NoMatchingOption("no unambiguous select options")
-    attempt.control.select_option(label=chosen, timeout=CONTROL_TIMEOUT_MS)
-    return MULTI.join(chosen)
-
-
-def _combobox_choose_from_menu(attempt: Attempt) -> str | None:
-    return choose_combobox_option(
-        attempt.page, attempt.control, str(attempt.fill.chooser),
-        referred=attempt.fill.referred,
-    )
-
-
-def _combobox_type_and_select(attempt: Attempt) -> str | None:
-    return select_combobox_option(attempt.page, attempt.control, str(attempt.fill.value))
-
-
-def _click_option_button(attempt: Attempt) -> str | None:
-    buttons, texts = _button_group(attempt.control)
-    chosen = button_choice(texts, str(attempt.fill.value))
-    if chosen is None:
-        raise NoMatchingOption("no unambiguous option button")
-    buttons.nth(texts.index(chosen)).click(timeout=CONTROL_TIMEOUT_MS)
-    return chosen
-
-
-def _check_control(attempt: Attempt) -> str | None:
-    if captcha_challenge_present(attempt.page):
-        raise CaptchaPresent("choice left manual while a captcha challenge is open")
-    set_check_state(attempt.control, True)
-    return attempt.fill.value
-
-
-def _uncheck_control(attempt: Attempt) -> str | None:
-    if captcha_challenge_present(attempt.page):
-        raise CaptchaPresent("choice left manual while a captcha challenge is open")
-    set_check_state(attempt.control, False)
-    return None
-
-
-def set_check_state(control: Any, checked: bool) -> None:
-    """A styled option's own label can cover the input; keyboard events still work."""
-    try:
-        if checked:
-            control.check(timeout=CONTROL_TIMEOUT_MS)
-        else:
-            control.uncheck(timeout=CONTROL_TIMEOUT_MS)
-    except Error:
-        if control.is_checked(timeout=CONTROL_TIMEOUT_MS) == checked:
-            return
-        control.focus(timeout=CONTROL_TIMEOUT_MS)
-        if not control.evaluate("e => e.getRootNode().activeElement === e"):
-            raise RuntimeError("choice input could not be focused") from None
-        control.press("Space", timeout=CONTROL_TIMEOUT_MS)
-        if control.is_checked(timeout=CONTROL_TIMEOUT_MS) != checked:
-            raise RuntimeError("choice did not retain its checked state") from None
-
-
-def _set_value(attempt: Attempt) -> str | None:
-    set_registered_value(attempt.control, str(attempt.fill.value))
-    return attempt.fill.value
-
-
-# The visible, childless texts inside a field's own container: what a
-# suggestion list without ARIA roles shows once something is typed.
-FIELD_TEXTS_SCRIPT = """
-element => {
-  const box = element.closest(
-    'li, fieldset, [class*="question" i], [class*="field" i], [class*="form-group" i]'
-  ) || element.parentElement;
-  const out = [];
-  for (const node of box.querySelectorAll('*')) {
-    if (node.children.length || node === element || node.closest('label > :first-child')) continue;
-    const text = (node.textContent || '').trim();
-    const rect = node.getBoundingClientRect();
-    if (text && rect.width > 0 && rect.height > 0 && text.length < 160) out.push(text);
-  }
-  return out;
-}
-"""
-
-
-MONTH_PREFIXES = (
-    "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
-)
-
-
-def _pick_suggestion(texts: list[str], value: str) -> str | None:
-    """The suggestion that names the same place, else the one option that matches."""
-    from personal_os_worker.jobs.office import parse
-
-    wanted = parse(value)
-    if wanted.city and wanted.state:
-        same = [
-            text for text in dict.fromkeys(texts)
-            if (place := parse(text)).city and place.city.casefold() == wanted.city.casefold()
-            and place.state == wanted.state
-        ]
-        if same:
-            return same[0]
-    return _pick(texts, value)
-
-
-def _type_and_pick_suggestion(attempt: Attempt) -> str | None:
-    """Type into a text box whose suggestions are plain elements, then click the match.
-
-    Some autocompletes (Lever's location) render suggestions with no ARIA
-    roles and clear the box on blur unless one is chosen. What appears in
-    the field's own container after typing is the suggestion list; the full
-    answer is typed first, then only its first part ("Atlanta"), since a
-    places search rarely knows "Atlanta, Georgia, United States".
-    """
-    control = attempt.control
-    value = str(attempt.fill.value)
-    before = set(control.evaluate(FIELD_TEXTS_SCRIPT, timeout=CONTROL_TIMEOUT_MS))
-    for typed in dict.fromkeys([value, value.split(",")[0].strip()]):
-        control.fill("", timeout=CONTROL_TIMEOUT_MS)
-        control.press_sequentially(typed, delay=30, timeout=CONTROL_TIMEOUT_MS)
-        deadline = time.monotonic() + SUGGESTION_TIMEOUT_S
-        while time.monotonic() < deadline:
-            attempt.page.wait_for_timeout(250)
-            texts = [
-                text
-                for text in control.evaluate(FIELD_TEXTS_SCRIPT, timeout=CONTROL_TIMEOUT_MS)
-                if text not in before
-            ]
-            chosen = _pick_suggestion(texts, value) if texts else None
-            if chosen is not None:
-                box = control.locator(
-                    "xpath=ancestor::*[self::li or self::fieldset or contains(@class,'question')"
-                    " or contains(@class,'field')][1]"
-                )
-                box.get_by_text(chosen, exact=True).first.click(timeout=CONTROL_TIMEOUT_MS)
-                attempt.page.wait_for_timeout(300)
-                shown = str(control.input_value(timeout=CONTROL_TIMEOUT_MS)).strip()
-                return shown or chosen
-    raise NoMatchingOption("no suggestion matched what was typed")
-
-
-# Every strategy in the registry, by name. `registry.strategies` decides which
-# are candidates for a fill and in what order.
-OPERATIONS: dict[str, Callable[[Attempt], str | None]] = {
-    "upload_file": _upload_file,
-    "type_and_pick_suggestion": _type_and_pick_suggestion,
-    "select_by_label": _select_by_label,
-    "select_by_value": _select_by_value,
-    "select_multiple": _select_multiple,
-    "combobox_choose_from_menu": _combobox_choose_from_menu,
-    "combobox_type_and_select": _combobox_type_and_select,
-    "click_option_button": _click_option_button,
-    "check_control": _check_control,
-    "uncheck_control": _uncheck_control,
-    "set_value": _set_value,
-}
 
 
 def stopped_stage(error: BaseException) -> str:
@@ -975,7 +681,7 @@ def fresh_control(page: Page, field: dict[str, Any]) -> Any:
         if locator.count() == 1:
             return locator
     if field.get("custom"):
-        from personal_os_worker.jobs.registry.custom import load
+        from personal_os_worker.jobs.registry.kinds.custom import load
 
         kind = load().get(str(field["custom"]))
         if kind is None:
@@ -992,229 +698,8 @@ def fresh_control(page: Page, field: dict[str, Any]) -> Any:
     return controls.nth(position)
 
 
-def set_registered_value(control: Any, value: str) -> None:
-    # Some controlled ATS inputs display a programmatic value without updating
-    # form state until the control receives a real focus/blur interaction.
-    control.focus(timeout=CONTROL_TIMEOUT_MS)
-    control.evaluate(
-        timeout=CONTROL_TIMEOUT_MS,
-        expression="""
-        (element, value) => {
-          const proto = element instanceof HTMLTextAreaElement
-            ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-          const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-          if (setter) setter.call(element, value); else element.value = value;
-          element.dispatchEvent(new Event('input', {bubbles: true}));
-          element.dispatchEvent(new Event('change', {bubbles: true}));
-        }
-        """,
-        arg=value,
-    )
-    control.click(timeout=CONTROL_TIMEOUT_MS)
-    control.press("Tab", timeout=CONTROL_TIMEOUT_MS)
 
 
-COMBOBOX_SETTLE_MS = 300
-# How long a plain suggestion list may take to appear after typing.
-SUGGESTION_TIMEOUT_S = 4.0
-COMBOBOX_LIST_TIMEOUT_MS = 600
-COMBOBOX_OPTIONS_TIMEOUT_MS = 4_000
-
-
-def _menu_options(control: Any) -> Any:
-    # Scope to the control's own document so a form inside an iframe works too.
-    scoped = control.locator("xpath=ancestor::body")
-    try:
-        in_document = scoped.count() > 0
-    except Error:
-        in_document = False
-    if in_document:
-        owned_id = control.get_attribute("aria-controls") or control.get_attribute("aria-owns")
-        if owned_id and len(owned_id.split()) == 1:
-            owned = scoped.locator(f"[id={json.dumps(owned_id)}]")
-            # Some accessible menus identify options by their disabled state
-            # and keyboard tab stop, without repeating role=option.
-            choices = owned.locator('[role="option"], [aria-disabled][tabindex="-1"]')
-            if choices.count():
-                return choices
-        return scoped.get_by_role("option")
-    # Inside a shadow root (SmartRecruiters) XPath cannot climb to <body>; role
-    # queries pierce shadow roots, so ask the page.
-    return control.page.get_by_role("option")
-
-
-# An option's text, wherever its component renders it: its own text, else
-# what its <slot>s show, else its shadow host's light text (SmartRecruiters'
-# dropdown items keep the text outside the shadow root that holds role=option).
-OPTION_TEXT_SCRIPT = """
-element => {
-  const own = (element.innerText || '').trim();
-  if (own) return own;
-  const slotted = [...element.querySelectorAll('slot')]
-    .flatMap(slot => slot.assignedNodes({flatten: true}))
-    .map(node => node.textContent || '').join(' ').replace(/\\s+/g, ' ').trim();
-  if (slotted) return slotted;
-  const host = element.getRootNode().host;
-  return host ? (host.innerText || host.textContent || '').replace(/\\s+/g, ' ').trim() : '';
-}
-"""
-
-
-def _visible_texts(options: Any) -> tuple[list[int], list[str]]:
-    # Pages keep other listboxes in the DOM (Greenhouse's phone-code list has
-    # every country as a hidden option); only what the menu shows is a choice.
-    visible = [index for index in range(options.count()) if options.nth(index).is_visible()]
-    return visible, [str(options.nth(index).evaluate(OPTION_TEXT_SCRIPT)) for index in visible]
-
-
-def _pick(texts: list[str], value: str) -> str | None:
-    distinct = list(dict.fromkeys(text for text in texts if text))
-    chosen = choose_option(distinct, value) or choose_synonym(distinct, value)
-    if chosen is None and value.strip().casefold() in {"yes", "no"}:
-        # The same reading of yes and no a select gets ("No" is "Not Applicable"
-        # when that is the only option saying no).
-        chosen = yes_no_option(distinct, value.strip().casefold() == "yes")
-    month = re.fullmatch(r"\s*([A-Za-z]+)\s+(\d{4})\s*", value)
-    if chosen is None and month and month.group(1)[:3].casefold() in MONTH_PREFIXES:
-        # "December 2027" against "Between December 2027 and September 2028".
-        when = date(int(month.group(2)), MONTH_PREFIXES.index(month.group(1)[:3].casefold()) + 1, 1)
-        chosen = choose_date_range(distinct, when)
-    if chosen is None:
-        target = normalize_question(value)
-        containing = [text for text in distinct if target and target in normalize_question(text)]
-        chosen = containing[0] if len(containing) == 1 else None
-    return chosen
-
-
-def _await_options(page: Page, options: Any, timeout_ms: int) -> bool:
-    # Any visible option, not the first in the DOM: a closed native <select>
-    # earlier on the page contributes hidden options that never become visible.
-    try:
-        options.locator("visible=true").first.wait_for(state="visible", timeout=timeout_ms)
-    except Error:
-        return False
-    page.wait_for_timeout(COMBOBOX_SETTLE_MS)
-    return True
-
-
-def open_combobox(control: Any) -> None:
-    """Open the menu through its keyboard input when that input is too small to click."""
-    box = control.bounding_box()
-    if (control.get_attribute("aria-readonly") == "true" and box is not None
-            and (box["width"] < 1 or box["height"] < 1)):
-        control.focus(timeout=CONTROL_TIMEOUT_MS)
-        control.press("ArrowDown", timeout=CONTROL_TIMEOUT_MS)
-    else:
-        control.click(timeout=CONTROL_TIMEOUT_MS)
-
-
-def combobox_options(page: Page, control: Any) -> list[str]:
-    """What a typeahead offers before anything is typed; empty for a search box."""
-    open_combobox(control)
-    options = _menu_options(control)
-    texts: list[str] = []
-    if _await_options(page, options, COMBOBOX_LIST_TIMEOUT_MS):
-        texts = list(dict.fromkeys(text for text in _visible_texts(options)[1] if text))
-    control.press("Escape", timeout=CONTROL_TIMEOUT_MS)
-    return texts
-
-
-def choose_combobox_option(
-    page: Page, control: Any, chooser: str, *, referred: bool = False
-) -> str:
-    """Open a typeahead and pick by standing rule: the agreeing option, or your source."""
-    open_combobox(control)
-    options = _menu_options(control)
-    if not _await_options(page, options, COMBOBOX_LIST_TIMEOUT_MS):
-        control.press("Escape", timeout=CONTROL_TIMEOUT_MS)
-        raise RuntimeError(f"no unambiguous combobox option for {chooser} (none listed)")
-    visible, texts = _visible_texts(options)
-    distinct = list(dict.fromkeys(text for text in texts if text))
-    if chooser == "consent":
-        chosen = affirmative_option(distinct)
-    else:
-        chosen = source_option(distinct, referred=referred)
-    if chosen is None:
-        control.press("Escape", timeout=CONTROL_TIMEOUT_MS)
-        raise RuntimeError(f"no unambiguous combobox option for {chooser}")
-    options.nth(visible[texts.index(chosen)]).click()
-    return chosen
-
-
-def select_combobox_option(page: Page, control: Any, value: str) -> str:
-    """Pick the one option a typeahead offers for the answer and return its text.
-
-    Open the menu first: a fixed list (Yes/No, GPA ranges) is matched as it
-    is, since typing "3.78" into a list of ranges filters it down to nothing.
-    Only when nothing is listed, or nothing listed fits, is the answer typed,
-    which is how a search box (Google Places) or a long list is queried.
-    Keystrokes rather than a synthetic value: react-select and Places key
-    their menus off real input events and close on blur.
-    """
-    open_combobox(control)
-    options = _menu_options(control)
-    if _await_options(page, options, COMBOBOX_LIST_TIMEOUT_MS):
-        visible, texts = _visible_texts(options)
-        chosen = _pick(texts, value)
-        if chosen is not None:
-            options.nth(visible[texts.index(chosen)]).click()
-            return chosen
-    if control.get_attribute("aria-readonly") == "true":
-        control.press("Escape", timeout=CONTROL_TIMEOUT_MS)
-        raise RuntimeError("no unambiguous combobox option in read-only menu")
-    # A place ("Atlanta, Georgia") is searched whole, then by its first part,
-    # since a places search rarely knows the state's full name; either way the
-    # option naming the same city and state is the one picked.
-    tries = list(dict.fromkeys([value, value.split(",")[0].strip()]))
-    for attempt, typed in enumerate(tries):
-        control.fill("", timeout=CONTROL_TIMEOUT_MS)
-        control.press_sequentially(typed, delay=20, timeout=CONTROL_TIMEOUT_MS)
-        if not _await_options(page, options, COMBOBOX_OPTIONS_TIMEOUT_MS):
-            if attempt + 1 < len(tries):
-                continue
-            # A free-entry typeahead offers nothing to pick; Enter commits the text.
-            control.press("Enter", timeout=CONTROL_TIMEOUT_MS)
-            if combobox_value(control).casefold() == value.strip().casefold():
-                return value.strip()
-            raise RuntimeError("no unambiguous combobox option (none appeared)")
-        visible, texts = _visible_texts(options)
-        chosen = _pick_suggestion(texts, value)
-        if chosen is not None:
-            options.nth(visible[texts.index(chosen)]).click()
-            return chosen
-    control.press("Escape", timeout=CONTROL_TIMEOUT_MS)
-    raise RuntimeError("no unambiguous combobox option")
-
-
-def _verify_upload(page: Page, field: dict[str, Any], filename: str | None) -> bool:
-    """Whether a resume/transcript upload took.
-
-    Greenhouse's own resume widget removes the `<input type=file>` from the
-    DOM on a successful upload and replaces it with a filename-plus-remove-
-    button summary, shifting every control after it by one position. Asking
-    `fresh_control` for the same field afterward silently lands on whatever
-    control now sits at that stale index instead of raising, so a real
-    success reads as an empty, unrelated control. When the direct file-count
-    check comes back empty, look for the uploaded filename rendered anywhere
-    on the page before calling it a failure. A file the input holds in a panel
-    nobody opened is not shown to you, so it does not count (`UPLOAD_SHOWN`).
-    """
-    try:
-        control = fresh_control(page, field)
-        if control.evaluate(UPLOAD_SHOWN, timeout=CONTROL_TIMEOUT_MS) is True:
-            return True
-    except (Error, RuntimeError):
-        pass
-    if not filename:
-        return False
-    # The filename shows in the field's own frame (Greenhouse embedded on an
-    # employer's site lives in an iframe).
-    frame_index = int(field.get("frame_index") or 0)
-    frame = page.frames[frame_index] if frame_index < len(page.frames) else page.main_frame
-    try:
-        return frame.get_by_text(filename, exact=False).first.is_visible()
-    except Error:
-        return False
 
 
 def verify_control(
@@ -1230,7 +715,7 @@ def verify_control(
     control = fresh_control(page, field)
     try:
         if field.get("custom"):
-            from personal_os_worker.jobs.registry.custom import load, read
+            from personal_os_worker.jobs.registry.kinds.custom import load, read
 
             kind = load()[str(field["custom"])]
             held = str(read(control, kind).get("value") or "")
@@ -1289,50 +774,6 @@ def same_entry(shown: str, expected: str) -> bool:
         want, got = re.sub(r"\D", "", expected), re.sub(r"\D", "", shown)
         return len(want) >= 7 and got.endswith(want) and len(got) - len(want) <= 3
     return False
-
-
-COMBOBOX_VALUE_SCRIPT = """
-    element => {
-      const own = String(element.value || '').trim();
-      if (own) return own;
-      let shell = element.parentElement;
-      for (let depth = 0; shell && depth < 4; depth += 1) {
-        const chosen = shell.querySelector('[class*="single-value"], [class*="multi-value"]');
-        if (chosen && chosen.textContent.trim()) return chosen.textContent.trim();
-        const mirror = shell.querySelector('input[aria-hidden="true"]');
-        if (mirror && String(mirror.value || '').trim()) return String(mirror.value).trim();
-        shell = shell.parentElement;
-      }
-      return '';
-    }
-"""
-
-
-def combobox_value(control: Any) -> str:
-    """What a typeahead currently holds, wherever the widget keeps it.
-
-    A plain typeahead leaves the chosen text in the input. react-select
-    empties the search input and renders the choice in a sibling
-    `single-value`/`multi-value` element, or mirrors it into an aria-hidden
-    input. Whichever is present is the value.
-    """
-    return str(control.evaluate(COMBOBOX_VALUE_SCRIPT, timeout=CONTROL_TIMEOUT_MS)).strip()
-
-
-def combobox_shows(control: Any, expected: str) -> bool:
-    """Whether a typeahead holds the picked option.
-
-    The option was clicked by its text, so a rendered choice is the evidence;
-    its display text may differ from the menu text (Greenhouse's phone-code
-    picker lists "United States +1" but shows a flag and "+1").
-    """
-    held = combobox_value(control)
-    return bool(held) and (
-        _pick([expected], held) is not None
-        or control.evaluate(
-            "element => !String(element.value || '').trim()", timeout=CONTROL_TIMEOUT_MS
-        )
-    )
 
 
 def _failure(
@@ -1786,8 +1227,8 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
             item["frame_index"] = frame_index
             item["frame_url"] = frame.url
             results.append(item)
-    # Widgets a custom kind captures (`registry/custom/`), after the form inputs.
-    from personal_os_worker.jobs.registry.custom import capture, load
+    # Widgets a custom kind captures (`registry/kinds/custom.py`), after the form inputs.
+    from personal_os_worker.jobs.registry.kinds.custom import capture, load
 
     for kind in load().values():
         for frame_index, frame in enumerate(page.frames):
@@ -1932,7 +1373,7 @@ def inspect_unknown_controls(page: Page) -> list[dict[str, Any]]:
     operate it until code is written for it (`jobs/fix/`). A widget a custom
     kind captures is a control like any other.
     """
-    from personal_os_worker.jobs.registry.custom import load
+    from personal_os_worker.jobs.registry.kinds.custom import load
 
     selectors = [kind.selector for kind in load().values()]
     results: list[dict[str, Any]] = []

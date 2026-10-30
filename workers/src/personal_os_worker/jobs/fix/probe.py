@@ -86,7 +86,7 @@ def probe_route(page: Page, target: dict[str, Any]) -> dict[str, Any]:
         reveal_application_form,
     )
     from personal_os_worker.jobs.navigate import Target, find_posting
-    from personal_os_worker.jobs.routes import route_for
+    from personal_os_worker.jobs.registry.routes import route_for
 
     goal = str(target.get("goal") or "posting")
     wanted = Target(str(target["title"]), str(target["company"]))

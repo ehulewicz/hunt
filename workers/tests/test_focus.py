@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from personal_os_worker.jobs.focus import choose_focus, focus_text
-from personal_os_worker.jobs.formatters import render
+from personal_os_worker.jobs.registry.formats import render
 from personal_os_worker.jobs.resolve import Knowledge
 
 INTERESTS = [

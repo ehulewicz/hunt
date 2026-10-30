@@ -48,8 +48,7 @@ _loaded = False
 
 def register(kind: CustomKind) -> CustomKind:
     """Make a kind known to every pass that captures, plans, operates, or repairs."""
-    from personal_os_worker.jobs.browser import OPERATIONS
-    from personal_os_worker.jobs.registry.strategies import APPLIES, CANDIDATES
+    from personal_os_worker.jobs.registry.strategies import APPLIES, CANDIDATES, OPERATIONS
 
     KINDS[kind.name] = kind
     CANDIDATES[kind.name] = tuple(kind.strategies)
@@ -64,8 +63,11 @@ def load() -> dict[str, CustomKind]:
     global _loaded
     if not _loaded:
         _loaded = True
-        for module in pkgutil.iter_modules(__path__):
-            importlib.import_module(f"{__name__}.{module.name}")
+        learned = importlib.import_module(
+            "personal_os_worker.jobs.registry.kinds.learned"
+        )
+        for module in pkgutil.iter_modules(learned.__path__):
+            importlib.import_module(f"{learned.__name__}.{module.name}")
     return KINDS
 
 
