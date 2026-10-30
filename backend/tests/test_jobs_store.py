@@ -138,7 +138,9 @@ def test_a_fix_that_fails_again_goes_back_to_the_queue() -> None:
         Path(__file__).resolve().parents[1] / "src/personal_os_backend/jobs_store.py"
     ).read_text()
     upsert = " ".join(source.split("on conflict (user_id, signature)", 1)[1].split()[:120])
-    assert "'fixed', 'archived', 'repaired', 'validated', 'unsolved' ) then 'open'" in upsert
+    assert "'fixed', 'archived', 'repaired', 'validated' ) then 'open'" in upsert
+    # An unsolved issue stays unsolved until --retry or a new fixer API version.
+    assert "'unsolved'" not in upsert.split("then 'open'")[0].rsplit("in (", 1)[-1]
     assert "stopped_at = coalesce( excluded.stopped_at" in upsert
 
 
@@ -152,3 +154,11 @@ def test_repair_statuses_and_candidates_are_part_of_the_failure_contract() -> No
     assert AutofillFailureUpdate.model_validate({"status": "validated"}).status == "validated"
     with pytest.raises(ValueError):
         AutofillFailureUpdate.model_validate({"status": "repairing"})
+
+
+def test_an_unsolved_issue_may_be_archived() -> None:
+    source = (
+        Path(__file__).resolve().parents[1] / "src/personal_os_backend/jobs_store.py"
+    ).read_text()
+    transitions = source.split('"unsolved": {', 1)[1].split("}", 1)[0]
+    assert '"archived"' in transitions

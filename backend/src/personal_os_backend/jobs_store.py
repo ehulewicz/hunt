@@ -799,12 +799,12 @@ class PostgresJobsStore:
                       stopped_at = coalesce(
                         excluded.stopped_at, app.jobs_autofill_failure_issues.stopped_at
                       ),
-                      -- A fix that fails again did not hold, and an unsolved issue
-                      -- is worth another try with today's code: back to the queue.
-                      -- One the fixer is working on stays with it.
+                      -- A fix that fails again did not hold: back to the queue.
+                      -- An unsolved issue stays unsolved until --retry or a new
+                      -- fixer API version, and one being worked stays with it.
                       status = case
                         when app.jobs_autofill_failure_issues.status in (
-                          'fixed', 'archived', 'repaired', 'validated', 'unsolved'
+                          'fixed', 'archived', 'repaired', 'validated'
                         ) then 'open'
                         else app.jobs_autofill_failure_issues.status
                       end
@@ -1165,7 +1165,7 @@ class PostgresJobsStore:
             allowed = {
                 "open": {"open", "fixing", "fixed", "unsolved", "repaired"},
                 "fixing": {"fixing", "fixed", "unsolved", "open", "repaired"},
-                "unsolved": {"unsolved", "fixing", "fixed", "open", "repaired"},
+                "unsolved": {"unsolved", "fixing", "fixed", "open", "repaired", "archived"},
                 "fixed": {"fixed"},
                 "archived": {"archived"},
                 # A repaired rule is validated by watching it work, or rejected back.
