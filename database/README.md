@@ -93,9 +93,14 @@ online. The API role can insert, update, and read rows, not delete them.
 `jobs_education`, `jobs_resume_entries`, `jobs_resume_bullets`, and `jobs_skills`
 are the career record, the canonical resume. Dates are month-precision `date`s
 (the first of the month); an entry's `end_date` is null with a start date for
-"Present", and a single-month project stores only `end_date`. Only experience
-carries an `employment_type`, so research and projects can never count toward
-tenure. An entry's place is `city`, `region` (a state or province as written),
+"Present", and a single-month project stores only `end_date`. Sections are
+`experience`, `research`, `project`, and `activity`; only experience carries an
+`employment_type`, so the rest can never count toward tenure. Entries, bullets,
+and schools each carry `on_resume` — the record keeps what the printed resume
+omits — and education rows carry a `level` (`high_school`, `undergraduate`,
+`graduate`) and `coursework` as `text[]`. Entry rows are stable across saves so
+`jobs_library_entries.entry_id` can reference them with `on delete set null`.
+An entry's place is `city`, `region` (a state or province as written),
 and `country` (a name); `location` is their rendering, written only for an API
 that still reads it, and is dropped once none does. `job_title` and `employer`,
 when set, are what a work-history form gets instead of `title` and `org`. One
@@ -103,6 +108,16 @@ education row per user is `is_primary`, and a bullet can never hold a
 semicolon. `jobs_archive_documents` is the former `jobs_documents` — a 2026-08
 copy of the resume and two tailored resumes — renamed and frozen: the API role
 can only read it.
+
+`jobs_library_entries` is the narrative library: one row per code, a `section`
+(`interest`, `direction`, `evidence`, `story`, `entry`, `note`), a prompt with
+optional guidance and answer, an optional `entry_id` into the career record,
+and a display order. `jobs_prose_gaps` records a long-form question the library covers only
+partly or not at all (`coverage` `partial` or `missing`, a fixed
+`family`, an optional application); a partial unique index makes at most one
+gap per question open at a time, and `resolved_at` closes it — the API role
+updates, never deletes. `jobs_changes` accepts `library` as a subject for the
+library's write history.
 
 `jobs_facts` holds one row per fact, keyed per user by a dotted name, with a
 `jsonb` value whose shape a check constraint ties to `value_type` (`text`,

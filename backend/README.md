@@ -34,13 +34,15 @@ archived.
 
 ### Career record
 
-`/v1/jobs/career` holds the resume as rows (`jobs_career.py`): one primary
-education row, entries for experience, research, and projects with real
-month-precision dates and an employment type, ordered bullets, and skill
-categories. `GET` returns the rows and the resume document rendered from them in
-the shape `artifacts/career/main.json` has always had; `PUT` replaces the whole
-record from such a document in one transaction; `POST /import` does the same only
-while the record is empty. Rendering keeps the authored text: "Middleware Engineer
+`/v1/jobs/career` holds the resume as rows (`jobs_career.py`): education rows
+(one primary, each with a level, coursework list, and `on_resume`), entries for
+experience, research, projects, and activities with real month-precision dates
+and an employment type on experience only, ordered bullets split into printed
+(`on_resume`) and kept (`moreBullets`), and skill categories. `GET` returns the
+rows — the primary school in `education`, every school in `schools`, every
+entry with its stable `id` — and the v2 resume document rendered from them;
+`PUT` replaces the record from such a document in one transaction. Rendering
+keeps the authored text: "Middleware Engineer
 (Co-op)" is a title plus employment type `coop`, "May 2025 – Present" is a start
 date and no end. An entry's location is stored as city, region, and country, and
 rendered "Atlanta, GA" at home and "Metz, France" abroad; a document that gives
@@ -49,7 +51,29 @@ parts is refused. `jobTitle` and `employer` are what a work-history form gets
 when the heading is not one (a research heading names the lab). The document's contact block is not stored here — it is rendered
 from the `identity`, `contact`, and `work_auth.us_citizen` facts, and a write
 whose header disagrees is refused with the fact to set instead. Writes refuse a
-semicolon or keyword emphasis in a bullet and an em dash in a heading.
+semicolon or keyword emphasis in a bullet, an em dash in a heading, an entry on
+the resume with no bullet, and an education list without exactly one primary
+school.
+
+Entry ids are stable across writes: a document entry that names one of the
+user's ids is updated in place — and may change section — one without an id is
+inserted, and the user's rows absent from the document are deleted. An unknown
+or duplicated id is refused, so `jobs_library_entries.entry_id` links survive a
+save. Bullets, schools, and skills are still rewritten per save.
+
+A `PUT` also compiles the printed projection — `on_resume` items only, ids and
+kept bullets stripped, so an unchanged resume rebuilds byte-identical bytes —
+with the deterministic TeX build in `jobs_career_pdf.py` (one page, no bullet
+past two rendered lines, content-derived trailer id, pinned `SOURCE_DATE_EPOCH`)
+and stores the PDF at `resume/{user_id}/current.pdf` in the private
+`jobs-documents` bucket inside the same transaction. A failed compile refuses
+the write before anything is stored; a failed upload rolls it back.
+`GET /v1/public/resume.pdf` (`jobs_public.py`) serves that object
+unauthenticated and read-only — the one public route — with a 60-second cache.
+`POST /v1/jobs/cover-letter/pdf` compiles a letter for one application on the
+same template, one page, header from the contact facts, nothing stored.
+The image installs the pinned TeX Live 2023 packages the template loads for
+these builds (`Dockerfile`).
 
 Application facts live in `jobs_facts`, one row per fact keyed by a dotted name
 (`education.graduation_date`), with a JSON value typed by `value_type`.
@@ -64,9 +88,35 @@ Unknown or optional EEO values are not inferred.
 
 ### Jobs endpoints
 
-`/v1/jobs/*` owns facts, the career record, listing filtering, the application
-queue and lifecycle, questions, patterns, prose, the archive, the Inbox,
-synchronous autofill runs, and failure history.
+`/v1/jobs/*` owns facts, the career record, the narrative library, prose gaps,
+listing filtering, the application queue and lifecycle, questions, patterns,
+prose, the archive, the Inbox, synchronous autofill runs, and failure history.
+
+`/v1/jobs/library` (`jobs_library.py`) is the narrative library: entries keyed
+by a dotted code (`1.1`, `2.2.11`, `5.1.E2`, `6.1.P3`), each a section
+(`interest`, `direction`, `evidence`, `story`, `entry`, `note`) with a prompt,
+optional guidance and answer, and an optional `entry_id` bound to one of the
+user's resume entries (an id another user's record owns is refused). `GET`
+lists them in display order; `PUT /{code}` upserts one — a mismatched body code
+is a 422 — `PUT` upserts a list in one transaction and never deletes what it
+omits; only an explicit `DELETE /{code}` removes an entry. `POST /import` loads
+the first entries and 409s once any exist. Every write records a `jobs_changes`
+row with subject `library` in the same transaction; an upsert that changes
+nothing writes and records nothing.
+
+`/v1/jobs/prose/gaps` (`jobs_gaps.py`) records where saved writing does not
+cover a long-form question: a `family` (why_company, why_role, and the rest of
+the fixed list), `coverage` `partial` or `missing`, and a `missing_detail`.
+Posting one records the question as long-form — a label that asks nothing is
+refused — and upserts the single open gap for it; resolving (`POST
+/gaps/{id}/resolve`) frees the next. `GET /gaps?open=true` lists only the open
+ones. The Inbox carries open gaps in `gaps`.
+
+A prose span's `source` is `model`, `previous`, or `library`; a `library` span
+names its library entry code in `entry`, and only a library span has one. A
+run's context carries only **this application's** saved prose — the latest row
+per question, approved or not — so approving an answer feeds no other
+application.
 
 ### Questions, patterns, prose, and the archive
 
@@ -112,8 +162,8 @@ while the GitHub file remains the discovery URL.
 
 The signed-in CLI creates an autofill run from a posting ID. FastAPI upserts the
 application and returns only that user's direct URL, posting context, facts,
-active patterns, approved prose, validated control preferences, and
-duplicate-company warnings.
+active patterns, this application's saved prose (the latest row per question),
+validated control preferences, and duplicate-company warnings.
 Step results, changed-answer observations, and final values come back through
 authenticated endpoints and are stored as application history linked to their
 questions; nothing in a run activates a pattern or approves prose.
@@ -200,9 +250,7 @@ whose original inputs cannot be verified.
 `POST /v1/jobs/questions/similar` compares question labels using cosine
 similarity. `jobs_search.py` calls OpenAI `text-embedding-3-small` in batches,
 caches each recorded question's 1536-dimensional vector, and returns matches
-above the requested threshold (default 0.65), with only approved prose attached.
-`prose_only` restricts matches to questions that have approved writing. The same
-endpoint can find short or one-off questions without that restriction. Only
+above the requested threshold (default 0.65). Only
 question labels reach OpenAI. Provider calls run outside database transactions;
 missing or invalid provider results return 503 without saving vectors. Exact
 comparisons scan this single user's small corpus; no approximate index is needed.
@@ -277,7 +325,7 @@ uses it. All three must pass:
 cd backend && uv run ruff check . && uv run mypy src/ && uv run pytest -q
 ```
 
-Currently 130 tests. `mypy` is scoped to `src/` because the test suite is not
+Currently 257 tests. `mypy` is scoped to `src/` because the test suite is not
 annotated; `pyproject.toml` already pins `packages = ["personal_os_backend"]`, so bare
 `uv run mypy` — the form CI uses — checks the same files.
 
@@ -302,11 +350,16 @@ src/personal_os_backend/
   jobs_store.py     all Jobs SQL (the largest module by far)
   jobs_sources.py   SpeedyApply README parsing and location normalization
   jobs_sync.py      standalone sync entry point, runs as the Cloud Run Job
-  jobs_storage.py   private Storage bucket reads and writes
+  jobs_storage.py   private Storage bucket reads and writes (incl. the resume PDF)
   jobs_answers.py   questions, patterns, prose, the archive, and the Inbox
   jobs_changes.py   /v1/jobs/changes and /sightings: the change history and what it is replayed against
-  jobs_search.py    cached question embeddings and approved-prose similarity search
+  jobs_search.py    cached question embeddings and similarity search
   jobs_devices.py   /v1/jobs/devices: the heartbeat upsert and the device list
+  jobs_career_pdf.py  deterministic LaTeX builds: the resume PDF, the printed
+                    projection, and POST /v1/jobs/cover-letter/pdf
+  jobs_public.py    /v1/public/resume.pdf: the one unauthenticated read
+  jobs_library.py   /v1/jobs/library: the narrative library
+  jobs_gaps.py      /v1/jobs/prose/gaps and application-scoped prose reuse
 tests/              pytest suite, async mode auto
 Dockerfile          builds from the repository root build context, not from here
 ```

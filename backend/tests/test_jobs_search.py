@@ -72,3 +72,45 @@ async def test_facts_are_ranked_by_label_and_never_send_a_value(
     sent.clear()
     await rank_facts(request, item)  # type: ignore[arg-type]
     assert sent == []
+
+
+async def test_similar_no_longer_takes_prose_only() -> None:
+    from collections.abc import AsyncIterator
+    from contextlib import asynccontextmanager
+    from uuid import UUID
+
+    from fastapi import FastAPI
+
+    from personal_os_backend.config import Settings
+    from personal_os_backend.main import create_app
+    from personal_os_backend.models import Principal
+
+    user = UUID("c3c8d239-162d-4e5e-a2a1-4ac0d1b3695f")
+
+    @asynccontextmanager
+    async def no_lifespan(_: FastAPI) -> AsyncIterator[None]:
+        yield
+
+    class FakeValidator:
+        async def verify(self, token: str) -> Principal:
+            return Principal(user, "eahtree@gmail.com", "Eah Tree", None)
+
+    app = create_app(
+        Settings(
+            database_url="postgresql://postgres:password@localhost:5432/postgres",
+            supabase_url="https://exampleprojectref.supabase.co",
+            allowed_user_id=user,
+            allowed_email="eahtree@gmail.com",
+        ),
+        lifespan=no_lifespan,
+    )
+    app.state.jwt_validator = FakeValidator()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        refused = await client.post(
+            "/v1/jobs/questions/similar",
+            headers={"Authorization": "Bearer approved"},
+            json={"question": "Why us?", "prose_only": True},
+        )
+        assert refused.status_code == 422

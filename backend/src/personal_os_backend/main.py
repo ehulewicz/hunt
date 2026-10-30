@@ -13,9 +13,13 @@ from personal_os_backend.config import Settings
 from personal_os_backend.database import create_pool, database_is_ready
 from personal_os_backend.jobs_answers import router as answers_router
 from personal_os_backend.jobs_career import router as career_router
+from personal_os_backend.jobs_career_pdf import router as career_pdf_router
 from personal_os_backend.jobs_changes import router as changes_router
 from personal_os_backend.jobs_devices import router as devices_router
 from personal_os_backend.jobs_facts import router as facts_router
+from personal_os_backend.jobs_gaps import router as gaps_router
+from personal_os_backend.jobs_library import router as library_router
+from personal_os_backend.jobs_public import router as public_router
 from personal_os_backend.jobs_router import router as jobs_router
 from personal_os_backend.jobs_search import router as search_router
 from personal_os_backend.models import AccountResponse, HealthResponse
@@ -93,10 +97,14 @@ def create_app(settings: Settings | None = None, *, lifespan: Lifespan | None = 
     application.include_router(jobs_router)
     application.include_router(facts_router)
     application.include_router(career_router)
+    application.include_router(career_pdf_router)
     application.include_router(answers_router)
     application.include_router(changes_router)
     application.include_router(search_router)
     application.include_router(devices_router)
+    application.include_router(library_router)
+    application.include_router(gaps_router)
+    application.include_router(public_router)
 
     return application
 

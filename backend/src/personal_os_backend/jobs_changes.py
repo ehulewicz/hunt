@@ -34,7 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from personal_os_backend.auth import CurrentPrincipal
 from personal_os_backend.config import Settings
 
-Subject = Literal["pattern", "fact", "code", "prose", "question", "strategy"]
+Subject = Literal["pattern", "fact", "code", "prose", "question", "strategy", "library"]
 Action = Literal["create", "update", "retire", "reject", "delete"]
 Origin = Literal["you", "inbox", "model", "repair", "worker"]
 ChangeStatus = Literal["pending", "passed", "failed"]

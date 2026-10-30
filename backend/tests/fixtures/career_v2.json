@@ -1,0 +1,164 @@
+{
+  "contact": {
+    "name": "Alex Example",
+    "phone": "555-010-0199",
+    "email": "alex.example@example.com",
+    "linkedin": "https://www.linkedin.com/in/alex-example",
+    "github": "https://github.com/ehulewicz",
+    "citizenship": "US Citizen"
+  },
+  "education": [
+    {
+      "school": "Example Institute of Technology",
+      "location": "Atlanta, GA",
+      "level": "undergraduate",
+      "primary": true,
+      "onResume": true,
+      "degree": "BS Computer Science",
+      "gpa": "3.78",
+      "gpaScale": "4.00",
+      "graduation": "December 2027",
+      "threads": "Artificial Intelligence & Theory",
+      "courses": [
+        "Data Structures & Algorithms",
+        "Systems & Architecture",
+        "Perception & Robotics",
+        "Machine Learning",
+        "Linear Algebra"
+      ]
+    }
+  ],
+  "experience": [
+    {
+      "title": "Middleware Engineer (Co-op)",
+      "org": "Northwind",
+      "location": "Atlanta, GA",
+      "city": "Atlanta",
+      "region": "GA",
+      "country": "United States",
+      "qualifier": "Continuous Employment",
+      "date": "May 2025 – Present",
+      "bullets": [
+        "Engineered a notes and reporting system, proposing linking across ERP modules: customer signed second SOW on delivery",
+        "Built a chunked full-stack bulk action system updating 1,000-task batches and their subtasks with per-family rollback",
+        "Owned a 41-ticket modernization of PHP pages into AJAX-driven API on PostgreSQL and a rebuilt JS asset library",
+        "Led both customer SOWs end to end and shipped 120+ production tickets across the wider product alongside two other teams"
+      ],
+      "onResume": true,
+      "moreBullets": []
+    },
+    {
+      "title": "Technical Co-founder",
+      "org": "Northhealth AI",
+      "location": "Chicago, IL",
+      "city": "Chicago",
+      "region": "IL",
+      "country": "United States",
+      "date": "October 2025 – May 2026",
+      "bullets": [
+        "Sole engineer on a gamified wellness tracker that scores patient-owned logs and generates clinician-ready reports",
+        "Validated with 22 healthcare professionals and accepted to present at the 2026 American Academy of Neurology annual meet",
+        "Isolated identity from physical and mental wellness data across two Postgres databases, linked only by an opaque UUID"
+      ],
+      "onResume": true,
+      "moreBullets": []
+    },
+    {
+      "title": "Software Engineer (Contract)",
+      "org": "Example Public Schools",
+      "location": "Chicago, IL",
+      "city": "Chicago",
+      "region": "IL",
+      "country": "United States",
+      "date": "May 2023 – December 2023",
+      "bullets": [
+        "Unified 10+ leave-processing screens into one interface with workflow automation, cutting HR processing from 10 to <3 min",
+        "Built a Java integration layer normalizing data from Oracle Cloud, Salesforce, and an internal API-less timekeeping tool",
+        "Maintained the tool through upstream changes and automated 4–5 daily authentication cycles, saving 12+ min/user/day"
+      ],
+      "onResume": true,
+      "moreBullets": []
+    }
+  ],
+  "research": [
+    {
+      "title": "Sample Lab @ Example University Europe",
+      "org": "Data-driven Robotics for Environment Assessment and Monitoring",
+      "location": "Metz, France",
+      "city": "Metz",
+      "country": "France",
+      "jobTitle": "Undergraduate Researcher",
+      "employer": "Sample Lab @ Example University Europe",
+      "date": "September 2024 – December 2024",
+      "bullets": [
+        "Fine-tuned MKDNet in PyTorch on shrimp tracking, improving NPR 39%, precision 33%, and success rate 30%",
+        "Tested MKDNet against DiMP50 on LaTOT, finding that its published performance did not reproduce on our split",
+        "Co-authored a research paper analyzing replication limits, domain adaptation, and tracker failure modes"
+      ],
+      "onResume": true,
+      "moreBullets": []
+    },
+    {
+      "title": "Example Lab @ Example University",
+      "org": "Example Nuclear Group",
+      "location": "Atlanta, GA",
+      "city": "Atlanta",
+      "region": "GA",
+      "country": "United States",
+      "jobTitle": "Undergraduate Researcher",
+      "employer": "Example Lab @ Example University",
+      "date": "April 2024 – September 2024",
+      "bullets": [
+        "Built a Dockerized nuclear flow-loop simulation alongside ICSSIM to support repeatable cyberattack experiments",
+        "Derived ~30 signals from thousands of ICSSIM readings and exposed them through networked nodes for experimentation",
+        "Ran DDoS and injection attacks, comparing sensor responses to identify signals most useful for future detection models"
+      ],
+      "onResume": true,
+      "moreBullets": []
+    }
+  ],
+  "projects": [
+    {
+      "title": "AlphaResearch",
+      "org": "UC Berkeley AI Hackathon Winner, Best Use of Cognition",
+      "date": "June 2026",
+      "bullets": [
+        "Built a recursive multi-agent research platform where agents spawned specialists to test hypotheses in parallel",
+        "Designed isolated Modal sandboxes per agent with configurable CPU/GPU compute under a shared research budget",
+        "Orchestrated 1,000+ agents across Cloud Run, Redis, and GCS, reaching 500,000+ MiniGrid steps/sec concurrently"
+      ],
+      "onResume": true,
+      "moreBullets": []
+    },
+    {
+      "title": "Job Application Agent",
+      "date": "June 2026",
+      "bullets": [
+        "Building an agent that fills applications on any ATS from its form controls and learns from every failed field",
+        "Limited Claude to choosing which stored fact answers each short question, so no filled value is invented",
+        "Streamed each device's Chrome to a Vercel control page over Tailscale, with remote input, live logs, and run controls"
+      ],
+      "onResume": true,
+      "moreBullets": []
+    }
+  ],
+  "activities": [],
+  "skills": [
+    {
+      "category": "Languages",
+      "items": "Python, Java, JavaScript, SQL, PHP, Bash, C"
+    },
+    {
+      "category": "Tools & Infrastructure",
+      "items": "Git, Linux, Docker, Tailscale, PostgreSQL, Redis, Google Cloud, Azure, Modal, Oracle Cloud"
+    },
+    {
+      "category": "Frameworks & Libraries",
+      "items": "FastAPI, PyTorch, Scikit-Learn, NumPy, Selenium, Playwright"
+    },
+    {
+      "category": "AI & Agentic Tools",
+      "items": "Claude Code, Codex, Gemini, GitHub Copilot, Claude Agent SDK, Multi-Agent Systems"
+    }
+  ]
+}

@@ -19,6 +19,7 @@ from personal_os_backend.jobs_answers import (
     PatternRefused,
     PatternUpdate,
     PostgresAnswerStore,
+    ProseSpan,
     ProseUpdate,
     Question,
     QuestionUpdate,
@@ -28,6 +29,7 @@ from personal_os_backend.jobs_answers import (
     get_answer_store,
     normalize_answer_key,
     runaway_expression,
+    stripped_spans,
 )
 from personal_os_backend.main import create_app
 from personal_os_backend.models import Principal
@@ -280,7 +282,7 @@ async def test_inbox_questions_and_archive_are_readable(client: httpx.AsyncClien
         inbox = await client.get("/v1/jobs/inbox", headers=HEADERS)
         assert inbox.json() == {
             "candidates": [], "checks": [], "questions": [], "prose": [], "facts": [],
-            "unsolved": [],
+            "unsolved": [], "gaps": [],
         }
         questions = await client.get("/v1/jobs/questions?disposition=unbound", headers=HEADERS)
         assert questions.json()[0]["sample_label"] == "Will you require sponsorship?"
@@ -499,3 +501,31 @@ async def test_replacing_a_model_binding_and_only_that_binding() -> None:
     assert await _model_refusal(connection, USER_ID, item) == (  # type: ignore[arg-type]
         "only the binding a model taught, and only the one named, can be replaced"
     )
+
+
+def test_a_library_span_names_its_entry_and_only_a_library_span_has_one() -> None:
+    span = ProseSpan.model_validate({"start": 0, "end": 5, "source": "library",
+                                     "entry": "2.2.11"})
+    assert span.entry == "2.2.11"
+    # Old spans, model or previous, keep reading without an entry.
+    ProseSpan.model_validate({"start": 0, "end": 5, "source": "previous"})
+    ProseSpan.model_validate({"start": 0, "end": 5, "source": "model"})
+    with pytest.raises(ValidationError):
+        ProseSpan.model_validate({"start": 0, "end": 5, "source": "library"})
+    with pytest.raises(ValidationError):
+        ProseSpan.model_validate(
+            {"start": 0, "end": 5, "source": "model", "entry": "1.1"}
+        )
+
+
+def test_stripped_spans_keeps_the_entry_only_for_library_spans() -> None:
+    spans = [
+        ProseSpan(start=0, end=3, source="model"),
+        ProseSpan(start=3, end=8, source="library", entry="1.1"),
+        ProseSpan(start=8, end=11, source="previous"),
+    ]
+    assert stripped_spans("abcdefghijk", spans) == [
+        {"start": 0, "end": 3, "source": "model"},
+        {"start": 3, "end": 8, "source": "library", "entry": "1.1"},
+        {"start": 8, "end": 11, "source": "previous"},
+    ]

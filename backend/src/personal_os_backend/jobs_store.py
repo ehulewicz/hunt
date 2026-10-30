@@ -14,12 +14,12 @@ from psycopg_pool import AsyncConnectionPool
 from personal_os_backend.config import Settings
 from personal_os_backend.jobs_answers import (
     active_patterns,
-    approved_prose,
     normalize_answer_key,
     stripped_spans,
     upsert_question,
 )
 from personal_os_backend.jobs_changes import Failure, record_change
+from personal_os_backend.jobs_gaps import application_prose
 from personal_os_backend.jobs_models import (
     DEFAULT_TECHNICAL_FAMILIES,
     ApplicationUpdate,
@@ -735,7 +735,9 @@ class PostgresJobsStore:
             )
             preferences = [dict(row["candidate"]) for row in await preferences_cursor.fetchall()]
             patterns = await active_patterns(connection, user_id)
-            prose = await approved_prose(connection, user_id)
+            # Only this application's own saved prose is reused (approved or
+            # not); approving prose no longer feeds other applications.
+            prose = await application_prose(connection, user_id, row["application_id"])
         return AutofillRunContext(
             **{key: value for key, value in row.items() if key != "company_id"},
             facts=[dict(fact) for fact in facts],

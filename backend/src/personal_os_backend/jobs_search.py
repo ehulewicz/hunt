@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from personal_os_backend.auth import CurrentPrincipal
-from personal_os_backend.jobs_answers import PROSE_SELECT, Prose, normalize_answer_key
+from personal_os_backend.jobs_answers import normalize_answer_key
 
 MODEL = "text-embedding-3-small"
 DIMENSIONS = 1536
@@ -63,14 +63,12 @@ class SimilarityQuery(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
     threshold: float = Field(default=THRESHOLD, ge=0, le=1)
     limit: int = Field(default=5, ge=1, le=20)
-    prose_only: bool = False
 
 
 class SimilarQuestion(BaseModel):
     question_id: UUID
     question: str
     similarity: float
-    prose: list[Prose] = Field(default_factory=list)
 
 
 async def search_questions(
@@ -136,28 +134,14 @@ async def search_questions(
                    1 - (embedding OPERATOR(extensions.<=>) %s::extensions.vector) as similarity
             from app.jobs_questions question
             where user_id = %s and embedding is not null
-              and (not %s or exists (
-                select 1 from app.jobs_prose prose
-                where prose.question_id = question.id and prose.user_id = question.user_id
-                  and prose.approved
-              ))
               and 1 - (embedding OPERATOR(extensions.<=>) %s::extensions.vector) >= %s
             order by embedding OPERATOR(extensions.<=>) %s::extensions.vector, id
             limit %s
             """,
-            (query_vector, user_id, query.prose_only, query_vector, query.threshold,
+            (query_vector, user_id, query_vector, query.threshold,
              query_vector, query.limit),
         )
         matches = [SimilarQuestion.model_validate(row) for row in await cursor.fetchall()]
-        if matches:
-            cursor = await connection.execute(
-                f"{PROSE_SELECT} where prose.user_id = %s and prose.approved "
-                "and prose.question_id = any(%s) order by prose.updated_at desc",
-                (user_id, [match.question_id for match in matches]),
-            )
-            prose = [Prose.model_validate(row) for row in await cursor.fetchall()]
-            for match in matches:
-                match.prose = [item for item in prose if item.question_id == match.question_id]
     return matches
 
 

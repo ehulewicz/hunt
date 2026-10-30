@@ -259,7 +259,15 @@ class ProseSpan(BaseModel):
 
     start: int = Field(ge=0)
     end: int = Field(gt=0)
-    source: Literal["model", "previous"]
+    source: Literal["model", "previous", "library"]
+    # The library entry's code, present exactly when the source is `library`.
+    entry: str | None = Field(default=None, max_length=40)
+
+    @model_validator(mode="after")
+    def entry_marks_a_library_span(self) -> ProseSpan:
+        if (self.source == "library") != (self.entry is not None and bool(self.entry.strip())):
+            raise ValueError("a span names its library entry, and only a library span has one")
+        return self
 
 
 def check_spans(spans: list[ProseSpan], text: str) -> None:
@@ -280,7 +288,14 @@ def stripped_spans(text: str, spans: list[ProseSpan] | None) -> list[dict[str, A
     for span in spans:
         start, end = max(0, span.start - lead), min(kept, span.end - lead)
         if end > start:
-            shifted.append({"start": start, "end": end, "source": span.source})
+            shifted.append(
+                {
+                    "start": start,
+                    "end": end,
+                    "source": span.source,
+                    **({"entry": span.entry} if span.source == "library" else {}),
+                }
+            )
     return shifted
 
 
@@ -387,6 +402,22 @@ class InboxUnsolved(BaseModel):
     last_seen_at: datetime
 
 
+class ProseGap(BaseModel):
+    """A long-form question the library covers only partly or not at all."""
+
+    id: UUID
+    question_id: UUID
+    question: str | None
+    application_id: UUID | None
+    company_name: str | None
+    title: str | None
+    family: str
+    coverage: Literal["partial", "missing"]
+    missing_detail: str
+    created_at: datetime
+    resolved_at: datetime | None
+
+
 class Inbox(BaseModel):
     # Learned patterns waiting on you; `checks` are the ones whose replay failed.
     candidates: list[InboxCandidate]
@@ -395,6 +426,8 @@ class Inbox(BaseModel):
     prose: list[Prose]
     facts: list[InboxFact] = Field(default_factory=list)
     unsolved: list[InboxUnsolved] = Field(default_factory=list)
+    # Open prose gaps, filled by `jobs_gaps.open_gaps`.
+    gaps: list[ProseGap] = Field(default_factory=list)
 
 
 PATTERN_COLUMNS = """
@@ -429,15 +462,6 @@ async def active_patterns(connection: AsyncConnection[Any], user_id: UUID) -> li
         (user_id,),
     )
     return [Pattern.model_validate(row) for row in await cursor.fetchall()]
-
-
-async def approved_prose(connection: AsyncConnection[Any], user_id: UUID) -> list[Prose]:
-    cursor = await connection.execute(
-        f"{PROSE_SELECT} where prose.user_id = %s and prose.approved "
-        "order by prose.updated_at desc",
-        (user_id,),
-    )
-    return [Prose.model_validate(row) for row in await cursor.fetchall()]
 
 
 async def archived_answers(
@@ -1082,9 +1106,13 @@ class PostgresAnswerStore:
             prose = [Prose.model_validate(row) for row in await cursor.fetchall()]
             facts = await _facts_waiting(connection, user_id)
             unsolved = await _unsolved(connection, user_id)
+            # Imported here: jobs_gaps imports this module for its models.
+            from personal_os_backend.jobs_gaps import open_gaps
+
+            gaps = await open_gaps(connection, user_id)
         return Inbox(
             candidates=candidates, checks=failed_checks, questions=questions, prose=prose,
-            facts=facts, unsolved=unsolved,
+            facts=facts, unsolved=unsolved, gaps=gaps,
         )
 
 

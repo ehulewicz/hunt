@@ -1,32 +1,45 @@
 """The career record: the resume as rows, and the document assembled from them.
 
-Education, experience, research, projects, bullets, and skills are rows with
-real dates. The resume document — the shape `artifacts/career/main.json` has
-always had — is rendered from them, and a document written back is parsed into
-them in one transaction, so the database is the one writable copy and the JSON
-and PDF are exports. The header's contact details are facts, not rows: the
-document's `contact` block is derived from `jobs_facts` and a write must agree
-with it.
+Education, experience, research, projects, activities, bullets, and skills are
+rows with real dates. The resume document — the shape `os hunt resume put`
+writes — is rendered from them, and a document written back is parsed into
+them in one transaction, so the database is the one writable copy of the
+record. Every entry, bullet, and school carries `on_resume`: the
+record keeps the material the resume omits. Entry rows are stable across
+writes — an entry the document names by id is updated, not replaced — so the
+library's `entry_id` links survive a save. The header's contact details are
+facts, not rows: the document's `contact` block is derived from `jobs_facts`
+and a write must agree with it. A save compiles the printed projection of the
+rendered document (`jobs_career_pdf.py`) and stores the PDF beside the record;
+a failed compile refuses the write before anything is stored.
 """
 
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Annotated, Any, Literal, Protocol
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from psycopg import AsyncConnection, sql
+from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from personal_os_backend.auth import CurrentPrincipal
 from personal_os_backend.config import Settings
+from personal_os_backend.jobs_career_pdf import (
+    PdfError,
+    ResumeCompiler,
+    get_pdf_compiler,
+)
+from personal_os_backend.jobs_storage import ResumeStorage, get_document_storage
 
 # The authored range separator in the resume ("May 2025 \u2013 Present").
-EN_DASH = "\u2013"
+EN_DASH = "–"  # noqa: RUF001 - the authored en dash
 MONTHS = (
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
@@ -47,13 +60,14 @@ TITLE_SUFFIX = re.compile(
 UNITED_STATES = "United States"
 US_STATE = re.compile(r"^[A-Z]{2}$")
 # A range separator is the authored en dash, or a plain hyphen typed in an editor.
-RANGE = re.compile(r"^(?P<start>.+?)\s+[\u2013-]\s+(?P<end>.+)$")
+RANGE = re.compile(r"^(?P<start>.+?)\s+[–-]\s+(?P<end>.+)$")  # noqa: RUF001
 # AGENTS.md: bullets carry no keyword emphasis, and headings never use an em dash.
 EMPHASIS = re.compile(r"\*\*|__|\\textbf|\\emph|</?(?:b|strong|em)>", re.IGNORECASE)
-SECTIONS: tuple[tuple[str, Literal["experience", "research", "project"]], ...] = (
+SECTIONS: tuple[tuple[str, Literal["experience", "research", "project", "activity"]], ...] = (
     ("experience", "experience"),
     ("research", "research"),
     ("projects", "project"),
+    ("activities", "activity"),
 )
 CONTACT_FACTS = {
     "name": "identity.legal_name",
@@ -184,9 +198,25 @@ def contact_from_facts(values: dict[str, Any]) -> dict[str, str]:
 
 
 def _no_em_dash(value: str) -> str:
-    if "\u2014" in value:
+    if "—" in value:
         raise ValueError("headings separate parts with | or a comma, never an em dash")
     return value
+
+
+def _bullet_rules(value: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    for bullet in value:
+        text = bullet.strip()
+        if not text:
+            raise ValueError("a bullet cannot be blank")
+        if ";" in text:
+            raise ValueError(f"bullets never use semicolons; split or cut: {text[:60]!r}")
+        if EMPHASIS.search(text):
+            raise ValueError(f"bullets carry no keyword emphasis: {text[:60]!r}")
+        if len(text) > 1000:
+            raise ValueError("a bullet cannot exceed 1000 characters")
+        cleaned.append(text)
+    return cleaned
 
 
 class CareerContact(BaseModel):
@@ -205,17 +235,37 @@ class CareerEducation(BaseModel):
 
     school: str = Field(min_length=1, max_length=300)
     location: str = Field(default="", max_length=200)
+    level: Literal["high_school", "undergraduate", "graduate"] = "undergraduate"
+    # Exactly one school in the document is primary; the API enforces it.
+    primary: bool = False
+    onResume: bool = True
     degree: str = Field(default="", max_length=300)
     threads: str = Field(default="", max_length=300)
-    courses: str = Field(default="", max_length=1000)
+    courses: list[str] = Field(default_factory=list, max_length=30)
     graduation: str = Field(default="", max_length=100)
     gpa: str = Field(default="", max_length=20)
     gpaScale: str = Field(default="", max_length=20)
+
+    @field_validator("courses")
+    @classmethod
+    def courses_are_short_items(cls, value: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for course in value:
+            text = course.strip()
+            if not text:
+                raise ValueError("a course cannot be blank")
+            if len(text) > 200:
+                raise ValueError("a course cannot exceed 200 characters")
+            cleaned.append(text)
+        return cleaned
 
 
 class CareerEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    # Naming an existing entry's id keeps it: it is updated in place, so the
+    # library's links survive. An omitted id inserts a new entry.
+    id: UUID | None = None
     title: str = Field(min_length=1, max_length=300)
     org: str | None = Field(default=None, max_length=300)
     location: str | None = Field(default=None, max_length=200)
@@ -228,29 +278,26 @@ class CareerEntry(BaseModel):
     jobTitle: str | None = Field(default=None, max_length=300)
     employer: str | None = Field(default=None, max_length=300)
     date: str = Field(default="", max_length=100)
-    bullets: list[str] = Field(min_length=1, max_length=20)
+    onResume: bool = True
+    # The printed bullets, then the kept ones the resume omits.
+    bullets: list[str] = Field(default_factory=list, max_length=40)
+    moreBullets: list[str] = Field(default_factory=list, max_length=40)
 
     @field_validator("title", "org", "qualifier", "jobTitle", "employer")
     @classmethod
     def heading_has_no_em_dash(cls, value: str | None) -> str | None:
         return None if value is None else _no_em_dash(value)
 
-    @field_validator("bullets")
+    @field_validator("bullets", "moreBullets")
     @classmethod
     def bullets_follow_the_resume_rules(cls, value: list[str]) -> list[str]:
-        cleaned: list[str] = []
-        for bullet in value:
-            text = bullet.strip()
-            if not text:
-                raise ValueError("a bullet cannot be blank")
-            if ";" in text:
-                raise ValueError(f"bullets never use semicolons; split or cut: {text[:60]!r}")
-            if EMPHASIS.search(text):
-                raise ValueError(f"bullets carry no keyword emphasis: {text[:60]!r}")
-            if len(text) > 1000:
-                raise ValueError("a bullet cannot exceed 1000 characters")
-            cleaned.append(text)
-        return cleaned
+        return _bullet_rules(value)
+
+    @model_validator(mode="after")
+    def printed_entry_has_a_bullet(self) -> CareerEntry:
+        if self.onResume and not self.bullets:
+            raise ValueError("an entry on the resume needs at least one bullet")
+        return self
 
 
 class CareerSkill(BaseModel):
@@ -261,34 +308,45 @@ class CareerSkill(BaseModel):
 
 
 class CareerDocument(BaseModel):
-    """The resume in the shape the PDF template reads and `main.json` stores."""
+    """The resume in the shape `os hunt resume put` writes and GET renders."""
 
     model_config = ConfigDict(extra="forbid")
 
-    # `meta` was the old file's bookkeeping; it is accepted on import and dropped.
-    meta: dict[str, Any] | None = Field(default=None, exclude=True)
     contact: CareerContact
-    education: CareerEducation
+    education: list[CareerEducation] = Field(min_length=1, max_length=10)
     experience: list[CareerEntry] = Field(default_factory=list, max_length=20)
     research: list[CareerEntry] = Field(default_factory=list, max_length=20)
     projects: list[CareerEntry] = Field(default_factory=list, max_length=20)
+    activities: list[CareerEntry] = Field(default_factory=list, max_length=20)
     skills: list[CareerSkill] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def one_school_is_primary(self) -> CareerDocument:
+        primaries = sum(1 for school in self.education if school.primary)
+        if primaries != 1:
+            raise ValueError("education needs exactly one primary school")
+        return self
 
 
 class EducationRow(BaseModel):
     school: str
     location: str | None
+    level: str
+    is_primary: bool
+    on_resume: bool
     degree_type: str | None
     field_of_study: str | None
     concentrations: str | None
-    coursework: str | None
+    coursework: list[str]
     graduation_date: date | None
     gpa: Decimal | None
     gpa_scale: Decimal | None
 
 
 class EntryRow(BaseModel):
-    section: Literal["experience", "research", "project"]
+    # Always set on a stored row; None for a document entry that has no id yet.
+    id: UUID | None = None
+    section: Literal["experience", "research", "project", "activity"]
     title: str
     org: str | None
     city: str | None
@@ -300,7 +358,10 @@ class EntryRow(BaseModel):
     employment_type: str | None
     start_date: date | None
     end_date: date | None
+    on_resume: bool
+    # The printed bullets, then the kept ones the resume omits.
     bullets: list[str]
+    more_bullets: list[str]
 
 
 class SkillRow(BaseModel):
@@ -312,6 +373,7 @@ class CareerRecord(BaseModel):
     """The rows, for deriving facts, and the document rendered from them."""
 
     education: EducationRow
+    schools: list[EducationRow]
     entries: list[EntryRow]
     skills: list[SkillRow]
     document: dict[str, Any]
@@ -341,22 +403,28 @@ def entry_location(entry: CareerEntry) -> tuple[str | None, str | None, str | No
 
 def rows_from_document(
     document: CareerDocument,
-) -> tuple[EducationRow, list[EntryRow], list[SkillRow]]:
-    education = document.education
-    degree_type, _, field_of_study = education.degree.strip().partition(" ")
-    education_row = EducationRow(
-        school=education.school.strip(),
-        location=education.location.strip() or None,
-        degree_type=degree_type or None,
-        field_of_study=field_of_study.strip() or None,
-        concentrations=education.threads.strip() or None,
-        coursework=education.courses.strip() or None,
-        graduation_date=(
-            parse_month(education.graduation) if education.graduation.strip() else None
-        ),
-        gpa=parse_decimal(education.gpa, "gpa"),
-        gpa_scale=parse_decimal(education.gpaScale, "gpaScale"),
-    )
+) -> tuple[list[EducationRow], list[EntryRow], list[SkillRow]]:
+    schools: list[EducationRow] = []
+    for education in document.education:
+        degree_type, _, field_of_study = education.degree.strip().partition(" ")
+        schools.append(
+            EducationRow(
+                school=education.school.strip(),
+                location=education.location.strip() or None,
+                level=education.level,
+                is_primary=education.primary,
+                on_resume=education.onResume,
+                degree_type=degree_type or None,
+                field_of_study=field_of_study.strip() or None,
+                concentrations=education.threads.strip() or None,
+                coursework=list(education.courses),
+                graduation_date=(
+                    parse_month(education.graduation) if education.graduation.strip() else None
+                ),
+                gpa=parse_decimal(education.gpa, "gpa"),
+                gpa_scale=parse_decimal(education.gpaScale, "gpaScale"),
+            )
+        )
     entries: list[EntryRow] = []
     for key, section in SECTIONS:
         for entry in getattr(document, key):
@@ -365,6 +433,9 @@ def rows_from_document(
             city, region, country = entry_location(entry)
             entries.append(
                 EntryRow(
+                    # An id the document names is checked against the user's
+                    # rows at write time; an unset one inserts.
+                    id=entry.id,
                     section=section,
                     title=title,
                     org=entry.org.strip() if entry.org else None,
@@ -377,7 +448,9 @@ def rows_from_document(
                     employment_type=employment_type,
                     start_date=start,
                     end_date=end,
+                    on_resume=entry.onResume,
                     bullets=entry.bullets,
+                    more_bullets=entry.moreBullets,
                 )
             )
     skills = [
@@ -387,37 +460,47 @@ def rows_from_document(
         )
         for skill in document.skills
     ]
-    return education_row, entries, skills
+    return schools, entries, skills
 
 
 def document_from_rows(
-    education: EducationRow,
+    schools: list[EducationRow],
     entries: list[EntryRow],
     skills: list[SkillRow],
     contact: dict[str, str],
 ) -> dict[str, Any]:
-    """The resume document; a key is present only when it has a value, as authored."""
+    """The resume document; an entry key is present only when it has a value."""
     rendered: dict[str, Any] = {
         "contact": contact,
-        "education": {
-            "school": education.school,
-            "location": education.location or "",
-            "degree": " ".join(
-                part for part in (education.degree_type, education.field_of_study) if part
-            ),
-            "threads": education.concentrations or "",
-            "courses": education.coursework or "",
-            "graduation": render_month(education.graduation_date)
-            if education.graduation_date
-            else "",
-            "gpa": render_decimal(education.gpa),
-            "gpaScale": render_decimal(education.gpa_scale),
-        },
+        "education": [
+            {
+                "school": education.school,
+                "location": education.location or "",
+                "level": education.level,
+                "primary": education.is_primary,
+                "onResume": education.on_resume,
+                "degree": " ".join(
+                    part
+                    for part in (education.degree_type, education.field_of_study)
+                    if part
+                ),
+                "gpa": render_decimal(education.gpa),
+                "gpaScale": render_decimal(education.gpa_scale),
+                "graduation": render_month(education.graduation_date)
+                if education.graduation_date
+                else "",
+                "threads": education.concentrations or "",
+                "courses": list(education.coursework),
+            }
+            for education in schools
+        ],
     }
     for key, section in SECTIONS:
         items: list[dict[str, Any]] = []
         for entry in (item for item in entries if item.section == section):
             item: dict[str, Any] = {"title": render_title(entry.title, entry.employment_type)}
+            if entry.id is not None:
+                item["id"] = str(entry.id)
             fields = {
                 "org": entry.org,
                 "location": render_location(entry.city, entry.region, entry.country),
@@ -430,7 +513,9 @@ def document_from_rows(
             }
             item.update({name: value for name, value in fields.items() if value})
             item["date"] = render_range(entry.start_date, entry.end_date)
+            item["onResume"] = entry.on_resume
             item["bullets"] = list(entry.bullets)
+            item["moreBullets"] = list(entry.more_bullets)
             items.append(item)
         rendered[key] = items
     rendered["skills"] = [
@@ -450,15 +535,25 @@ def contact_conflicts(document: CareerDocument, derived: dict[str, str]) -> list
     ]
 
 
+RecordRows = tuple[list[EducationRow], list[EntryRow], list[SkillRow]]
+
+
 class CareerStore(Protocol):
     async def get_record(self, user_id: UUID) -> CareerRecord | None: ...
 
     async def write_record(
-        self, user_id: UUID, document: CareerDocument, *, only_if_empty: bool
+        self,
+        user_id: UUID,
+        document: CareerDocument,
+        *,
+        rows: RecordRows,
+        pdf: bytes,
+        storage: ResumeStorage,
     ) -> CareerRecord | None: ...
 
 
-async def _contact(connection: AsyncConnection[Any], user_id: UUID) -> dict[str, str]:
+async def contact_facts(connection: AsyncConnection[Any], user_id: UUID) -> dict[str, str]:
+    """The resume header for this user, derived from the contact facts."""
     cursor = await connection.execute(
         "select key, value from app.jobs_facts where user_id = %s and key = any(%s)",
         (user_id, list(CONTACT_FACTS.values())),
@@ -474,25 +569,33 @@ class PostgresCareerStore:
     async def _read(self, connection: AsyncConnection[Any], user_id: UUID) -> CareerRecord | None:
         cursor = await connection.execute(
             """
-            select school, location, degree_type, field_of_study, concentrations,
-                   coursework, graduation_date, gpa, gpa_scale
-            from app.jobs_education where user_id = %s and is_primary
+            select school, location, level, is_primary, on_resume, degree_type,
+                   field_of_study, concentrations, coursework, graduation_date,
+                   gpa, gpa_scale
+            from app.jobs_education where user_id = %s order by display_order
             """,
             (user_id,),
         )
-        education = await cursor.fetchone()
-        if education is None:
+        schools = [EducationRow.model_validate(row) for row in await cursor.fetchall()]
+        primary = next((school for school in schools if school.is_primary), None)
+        if primary is None:
             return None
         cursor = await connection.execute(
             """
-            select entry.section, entry.title, entry.org, entry.city, entry.region,
-                   entry.country, entry.qualifier, entry.job_title, entry.employer,
-                   entry.employment_type, entry.start_date, entry.end_date,
+            select entry.id, entry.section, entry.title, entry.org, entry.city,
+                   entry.region, entry.country, entry.qualifier, entry.job_title,
+                   entry.employer, entry.employment_type, entry.start_date,
+                   entry.end_date, entry.on_resume,
                    coalesce(
                      array_agg(bullet.text order by bullet.display_order)
-                       filter (where bullet.id is not null),
+                       filter (where bullet.on_resume),
                      array[]::text[]
-                   ) as bullets
+                   ) as bullets,
+                   coalesce(
+                     array_agg(bullet.text order by bullet.display_order)
+                       filter (where not bullet.on_resume),
+                     array[]::text[]
+                   ) as more_bullets
             from app.jobs_resume_entries entry
             left join app.jobs_resume_bullets bullet on bullet.entry_id = entry.id
             where entry.user_id = %s
@@ -507,13 +610,13 @@ class PostgresCareerStore:
             (user_id,),
         )
         skills = [SkillRow.model_validate(row) for row in await cursor.fetchall()]
-        education_row = EducationRow.model_validate(education)
         return CareerRecord(
-            education=education_row,
+            education=primary,
+            schools=schools,
             entries=entries,
             skills=skills,
             document=document_from_rows(
-                education_row, entries, skills, await _contact(connection, user_id)
+                schools, entries, skills, await contact_facts(connection, user_id)
             ),
         )
 
@@ -526,10 +629,22 @@ class PostgresCareerStore:
             return await self._read(connection, user_id)
 
     async def write_record(
-        self, user_id: UUID, document: CareerDocument, *, only_if_empty: bool
+        self,
+        user_id: UUID,
+        document: CareerDocument,
+        *,
+        rows: RecordRows,
+        pdf: bytes,
+        storage: ResumeStorage,
     ) -> CareerRecord | None:
-        """Replace the whole record from a document; None when `only_if_empty` and one exists."""
-        education, entries, skills = rows_from_document(document)
+        """Replace the record from a document and store the resume's PDF.
+
+        Entry ids are stable: a document entry that names one of the user's
+        rows updates it, one without an id is inserted, and the user's rows
+        absent from the document are deleted. The PDF upload happens inside
+        the transaction, so an upload failure saves nothing.
+        """
+        schools, entries, skills = rows
         async with (
             self._pool.connection(timeout=self._timeout) as connection,
             connection.transaction(),
@@ -539,67 +654,109 @@ class PostgresCareerStore:
             await connection.execute(
                 "select pg_advisory_xact_lock(hashtext('jobs_career:' || %s::text))", (user_id,)
             )
-            cursor = await connection.execute(
-                "select 1 from app.jobs_education where user_id = %s limit 1", (user_id,)
-            )
-            if only_if_empty and await cursor.fetchone() is not None:
-                return None
-            conflicts = contact_conflicts(document, await _contact(connection, user_id))
+            conflicts = contact_conflicts(document, await contact_facts(connection, user_id))
             if conflicts:
                 raise CareerError("; ".join(conflicts))
-            for table in ("jobs_resume_entries", "jobs_skills", "jobs_education"):
-                await connection.execute(
-                    sql.SQL("delete from app.{} where user_id = %s").format(sql.Identifier(table)),
-                    (user_id,),
-                )
-            await connection.execute(
-                """
-                insert into app.jobs_education (
-                  user_id, school, location, degree_type, field_of_study, concentrations,
-                  coursework, graduation_date, gpa, gpa_scale, is_primary, display_order
-                ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, true, 0)
-                """,
-                (
-                    user_id, education.school, education.location, education.degree_type,
-                    education.field_of_study, education.concentrations, education.coursework,
-                    education.graduation_date, education.gpa, education.gpa_scale,
-                ),
+            cursor = await connection.execute(
+                "select id from app.jobs_resume_entries where user_id = %s", (user_id,)
             )
+            existing = {UUID(str(row["id"])) for row in await cursor.fetchall()}
+            await connection.execute(
+                "delete from app.jobs_education where user_id = %s", (user_id,)
+            )
+            for index, education in enumerate(schools):
+                await connection.execute(
+                    """
+                    insert into app.jobs_education (
+                      user_id, school, location, level, is_primary, on_resume,
+                      degree_type, field_of_study, concentrations, coursework,
+                      graduation_date, gpa, gpa_scale, display_order
+                    ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        user_id, education.school, education.location, education.level,
+                        education.is_primary, education.on_resume, education.degree_type,
+                        education.field_of_study, education.concentrations,
+                        education.coursework, education.graduation_date, education.gpa,
+                        education.gpa_scale, index,
+                    ),
+                )
+            kept: set[UUID] = set()
             order: dict[str, int] = {}
             for entry in entries:
                 position = order.get(entry.section, 0)
                 order[entry.section] = position + 1
-                cursor = await connection.execute(
-                    """
-                    insert into app.jobs_resume_entries (
-                      user_id, section, title, org, location, city, region, country,
-                      qualifier, job_title, employer, employment_type,
-                      start_date, end_date, display_order
-                    ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    returning id
-                    """,
-                    (
-                        # `location` is written, rendered, only for an API still
-                        # reading it; nothing here reads it back.
-                        user_id, entry.section, entry.title, entry.org,
-                        render_location(entry.city, entry.region, entry.country) or None,
-                        entry.city, entry.region, entry.country, entry.qualifier,
-                        entry.job_title, entry.employer, entry.employment_type,
-                        entry.start_date, entry.end_date, position,
-                    ),
+                # `location` is written, rendered, only for an API still
+                # reading it; nothing here reads it back.
+                location = render_location(entry.city, entry.region, entry.country) or None
+                if entry.id is not None:
+                    if entry.id in kept:
+                        raise CareerError(f"duplicate entry id {entry.id}")
+                    if entry.id not in existing:
+                        raise CareerError(f"unknown entry id {entry.id}")
+                    await connection.execute(
+                        """
+                        update app.jobs_resume_entries set
+                          section = %s, title = %s, org = %s, location = %s, city = %s,
+                          region = %s, country = %s, qualifier = %s, job_title = %s,
+                          employer = %s, employment_type = %s, start_date = %s,
+                          end_date = %s, on_resume = %s, display_order = %s
+                        where id = %s and user_id = %s
+                        """,
+                        (
+                            entry.section, entry.title, entry.org, location, entry.city,
+                            entry.region, entry.country, entry.qualifier, entry.job_title,
+                            entry.employer, entry.employment_type, entry.start_date,
+                            entry.end_date, entry.on_resume, position, entry.id, user_id,
+                        ),
+                    )
+                    entry_id = entry.id
+                else:
+                    cursor = await connection.execute(
+                        """
+                        insert into app.jobs_resume_entries (
+                          user_id, section, title, org, location, city, region, country,
+                          qualifier, job_title, employer, employment_type,
+                          start_date, end_date, on_resume, display_order
+                        ) values (
+                          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        )
+                        returning id
+                        """,
+                        (
+                            user_id, entry.section, entry.title, entry.org, location,
+                            entry.city, entry.region, entry.country, entry.qualifier,
+                            entry.job_title, entry.employer, entry.employment_type,
+                            entry.start_date, entry.end_date, entry.on_resume, position,
+                        ),
+                    )
+                    row = await cursor.fetchone()
+                    if row is None:
+                        raise RuntimeError("Resume entry insert returned no id")
+                    entry_id = UUID(str(row["id"]))
+                kept.add(entry_id)
+                await connection.execute(
+                    "delete from app.jobs_resume_bullets where entry_id = %s", (entry_id,)
                 )
-                row = await cursor.fetchone()
-                if row is None:
-                    raise RuntimeError("Resume entry insert returned no id")
-                for index, bullet in enumerate(entry.bullets):
+                for index, (text, printed) in enumerate(
+                    [(bullet, True) for bullet in entry.bullets]
+                    + [(bullet, False) for bullet in entry.more_bullets]
+                ):
                     await connection.execute(
                         """
                         insert into app.jobs_resume_bullets (
-                          user_id, entry_id, text, display_order
-                        ) values (%s, %s, %s, %s)
+                          user_id, entry_id, text, on_resume, display_order
+                        ) values (%s, %s, %s, %s, %s)
                         """,
-                        (user_id, row["id"], bullet, index),
+                        (user_id, entry_id, text, printed, index),
                     )
+            await connection.execute(
+                "delete from app.jobs_resume_entries where user_id = %s and not (id = any(%s))",
+                (user_id, list(kept)),
+            )
+            await connection.execute(
+                "delete from app.jobs_skills where user_id = %s", (user_id,)
+            )
             for index, skill in enumerate(skills):
                 await connection.execute(
                     """
@@ -608,6 +765,8 @@ class PostgresCareerStore:
                     """,
                     (user_id, skill.category, skill.items, index),
                 )
+            # Inside the transaction: an upload failure rolls the write back.
+            await storage.upload_resume(user_id, pdf)
             return await self._read(connection, user_id)
 
 
@@ -618,6 +777,8 @@ async def get_career_store(request: Request) -> CareerStore:
 
 router = APIRouter(prefix="/v1/jobs/career", tags=["career"])
 Store = Annotated[CareerStore, Depends(get_career_store)]
+Compiler = Annotated[ResumeCompiler, Depends(get_pdf_compiler)]
+Storage = Annotated[ResumeStorage, Depends(get_document_storage)]
 
 
 @router.get("", response_model=CareerRecord)
@@ -625,38 +786,45 @@ async def get_career(principal: CurrentPrincipal, store: Store) -> CareerRecord:
     record = await store.get_record(principal.user_id)
     if record is None:
         raise HTTPException(
-            status.HTTP_404_NOT_FOUND, "No career record yet; run 'os hunt resume import'"
+            status.HTTP_404_NOT_FOUND,
+            "No career record yet; save one at /resume/edit or with os hunt resume put",
         )
     return record
-
-
-async def _write(
-    store: CareerStore, user_id: UUID, document: CareerDocument, *, only_if_empty: bool
-) -> CareerRecord | None:
-    try:
-        return await store.write_record(user_id, document, only_if_empty=only_if_empty)
-    except CareerError as error:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
 
 
 @router.put("", response_model=CareerRecord)
 async def put_career(
-    document: CareerDocument, principal: CurrentPrincipal, store: Store
+    document: CareerDocument,
+    principal: CurrentPrincipal,
+    store: Store,
+    compiler: Compiler,
+    storage: Storage,
 ) -> CareerRecord:
-    record = await _write(store, principal.user_id, document, only_if_empty=False)
+    # The compile happens before the transaction, on the rendered document —
+    # what GET shows, not the request body — so a resume that will not build
+    # writes nothing.
+    try:
+        rows = rows_from_document(document)
+        canonical = document_from_rows(*rows, document.contact.model_dump())
+    except CareerError as error:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
+    try:
+        pdf = await asyncio.to_thread(
+            compiler.build_resume_pdf, compiler.printed_document(canonical)
+        )
+    except PdfError as error:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
+    try:
+        record = await store.write_record(
+            principal.user_id, document, rows=rows, pdf=pdf, storage=storage
+        )
+    except CareerError as error:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
+    except (httpx.HTTPError, RuntimeError):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "The resume PDF could not be stored; nothing was saved",
+        ) from None
     if record is None:
         raise RuntimeError("A replacing write returned no record")
-    return record
-
-
-@router.post("/import", response_model=CareerRecord, status_code=status.HTTP_201_CREATED)
-async def import_career(
-    document: CareerDocument, principal: CurrentPrincipal, store: Store
-) -> CareerRecord:
-    record = await _write(store, principal.user_id, document, only_if_empty=True)
-    if record is None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "The career record already exists; edit it with 'os hunt resume edit'",
-        )
     return record
