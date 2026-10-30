@@ -1794,15 +1794,19 @@ def test_the_audit_corrects_an_answer_the_worker_filled_that_a_fact_contradicts(
         for item in inspect_fields(browser_page)
         if item.get("group") == question
     }
+    if past_wrong_answer:
+        # An answer equal to one you submitted before is trusted: judged,
+        # no finding, no call, and the pattern answer stands.
+        assert checked == {"Yes": True, "No": False}
+        assert api.patterns_created == []
+        return
     assert checked == {"Yes": False, "No": True}
     # The model named the fact; the question is bound to it and refilled from it.
     assert [(item["kind"], item["question_label"], item["fact_key"], item["origin"])
             for item in api.patterns_created] == [
         ("binding", question, "work_auth.requires_sponsorship", "model"),
     ]
-    assert api.patterns_created[0]["status"] == (
-        "candidate" if past_wrong_answer else "active"
-    )
+    assert api.patterns_created[0]["status"] == "active"
     events = [event for step in api.steps for event in step.get("fill_events", [])]
     assert (events[-1]["source"], events[-1]["pattern_id"]) == ("pattern", "learned-1")
 
@@ -2685,3 +2689,75 @@ def test_a_factual_textarea_goes_to_the_fact_pass_then_draft_only_what_it_leaves
     assert set(asked) == {"Other Links", "When do you graduate?"}
     assert browser_page.input_value("#links") == "https://example.com/portfolio"
     assert drafted == ["When do you graduate?"]
+
+
+def test_a_pattern_answer_equal_to_one_you_submitted_is_not_checked_again(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    from personal_os_worker.jobs.answer_check import FilledAnswer
+
+    calls: list[list[str]] = []
+
+    def checker(answers: Any, **_: Any) -> dict[str, Any]:
+        calls.append([answer.question for answer in answers])
+        return {}
+
+    api = FakeApi()
+    api.accepted = [
+        {"question": "First name", "answer": "Ethan", "kind": "text"},
+    ]
+    session = audit_session(
+        browser_page, facts={"contact.first_name": "Ethan"}, checker=checker, api=api
+    )
+    monkeypatch_answers = [
+        FilledAnswer("First name", "Ethan", source="pattern"),
+        FilledAnswer("Preferred name", "Eth", source="pattern"),
+    ]
+    session.filled_answers = lambda fields: monkeypatch_answers  # type: ignore[method-assign]
+
+    session.wrong_answers([])
+
+    # The answered-before question was judged without spending a call.
+    assert calls == [["Preferred name"]]
+    assert "First name" not in session.state.check_findings
+
+
+def test_a_wrong_answer_replaces_the_binding_a_model_taught(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    binding = {
+        "id": "pat-1", "kind": "binding", "status": "active", "origin": "model",
+        "question_key": "First name", "fact_key": "contact.last_name",
+    }
+    target = {"label": "First name", "tag": "input", "type": "text", "options": []}
+
+    # Replay passes: the new binding replaces the model's own, saved active.
+    api = FakeApi()
+    session = audit_session(
+        browser_page,
+        facts={"contact.last_name": "Wrong", "contact.first_name": "Ethan"},
+        api=api, patterns=[binding],
+    )
+    refusal = session.save_lesson(
+        "First name", "contact.first_name", None, None, target, overriding=True
+    )
+    assert refusal is None
+    created = api.created_with[-1]
+    assert created["replaces"] == "pat-1" and created["status"] == "active"
+
+    # Replay fails: the correction waits in the Inbox instead.
+    api = FakeApi()
+    sighting = accepted("First name", "Wrong")
+    sighting["knowledge"]["facts"]["contact.last_name"] = "Wrong"
+    sighting["knowledge"]["facts"]["contact.first_name"] = "Ethan"
+    api.accepted = [sighting]
+    session = audit_session(
+        browser_page,
+        facts={"contact.last_name": "Wrong", "contact.first_name": "Ethan"},
+        api=api, patterns=[binding],
+    )
+    session.save_lesson(
+        "First name", "contact.first_name", None, None, target, overriding=True
+    )
+    created = api.created_with[-1]
+    assert created["replaces"] == "pat-1" and created["status"] == "candidate"

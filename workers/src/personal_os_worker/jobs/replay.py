@@ -35,7 +35,10 @@ if TYPE_CHECKING:
     from personal_os_worker.core.api import WorkerApi
 
 from personal_os_worker.jobs.formatters import BLANK, renderings
-from personal_os_worker.jobs.options import normalize_answer_question
+from personal_os_worker.jobs.options import (
+    expression_matches,
+    normalize_answer_question,
+)
 from personal_os_worker.jobs.registry.events import value_hash
 from personal_os_worker.jobs.registry.kinds import BUTTON_GROUP
 from personal_os_worker.jobs.resolve import Knowledge, Resolver
@@ -273,7 +276,7 @@ def touched_by(pattern: dict[str, Any]) -> Callable[[Sighting], bool]:
         )
     regex = re.compile(str(pattern.get("expression") or "(?!)"), re.IGNORECASE | re.DOTALL)
     return lambda sighting: (
-        regex.search(sighting.question.strip()) is not None or sighting.fact_key == fact
+        expression_matches(regex, sighting.question) or sighting.fact_key == fact
     )
 
 

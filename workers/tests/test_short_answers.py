@@ -148,3 +148,25 @@ def test_the_closest_facts_are_listed_first_and_every_fact_still_shown() -> None
     assert '"contact.phone"' in prompts[0]
     draft_short_answers([ShortQuestion("Phone?", ())], posting={}, facts=facts, runner=runner)
     assert "LIKELY FACTS" not in prompts[1]
+
+
+def test_the_prompt_lists_the_likely_facts_current_expressions() -> None:
+    from personal_os_worker.jobs.short_answers import _prompt
+
+    question = ShortQuestion("What is your notice period?", ())
+    current = {
+        "availability.notice_period_weeks": [r"\bnotice\b", r"start.*within"],
+        "other.fact": ["x"],
+    }
+    prompt = _prompt(
+        question,
+        posting={},
+        facts=[{"key": "availability.notice_period_weeks"}],
+        likely=["availability.notice_period_weeks", "other.fact"],
+        current=current,
+    )
+    assert "CURRENT EXPRESSIONS" in prompt
+    assert "availability.notice_period_weeks" in prompt
+    assert "one new branch" in prompt or "ONE new branch" in prompt
+    without = _prompt(question, posting={}, facts=[], current=None)
+    assert "CURRENT EXPRESSIONS" not in without

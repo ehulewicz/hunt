@@ -177,7 +177,9 @@ Current, permanent, and mailing address questions all use the same `address.*`
 facts; their labels explicitly tell the model that these meanings coincide.
 
 `jobs/inbox.py` is `os hunt inbox`; `jobs/knowledge.py` is `os hunt patterns`,
-`replay`, `prose`, and `archive`; `jobs/history.py` is the read-only `os hunt
+`replay`, `prose`, and `archive` — `patterns --check` lists recorded questions
+decided by expressions of different facts and expressions matching a question
+bound to another; `jobs/history.py` is the read-only `os hunt
 changes`, `fixes`, and `sites`.
 
 **Replay (R69).** A learned change is checked offline before it is kept.
@@ -422,13 +424,17 @@ and the run remembers why (`Miss`). A question no pattern decides goes to one
 bounded model pass (`short_answers.py`) — shown every fact, with the facts whose
 labels are closest to the question by embedding listed first (`rank-facts`;
 labels go to the API, never values) — that only names a fact — `fits_fact`,
-with an expression for every wording where one fits, `no_fact` with the
+with one new expression branch for the wording where one fits, `no_fact` with the
 missing fact's name, or `unsure`. The model never writes a value (R67):
-`jobs/learn.py` checks what it named — the fact must fit the control, and an
-expression must compile, nest no repetition in another, match the question,
-decide it as that fact among the active patterns, and leave every other
-recorded question it matches answered as before, else the question is bound on
-its own; a model never replaces a binding — then replays it (above). If no
+`jobs/learn.py` checks what it named — the fact must fit the control, and a
+branch must compile, nest no repetition in another, match the question or its
+label without the trailing marks ("Gender *" is "Gender"), be anchored with
+`^` and `$` when that stripped label is four words or fewer, decide the
+question as that fact among the active patterns, and match every other
+recorded question only where that question is answered from the same fact or
+from nothing yet — a binding counts even where it would hide the branch —
+else the question is bound on its own; a model never replaces a binding —
+then replays it (above). If no
 accepted answer changes for the worse, the session saves it active with origin
 `model`, and the ordinary pattern pass fills the field in the same run. An
 expression that changes one falls back, once, to binding the question alone,
@@ -438,7 +444,9 @@ run. The pattern records the run and question it answers, and the API keeps
 the change in `jobs_changes`. An expression already waiting in the Inbox also
 falls back to a checked binding of this question alone. If the answer check
 finds a wrong worker answer but historical answers disagree with the correction,
-the binding stays a candidate for review and is used only for this run. A
+the binding stays a candidate for review and is used only for this run; when
+it does pass, the new binding replaces the one a model taught (the same check
+never re-asks a pattern answer equal to one you already submitted). A
 user-authored pattern or an existing binding is still never overridden.
 The API refuses, too, any such pattern that would undo a decision of yours: one
 you rejected or retired, a binding over an existing one, or a question you

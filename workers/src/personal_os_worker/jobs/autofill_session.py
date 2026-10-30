@@ -146,6 +146,7 @@ from personal_os_worker.jobs.replay import (
     Sighting,
     replay_fact,
     replay_pattern,
+    same_answer,
     sightings_of,
 )
 from personal_os_worker.jobs.resolve import Knowledge, Miss, Resolver
@@ -542,6 +543,20 @@ class AutofillSession:
         """This run's model calls by purpose, the processes it reloaded from included."""
         return model.run_counts()
 
+    def expressions_by_fact(self) -> dict[str, list[str]]:
+        """The active expression branches each fact already has, for the prompt."""
+        grouped: dict[str, list[str]] = {}
+        for pattern in self.ctx.knowledge.patterns:
+            if (
+                pattern.get("kind") == "expression"
+                and pattern.get("status", "active") == "active"
+                and pattern.get("expression")
+            ):
+                grouped.setdefault(str(pattern["fact_key"]), []).append(
+                    str(pattern["expression"])
+                )
+        return grouped
+
     def learning_calls(self) -> int:
         """The calls a site seen before should not need again: learning and fixing."""
         calls = self.model_calls()
@@ -868,6 +883,7 @@ class AutofillSession:
             posting={"company": self.ctx.company, "role": self.ctx.title},
             facts=self.ctx.knowledge.for_model(),
             ranked=self.ranked_facts(asked),
+            expressions=self.expressions_by_fact(),
         ) or {}
         for verdict in verdicts.values():
             if verdict.kind == "no_fact" and verdict.missing_fact:
@@ -1490,6 +1506,7 @@ class AutofillSession:
             posting={"company": self.ctx.company, "role": self.ctx.title},
             facts=self.ctx.knowledge.for_model(),
             ranked=self.ranked_facts(questions),
+            expressions=self.expressions_by_fact(),
         ) or {}
         for verdict in verdicts.values():
             if verdict.kind == "no_fact" and verdict.missing_fact:
@@ -1814,6 +1831,25 @@ class AutofillSession:
         if not fresh:
             return list(self.state.check_findings.values())
         self.state.judged.update(answer.question for answer in fresh)
+        # A pattern answer equal to one you already submitted is known right:
+        # judged, no finding, and no call spent on it.
+        sightings = self.sightings()
+        if sightings is not None:
+            fresh = [
+                answer
+                for answer in fresh
+                if answer.source != "pattern"
+                or not any(
+                    normalize_answer_question(sighting.question)
+                    == normalize_answer_question(answer.question)
+                    and same_answer(
+                        answer.answer, sighting.answer, kind=sighting.kind
+                    )
+                    for sighting in sightings
+                )
+            ]
+        if not fresh:
+            return list(self.state.check_findings.values())
         console.print(f"  [dim]checking {len(fresh)} answer(s) against the facts[/dim]")
         judgements = self.call_model(self.ctx.checker,
             fresh,
@@ -2174,6 +2210,7 @@ class AutofillSession:
             posting={"company": self.ctx.company, "role": self.ctx.title},
             facts=self.ctx.knowledge.for_model(),
             ranked=self.ranked_facts(questions),
+            expressions=self.expressions_by_fact(),
         ) or {}
         for verdict in verdicts.values():
             if verdict.kind == "no_fact" and verdict.missing_fact:

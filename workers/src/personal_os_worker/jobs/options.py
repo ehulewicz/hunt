@@ -26,6 +26,34 @@ def normalize_answer_question(value: str) -> str:
     return re.sub(r"[^a-z0-9+#]+", " ", value.casefold()).strip()
 
 
+# Marks a form puts on a label that are not part of the question: a required
+# star, a colon, a question mark, a trailing "(optional)" or "(please note...)".
+# The backend keeps an identical copy in jobs_answers.py.
+TRAILING_MARKS = re.compile(r"(?:\s*(?:[*\u2731:?]|\([^()]*\)))+\s*$")
+
+
+def stripped_label(label: str) -> str:
+    """The label without its trailing marks; itself when only marks remain."""
+    stripped = label.strip()
+    while True:
+        shortened = TRAILING_MARKS.sub("", stripped).strip()
+        if shortened == stripped:
+            return shortened or label.strip()
+        stripped = shortened
+
+
+def label_forms(label: str) -> tuple[str, ...]:
+    """The label as written, then without trailing marks when that differs."""
+    as_written = label.strip()
+    bare = stripped_label(label)
+    return (as_written,) if as_written == bare else (as_written, bare)
+
+
+def expression_matches(regex: re.Pattern[str], label: str) -> bool:
+    """Whether an expression matches the label or its stripped form."""
+    return any(regex.search(form) for form in label_forms(label))
+
+
 
 def same_name(option: str, answer: str) -> bool:
     """Whether two technology names are the same ("Typescript"/"TypeScript", "React"/"React.js")."""

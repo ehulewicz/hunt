@@ -361,10 +361,20 @@ class RefusalConnection:
     """Answers each lookup `_model_refusal` makes with the row given for it."""
 
     def __init__(self, *, disposition: str = "unbound", binding: str | None = None,
-                 expression: str | None = None) -> None:
-        self.answers = {"jobs_questions": {"disposition": disposition},
-                        "kind = 'binding'": {"status": binding} if binding else None,
-                        "kind = 'expression'": {"status": expression} if expression else None}
+                 expression: str | None = None,
+                 active_binding: dict[str, Any] | None = None) -> None:
+        self.answers = {
+            "jobs_questions": {"disposition": disposition},
+            "status in ('rejected', 'retired')": (
+                {"status": binding} if binding in {"rejected", "retired"} else None
+            ),
+            "kind = 'binding' and status = 'active'": (
+                active_binding
+                if active_binding is not None
+                else ({"status": binding} if binding == "active" else None)
+            ),
+            "kind = 'expression'": {"status": expression} if expression else None,
+        }
         self._row: dict[str, Any] | None = None
 
     async def execute(self, query: str, params: Any = None) -> "RefusalConnection":
@@ -435,3 +445,57 @@ async def test_a_refused_pattern_is_a_conflict(
         )
     assert response.status_code == 409
     assert response.json()["detail"] == "you rejected or retired this binding"
+
+
+def test_expressions_match_the_labels_stripped_form_too() -> None:
+    import re
+
+    assert answered_by_expression(
+        "Gender *", [(re.compile(r"^gender$", re.IGNORECASE), "eeo.gender_identity")]
+    )
+    assert answered_by_expression(
+        "How do you identify? (gender identity)",
+        [(re.compile(r"\bgender identity\b", re.IGNORECASE), "eeo.gender_identity")],
+    )
+
+
+def test_replaces_is_only_a_models_binding() -> None:
+    import uuid
+
+    replaced = uuid.uuid4()
+    ok = PatternCreate(
+        kind="binding", question_id=QUESTION_ID, fact_key="a.b",
+        origin="model", replaces=replaced,
+    )
+    assert ok.replaces == replaced
+    with pytest.raises(ValueError):
+        PatternCreate(
+            kind="binding", question_id=QUESTION_ID, fact_key="a.b",
+            origin="inbox", replaces=replaced,
+        )
+    with pytest.raises(ValueError):
+        PatternCreate(
+            kind="expression", expression="x", fact_key="a.b",
+            origin="model", replaces=replaced,
+        )
+
+
+async def test_replacing_a_model_binding_and_only_that_binding() -> None:
+    active = {"id": uuid4(), "origin": "model", "status": "active"}
+    connection = RefusalConnection(active_binding=active)
+    item = PatternCreate(
+        kind="binding", question_id=QUESTION_ID, fact_key="a.b",
+        origin="model", replaces=active["id"],
+    )
+    assert await _model_refusal(connection, USER_ID, item) is None  # type: ignore[arg-type]
+    item = item.model_copy(update={"replaces": uuid4()})
+    assert await _model_refusal(connection, USER_ID, item) == (  # type: ignore[arg-type]
+        "only the binding a model taught, and only the one named, can be replaced"
+    )
+    connection = RefusalConnection(
+        active_binding={"id": active["id"], "origin": "inbox", "status": "active"}
+    )
+    item = item.model_copy(update={"replaces": active["id"]})
+    assert await _model_refusal(connection, USER_ID, item) == (  # type: ignore[arg-type]
+        "only the binding a model taught, and only the one named, can be replaced"
+    )

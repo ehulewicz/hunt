@@ -130,3 +130,51 @@ def test_replay_checks_pending_facts_first_but_the_fixers_check_writes_nothing(
     assert len(resolved) == 1
     assert argv_seen == [["--json"], []]
     assert "2 fact change(s) since the last check now disagree" in capsys.readouterr().out
+
+
+def test_patterns_check_finds_conflicts_and_clean_runs(capsys, monkeypatch) -> None:
+
+    from personal_os_worker.jobs import knowledge
+
+    active = [
+        {"kind": "expression", "status": "active", "fact_key": "f.one",
+         "expression": r"\bgender\b", "id": "e1", "origin": "model"},
+        {"kind": "expression", "status": "active", "fact_key": "f.two",
+         "expression": r"\bidentity\b", "id": "e2", "origin": "model"},
+        {"kind": "expression", "status": "active", "fact_key": "f.three",
+         "expression": r"\bphone\b", "id": "e3", "origin": "model"},
+        {"kind": "binding", "status": "active", "fact_key": "f.four",
+         "question_label": "Phone", "question_key": "phone", "id": "b1",
+         "origin": "model"},
+    ]
+    questions = [
+        {"sample_label": "How do you identify? (gender identity)"},
+        {"sample_label": "Phone"},
+    ]
+
+    class Api:
+        def __init__(self, *args) -> None:
+            pass
+
+        def patterns(self, *statuses) -> list[dict]:
+            return active
+
+        def questions(self) -> list[dict]:
+            return questions
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(knowledge, "connected", lambda: (None, None))
+    monkeypatch.setattr(knowledge, "WorkerApi", Api)
+
+    # 'How do you identify? (gender identity)' matches f.one AND f.two;
+    # 'Phone' is bound to f.four but f.three's expression matches it.
+    assert knowledge.run_patterns(check=True) == 1
+    out = capsys.readouterr().out
+    assert "Answered by expressions of different facts" in out
+    assert "bound" in out.lower()
+
+    active[1] = active[1] | {"expression": r"^xyz$"}
+    active[2] = active[2] | {"expression": r"^fax$"}
+    assert knowledge.run_patterns(check=True) == 0

@@ -27,7 +27,10 @@ from personal_os_worker.jobs.facts.catalog import CATALOG
 from personal_os_worker.jobs.facts.derived import career_facts, derive, posting_facts
 from personal_os_worker.jobs.facts.values import fact_values
 from personal_os_worker.jobs.formatters import Rendering, render, renderings
-from personal_os_worker.jobs.options import normalize_answer_question
+from personal_os_worker.jobs.options import (
+    expression_matches,
+    normalize_answer_question,
+)
 from personal_os_worker.jobs.registry.kinds import preference_key
 
 Stage = Literal["pattern", "format"]
@@ -274,7 +277,11 @@ class Resolver:
         binding = self.bindings.get(normalize_answer_question(label))
         if binding is not None:
             return binding
-        matched = [pattern for regex, pattern in self.expressions if regex.search(label)]
+        matched = [
+            pattern
+            for regex, pattern in self.expressions
+            if expression_matches(regex, label)
+        ]
         if len({str(pattern["fact_key"]) for pattern in matched}) == 1:
             return matched[0]
         return None
@@ -305,7 +312,11 @@ class Resolver:
             if binding is not None
             else f"none for this question ({len(self.bindings)} active)",
         ))
-        matched = [pattern for regex, pattern in self.expressions if regex.search(question)]
+        matched = [
+            pattern
+            for regex, pattern in self.expressions
+            if expression_matches(regex, question)
+        ]
         lines.append((
             "expressions",
             "; ".join(f"/{pattern['expression']}/ → {pattern['fact_key']}" for pattern in matched)

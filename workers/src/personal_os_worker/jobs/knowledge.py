@@ -13,6 +13,7 @@ writing as Markdown.
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -30,6 +31,10 @@ from personal_os_worker.core.tables import console, pick, short_id
 from personal_os_worker.jobs import replay
 from personal_os_worker.jobs.archive.lookup import translate
 from personal_os_worker.jobs.archive.rules import RULES
+from personal_os_worker.jobs.options import (
+    expression_matches,
+    normalize_answer_question,
+)
 from personal_os_worker.jobs.repair.commands import knowledge_for
 from personal_os_worker.jobs.replay import Replay, replay_fact, sightings_of
 from personal_os_worker.jobs.resolve import Knowledge
@@ -69,7 +74,75 @@ def render_patterns(patterns: list[dict[str, Any]]) -> None:
     console.print(view)
 
 
-def run_patterns(*, every: bool = False) -> int:
+def _check(patterns: list[dict[str, Any]], questions: list[dict[str, Any]]) -> int:
+    """Active expressions against every recorded question: where they disagree."""
+    expressions: list[tuple[re.Pattern[str], dict[str, Any]]] = []
+    for pattern in patterns:
+        if pattern.get("kind") != "expression" or not pattern.get("expression"):
+            continue
+        try:
+            compiled = re.compile(
+                str(pattern["expression"]), re.IGNORECASE | re.DOTALL
+            )
+        except re.error:
+            continue
+        expressions.append((compiled, pattern))
+    bindings = {
+        normalize_answer_question(
+            str(pattern.get("question_label") or pattern.get("question_key") or "")
+        ): pattern
+        for pattern in patterns
+        if pattern.get("kind") == "binding"
+    }
+    multi: list[tuple[str, list[str], list[str]]] = []
+    other: list[tuple[str, str, str, str]] = []
+    for item in questions:
+        label = str(item.get("sample_label") or item.get("label") or "").strip()
+        if not label:
+            continue
+        hits = [
+            (regex, pattern)
+            for regex, pattern in expressions
+            if expression_matches(regex, label)
+        ]
+        facts = {str(pattern["fact_key"]) for _, pattern in hits}
+        if len(facts) > 1:
+            multi.append(
+                (label, sorted(facts), [str(p["expression"]) for _, p in hits])
+            )
+        bound = bindings.get(normalize_answer_question(label))
+        if bound is None:
+            continue
+        bound_fact = str(bound["fact_key"])
+        for _, pattern in hits:
+            if str(pattern["fact_key"]) != bound_fact:
+                other.append(
+                    (label, bound_fact, str(pattern["expression"]),
+                     str(pattern["fact_key"]))
+                )
+    if multi:
+        view = Table(title="Answered by expressions of different facts")
+        for header in ("Question", "Facts", "Expressions"):
+            view.add_column(header)
+        for label, names, found in multi:
+            view.add_row(escape(label), ", ".join(names), escape(" ; ".join(found)))
+        console.print(view)
+    if other:
+        view = Table(title="Match a question bound to another fact")
+        for header in ("Question", "Bound to", "Expression -> fact"):
+            view.add_column(header)
+        for label, bound_fact, expression, fact in other:
+            view.add_row(escape(label), bound_fact, escape(f"{expression} -> {fact}"))
+        console.print(view)
+    rows = len(multi) + len(other)
+    console.print(
+        f"{rows} conflict(s): {len(multi)} question(s) decided by different facts, "
+        f"{len(other)} expression(s) matching a question bound elsewhere."
+    )
+    return 1 if rows else 0
+
+
+def run_patterns(*, every: bool = False, check: bool = False) -> int:
     config, token = connected()
     api = WorkerApi(config, token)
     try:
@@ -79,8 +152,11 @@ def run_patterns(*, every: bool = False) -> int:
             else ("active", "candidate")
         )
         patterns = api.patterns(*statuses)
+        recorded = api.questions() if check else []
     finally:
         api.close()
+    if check:
+        return _check(patterns, recorded)
     if not patterns:
         console.print(
             "Nothing learned yet. Apply to something; the Inbox ('os hunt inbox') is where "

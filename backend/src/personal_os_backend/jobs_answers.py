@@ -87,6 +87,34 @@ def asks_a_question(label: str, kind: str | None = None) -> bool:
     return key not in NOT_QUESTIONS and not SECTION_HEADING.fullmatch(key)
 
 
+# Marks a form puts on a label that are not part of the question; kept
+# identical to the worker's `jobs/options.py` copy so both sides match the
+# same labels.
+TRAILING_MARKS = re.compile(r"(?:\s*(?:[*\u2731:?]|\([^()]*\)))+\s*$")
+
+
+def stripped_label(label: str) -> str:
+    """The label without its trailing marks; itself when only marks remain."""
+    stripped = label.strip()
+    while True:
+        shortened = TRAILING_MARKS.sub("", stripped).strip()
+        if shortened == stripped:
+            return shortened or label.strip()
+        stripped = shortened
+
+
+def label_forms(label: str) -> tuple[str, ...]:
+    """The label as written, then without trailing marks when that differs."""
+    as_written = label.strip()
+    bare = stripped_label(label)
+    return (as_written,) if as_written == bare else (as_written, bare)
+
+
+def expression_matches(regex: re.Pattern[str], label: str) -> bool:
+    """Whether an expression matches the label or its stripped form."""
+    return any(regex.search(form) for form in label_forms(label))
+
+
 def answered_by_expression(label: str, expressions: list[tuple[re.Pattern[str], str]]) -> bool:
     """Whether active expressions decide this label: they match it and name one fact.
 
@@ -95,7 +123,9 @@ def answered_by_expression(label: str, expressions: list[tuple[re.Pattern[str], 
     nothing and leave it waiting.
     """
     question = label.strip()
-    return len({fact for regex, fact in expressions if regex.search(question)}) == 1
+    return len(
+        {fact for regex, fact in expressions if expression_matches(regex, question)}
+    ) == 1
 
 
 async def upsert_question(
@@ -180,6 +210,8 @@ class PatternCreate(BaseModel):
     origin: Literal["inbox", "archive", "model"] = "inbox"
     archive_ref: str | None = Field(default=None, max_length=200)
     status: Literal["candidate", "active"] = "candidate"
+    # The model-taught binding this one corrects (a wrong answer check).
+    replaces: UUID | None = None
     # The failure this pattern answers, and what replaying it found (a learned one).
     failure: Failure | None = None
     verification: Verification | None = None
@@ -194,6 +226,10 @@ class PatternCreate(BaseModel):
             (self.question_id is None) == (self.question is None) or self.expression is not None
         ):
             raise ValueError("a binding names its question, by id or label, and no expression")
+        if self.replaces is not None and (
+            self.kind != "binding" or self.origin != "model"
+        ):
+            raise ValueError("only a binding a model taught can be replaced, by a model")
         if self.kind == "expression":
             if self.expression is None or self.question_id is not None or self.question:
                 raise ValueError("an expression has a regular expression and no question")
@@ -558,18 +594,35 @@ async def _model_refusal(
         return f"you marked this question {question['disposition'].replace('_', '-')}"
     cursor = await connection.execute(
         """
+        select id, origin from app.jobs_patterns
+        where user_id = %s and question_id = %s and kind = 'binding' and status = 'active'
+        """,
+        (user_id, item.question_id),
+    )
+    active = await cursor.fetchone()
+    if item.replaces is not None:
+        if (
+            active is None
+            or active["id"] != item.replaces
+            or active["origin"] != "model"
+        ):
+            return (
+                "only the binding a model taught, and only the one named, "
+                "can be replaced"
+            )
+    elif active is not None:
+        return "the question is bound already, and a model never replaces a binding"
+    cursor = await connection.execute(
+        """
         select status from app.jobs_patterns
         where user_id = %s and question_id = %s and kind = 'binding'
-          and (status = 'active' or (fact_key = %s and status in ('rejected', 'retired')))
+          and fact_key = %s and status in ('rejected', 'retired') limit 1
         """,
         (user_id, item.question_id, item.fact_key),
     )
-    row = await cursor.fetchone()
-    if row is None:
-        return None
-    if row["status"] == "active":
-        return "the question is bound already, and a model never replaces a binding"
-    return "you rejected or retired this binding"
+    if await cursor.fetchone() is not None:
+        return "you rejected or retired this binding"
+    return None
 
 
 async def _record_pattern(

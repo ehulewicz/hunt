@@ -81,8 +81,13 @@ verdict taught, active with origin `model`, once it has checked it (R67). Such a
 pattern is refused (409) when it would undo a decision of yours: one you
 rejected or retired, a binding over the question's existing binding, a question
 you marked one-off or long-form, or an expression nesting one repetition in
-another; nor is an expression saved again while it waits in the Inbox. A fill
-event never proposes a pattern. `GET /v1/jobs/inbox` lists candidate and
+another; nor is an expression saved again while it waits in the Inbox —
+except a binding that names `replaces`, which a model may send only against
+its own binding: the named pattern must be the question's active binding with
+origin `model`, and activating the new one retires the old. A fill
+event never proposes a pattern. An expression matches a label as written or
+with its trailing marks stripped ("Gender *" is "Gender"), like the worker's
+resolver. `GET /v1/jobs/inbox` lists candidate and
 repaired patterns with the answers recorded for their question (`checks` holds
 those whose replay failed, apart from plain `candidates`), unbound short
 questions you answered, unapproved prose, `facts` waiting on you (never

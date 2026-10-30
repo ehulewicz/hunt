@@ -174,6 +174,12 @@ def build_parser() -> argparse.ArgumentParser:
     patterns.add_argument(
         "--all", action="store_true", dest="every", help="Include rejected and retired patterns"
     )
+    patterns.add_argument(
+        "--check",
+        action="store_true",
+        help="Check active expressions against every recorded question and "
+        "list where they disagree (exits 1 when any conflict is found)",
+    )
     prose = jobs_commands.add_parser("prose", help="Saved long-form writing")
     prose.add_argument("action", nargs="?", choices=["list", "add", "approve", "delete"])
     prose.add_argument("ref", nargs="?", help="Row number from 'os hunt prose' or id prefix")
@@ -458,7 +464,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         if args.hunt_command == "inbox":
             return inbox.run_inbox()
         if args.hunt_command == "patterns":
-            return knowledge.run_patterns(every=args.every)
+            return knowledge.run_patterns(every=args.every, check=args.check)
         if args.hunt_command == "prose":
             return knowledge.run_prose(
                 args.action, args.ref, question=args.question, file=args.file

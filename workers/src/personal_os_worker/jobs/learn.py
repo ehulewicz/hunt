@@ -1,16 +1,19 @@
 """Learning: a model verdict becomes a pattern, never a value (design §8, R67).
 
-A model pass names the fact that answers a question, and may propose an
-expression for every wording of it. Nothing it says reaches the form. The
-worker checks what it proposes against every question already met, saves the
-pattern active with origin `model`, and the ordinary pattern pass fills the
-field from it in the same run.
+A model pass names the fact that answers a question, and may propose one new
+branch of an expression for the wording of it. Nothing it says reaches the
+form. The worker checks what it proposes against every question already met,
+saves the pattern active with origin `model`, and the ordinary pattern pass
+fills the field from it in the same run.
 
 An expression is kept only when it compiles, nests no repetition in another,
-matches the question, decides the question as that fact among the active
-patterns, and decides every other recorded question it matches exactly as
-before. Otherwise the question is bound on its own. A model never replaces a
-binding, and a pattern you made is never overridden for a question it answers.
+matches the question or its label without trailing marks, is anchored when the
+stripped label is four words or fewer, decides the question as that fact among
+the active patterns, and answers every other recorded question it matches
+either from that fact or from nothing yet. Otherwise the question is bound on
+its own. A model never replaces a binding, except the one a model taught when
+an answer check names it wrong; a pattern you made is never overridden for a
+question it answers.
 
 Before it is saved, a lesson is replayed against the answers you accepted
 (`jobs/replay.py`). An expression that would change one for the worse falls
@@ -27,7 +30,11 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from personal_os_worker.jobs.options import normalize_answer_question
+from personal_os_worker.jobs.options import (
+    expression_matches,
+    normalize_answer_question,
+    stripped_label,
+)
 from personal_os_worker.jobs.resolve import Knowledge, Resolver
 
 # A proposed expression longer than this is not a wording, it is a program.
@@ -49,12 +56,17 @@ class Lesson:
     expression: str | None = None
     # Why a proposed expression was not kept, when the lesson fell back to a binding.
     note: str = ""
+    # The model-taught binding this one replaces (a wrong answer correction).
+    replaces: str | None = None
 
     def shape(self) -> dict[str, Any]:
         """What the API saves: the expression, or the question by its wording."""
         if self.kind == "expression":
             return {"kind": "expression", "expression": self.expression}
-        return {"kind": "binding", "question": self.question}
+        shape: dict[str, Any] = {"kind": "binding", "question": self.question}
+        if self.replaces is not None:
+            shape["replaces"] = self.replaces
+        return shape
 
     def pattern(self) -> dict[str, Any]:
         """The active pattern this lesson would become, as a resolver reads one."""
@@ -97,18 +109,26 @@ def expression_refusal(
         compiled = re.compile(expression, re.IGNORECASE | re.DOTALL)
     except re.error as error:
         return f"it does not compile ({error})"
-    if not compiled.search(question.strip()):
+    if not expression_matches(compiled, question):
         return "it does not match the question"
+    if (
+        len(re.findall(r"[A-Za-z0-9]+", stripped_label(question))) <= 4
+        and not (expression.startswith("^") and expression.endswith("$"))
+    ):
+        return "a label of four words or fewer needs an anchored expression"
     proposed = Lesson(question, fact_key, "expression", expression).pattern()
     before, after = _resolver(patterns), _resolver([*patterns, proposed])
     if _fact(after.decision(question)) != fact_key:
         return "the active patterns would still not decide the question as that fact"
     own = normalize_answer_question(question)
     for label in questions:
-        if normalize_answer_question(label) == own or not compiled.search(label.strip()):
+        if normalize_answer_question(label) == own or not expression_matches(
+            compiled, label
+        ):
             continue
-        if _fact(before.decision(label)) != _fact(after.decision(label)):
-            return f"it would change what {label.strip()!r} is answered from"
+        answered = _fact(before.decision(label))
+        if answered is not None and answered != fact_key:
+            return f"it matches {label.strip()!r}, which is answered from {answered}"
     return None
 
 
@@ -153,6 +173,11 @@ def lesson_for(
         refusal = override_refusal(question, patterns=patterns)
         if refusal is not None:
             return None, refusal
+        binding = _resolver(patterns).bindings.get(normalize_answer_question(question))
+        if binding is not None and binding.get("origin") == "model":
+            return Lesson(
+                question, fact_key, "binding", replaces=str(binding.get("id"))
+            ), ""
     note = ""
     if expression:
         refusal = expression_refusal(
