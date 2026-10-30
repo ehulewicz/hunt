@@ -64,6 +64,7 @@ from personal_os_worker.jobs.autofill import (
     build_autofill_plan,
     follow_up_condition,
     is_cover_letter_field,
+    is_factual_box,
     is_follow_up_box,
     is_long_form_field,
     is_resume_field,
@@ -469,7 +470,9 @@ def _claude_questions(fields: list[dict[str, Any]]) -> list[ShortQuestion]:
         tag = str(item.get("tag") or "").casefold()
         if field_type in {"file", "submit", "button", "reset", "hidden"} or tag == "button":
             continue
-        if is_sensitive_field(item) or is_long_form_field(item):
+        if is_sensitive_field(item) or (
+            is_long_form_field(item) and not is_factual_box(item)
+        ):
             continue
         if field_type in {"radio", "checkbox"}:
             group = str(item.get("group") or "").strip()

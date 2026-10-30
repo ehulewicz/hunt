@@ -19,6 +19,9 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
+from personal_os_worker.jobs.options import SYNONYM_GROUPS, normalize_answer_question
+from personal_os_worker.jobs.sites import is_non_answer_option
+
 # A co-op rotation is complete once its boundary is reached: spring on May 1,
 # summer on August 1, fall on November 1 (decided 2026-10-08). Rotations are
 # counted over each co-op entry's span on the career record (decided 2026-10-23).
@@ -87,6 +90,56 @@ DERIVED_FACTS = (
         "Street address, city, state and postal code as one line",
         ("address.line_1", "address.city", "address.state", "address.postal_code"),
     ),
+    DerivedFact(
+        "eeo.lgbtq",
+        "Identifies as LGBTQ+",
+        ("eeo.transgender", "eeo.sexual_orientation"),
+    ),
+    DerivedFact(
+        "work_auth.us_person",
+        "U.S. person under export rules: a citizen or lawful permanent resident",
+        ("work_auth.us_citizen",),
+    ),
+    DerivedFact(
+        "work_auth.permanent_resident",
+        "U.S. lawful permanent resident (green card holder) who is not a citizen",
+        ("work_auth.us_citizen",),
+    ),
+    DerivedFact(
+        "work_auth.refugee_or_asylee",
+        "Granted refugee or asylum status in the U.S.",
+        ("work_auth.us_citizen",),
+    ),
+    DerivedFact(
+        "work_auth.visa_based",
+        "Work eligibility rests on a work visa",
+        ("work_auth.us_citizen",),
+    ),
+    DerivedFact(
+        "work_auth.deemed_export_applies",
+        "The deemed export rule applies to you (not a U.S. person)",
+        ("work_auth.us_citizen",),
+    ),
+    DerivedFact(
+        "education.degree_level",
+        "Level of the degree you are pursuing or hold",
+        ("education.degree_type",),
+    ),
+    DerivedFact(
+        "education.program_level",
+        "Undergraduate or graduate program",
+        ("education.degree_level",),
+    ),
+    DerivedFact(
+        "education.highest_completed",
+        "Highest level of education completed",
+        ("education.degree_level", "education.currently_enrolled"),
+    ),
+    DerivedFact(
+        "availability.full_time_start_year",
+        "Year you could start full time after graduating",
+        ("education.graduation_date",),
+    ),
 )
 # Derived from the posting being filled, so only known during an application.
 POSTING_FACTS = (
@@ -115,6 +168,11 @@ POSTING_FACTS = (
     DerivedFact(
         "availability.conflicts_with_school",
         "Whether the window runs into your last semester",
+        ("availability.internship_dates", "education.graduation_date"),
+    ),
+    DerivedFact(
+        "education.enrolled_through_internship",
+        "Still enrolled in your degree program through this posting's internship",
         ("availability.internship_dates", "education.graduation_date"),
     ),
     DerivedFact("referral.referred", "Referred for this application (apply --referred)", ()),
@@ -156,6 +214,12 @@ CAREER_FACTS = (
         ("career.experience", "career.research"),
     ),
     DerivedFact("skills.all", "Every skill on the resume, in order", ("career.skills",)),
+    DerivedFact(
+        "experience.years_full_time",
+        "Whole years of full-time industry experience, not counting internships, "
+        "co-ops, contract or part-time work",
+        ("career.experience",),
+    ),
 )
 DAYS_PER_YEAR = 365.25
 
@@ -189,6 +253,68 @@ def annual_minimum(minimum: Any) -> int | float | None:
     return None
 
 
+_DEGREE_LEVELS = (
+    (re.compile(r"\b(ph\s?d|doctor\w*)\b", re.IGNORECASE), "Doctorate"),
+    (re.compile(r"\b(master|m\.?s\.?|m\.?a\.?|m\.?eng\.?|ms|ma)\b", re.IGNORECASE),
+     "Master's degree"),
+    (re.compile(r"\bassociate\w*\b", re.IGNORECASE), "Associate degree"),
+    (
+        re.compile(r"\b(bachelor\w*|b\.?s\.?|b\.?a\.?|bsc|bs|ba)\b", re.IGNORECASE),
+        "Bachelor's degree",
+    ),
+)
+
+
+def _degree_level(value: Any) -> str | None:
+    """"Bachelor's degree", "Master's degree", "Doctorate", "Associate degree"
+    for a degree type ("BS", "MEng"), or None for one it does not know."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    for pattern, level in _DEGREE_LEVELS:
+        if pattern.search(text):
+            return level
+    return None
+
+
+def _program_level(level: str | None) -> str | None:
+    """"Undergraduate" or "Graduate" for a degree level."""
+    if level in {"Bachelor's degree", "Associate degree"}:
+        return "Undergraduate"
+    if level in {"Master's degree", "Doctorate"}:
+        return "Graduate"
+    return None
+
+
+def _highest_completed(level: str | None, enrolled: bool | None) -> str | None:
+    """The degree already held: one rung below while still enrolled, the level
+    itself once graduated. A doctorate in progress names no level."""
+    if enrolled is not True:
+        return level
+    if level in {"Bachelor's degree", "Associate degree"}:
+        return "High school"
+    if level == "Master's degree":
+        return "Bachelor's degree"
+    return None
+
+
+_STRAIGHT = next(group for group in SYNONYM_GROUPS if "straight" in group)
+
+
+def _lgbtq(facts: dict[str, Any]) -> bool | None:
+    """Whether the facts say LGBTQ+: transgender, or a sexual orientation that
+    is not straight. Absent for a missing or declined orientation."""
+    if facts.get("eeo.transgender") is True:
+        return True
+    raw = str(facts.get("eeo.sexual_orientation") or "").strip()
+    orientation = normalize_answer_question(raw)
+    if orientation and not is_non_answer_option(raw) and orientation not in _STRAIGHT:
+        return True
+    if facts.get("eeo.transgender") is False and orientation in _STRAIGHT:
+        return False
+    return None
+
+
 def derive(facts: dict[str, Any], today: date) -> dict[str, Any]:
     """Every derived fact whose inputs are present, keyed by its dotted name."""
     graduation = _date(facts.get("education.graduation_date"))
@@ -205,13 +331,28 @@ def derive(facts: dict[str, Any], today: date) -> dict[str, Any]:
     )
     names = str(facts.get("identity.legal_name") or "").split()
     preferred = str(facts.get("identity.preferred_name") or "").strip()
+    degree = _degree_level(facts.get("education.degree_type"))
+    enrolled = today < graduation if graduation else None
+    citizen = facts.get("work_auth.us_citizen") is True
     place = [
         str(facts.get(key) or "").strip()
         for key in ("address.city", "address.state", "address.country")
     ]
     values: dict[str, Any] = {
         "education.graduation_term": graduation_term(graduation) if graduation else None,
-        "education.currently_enrolled": today < graduation if graduation else None,
+        "education.currently_enrolled": enrolled,
+        "education.degree_level": degree,
+        "education.program_level": _program_level(degree),
+        "education.highest_completed": _highest_completed(degree, enrolled),
+        "availability.full_time_start_year": (
+            graduation.year + (graduation.month >= 11) if graduation else None
+        ),
+        "eeo.lgbtq": _lgbtq(facts),
+        "work_auth.us_person": True if citizen else None,
+        "work_auth.permanent_resident": False if citizen else None,
+        "work_auth.refugee_or_asylee": False if citizen else None,
+        "work_auth.visa_based": False if citizen else None,
+        "work_auth.deemed_export_applies": False if citizen else None,
         "compensation.minimum_annual": annual_minimum(facts.get("compensation.minimum")),
         "identity.first_name": names[0] if names else None,
         "identity.preferred_is_legal": preferred.casefold() == names[0].casefold()
@@ -330,6 +471,9 @@ def posting_facts(
     found["availability.conflicts_with_school"] = overlaps_final_term(
         start, end, _date(facts.get("education.graduation_date"))
     )
+    graduation = _date(facts.get("education.graduation_date"))
+    if graduation is not None:
+        found["education.enrolled_through_internship"] = graduation > end
     if term is not None:
         found["availability.term"] = term
     # A referral is about this application, not about you: `apply --referred`.
@@ -445,6 +589,14 @@ def career_facts(record: dict[str, Any] | None, today: date) -> dict[str, Any]:
             values["education.gpa"] = None
     entries = [entry for entry in record.get("entries") or [] if isinstance(entry, dict)]
     values["experience.years_professional"] = years_of_experience(entries, today)
+    values["experience.years_full_time"] = years_of_experience(
+        [
+            entry
+            for entry in entries
+            if entry.get("employment_type") in {None, "founder"}
+        ],
+        today,
+    )
     rotations = completed_rotations(
         entries, today, _date(values.get("education.graduation_date"))
     )

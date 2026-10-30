@@ -140,7 +140,9 @@ def test_a_batch_mid_cap_keeps_the_verdicts_already_paid_for() -> None:
     questions = [ShortQuestion(f"Question {index}?", ()) for index in range(3)]
     verdicts = draft_short_answers(questions, posting={}, facts=[], runner=runner)
 
-    assert sorted(verdicts) == ["Question 0?", "Question 1?"]
+    # The pool races for the two calls left; exactly two verdicts are kept.
+    assert len(verdicts) == 2
+    assert set(verdicts) <= {question.question for question in questions}
     assert all(verdict.kind == "no_fact" for verdict in verdicts.values())
 
 

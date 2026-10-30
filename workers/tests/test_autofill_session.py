@@ -1459,7 +1459,7 @@ def test_claude_is_asked_about_a_question_at_most_twice_per_run(
         <form>
           <label for="resume">Resume</label><input id="resume" type="file">
           <label for="first">First name</label><input id="first" name="first_name" required>
-          <label for="why">Why us, in a word?</label><input id="why" required>
+          <label for="why">Preferred name</label><input id="why" required>
         </form>
         """
     )
@@ -1493,8 +1493,8 @@ def test_claude_is_asked_about_a_question_at_most_twice_per_run(
     # ASK_LIMIT: the fill pass, and once more after the audit changed something.
     # A third sighting of the same question never asks again.
     assert calls == [
-        ["First name", "Why us, in a word?"],
-        ["First name", "Why us, in a word?"],
+        ["First name", "Preferred name"],
+        ["First name", "Preferred name"],
     ]
 
 
@@ -2640,3 +2640,48 @@ def test_writing_is_sent_as_it_is_written_not_at_the_runs_end(
     # Already with the API while the run waited on you, with where the text came from.
     assert keys.held and keys.held[0]["answer_text"] == draft
     assert keys.held[0]["provenance"] == [{"start": 0, "end": len(draft), "source": "model"}]
+
+
+def test_a_factual_textarea_goes_to_the_fact_pass_then_draft_only_what_it_leaves(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    """A factual box is asked in the short-answer pass; what it leaves is drafted."""
+    browser_page.set_content(
+        '<label for="links">Other Links</label>'
+        '<textarea id="links" name="links" required></textarea>'
+        '<label for="grad">When do you graduate?</label>'
+        '<textarea id="grad" name="grad" required></textarea>'
+    )
+    asked: list[str] = []
+
+    def short_drafter(questions: Any, **_: Any) -> dict[str, Verdict]:
+        asked.extend(question.question for question in questions)
+        return {
+            "Other Links": Verdict(
+                "Other Links", "fits_fact",
+                fact_key="contact.portfolio_url", expression=r"\bother links\b",
+            ),
+            "When do you graduate?": Verdict(
+                "When do you graduate?", "no_fact", missing_fact="a graduation date"
+            ),
+        }
+
+    drafted: list[str] = []
+    session = audit_session(
+        browser_page,
+        facts={"contact.portfolio_url": "https://example.com/portfolio"},
+        short_drafter=short_drafter,
+    )
+    session.ctx.drafter = (
+        lambda **kwargs: drafted.append(str(kwargs["question"])) or "A draft."
+    )
+    fields = inspect_fields(browser_page)
+    result = session.fill_deterministic(fields)
+    session.fill_with_claude(fields, result)
+    session.fill_long_form(inspect_fields(browser_page))
+
+    # The factual textarea was asked, its fact was learned and filled, and the
+    # long-form drafter was never put to it.
+    assert set(asked) == {"Other Links", "When do you graduate?"}
+    assert browser_page.input_value("#links") == "https://example.com/portfolio"
+    assert drafted == ["When do you graduate?"]

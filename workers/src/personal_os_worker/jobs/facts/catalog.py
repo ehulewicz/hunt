@@ -247,6 +247,68 @@ CATALOG = _entries(
     CatalogEntry(
         "discovery.target_career_stages", "Target career stages for discovery", "list"
     ),
+    CatalogEntry("eeo.lgbtq", "Identifies as LGBTQ+", "boolean", "derived"),
+    CatalogEntry(
+        "work_auth.us_person",
+        "U.S. person under export rules: a citizen or lawful permanent resident",
+        "boolean",
+        "derived",
+    ),
+    CatalogEntry(
+        "work_auth.permanent_resident",
+        "U.S. lawful permanent resident (green card holder) who is not a citizen",
+        "boolean",
+        "derived",
+    ),
+    CatalogEntry(
+        "work_auth.refugee_or_asylee",
+        "Granted refugee or asylum status in the U.S.",
+        "boolean",
+        "derived",
+    ),
+    CatalogEntry(
+        "work_auth.visa_based", "Work eligibility rests on a work visa", "boolean", "derived"
+    ),
+    CatalogEntry(
+        "work_auth.deemed_export_applies",
+        "The deemed export rule applies to you (not a U.S. person)",
+        "boolean",
+        "derived",
+    ),
+    CatalogEntry(
+        "education.degree_level",
+        "Level of the degree you are pursuing or hold",
+        "text",
+        "derived",
+    ),
+    CatalogEntry(
+        "education.program_level", "Undergraduate or graduate program", "text", "derived"
+    ),
+    CatalogEntry(
+        "education.highest_completed",
+        "Highest level of education completed",
+        "text",
+        "derived",
+    ),
+    CatalogEntry(
+        "availability.full_time_start_year",
+        "Year you could start full time after graduating",
+        "number",
+        "derived",
+    ),
+    CatalogEntry(
+        "education.enrolled_through_internship",
+        "Still enrolled in your degree program through this posting's internship",
+        "boolean",
+        "derived",
+    ),
+    CatalogEntry(
+        "experience.years_full_time",
+        "Whole years of full-time industry experience, not counting internships, "
+        "co-ops, contract or part-time work",
+        "number",
+        "career",
+    ),
 )
 
 

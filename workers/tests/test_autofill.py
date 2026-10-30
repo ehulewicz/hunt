@@ -803,3 +803,156 @@ def test_a_none_fact_plans_one_deliberate_blank_per_question() -> None:
     assert plan.unanswered_required_questions == ()
     assert plan.reasons[2] == "its group stays blank on purpose"
     assert "is none, so it stays blank on purpose" in plan.reasons[0]
+
+
+NARRATIVE_LABELS = [
+    "What excites you most about Semgrep?",
+    "What do you think you have the potential to be top 0.01% in the world at? "
+    "It can be personal, professional, anything you want.",
+    "What has been your favorite technology project and why?",
+    "Share something you\u2019ve built that you\u2019re proud of.",
+    "What is your favorite personal project?",
+    "Why ConductorAI?",
+    "Describe a project (class, personal, research, hackathon, or internship) "
+    "where you owned something from problem definition to delivery.",
+    "Describe the most technically challenging bug or problem you've debugged. "
+    "What made it hard, and how did you figure it out?",
+    "What do you hope to learn during this internship?",
+]
+SHORT_LABELS = [
+    "What is your GPA?",
+    "How did you find out about Skydio?",
+    "What are your pronouns?",
+    "If you're comfortable sharing, let us know what pronouns you use so that "
+    "we can address you correctly.",
+    "Please share a link to your portfolio, website, GitHub, or any "
+    "publications so we can get a better sense of your work",
+    "What do you rate your SwiftUI experience 1 to 10 (10 being expert)?",
+    "Do you require sponsorship to work in the United States now or in the "
+    "future? If yes, please explain.",
+    "What is your expected graduation date (Term & Year)?",
+    "Please share your school's name here:",
+    "If given a return offer (not guaranteed), what year would you be able "
+    "to start?",
+    "If you selected 'Other' for where you learned about Samsara, please "
+    "share additional details.",
+]
+
+
+def test_a_narrative_question_makes_a_plain_input_long_form() -> None:
+    from personal_os_worker.jobs.autofill import NARRATIVE_QUESTION
+
+    for label in NARRATIVE_LABELS:
+        field = {"tag": "input", "type": "text", "label": label, "max_length": 255}
+        assert is_long_form_field(field) is True, label
+        assert NARRATIVE_QUESTION.search(label) is not None, label
+
+
+def test_a_factual_question_keeps_a_plain_input_short() -> None:
+    for label in SHORT_LABELS:
+        field = {"tag": "input", "type": "text", "label": label, "max_length": 255}
+        assert is_long_form_field(field) is False, label
+
+
+FACTUAL_LABELS = [
+    "High School Name",
+    "Preferred Name",
+    "Other Links",
+    "Please provide your GitHub repository link.",
+    "Please list any Professional Licenses & Certifications",
+    "When do you graduate?",
+    "What dates are you available to start and finish your internship?",
+    "When do you expect to complete your current degree program? "
+    "Please provide your expected graduation month and year.",
+    "How did you hear about us?",
+    "Have you ever used any of our Coinbase products?",
+    "Are you involved in any active or potential relationships with Grosvenor?",
+    "To your knowledge are you currently subject to any non-compete or "
+    "non-solicitation restrictions?",
+]
+PROSE_LABELS = [
+    "Experience",
+    "Additional Information",
+    "Summary (Optional)",
+    "Other",
+    "Anything else you'd like us to know?",
+    "Why are you interested in this role at MongoDB?",
+    "Have you ever built something that other developers used (a library, "
+    "API, CLI tool, or integration)? What did you build?",
+    "Do you have any experience with robotics projects? If so, what was the "
+    "project and what was your role in it?",
+    "What AI tools are you currently using today and how are you using them?",
+    "Do you need work visa sponsorship now or any time in the future? "
+    "(if yes, please provide details)",
+    "Have you completed at least one previous internship? Please provide details.",
+    "If you answered Yes on the previous question, please elaborate below:",
+    "Please list the school you currently attend, the degree program you are enrolled in, "
+    "and your expected graduation date.",
+]
+
+
+def test_a_textarea_asking_a_fact_is_a_factual_box() -> None:
+    from personal_os_worker.jobs.autofill import is_factual_box
+
+    for label in FACTUAL_LABELS:
+        field = {"tag": "textarea", "type": None, "label": label}
+        assert is_factual_box(field) is True, label
+        # It is still long-form: a box the fact pass leaves empty is drafted.
+        assert is_long_form_field(field) is True, label
+
+
+def test_a_textarea_asking_prose_is_not_a_factual_box() -> None:
+    from personal_os_worker.jobs.autofill import is_factual_box
+
+    for label in PROSE_LABELS:
+        field = {"tag": "textarea", "type": None, "label": label}
+        assert is_factual_box(field) is False, label
+
+
+def test_a_narrative_box_is_long_form_with_a_story_question() -> None:
+    from personal_os_worker.jobs.autofill import is_narrative_box
+
+    story = {
+        "tag": "textarea",
+        "type": None,
+        "label": "Tell us about a time an AI coding tool gave you an answer "
+        "that looked right but wasn't. How did you find out, and what did "
+        "you change?",
+    }
+    assert is_narrative_box(story) is True
+    assert is_narrative_box({"tag": "textarea", "label": "Other Links"}) is False
+    assert is_narrative_box({"tag": "input", "type": "text", "label": story["label"]}) is True
+
+
+def test_an_expression_never_fills_a_narrative_box_but_a_binding_does() -> None:
+    from personal_os_worker.jobs.resolve import Knowledge, Resolver
+
+    label = (
+        "Tell us about a time an AI coding tool gave you an answer that looked "
+        "right but wasn't. How did you find out, and what did you change?"
+    )
+    expression = {
+        "id": "e1", "kind": "expression", "status": "active",
+        "expression": r"how did you find", "fact_key": "preferences.application_source",
+    }
+    knowledge = Knowledge(
+        facts={"preferences.application_source": "Company website"},
+        types={"preferences.application_source": "text"},
+        patterns=(expression,),
+    )
+    resolver = Resolver(knowledge)
+    box = {"tag": "textarea", "label": label}
+    assert resolver.resolve(box) is None
+    assert resolver.misses == {}
+    assert any(
+        what == "narrative" for what, _ in resolver.explain(box)
+    )
+    bound = Knowledge(
+        facts=knowledge.facts,
+        types=knowledge.types,
+        patterns=(
+            {"id": "b1", "kind": "binding", "status": "active",
+             "question_key": label, "fact_key": "preferences.application_source"},
+        ),
+    )
+    assert Resolver(bound).resolve(box) is not None

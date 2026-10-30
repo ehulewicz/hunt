@@ -164,7 +164,17 @@ NARRATIVE_QUESTION = re.compile(
     r"|\b(?:tell us|tell me|walk us through|elaborate on)\b"
     r"|\bwhy (?:do|are|would|did) you\b"
     r"|\b(?:describe|explain|share)\b[^.?!]*"
-    r"\b(?:why|interest|motivation|experience|background|yourself|approach)\b",
+    r"\b(?:why|interest|motivation|experience|background|yourself|approach)\b"
+    r"|\bwhat (?:excites|interests|motivates|inspires|draws|attracts) you\b"
+    r"|\bwhat do you (?:hope|want|wish|expect|plan) to"
+    r" (?:learn|gain|achieve|accomplish|build|get)\b"
+    r"|\bwhat do you think\b"
+    r"|\b(?:favou?rite|proudest|most proud|proud of)\b"
+    r"|^\s*why\s+[^?]{1,60}\?\s*$"
+    r"|(?:^|[.?!]\s+)(?:please\s+)?(?:describe|explain)\s+"
+    r"(?:a|an|the|your|one|how|why|what|in)\b"
+    r"|\bshare (?:something|one (?:thing|project|example)"
+    r"|an? (?:time|story|example|project|moment|experience))\b",
     re.IGNORECASE,
 )
 PROSE_INPUT_TYPES = frozenset({"", "text", "search"})
@@ -181,6 +191,112 @@ def is_long_form_field(field: dict[str, Any]) -> bool:
     if tag != "input" or field_type not in PROSE_INPUT_TYPES or field.get("options"):
         return False
     return NARRATIVE_QUESTION.search(_field_context(field)) is not None
+
+
+# A word that names a piece of information, not a story.
+FACT_NOUNS = frozenset(
+    {
+        "name", "names", "link", "links", "url", "website", "profile", "portfolio",
+        "github", "linkedin", "email", "e-mail", "phone", "address", "city", "state",
+        "country", "zip", "postal", "school", "university", "college", "degree",
+        "major", "minor", "gpa", "graduation", "pronoun", "pronouns", "certification",
+        "certifications", "license", "licenses", "licence", "licences", "salary",
+        "compensation", "employer", "company", "title", "date", "dates",
+    }
+)
+# A word that asks for prose. "Other", "else" and "additional" only say
+# "another one" ("Other Links" is still a list of links), so they count as
+# modifiers, not prose.
+PROSE_NOUNS = frozenset(
+    {
+        "summary", "information", "info", "experience", "comment", "comments",
+        "note", "notes", "essay", "statement", "background", "about", "other",
+        "anything", "else", "additional", "letter", "details", "context",
+        "explanation",
+    }
+)
+GENERIC_WORDS = frozenset(
+    {"other", "else", "additional", "extra", "new", "another", "alternate",
+     "alternative", "secondary", "more", "any", "current", "preferred"}
+)
+_LABEL_TRAIL = re.compile(
+    r"(?:\s*[*\u2731:]+|\s*\((?:optional|required)\)\s*)+$", re.IGNORECASE
+)
+
+
+def _label_text(field: dict[str, Any]) -> str:
+    """The field's label without its trailing marks ("*", ":", "(optional)")."""
+    label = str(field.get("label") or "").strip()
+    return _LABEL_TRAIL.sub("", label).strip()
+
+
+def is_factual_box(field: dict[str, Any]) -> bool:
+    """A textarea asking for a fact, not prose: a name, a link, a date, a yes/no.
+
+    It goes to the short-answer pass; a box the fact pass leaves empty is still
+    drafted, because is_long_form_field is unchanged.
+    """
+    if str(field.get("tag") or "").casefold() != "textarea":
+        return False
+    if is_sensitive_field(field):
+        return False
+    if NARRATIVE_QUESTION.search(_field_context(field)):
+        return False
+    question = _label_text(field)
+    lowered = question.casefold()
+    words = [re.sub(r"^[^\w]+|[^\w]+$", "", word) for word in question.split()]
+    nouns = {word.casefold() for word in words if word}
+    sentences = [part.strip() for part in re.split(r"[.?!]+", question) if part.strip()]
+    if (
+        len(words) <= 5
+        and "?" not in question
+        and nouns & FACT_NOUNS
+        and not ((nouns & PROSE_NOUNS) - GENERIC_WORDS - FACT_NOUNS)
+    ):
+        return True
+    if (
+        len(sentences) == 1
+        # A list of several asks ("the school, the degree, and the date") is prose.
+        and "," not in question
+        and re.match(
+            r"^(?:please\s+)?(?:provide|list|enter|give|share|include)\s+"
+            r"(?:your|any|the|a|all)\b",
+            lowered,
+        )
+        and nouns & FACT_NOUNS
+    ):
+        return True
+    if re.match(r"^(?:when\b|what dates?\b)", lowered) and (
+        len(sentences) == 1
+        or (
+            len(sentences) == 2
+            and re.match(r"^please\s+(?:provide|enter)\b", sentences[1].casefold())
+        )
+    ):
+        return True
+    if (
+        question.endswith("?")
+        and len(sentences) == 1
+        and re.match(
+            r"^(?:to your knowledge,?\s+)?"
+            r"(?:do|does|did|are|is|have|has|can|will|would)\s+you\b",
+            lowered,
+        )
+    ):
+        return True
+    return bool(
+        re.match(
+            r"^how did you (?:first )?(?:hear|find out|learn) about\b", lowered
+        )
+    )
+
+
+def is_narrative_box(field: dict[str, Any]) -> bool:
+    """A long-form box whose question asks for a story, which a learned
+    expression never fills: only a binding or a draft does."""
+    return is_long_form_field(field) and NARRATIVE_QUESTION.search(
+        _field_context(field)
+    ) is not None
 
 
 def choice_group_key(field: dict[str, Any]) -> str:

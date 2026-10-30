@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 import pytest
@@ -318,3 +319,218 @@ def test_the_standing_source_ranks_the_menu_and_names_a_referral() -> None:
                     "How did you hear about us?", context=referred) == (
         "Employee referral", "application_source"
     )
+
+
+def test_a_shared_year_month_range_holds_its_date() -> None:
+    from personal_os_worker.jobs.formatters import choose_date_range
+
+    options = [
+        "Already graduated", "Jan - April 2027", "May - Aug 2027",
+        "Sept - Dec 2027", "Jan - April 2028", "May - Aug 2028",
+    ]
+    assert choose_date_range(options, date(2027, 12, 1)) == "Sept - Dec 2027"
+    assert choose_date_range(options, date(2027, 2, 15)) == "Jan - April 2027"
+    for dash in ("Jan \u2013 April 2027", "Jan \u2014 April 2027", "Jan-April 2027"):
+        assert choose_date_range([dash, "Other"], date(2027, 2, 15)) == dash
+
+
+def test_a_november_or_december_date_also_reads_as_winter() -> None:
+    options = {
+        "tag": "select",
+        "options": [
+            "Winter 2027", "Spring/Summer 2028",
+            "Flexible between Winter 2027 and Spring/Summer 2028", "Other",
+        ],
+    }
+    assert rendered(
+        "education.graduation_date", "2027-12-01", "date", "Graduation term", options
+    ) == ("Winter 2027", "date_as_winter_term_option")
+
+
+def test_a_yes_no_question_naming_a_date_range_is_checked_against_the_date() -> None:
+    question = "Is your expected graduation date between June 2027 and June 2028?"
+    options = {"tag": "select", "options": ["Yes", "No"]}
+    assert rendered(
+        "education.graduation_date", "2027-12-01", "date", question, options
+    ) == ("Yes", "date_in_range_option")
+    assert rendered(
+        "education.graduation_date", "2029-01-15", "date", question, options
+    ) == ("No", "date_in_range_option")
+
+
+@pytest.mark.parametrize(
+    ("options", "answer", "expected"),
+    [
+        (
+            ["<2.74", "2.75—2.99", "3.00—3.24", "3.25—3.49", "3.50—3.74", "3.75—4.0"],
+            "3.78",
+            "3.75—4.0",
+        ),
+        (["3.75", "3.4 - 3.70", "Below 3.4"], "3.78", "3.75"),
+        (["less than 25k", "26-30k", "81-85k", "86-90k"], "83200", "81-85k"),
+        (["less than 25k", "26-30k", "81-85k", "86-90k"], "27500", "26-30k"),
+        (["$80K - $90K", "100k+"], "85000", "$80K - $90K"),
+        (["$80K - $90K", "100k+"], "120000", "100k+"),
+        (["≤3.0", "3.1 - 3.5", "≥3.6"], "3.6", "≥3.6"),
+        (["≤3.0", "3.1 - 3.5", "≥3.6"], "3.0", "≤3.0"),
+    ],
+)
+def test_numeric_ranges_read_dashes_inequalities_and_thousands(
+    options: list[str], answer: str, expected: str
+) -> None:
+    from personal_os_worker.jobs.options import choose_numeric_range
+
+    assert choose_numeric_range(options, answer) == expected
+
+
+def test_money_finds_its_currency_in_a_currency_menu() -> None:
+    options = {
+        "tag": "select",
+        "label": "Desired Salary (currency)",
+        "options": [
+            "US Dollar ($)", "Canadian Dollar ($)", "Euro (€)",
+            "United Arab Emirates Dirham (د.إ.\u200f)",
+        ],
+    }
+    assert rendered(
+        "compensation.desired", MINIMUM, "object", "Desired Salary (currency)", options
+    ) == ("US Dollar ($)", "money_currency_option")
+
+
+def test_money_finds_its_period_in_a_period_menu() -> None:
+    options = {
+        "tag": "select",
+        "label": "Desired Salary (period)",
+        "options": ["Hourly", "Weekly", "Monthly", "Yearly"],
+    }
+    assert rendered(
+        "compensation.desired", MINIMUM, "object", "Desired Salary (period)", options
+    ) == ("Hourly", "money_period_option")
+
+
+def test_hourly_pay_lands_in_the_annual_band_its_magnitude_matches() -> None:
+    bands = ["less than 25k"] + [f"{low}-{low + 4}k" for low in range(26, 90, 5)]
+    options = {"tag": "select", "options": bands}
+    # $40/hour is $83,200 a year: "81-85k", never "less than 25k".
+    assert rendered(
+        "compensation.desired", MINIMUM, "object", "Target Compensation", options
+    ) == ("81-85k", "money_as_annual_option")
+
+
+def test_a_state_name_finds_its_code_in_a_code_menu() -> None:
+    options = {
+        "tag": "select",
+        "options": [
+            "Abreviations only", "AL", "AK", "AZ", "AR", "CA", "CO", "CT",
+            "DE", "DC", "FL", "GA", "HI", "ID", "IL",
+        ],
+    }
+    assert rendered(
+        "address.state", "Georgia", "text", "Current State", options
+    ) == ("GA", "state_code_option")
+
+
+def test_a_state_code_finds_its_name_in_a_menu_of_names() -> None:
+    options = {
+        "tag": "select",
+        "options": ["Alabama", "Florida", "Georgia", "New York"],
+    }
+    assert rendered(
+        "address.state", "GA", "text", "Current State", options
+    ) == ("Georgia", "state_name_option")
+
+
+@pytest.mark.parametrize(
+    ("question", "expected"),
+    [
+        ("Are you a resident of California?", ("No", "named_state_option")),
+        (
+            "Are you currently a legal resident of Ohio? "
+            "(This position is restricted to OH residents only.)",
+            ("No", "named_state_option"),
+        ),
+        ("Are you a resident of Georgia?", ("Yes", "named_state_option")),
+    ],
+)
+def test_a_question_naming_a_state_is_checked_against_yours(
+    question: str, expected: tuple[str, str]
+) -> None:
+    options = {"tag": "select", "options": ["Yes", "No"]}
+    assert rendered("address.state", "Georgia", "text", question, options) == expected
+
+
+@pytest.mark.parametrize(
+    ("question", "expected"),
+    [
+        ("Are you currently attending Northeastern University?", "No"),
+        ("Are you currently attending Northestern University?", "No"),
+        ("Are you a current or former student of Northeastern University?", "No"),
+        ("Are you eligible for Northeastern University's Co-op Program?", "No"),
+        ("Are you currently attending Example University?", "Yes"),
+    ],
+)
+def test_a_question_naming_a_school_is_checked_against_yours(
+    question: str, expected: str
+) -> None:
+    options = {"tag": "select", "options": ["Yes", "No"]}
+    found = rendered(
+        "education.school_name", "Example Institute of Technology", "text", question, options
+    )
+    assert found == (expected, "named_school_option")
+
+
+def test_a_vague_university_question_is_no_comparison() -> None:
+    options = {"tag": "select", "options": ["Yes", "No"]}
+    assert rendered(
+        "education.school_name", "Example Institute of Technology", "text",
+        "Are you currently a University student in the Atlanta area "
+        "pursuing an Engineering degree?",
+        options,
+    ) is None
+
+
+def test_a_question_naming_your_country_is_yes() -> None:
+    options = {"tag": "select", "options": ["Yes", "No", "Unsure"]}
+    assert rendered(
+        "address.country", "United States", "text",
+        "Will you reside in the US during the full period of the internship "
+        "(June 7, 2027 - August 13, 2027)?",
+        options,
+    ) == ("Yes", "named_country_option")
+
+
+def test_a_citizenship_menu_for_another_country_takes_the_none_option() -> None:
+    options = {
+        "tag": "select",
+        "options": [
+            "Singaporean Citizen", "Singaporean Permanent Resident",
+            "Personalized Employment Pass (PEP)", "Employment Pass",
+            "Dependent Pass", "None",
+        ],
+    }
+    assert rendered(
+        "work_auth.citizenship_country", "United States", "text",
+        "What is your citizenship status in Singapore?", options,
+    ) == ("None", "named_country_option")
+
+
+@pytest.mark.parametrize(
+    ("question", "expected"),
+    [
+        (
+            "I'm a current student aiming to complete my degree in either "
+            "Fall 2027 or Spring 2028.",
+            "Yes",
+        ),
+        ("Are you returning to school in Fall 2027?", "Yes"),
+        ("Are you returning to school in Spring 2028?", "No"),
+    ],
+)
+def test_a_question_naming_terms_is_checked_against_the_graduation(
+    question: str, expected: str
+) -> None:
+    options = {"tag": "select", "options": ["Yes", "No", "Unsure"]}
+    found = rendered(
+        "education.graduation_date", "2027-12-01", "date", question, options
+    )
+    assert found == (expected, "named_term_option")

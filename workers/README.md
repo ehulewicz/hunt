@@ -388,7 +388,12 @@ An unanswered field remains an outlined, actionable gap even when optional.
 
 **Which value.** Every value comes from a fact. `jobs/resolve.py` builds the
 run's `Knowledge` — stored facts over career-derived ones, then the derived and
-posting facts — and answers a field
+posting facts: the derived ones in `jobs/facts/derived.py` include the LGBTQ+
+flag from transgender and orientation, the U.S.-person export statuses from
+citizenship, the degree level, program level, and highest completed degree from
+the degree type and enrollment, the full-time start year after graduating, and
+the whole years of full-time experience from the career record's
+non-internship entries. The resolver answers a field
 in a fixed order: the question's active binding, then active expression
 patterns (exactly one fact among those that match). Consent and "how did you
 hear" are patterns too (R68), each an active expression reading a fact the
@@ -409,7 +414,9 @@ to its company before, its term ("Summer 2027" in the title), your earliest star
 (two weeks from accepting, your notice period, or the term's start if later:
 winter January 4, spring January 11, summer May 18, fall August 31) and a
 twelve-week window from it, whether that window runs into your last semester
-(apply warns), and whether you were referred (`apply --referred [NAME]`).
+(apply warns), whether your graduation date falls after the window's end
+(`education.enrolled_through_internship`), and whether you were referred
+(`apply --referred [NAME]`).
 A pattern whose fact is missing or fits none of the options leaves the field,
 and the run remembers why (`Miss`). A question no pattern decides goes to one
 bounded model pass (`short_answers.py`) — shown every fact, with the facts whose
@@ -437,13 +444,30 @@ The API refuses, too, any such pattern that would undo a decision of yours: one
 you rejected or retired, a binding over an existing one, or a question you
 marked one-off or long-form; and an expression already waiting in the Inbox. A question or gate a pattern decides never reaches
 the model, even when its fact is missing. Every call sees every fact with its value.
+A textarea whose question asks a fact — a name, a link, a date, a yes/no —
+goes to that same fact pass (`is_factual_box`), not the prose drafter, and one
+the pass leaves empty is still drafted. A question asking for a story —
+`is_narrative_box`, a long-form box whose question reads as narrative — is
+never filled by an expression, whose wording learned another question's;
+a binding still fills it.
 
 **How it is written.** `jobs/formatters.py` renders a fact for the control in
 front of it and names the formatter it used: a date as "December 2027", "Fall
-2027", "December", "2027", ISO, US, or month input, by the wording and the input
-type; the $40/hour minimum as `$40/hour`, `40`, `$83,200 USD`, or `83200`; yes
+2027" ("Winter 2027" for November and December), "December", "2027", ISO, US, or
+month input, by the wording and the input type, or into a month-range option
+("Jan - April 2027"), and a yes/no question naming a date range is checked
+against the date itself; the $40/hour minimum as `$40/hour`, `40`, `$83,200 USD`,
+or `83200`, in a menu of currencies as the fact's currency, in a menu of
+periods as the fact's period, and against bands only at the magnitude they
+count ("81-85k" is annual, never hourly); yes
 and no as whichever option says them ("No, I am not a protected veteran");
-numbers into the range that contains them; lists as text, or one box per item.
+numbers into the range that contains them ("3.75—4.0", "26-30k", "less than
+25k", ">=2.74"); lists as text, or one box per item.
+A state is written as its postal code in a menu of codes ("Georgia" -> "GA")
+and as its name in a menu of names; a yes/no question naming a state, your
+school (by its full name or "Example University"), a country, or a term is answered
+by comparing it to the fact, and a status menu for a different country takes
+its None option.
 A fact whose value is the empty value of its type (`""` or `[]`, set with
 `facts set KEY --none`) says the answer is none: free text gets N/A and a menu
 gets its explicit None or Not applicable option. A control that cannot accept

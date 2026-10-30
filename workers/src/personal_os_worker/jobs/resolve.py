@@ -22,7 +22,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Literal
 
-from personal_os_worker.jobs.autofill import AnswerResolution
+from personal_os_worker.jobs.autofill import AnswerResolution, is_narrative_box
 from personal_os_worker.jobs.facts.catalog import CATALOG
 from personal_os_worker.jobs.facts.derived import career_facts, derive, posting_facts
 from personal_os_worker.jobs.facts.values import fact_values
@@ -282,6 +282,14 @@ class Resolver:
     def resolve(self, field_info: dict[str, Any]) -> AnswerResolution | None:
         question = str(field_info.get("label") or "").strip()
         pattern = self.decision(question)
+        if (
+            pattern is not None
+            and pattern.get("kind") == "expression"
+            and is_narrative_box(field_info)
+        ):
+            # A narrative box takes a binding or a draft; an expression that
+            # learned another question's wording never fills it.
+            return None
         return self._from_pattern(pattern, field_info, question) if pattern is not None else None
 
     def explain(self, field_info: dict[str, Any]) -> list[Line]:
@@ -314,7 +322,15 @@ class Resolver:
             lines.append(("decided by", "nothing: the expressions name different facts"))
         else:
             lines.append(("decided by", "nothing: no pattern yet; the model pass, then you"))
-        if chosen is not None:
+        if (
+            chosen is not None
+            and chosen.get("kind") == "expression"
+            and is_narrative_box(field_info)
+        ):
+            lines.append(
+                ("narrative", "an expression never fills a narrative box: left for prose")
+            )
+        elif chosen is not None:
             fact = str(chosen["fact_key"])
             rendering = (
                 self.render_fact(fact, field_info, question, chosen.get("formatter"))

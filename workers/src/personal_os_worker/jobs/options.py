@@ -126,7 +126,10 @@ def choose_synonym(options: list[str], answer: str) -> str | None:
 
 NUMBER = r"(\d+(?:\.\d+)?)"
 RANGE_PATTERNS: tuple[tuple[re.Pattern[str], Callable[[float, float, float], bool]], ...] = (
-    (re.compile(rf"^{NUMBER}\s*(?:-|\u2013|to)\s*{NUMBER}\b"), lambda v, lo, hi: lo <= v <= hi),
+    (
+        re.compile(rf"^{NUMBER}\s*(?:-|\u2013|\u2014|to)\s*{NUMBER}\b"),
+        lambda v, lo, hi: lo <= v <= hi,
+    ),
     (
         re.compile(rf"^{NUMBER}\s*(?:\+|or (?:above|higher|more|greater)|and (?:above|up))"),
         lambda v, lo, _: v >= lo,
@@ -143,7 +146,18 @@ RANGE_PATTERNS: tuple[tuple[re.Pattern[str], Callable[[float, float, float], boo
         re.compile(rf"^{NUMBER}\s*(?:or (?:below|less|lower)|and (?:below|under))"),
         lambda v, hi, _: v <= hi,
     ),
+    (re.compile(rf"^(?:<=|\u2264)\s*{NUMBER}"), lambda v, hi, _: v <= hi),
+    (re.compile(rf"^<\s*{NUMBER}"), lambda v, hi, _: v < hi),
+    (re.compile(rf"^(?:>=|\u2265)\s*{NUMBER}"), lambda v, lo, _: v >= lo),
+    (re.compile(rf"^>\s*{NUMBER}"), lambda v, lo, _: v > lo),
 )
+
+
+def _option_numbers(option: str) -> list[float]:
+    """The numbers an option carries, a k suffix counting in thousands."""
+    text = re.sub(r"[$,]|\busd\b", "", normalize_question(option))
+    scale = 1000 if re.search(rf"{NUMBER}\s*k\b", text) else 1
+    return [float(number) * scale for number in re.findall(NUMBER, text)]
 
 
 def choose_numeric_range(options: list[str], answer: str) -> str | None:
@@ -154,16 +168,44 @@ def choose_numeric_range(options: list[str], answer: str) -> str | None:
         return None
     hits: list[str] = []
     for option in options:
-        # "$30-$45" and "$20,000 - $30,000" are ranges too.
+        # "$30-$45" and "$20,000 - $30,000" are ranges too; a k suffix counts
+        # every bound in thousands ("26-30k" is 26000-30000).
         text = re.sub(r"[$,]|\busd\b", "", normalize_question(option)).strip()
+        scale = 1000 if re.search(rf"{NUMBER}\s*k\b", text) else 1
+        text = re.sub(rf"({NUMBER})\s*k\b", r"\1", text)
         for pattern, holds in RANGE_PATTERNS:
             found = pattern.match(text)
             if found is None:
                 continue
-            bounds = [float(group) for group in found.groups() if group is not None]
+            bounds = [
+                float(group) * scale for group in found.groups() if group is not None
+            ]
             low = bounds[0]
             high = bounds[1] if len(bounds) > 1 else bounds[0]
             if holds(value, low, high):
                 hits.append(option)
             break
-    return hits[0] if len(hits) == 1 else None
+    if len(hits) == 1:
+        return hits[0]
+    # A lone bare number at the top of the scale ("3.75" above "3.4 - 3.70")
+    # is its open-ended top when nothing holds the value but the value clears it.
+    bare = [
+        option
+        for option in options
+        if re.fullmatch(
+            rf"\s*[$]?\s*{NUMBER}\s*k?\s*",
+            re.sub(r"[,]", "", normalize_question(option)),
+        )
+    ]
+    if len(bare) != 1:
+        return None
+    option = bare[0]
+    number = _option_numbers(option)[0]
+    if number <= value and all(
+        number >= other_number
+        for other in options
+        if other != option
+        for other_number in _option_numbers(other)
+    ):
+        return option
+    return None

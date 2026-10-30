@@ -173,6 +173,7 @@ def test_derive_skips_facts_whose_inputs_are_missing() -> None:
         "education.graduation_term": "Fall",
         "education.currently_enrolled": True,
         "compensation.minimum_annual": 83200,
+        "availability.full_time_start_year": 2028,
     }
     assert derive({}, date(2026, 10, 8)) == {}
 
@@ -452,3 +453,124 @@ def test_a_none_fact_is_the_empty_value_of_its_type() -> None:
 def test_facts_set_takes_a_value_or_none() -> None:
     args = build_parser().parse_args(["hunt", "facts", "set", "address.line_2", "--none"])
     assert (args.key, args.value, args.none) == ("address.line_2", None, True)
+
+
+def test_lgbtq_is_derived_only_from_what_is_stated() -> None:
+    day = date(2026, 11, 1)
+    assert derive({"eeo.transgender": True}, day)["eeo.lgbtq"] is True
+    assert derive({"eeo.sexual_orientation": "Bisexual"}, day)["eeo.lgbtq"] is True
+    assert derive(
+        {"eeo.transgender": False, "eeo.sexual_orientation": "Straight"}, day
+    )["eeo.lgbtq"] is False
+    for facts in (
+        {},
+        {"eeo.transgender": False},
+        {"eeo.sexual_orientation": "Prefer not to say"},
+        {"eeo.transgender": False, "eeo.sexual_orientation": "Decline to self-identify"},
+    ):
+        assert "eeo.lgbtq" not in derive(facts, day)
+
+
+def test_a_citizen_is_a_us_person_and_needs_none_of_the_rest() -> None:
+    day = date(2026, 11, 1)
+    found = derive({"work_auth.us_citizen": True}, day)
+    assert found["work_auth.us_person"] is True
+    for key in (
+        "work_auth.permanent_resident",
+        "work_auth.refugee_or_asylee",
+        "work_auth.visa_based",
+        "work_auth.deemed_export_applies",
+    ):
+        assert found[key] is False
+    for facts in ({}, {"work_auth.us_citizen": False}):
+        assert "work_auth.us_person" not in derive(facts, day)
+
+
+@pytest.mark.parametrize(
+    ("degree_type", "level", "program", "completed"),
+    [
+        ("BS", "Bachelor's degree", "Undergraduate", "High school"),
+        ("BSc", "Bachelor's degree", "Undergraduate", "High school"),
+        ("Bachelor of Arts", "Bachelor's degree", "Undergraduate", "High school"),
+        ("MEng", "Master's degree", "Graduate", "Bachelor's degree"),
+        ("PhD", "Doctorate", "Graduate", None),
+        ("Associate", "Associate degree", "Undergraduate", "High school"),
+    ],
+)
+def test_the_degree_level_and_what_it_sits_above(
+    degree_type: str, level: str, program: str, completed: str | None
+) -> None:
+    # A 2027-12 graduation means still enrolled on this day.
+    found = derive(
+        {"education.degree_type": degree_type, "education.graduation_date": "2027-12-15"},
+        date(2026, 11, 1),
+    )
+    assert found["education.degree_level"] == level
+    assert found["education.program_level"] == program
+    if completed is None:
+        assert "education.highest_completed" not in found
+    else:
+        assert found["education.highest_completed"] == completed
+
+
+def test_the_highest_completed_level_is_the_degree_once_graduated() -> None:
+    found = derive(
+        {"education.degree_type": "MS", "education.graduation_date": "2020-05-15"},
+        date(2026, 11, 1),
+    )
+    assert found["education.highest_completed"] == "Master's degree"
+
+
+def test_the_full_time_start_year_pushes_a_winter_graduation_into_the_next() -> None:
+    assert derive(
+        {"education.graduation_date": "2027-12-01"}, date(2026, 11, 1)
+    )["availability.full_time_start_year"] == 2028
+    assert derive(
+        {"education.graduation_date": "2028-05-01"}, date(2026, 11, 1)
+    )["availability.full_time_start_year"] == 2028
+
+
+def test_enrolled_through_the_internship_is_a_posting_fact() -> None:
+    from personal_os_worker.jobs.facts.derived import posting_facts
+
+    facts = {"education.graduation_date": "2027-12-01"}
+    found = posting_facts(
+        facts, "Acme", title="Software Engineer Intern - Summer 2027",
+        today=date(2026, 11, 1),
+    )
+    assert found["education.enrolled_through_internship"] is True
+    graduated = posting_facts(
+        {"education.graduation_date": "2027-05-01"},
+        "Acme",
+        title="Software Engineer Intern - Summer 2027",
+        today=date(2026, 11, 1),
+    )
+    assert graduated["education.enrolled_through_internship"] is False
+    assert "education.enrolled_through_internship" not in posting_facts(
+        {}, "Acme", today=date(2026, 11, 1)
+    )
+
+
+def test_full_time_years_exclude_internships_coops_and_part_time() -> None:
+    record = {
+        "entries": [
+            {"section": "experience", "start_date": "2023-01-01",
+             "end_date": "2025-01-01"},
+            {"section": "experience", "employment_type": "coop",
+             "start_date": "2024-01-01", "end_date": "2025-01-01"},
+            {"section": "experience", "employment_type": "internship",
+             "start_date": "2025-06-01", "end_date": "2025-08-31"},
+            {"section": "experience", "employment_type": "part_time",
+             "start_date": "2025-01-01", "end_date": "2025-12-31"},
+            {"section": "experience", "employment_type": "founder",
+             "start_date": "2025-06-01", "end_date": "2026-06-01"},
+            {"section": "experience", "employment_type": "contract",
+             "start_date": "2026-01-01", "end_date": "2026-11-01"},
+        ]
+    }
+    found = career_facts(record, date(2026, 11, 1))  # type: ignore[arg-type]
+    # Two full years (2023-01 to 2025-01) plus one founder year.
+    assert found["experience.years_full_time"] == 3
+    assert career_facts({"entries": []}, date(2026, 11, 1)).get(  # type: ignore[arg-type]
+        "experience.years_full_time"
+    ) is None
