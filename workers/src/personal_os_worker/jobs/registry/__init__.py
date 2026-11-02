@@ -72,6 +72,7 @@ def _learned_files(category: str) -> list[Path]:
         for directory in package.__path__
         for module in pkgutil.iter_modules([directory])
         if not module.name.startswith("_")
+        and module.name not in _retired
         and (Path(directory) / f"{module.name}.py").is_file()
     )
 
@@ -171,6 +172,18 @@ def learned(category: str, site: str) -> list[Any]:
             _remember(value, path)
         _cache[key] = [value for _path, value in found]
     return _cache[key]
+
+
+_retired: set[str] = set()
+
+
+def retire_files(files: list[str]) -> None:
+    """Filenames a reverted fixer must not load this run."""
+    _retired.update(Path(name).stem for name in files)
+
+
+def retired_files() -> set[str]:
+    return set(_retired)
 
 
 def reload_learned() -> None:

@@ -356,3 +356,74 @@ export function saveLibraryEntry(accessToken: string, entry: LibraryEntryWrite):
     body: JSON.stringify(entry),
   });
 }
+
+// The Learned section: the run's kept fixes, the branches a model taught,
+// the problems waiting for Retry, and each run's model usage by lane.
+export type LearnedFix = {
+  change_id: string;
+  commit: string;
+  file: string;
+  cause: string | null;
+  question: string | null;
+  site: string | null;
+  issue_id: string | null;
+  checks: Record<string, unknown> | null;
+  probe: Record<string, unknown> | null;
+  summary: string | null;
+  status: "trial" | "proven" | "retired";
+  created_at: string;
+};
+
+export type LearnedBranch = {
+  pattern_id: string | null;
+  fact_key: string | null;
+  expression: string | null;
+  question: string | null;
+  created_at: string;
+};
+
+export type LearnedUnsolved = {
+  issue_id: string;
+  cause: string;
+  site: string | null;
+  label: string | null;
+  attempts: string | null;
+  created_at: string;
+};
+
+export type LearnedRun = {
+  run_id: string;
+  site: string | null;
+  started_at: string;
+  model_calls: number;
+  model_usage: Record<string, { calls?: number; input_tokens?: number; output_tokens?: number }>;
+};
+
+export type LearnedReport = {
+  fixes: LearnedFix[];
+  branches: LearnedBranch[];
+  unsolved: LearnedUnsolved[];
+  runs: LearnedRun[];
+};
+
+export function loadLearned(accessToken: string): Promise<LearnedReport> {
+  return apiRequest<LearnedReport>("/v1/jobs/learned", accessToken);
+}
+
+export function retireCodeChange(accessToken: string, changeId: string): Promise<{ retired: boolean }> {
+  return apiRequest<{ retired: boolean }>(`/v1/jobs/learned/changes/code/${changeId}/retire`, accessToken, { method: "POST" });
+}
+
+export function retirePattern(accessToken: string, patternId: string): Promise<Pattern> {
+  return apiRequest<Pattern>(`/v1/jobs/patterns/${patternId}`, accessToken, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "retired" }),
+  });
+}
+
+export function retryFailure(accessToken: string, issueId: string): Promise<void> {
+  return apiRequest<void>(`/v1/jobs/autofill/failures/${issueId}`, accessToken, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "open", verification_notes: "" }),
+  });
+}

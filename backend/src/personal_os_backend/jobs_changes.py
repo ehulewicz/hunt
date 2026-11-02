@@ -228,6 +228,8 @@ class ChangeStore(Protocol):
 
     async def create_code_change(self, user_id: UUID, item: CodeChangeCreate) -> Change: ...
 
+    async def retire_code_change(self, user_id: UUID, change_id: UUID) -> bool | None: ...
+
     async def resolve_change(
         self, user_id: UUID, change_id: UUID, verification: Verification
     ) -> Change | None: ...
@@ -288,6 +290,45 @@ class PostgresChangeStore:
                 verification=item.verification,
                 pending=item.verification is None,
             )
+
+    async def retire_code_change(self, user_id: UUID, change_id: UUID) -> bool | None:
+        """Revert one kept fix: a retire change on the same commit, as you. None
+        for an unknown change, False for one already retired."""
+        async with (
+            self._pool.connection(timeout=self._timeout) as connection,
+            connection.transaction(),
+        ):
+            await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                f"""
+                select {CHANGE_COLUMNS} from app.jobs_changes
+                where id = %s and user_id = %s and subject = 'code'
+                """,
+                (change_id, user_id),
+            )
+            change = await cursor.fetchone()
+            if change is None:
+                return None
+            cursor = await connection.execute(
+                """
+                select 1 from app.jobs_changes
+                where user_id = %s and subject = 'code' and subject_id = %s
+                  and action = 'retire'
+                """,
+                (user_id, change["subject_id"]),
+            )
+            if await cursor.fetchone() is not None:
+                return False
+            detail = change.get("after") or {}
+            await record_change(
+                connection, user_id,
+                subject="code", subject_id=str(change["subject_id"]),
+                action="retire",
+                before={"commit": change["subject_id"]},
+                after={"retired": True, "files": detail.get("files")},
+                origin="you",
+            )
+            return True
 
     async def resolve_change(
         self, user_id: UUID, change_id: UUID, verification: Verification
@@ -393,6 +434,19 @@ async def create_code_change(
     item: CodeChangeCreate, principal: CurrentPrincipal, store: Store
 ) -> Change:
     return await store.create_code_change(principal.user_id, item)
+
+
+@router.post("/changes/code/{change_id}/retire")
+async def retire_code_change(
+    change_id: UUID, principal: CurrentPrincipal, store: Store
+) -> dict[str, bool]:
+    """Retire one kept fix: the next run on an online device removes its file."""
+    retired = await store.retire_code_change(principal.user_id, change_id)
+    if retired is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "code change not found")
+    if not retired:
+        raise HTTPException(status.HTTP_409_CONFLICT, "code change already retired")
+    return {"retired": True}
 
 
 @router.patch("/changes/{change_id}/verification", response_model=Change)

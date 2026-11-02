@@ -318,6 +318,10 @@ question readers — in one subprocess, tries it on the live page (`probe.py`),
 and keeps it only on a readback: `keep.py` commits exactly that file and its
 sanitized fixtures (`fix/sanitize.py`) on `main`, pushes, records it with the
 failure it fixed, and `load_file` puts it into the running run — no reload.
+A fix you revert on the Hunt page is recorded as retired: from then on the
+registry never loads its file, and a device that is online removes the file and
+its fixtures in one commit on `main` and pushes (`fix/trial.py revert_retired`,
+at the start of each run), skipping paths you have edited.
 
 A problem spends at most three attempts in total across runs (the row's
 verification notes carry "attempts N of 3"); there is no cap on problems, but
@@ -570,17 +574,16 @@ meters it and, through `model_errors.py`, interprets failure envelopes without
 logging their prompt, answer, or raw error payload: a failure names only its exit
 code and the envelope's codes (`subtype`, `api_error`, the HTTP status), or says
 no envelope came back. It also counts each call
-under its purpose: `learn` (`short_answers.py`, the gate pass included), `fix`
-(the fixer), `check` (`answer_check.py`) and `draft` (prose and the letter's
-slots). Every step the run stores carries its `learn` plus `fix` calls so far
-as `model_calls`, a reload carries the count into the next process, and the
-run's closing lines print all four with their tokens. While a run is active
-no lane is capped — only per-problem limits (two pattern asks, one draft, three code attempts)
-— and the counts carry across a reload. A spent cap stops only that purpose:
-it is said once, calls already made are kept, and what is left is said to be
-yours. A usage limit still stops every call. Outside a run nothing is capped.
+under its lane: `pattern` (`short_answers.py`, the gate pass included), `code`
+(the fixer), `audit` (`answer_check.py`) and `draft` (prose and the letter's
+slots). Every step the run stores carries its pattern plus code calls so far as
+`model_calls` and each lane's calls and tokens as `model_usage`, which the Hunt
+Inbox's Learned tab shows per run; the run's closing lines print all four with
+their tokens. No lane is capped, only each problem: two pattern asks per
+question, one draft per question, one audit per answer, three code attempts per
+problem. A usage limit still stops every call.
 Only learning (pattern and code) counts toward `os hunt sites` marking a site `met`;
-checking and drafting run on every application.
+auditing and drafting run on every application.
 `jobs/answer_check.py` is the other half: it reads back the answers the page
 already holds and asks whether a fact contradicts one, because an answer can be
 confidently filled and wrong. A wrong answer a pattern filled has its question

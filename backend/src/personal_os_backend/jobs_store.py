@@ -763,7 +763,10 @@ class PostgresJobsStore:
                     filled_count = filled_count + %s,
                     skipped_count = skipped_count + %s,
                     failure_count = failure_count + %s,
-                    model_calls = greatest(model_calls, coalesce(%s, 0))
+                    model_calls = greatest(model_calls, coalesce(%s, 0)),
+                    model_usage = case
+                        when %s::jsonb != '{}'::jsonb then %s::jsonb
+                        else model_usage end
                 where id = %s and user_id = %s and status = 'running'
                 returning application_id, ats, adapter_version
                 """,
@@ -774,6 +777,8 @@ class PostgresJobsStore:
                     item.skipped_count,
                     len(item.failures),
                     item.model_calls,
+                    Jsonb(item.model_usage),
+                    Jsonb(item.model_usage),
                     run_id,
                     user_id,
                 ),

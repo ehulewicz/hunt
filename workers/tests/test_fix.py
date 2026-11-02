@@ -483,9 +483,9 @@ def _problem(number: int = 1, *, issue_id: str | None = "i1",
 
 STRATEGY_SOURCE = """from personal_os_worker.jobs.registry.api import Strategy
 
-def set_odd(handle, value):
-    handle.fill(value)
-    return handle.read()
+def set_odd(widget, value):
+    widget.type(value)
+    return widget.text()
 
 STRATEGY = Strategy(
     name="odd_set",
@@ -581,3 +581,69 @@ def _keep_file(repo: Path, tmp_path: Path, source: Path, category: str) -> None:
 
 
 
+
+
+# ----- an online device applies the Inbox's reverts ----------------------------
+
+def test_revert_retired_removes_the_file_and_fixtures(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from personal_os_worker.jobs import registry
+    from personal_os_worker.jobs.fix import trial as trial_mod
+
+    folder = _learned_package(tmp_path, "strategies")
+    source = folder / "odd_set.py"
+    source.write_text(STRATEGY_SOURCE)
+    _keep_file(repo, tmp_path, source, "strategies")
+    learned_rel = (
+        "workers/src/personal_os_worker/jobs/registry/strategies/learned/odd_set.py"
+    )
+    fixture_rel = "workers/tests/fixtures/learned/strategies/odd_set"
+    assert (repo / learned_rel).exists()
+
+    class LearnedApi:
+        def learned(self) -> dict[str, Any]:
+            return {"fixes": [{"file": learned_rel, "status": "retired"}]}
+
+    reverted = trial_mod.revert_retired(LearnedApi(), repo)
+    assert reverted == 1
+    assert not (repo / learned_rel).exists()
+    assert not (repo / fixture_rel).exists()
+    assert "odd_set" in registry.retired_files()
+    history = git(repo, "log", "--oneline")
+    assert "Revert" in history
+
+
+def test_revert_retired_leaves_paths_with_local_edits(
+    repo: Path, tmp_path: Path
+) -> None:
+    from personal_os_worker.jobs.fix import trial as trial_mod
+
+    folder = _learned_package(tmp_path, "strategies")
+    source = folder / "odd_set.py"
+    source.write_text(STRATEGY_SOURCE)
+    _keep_file(repo, tmp_path, source, "strategies")
+    learned_rel = (
+        "workers/src/personal_os_worker/jobs/registry/strategies/learned/odd_set.py"
+    )
+    (repo / learned_rel).write_text("# locally edited\n" + source.read_text())
+
+    class LearnedApi:
+        def learned(self) -> dict[str, Any]:
+            return {"fixes": [{"file": learned_rel, "status": "retired"}]}
+
+    assert trial_mod.revert_retired(LearnedApi(), repo) == 0
+    assert (repo / learned_rel).exists()
+
+
+def test_a_retired_file_is_never_loaded(tmp_path: Path) -> None:
+    """retire_files() removes the stem from every later learned() answer."""
+    folder = _learned_package(tmp_path, "strategies")
+    (folder / "odd_set.py").write_text(STRATEGY_SOURCE)
+    registry._retired.clear()
+    registry.reload_learned()
+    assert registry.learned("strategies", "other.example") != []
+    registry.retire_files(["workers/.../learned/odd_set.py"])
+    registry.reload_learned()
+    assert registry.learned("strategies", "other.example") == []
+    registry._retired.clear()

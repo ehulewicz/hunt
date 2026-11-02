@@ -18,6 +18,7 @@ from personal_os_backend.jobs_changes import router as changes_router
 from personal_os_backend.jobs_devices import router as devices_router
 from personal_os_backend.jobs_facts import router as facts_router
 from personal_os_backend.jobs_gaps import router as gaps_router
+from personal_os_backend.jobs_learned import router as learned_router
 from personal_os_backend.jobs_library import router as library_router
 from personal_os_backend.jobs_public import router as public_router
 from personal_os_backend.jobs_router import router as jobs_router
@@ -104,6 +105,7 @@ def create_app(settings: Settings | None = None, *, lifespan: Lifespan | None = 
     application.include_router(devices_router)
     application.include_router(library_router)
     application.include_router(gaps_router)
+    application.include_router(learned_router)
     application.include_router(public_router)
 
     return application

@@ -50,7 +50,7 @@ issue must carry its candidate. An issue the fixer works on is `fixing`, then
 open are `archived`; a signature that fails again reopens. `jobs_changes` holds
 every change to a pattern, fact, prose, question disposition, validated strategy,
 or code, with who made it and the failure issue it fixed (`failure_issue_id`).
-`jobs_autofill_runs.model_calls` counts a run's model calls.
+`jobs_autofill_runs.model_calls` counts a run's model calls; `model_usage` (jsonb) carries the per-lane call and token totals the latest step reported (pattern, audit, draft, code — pattern and code are learning).
 
 An observed history row is identified by run and event index; final rows retain the
 submitted or drafted value with step and control context. Autofill activates only a

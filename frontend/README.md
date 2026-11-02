@@ -93,7 +93,13 @@ already active on a device opens without starting another one, including runs
 started in a terminal. Starting a busy or unready device is disabled.
 
 The answer panel switches between Inbox and Library. Inbox separates Questions,
-Facts to verify, Writing, Pattern checks, and Unsolved. Writing also lists open
+Facts to verify, Writing, Pattern checks, Unsolved, and Learned. Learned reads
+`/v1/jobs/learned`: each code fix the run kept (its file, a trial, proven or
+retired pill, the failure it fixed, its checks and probe) with Revert, which
+records a retire for it; each branch a model taught with Revert, which retires
+the pattern; each unsolved fixer problem with its attempts and Retry, which
+reopens it; and each recent run's calls and tokens per lane (pattern, code,
+audit, draft). Writing also lists open
 prose gaps — a long-form question the library covers only partly or not at all —
 with a link into the Library page and a Resolve action. Facts to verify comes from
 `/v1/jobs/inbox`: unverified facts, missing facts with the question that needed them,

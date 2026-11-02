@@ -351,6 +351,23 @@ class WorkerApi:
             raise RuntimeError("Change response was invalid")
         return payload
 
+    def learned(self) -> dict[str, Any]:
+        """The Inbox's Learned section: fixes, branches, unsolved, runs."""
+        payload = self._json(self._client.get("/v1/jobs/learned"), "Learned")
+        if not isinstance(payload, dict):
+            raise RuntimeError("Learned response was invalid")
+        return payload
+
+    def retire_code_change(self, change_id: str) -> dict[str, Any]:
+        """Retire one kept fix: the revert arrives with the next run."""
+        payload = self._json(
+            self._client.post(f"/v1/jobs/changes/code/{change_id}/retire"),
+            "Retire",
+        )
+        if not isinstance(payload, dict):
+            raise RuntimeError("Retire response was invalid")
+        return payload
+
     def record_code_change(
         self,
         commit: str,
@@ -373,6 +390,7 @@ class WorkerApi:
         if not isinstance(payload, dict):
             raise RuntimeError("Change response was invalid")
         return payload
+
 
     def sightings(self, *, limit: int | None = None) -> list[dict[str, Any]]:
         """Short answers submitted with an application, newest first (`jobs/replay.py`)."""

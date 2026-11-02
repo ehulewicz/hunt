@@ -137,7 +137,7 @@ its own binding: the named pattern must be the question's active binding with
 origin `model`, and activating the new one retires the old. A fill
 event never proposes a pattern. An expression matches a label as written or
 with its trailing marks stripped ("Gender *" is "Gender"), like the worker's
-resolver. `GET /v1/jobs/inbox` lists candidate and
+resolver. `GET /v1/jobs/inbox` · `GET /v1/jobs/learned` (the Learned section: fixes with trial/proven/retired status, model-taught branches, unsolved problems, per-run model usage) · `POST /v1/jobs/learned/changes/code/{id}/retire` (reverts a kept fix) lists candidate and
 repaired patterns with the answers recorded for their question (`checks` holds
 those whose replay failed, apart from plain `candidates`), unbound short
 questions you answered, unapproved prose, `facts` waiting on you (never

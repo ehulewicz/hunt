@@ -495,9 +495,13 @@ class AutofillSession:
         from personal_os_worker.jobs.fix import trial
 
         repo = Path(registry.__file__).resolve().parents[3]
+        api = getattr(context, "api", None)
+        if api is not None:
+            with contextlib.suppress(Exception):
+                trial.revert_retired(api, repo)
         self.trial = trial.Trial(
             repo=repo,
-            api=getattr(context, "api", None),
+            api=api,
             run_id=str(getattr(context, "run_id", "") or ""),
         )
         trial.attach(self.trial)
@@ -547,6 +551,7 @@ class AutofillSession:
         """Attach the exact inputs used for each attempt before storing its observation."""
         payload = dict(payload)
         payload["model_calls"] = self._sent_calls = self.learning_calls()
+        payload["model_usage"] = model.run_usage()
         if "fill_events" in payload:
             knowledge = self.ctx.knowledge
             snapshot = {"facts": knowledge.facts, "types": knowledge.types, "seed": knowledge.seed}

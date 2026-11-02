@@ -205,6 +205,9 @@ class AutofillStepCreate(BaseModel):
     fill_events: list[FillEventCreate] = Field(default_factory=list, max_length=500)
     # The model calls the run has made so far; a run's count only grows.
     model_calls: int | None = Field(default=None, ge=0)
+    # Per-lane call and token totals, cumulative for the run: the latest
+    # step's report is the run's. Lanes are pattern, audit, draft and code.
+    model_usage: dict[str, dict[str, int]] = Field(default_factory=dict)
 
 
 class AutofillRunComplete(BaseModel):

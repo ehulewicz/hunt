@@ -116,3 +116,97 @@ def attach(trial: Trial | None) -> None:
 
 def current() -> Trial | None:
     return _trial
+
+
+def revert_retired(api: Any, repo: Path) -> int:
+    """The online device applies the user's reverts: every retired fix whose
+    file is still in this checkout loses its file and fixtures in one commit on
+    main. Skipped when those paths have local edits."""
+    import subprocess
+
+    from personal_os_worker.jobs import registry
+
+    try:
+        report = api.learned()
+    except Exception:
+        return 0
+    retired = [
+        str(fix.get("file") or "")
+        for fix in report.get("fixes", [])
+        if fix.get("status") == "retired"
+    ]
+    if not retired:
+        return 0
+    reverted = 0
+    for learned_rel in retired:
+        path = repo / learned_rel
+        if not path.exists():
+            continue
+        fixture_rel = (
+            f"workers/tests/fixtures/learned/"
+            f"{path.parent.parent.name}/{path.stem}"
+        )
+        if not _unchanged(repo, learned_rel, fixture_rel):
+            continue  # local edits on those paths: leave them alone
+        path.unlink(missing_ok=True)
+        fixtures = repo / fixture_rel
+        if fixtures.is_dir():
+            for file in fixtures.iterdir():
+                file.unlink()
+            fixtures.rmdir()
+        with suppress(Exception):
+            _commit_removal(repo, learned_rel, fixture_rel)
+            subprocess.run(
+                ["git", "-C", str(repo), "push", "-q", "origin",
+                 "HEAD:refs/heads/main"],
+                capture_output=True, timeout=30,
+            )
+        registry.retire_files([learned_rel])
+        reverted += 1
+    # Any retired file still on disk (or the loader has seen it) is skipped too.
+    registry.retire_files(retired)
+    return reverted
+
+
+def _commit_removal(repo: Path, learned_rel: str, fixture_rel: str) -> None:
+    """One commit on main, through keep.py's temporary index, removing the file
+    and its fixtures."""
+    import tempfile
+
+    from personal_os_worker.jobs.fix.keep import AUTHOR, _git
+
+    with tempfile.TemporaryDirectory(prefix="personal-os-revert-") as folder:
+        index = {"GIT_INDEX_FILE": str(Path(folder) / "index")}
+        parent = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        _git(repo, "read-tree", parent, env=index)
+        _git(repo, "rm", "-q", "--cached", "--ignore-unmatch", "--",
+             learned_rel, env=index)
+        for file in sorted((repo / fixture_rel).glob("*")) if (
+            repo / fixture_rel
+        ).is_dir() else []:
+            _git(repo, "rm", "-q", "--cached", "--ignore-unmatch", "--",
+                 str(file.relative_to(repo)), env=index)
+        tree = _git(repo, "write-tree", env=index).stdout.strip()
+        commit = _git(
+            repo, "commit-tree", tree, "-p", parent, env=AUTHOR,
+            stdin=f"Revert {learned_rel}\n\nThe fix was retired in the Inbox.",
+        ).stdout.strip()
+        _git(repo, "update-ref", "refs/heads/main", commit)
+
+
+def _unchanged(repo: Path, learned_rel: str, fixture_rel: str) -> bool:
+    """Every byte of the file and its fixtures still matches HEAD."""
+    import subprocess
+
+    paths = [repo / learned_rel]
+    if (repo / fixture_rel).is_dir():
+        paths += sorted((repo / fixture_rel).glob("*"))
+    for path in paths:
+        rel = path.relative_to(repo)
+        head = subprocess.run(
+            ["git", "-C", str(repo), "show", f"HEAD:{rel}"],
+            capture_output=True,
+        )
+        if head.returncode != 0 or head.stdout != path.read_bytes():
+            return False
+    return True
