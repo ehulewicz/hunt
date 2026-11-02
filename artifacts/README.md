@@ -18,11 +18,10 @@ slots, and the filled letter is reviewed on the Hunt page (or taken as is with
 --accept-letter when no [slot] prompt is left); the backend builds its PDF.
 Edit the prose and modules here; its numbers should match the resume.
 
-`career/long_form_questions.md` is the bank of base long-form questions:
-interests, direction, evidence, a story bank, each experience and project, and
-short technical notes. It is loaded once into the narrative library with
-`os hunt library import`, and deleted after that import; the library in the
-database is what long-form answers are composed from.
+The long-form writing lives in the database too, as the narrative library
+(interests, direction, evidence, a story bank, each experience and project, and
+short technical notes), edited at /library or with `os hunt library get|put`.
+Long-form answers are composed from it; nothing here is a source for them.
 
 `career/Transcript.pdf`, when present, is uploaded to any file control the autofill
 worker recognizes as asking for a transcript (label or field name containing
@@ -47,7 +46,6 @@ and organization) are in [`../AGENTS.md`](../AGENTS.md).
 ```text
 career/cover_letter.md        cover letter template: prose, {{slots}}, proof modules
 career/Cover_Letter.pdf       rendered cover letter
-career/long_form_questions.md base long-form questions, loaded once into the library
 career/Transcript.pdf         optional, auto-uploaded to transcript file controls
 career/defense.md             interview companion: what each compressed bullet
                               expands to, and what must not be overclaimed

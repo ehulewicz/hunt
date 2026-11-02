@@ -1,7 +1,7 @@
 """The narrative library in the worker: the question-bank parser and its CLI.
 
-`artifacts/career/long_form_questions.md` is the bank loaded once into the
-library. `os hunt library get|put|import` reads and writes it through the API.
+`os hunt library import FILE` loads a question bank in markdown once into an
+empty library; `os hunt library get|put` reads and writes it through the API.
 """
 
 from __future__ import annotations
