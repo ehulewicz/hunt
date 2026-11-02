@@ -44,9 +44,12 @@ with `os hunt resume get` (the document as JSON on stdout) and
 `os hunt resume put <file>` (validates and saves it; a refusal prints the API's
 reason). The backend builds the one-page PDF on each save and serves it at
 /resume; a run downloads that PDF once for every upload in it. Facts the resume
-determines — school, degree, graduation, GPA, whole years
+determines — school, degree, graduation, GPA, coursework, the high school's
+name, city and graduation year (from a `high_school` education row), whole years
 of experience, the current employer, every organization, every skill — are
-derived from the record by `jobs/facts/derived.py`; a stored fact with the same
+derived from the record by `jobs/facts/derived.py`. Every stored entry counts,
+printed on the resume or not, and an activity never counts as employment. A
+stored fact with the same
 key still wins until `os hunt facts delete KEY` removes that override, and
 `os hunt facts` marks each one that disagrees with the record.
 

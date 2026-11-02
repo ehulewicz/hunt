@@ -574,3 +574,82 @@ def test_full_time_years_exclude_internships_coops_and_part_time() -> None:
     assert career_facts({"entries": []}, date(2026, 11, 1)).get(  # type: ignore[arg-type]
         "experience.years_full_time"
     ) is None
+
+
+def _career_record(education=None, schools=None, entries=None):
+    return {
+        "education": education or {},
+        "schools": schools or [],
+        "entries": entries or [],
+        "skills": [],
+        "document": {},
+    }
+
+
+def test_career_facts_coursework_is_the_primary_schools_list() -> None:
+    from personal_os_worker.jobs.facts.derived import career_facts
+
+    record = _career_record(education={"school": "Example University",
+                                       "coursework": ["Data Structures & Algorithms",
+                                                      "Machine Learning"]})
+    assert career_facts(record, date(2026, 1, 1))["education.coursework"] == [
+        "Data Structures & Algorithms", "Machine Learning",
+    ]
+
+
+def test_career_facts_high_school_comes_from_the_high_school_row() -> None:
+    from personal_os_worker.jobs.facts.derived import career_facts
+
+    record = _career_record(
+        education={"school": "Example University"},
+        schools=[
+            {"school": "Example University", "level": "undergraduate", "is_primary": True},
+            {"school": "Huntley High School", "level": "high_school",
+             "location": "Algonquin, IL", "graduation_date": "2023-05-15"},
+        ],
+    )
+    values = career_facts(record, date(2026, 1, 1))
+    assert values["education.high_school_name"] == "Huntley High School"
+    assert values["education.high_school_city"] == "Algonquin"
+    assert values["education.high_school_graduation_year"] == 2023
+
+
+def test_career_facts_high_school_facts_are_absent_without_a_row() -> None:
+    from personal_os_worker.jobs.facts.derived import career_facts
+
+    record = _career_record(
+        education={"school": "Example University"},
+        schools=[{"school": "Example University", "level": "undergraduate"}],
+    )
+    values = career_facts(record, date(2026, 1, 1))
+    for key in ("education.high_school_name", "education.high_school_city",
+                "education.high_school_graduation_year"):
+        assert key not in values
+
+
+def test_an_off_resume_entry_still_counts_for_organizations_and_tenure() -> None:
+    from personal_os_worker.jobs.facts.derived import career_facts
+
+    record = _career_record(entries=[
+        {"section": "experience", "org": "Hidden Co", "title": "Engineer",
+         "start_date": "2020-01-01", "end_date": "2021-01-01", "on_resume": False},
+        {"section": "experience", "org": "Shown Co", "title": "Engineer",
+         "start_date": "2022-01-01", "end_date": "2023-01-01", "on_resume": True},
+    ])
+    values = career_facts(record, date(2024, 1, 1))
+    assert "Hidden Co" in values["employment.organizations"]
+    assert values["experience.years_professional"] == 2
+
+
+def test_an_activity_entry_never_counts_as_employment() -> None:
+    from personal_os_worker.jobs.facts.derived import career_facts
+
+    record = _career_record(entries=[
+        {"section": "activity", "org": "Robotics Club", "title": "Member",
+         "start_date": "2020-01-01"},
+    ])
+    values = career_facts(record, date(2026, 1, 1))
+    assert "Robotics Club" not in (values.get("employment.organizations") or [])
+    assert "experience.years_professional" not in values
+    assert "employment.current_employer" not in values
+    assert values.get("experience.prior_internship") is not True

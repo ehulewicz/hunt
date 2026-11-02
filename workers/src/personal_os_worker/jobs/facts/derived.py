@@ -186,6 +186,14 @@ CAREER_FACTS = (
     DerivedFact("education.field_of_study", "Field of study", ("career.education",)),
     DerivedFact("education.graduation_date", "Graduation date", ("career.education",)),
     DerivedFact("education.gpa", "GPA", ("career.education",)),
+    DerivedFact("education.coursework", "Coursework", ("career.education",)),
+    DerivedFact("education.high_school_name", "High school", ("career.education",)),
+    DerivedFact("education.high_school_city", "High school city", ("career.education",)),
+    DerivedFact(
+        "education.high_school_graduation_year",
+        "High school graduation year",
+        ("career.education",),
+    ),
     DerivedFact(
         "experience.years_professional",
         "Whole years of professional experience (union of experience spans)",
@@ -587,6 +595,26 @@ def career_facts(record: dict[str, Any] | None, today: date) -> dict[str, Any]:
             )
         except (TypeError, ValueError):
             values["education.gpa"] = None
+        values["education.coursework"] = [
+            str(course).strip()
+            for course in education.get("coursework") or []
+            if str(course).strip()
+        ] or None
+    # The record's non-primary schools: a high school row feeds these.
+    schools = [row for row in record.get("schools") or [] if isinstance(row, dict)]
+    high_school = next((row for row in schools if row.get("level") == "high_school"), None)
+    if high_school is not None:
+        values["education.high_school_name"] = high_school.get("school")
+        location = str(high_school.get("location") or "").strip()
+        values["education.high_school_city"] = location.split(",", 1)[0].strip() or None
+        graduation = _date(high_school.get("graduation_date"))
+        if graduation is not None:
+            values["education.high_school_graduation_year"] = graduation.year
+        else:
+            match = re.search(r"\b(\d{4})\b", str(high_school.get("graduation") or ""))
+            values["education.high_school_graduation_year"] = (
+                int(match.group(1)) if match else None
+            )
     entries = [entry for entry in record.get("entries") or [] if isinstance(entry, dict)]
     values["experience.years_professional"] = years_of_experience(entries, today)
     values["experience.years_full_time"] = years_of_experience(
@@ -622,8 +650,9 @@ def career_facts(record: dict[str, Any] | None, today: date) -> dict[str, Any]:
         values["employment.current_start_date"] = start.isoformat() if start else None
     organizations: list[str] = []
     for entry in entries:
-        # Where you worked or researched: a project's "org" is an award, not an employer.
-        if entry.get("section") == "project":
+        # Where you worked or researched: a project's "org" is an award, not an
+        # employer, and an activity is not employment.
+        if entry.get("section") in ("project", "activity"):
             continue
         # A lab's name is its research heading; its org spells out the acronym.
         names = [entry.get("org"), entry.get("employer")]

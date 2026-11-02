@@ -83,6 +83,15 @@ CATALOG = _entries(
         "derived",
     ),
     CatalogEntry("education.gpa", "GPA", "number", "career"),
+    CatalogEntry("education.coursework", "Coursework", "list", "career"),
+    CatalogEntry("education.high_school_name", "High school", "text", "career"),
+    CatalogEntry("education.high_school_city", "High school city", "text", "career"),
+    CatalogEntry(
+        "education.high_school_graduation_year",
+        "High school graduation year",
+        "number",
+        "career",
+    ),
     CatalogEntry("education.certifications", "Certifications held", "list"),
     CatalogEntry("education.graduation_term", "Graduation term", "text", "derived"),
     CatalogEntry(
