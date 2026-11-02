@@ -34,6 +34,7 @@ from personal_os_worker.jobs.sites import ATS_NAMES
 
 HUNT_COMMANDS = (
     "today", "sync", "open", "apps", "skipped", "inbox", "patterns", "facts", "prose",
+    "library",
     "archive", "resume", "apply", "repair", "validate", "replay", "changes", "fixes", "sites",
 )
 LISTING_FLAGS = ("--faang", "--quant", "--location", "--family", "--all-roles", "--ats")
@@ -182,10 +183,28 @@ def build_parser() -> argparse.ArgumentParser:
         "list where they disagree (exits 1 when any conflict is found)",
     )
     prose = jobs_commands.add_parser("prose", help="Saved long-form writing")
-    prose.add_argument("action", nargs="?", choices=["list", "add", "approve", "delete"])
+    prose.add_argument("action", nargs="?",
+                       choices=["list", "add", "approve", "delete", "try", "coverage"])
     prose.add_argument("ref", nargs="?", help="Row number from 'os hunt prose' or id prefix")
     prose.add_argument("--question", help="The question the writing answers (add)")
     prose.add_argument("--file", help="Read the writing from a UTF-8 file (add)")
+    prose.add_argument("--library", help="Question-bank markdown file (try)")
+    prose.add_argument("--questions", help="Audit questions TSV (try)")
+    prose.add_argument("--out", help="Report markdown path (try)")
+    prose.add_argument("--scan", action="store_true", help="Scan stored prose questions (coverage)")
+    prose.add_argument("--max-calls", type=int, help="Bound this batch's model calls")
+    library = jobs_commands.add_parser("library", help="The narrative library")
+    library_actions = library.add_subparsers(dest="library_command", required=True)
+    library_actions.add_parser("get", help="Print the library's entries as JSON to stdout")
+    library_put = library_actions.add_parser("put", help="Save library JSON (one entry or a list)")
+    library_put.add_argument("file", help="The library JSON file to save")
+    library_import = library_actions.add_parser(
+        "import", help="Load a question-bank markdown file into the empty library, once"
+    )
+    library_import.add_argument("file", help="The bank markdown file")
+    library_import.add_argument(
+        "--dry-run", action="store_true", help="Parse and link only; import nothing"
+    )
     archive = jobs_commands.add_parser(
         "archive", help="The old system, frozen: answers, retired rules, long-form writing"
     )
@@ -469,6 +488,34 @@ def _dispatch(args: argparse.Namespace) -> int:
             return inbox.run_inbox()
         if args.hunt_command == "patterns":
             return knowledge.run_patterns(every=args.every, check=args.check)
+        if args.hunt_command == "library":
+            from personal_os_worker.core import commands as _services
+            from personal_os_worker.jobs import library as library_cmd
+            config, token = _services.connected()
+            api = WorkerApi(config, token)
+            try:
+                if args.library_command == "get":
+                    return library_cmd.run_library_get(api)
+                if args.library_command == "put":
+                    return library_cmd.run_library_put(api, args.file)
+                return library_cmd.run_library_import(api, args.file, dry_run=args.dry_run)
+            finally:
+                api.close()
+        if args.hunt_command == "prose" and args.action in ("try", "coverage"):
+            from personal_os_worker.jobs import prose_tools
+            config, token = services.connected()
+            api = WorkerApi(config, token)
+            try:
+                if args.action == "try":
+                    return prose_tools.run_prose_try(
+                        api, library=Path(args.library), questions=Path(args.questions),
+                        out=Path(args.out), max_calls=args.max_calls,
+                    )
+                return prose_tools.run_prose_coverage(
+                    api, scan=args.scan, max_calls=args.max_calls,
+                )
+            finally:
+                api.close()
         if args.hunt_command == "prose":
             return knowledge.run_prose(
                 args.action, args.ref, question=args.question, file=args.file

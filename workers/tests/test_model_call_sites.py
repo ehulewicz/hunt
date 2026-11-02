@@ -24,6 +24,7 @@ CALL_SITES = {
     "jobs/answers.py",
     "jobs/short_answers.py",
     "jobs/answer_check.py",
+    "jobs/compose.py",
     "jobs/cover_letter.py",
     "jobs/fix/lane.py",
     "jobs/grad_date/selection.py",

@@ -227,6 +227,54 @@ class WorkerApi:
         response.raise_for_status()
         return response.content
 
+    def library(self) -> list[dict[str, Any]]:
+        payload = self._json(self._client.get("/v1/jobs/library"), "Library")
+        return payload if isinstance(payload, list) else []
+
+    def put_library(self, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        response = self._client.put("/v1/jobs/library", json=entries)
+        response.raise_for_status()
+        payload = response.json()
+        return payload if isinstance(payload, list) else []
+
+    def put_library_entry(self, code: str, entry: dict[str, Any]) -> dict[str, Any]:
+        response = self._client.put(f"/v1/jobs/library/{code}", json=entry)
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Library response was invalid")
+        return payload
+
+    def import_library(self, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        response = self._client.post("/v1/jobs/library/import", json=entries)
+        response.raise_for_status()
+        payload = response.json()
+        return payload if isinstance(payload, list) else []
+
+    def create_prose_gap(self, gap: dict[str, Any]) -> dict[str, Any]:
+        response = self._client.post("/v1/jobs/prose/gaps", json=gap)
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Gap response was invalid")
+        return payload
+
+    def prose_gaps(self, *, open_only: bool = False) -> list[dict[str, Any]]:
+        response = self._client.get(
+            "/v1/jobs/prose/gaps", params={"open": "true"} if open_only else None
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return payload if isinstance(payload, list) else []
+
+    def resolve_prose_gap(self, gap_id: str) -> dict[str, Any]:
+        response = self._client.post(f"/v1/jobs/prose/gaps/{gap_id}/resolve")
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Gap response was invalid")
+        return payload
+
     def _json(self, response: httpx.Response, kind: str) -> Any:
         if response.status_code == 404:
             detail = response.json().get("detail") if response.content else None
@@ -303,6 +351,23 @@ class WorkerApi:
             raise RuntimeError("Change response was invalid")
         return payload
 
+    def learned(self) -> dict[str, Any]:
+        """The Inbox's Learned section: fixes, branches, unsolved, runs."""
+        payload = self._json(self._client.get("/v1/jobs/learned"), "Learned")
+        if not isinstance(payload, dict):
+            raise RuntimeError("Learned response was invalid")
+        return payload
+
+    def retire_code_change(self, change_id: str) -> dict[str, Any]:
+        """Retire one kept fix: the revert arrives with the next run."""
+        payload = self._json(
+            self._client.post(f"/v1/jobs/learned/changes/code/{change_id}/retire"),
+            "Retire",
+        )
+        if not isinstance(payload, dict):
+            raise RuntimeError("Retire response was invalid")
+        return payload
+
     def record_code_change(
         self,
         commit: str,
@@ -324,6 +389,23 @@ class WorkerApi:
         )
         if not isinstance(payload, dict):
             raise RuntimeError("Change response was invalid")
+        return payload
+
+    def learned(self) -> dict[str, Any]:
+        """The Inbox's Learned section: fixes, branches, unsolved, runs."""
+        payload = self._json(self._client.get("/v1/jobs/learned"), "Learned")
+        if not isinstance(payload, dict):
+            raise RuntimeError("Learned response was invalid")
+        return payload
+
+    def retire_code_change(self, change_id: str) -> dict[str, Any]:
+        """Retire one kept fix: the revert arrives with the next run."""
+        payload = self._json(
+            self._client.post(f"/v1/jobs/learned/changes/code/{change_id}/retire"),
+            "Retire",
+        )
+        if not isinstance(payload, dict):
+            raise RuntimeError("Retire response was invalid")
         return payload
 
     def sightings(self, *, limit: int | None = None) -> list[dict[str, Any]]:

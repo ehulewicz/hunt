@@ -41,6 +41,11 @@ os hunt facts delete address.line_2 --yes # skip confirmation
 
 os hunt resume get        # print the record's resume document as JSON
 os hunt resume put FILE   # validate and save a resume document
+os hunt library get       # the library's entries as JSON
+os hunt library put FILE  # save library JSON (one entry or a list)
+os hunt library import FILE  # load the question bank once (--dry-run to preview)
+os hunt prose try --library MD --questions TSV --out REPORT.md
+os hunt prose coverage [--scan] [--max-calls N]
 
 os hunt queue
 os hunt queue add 3 7

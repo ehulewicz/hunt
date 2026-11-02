@@ -101,7 +101,7 @@ def test_hunt_help_lists_only_the_public_commands(capsys: pytest.CaptureFixture[
     output = capsys.readouterr().out
     assert "os hunt [N]" in output
     assert (
-        "{today,sync,open,apps,skipped,inbox,patterns,facts,prose,archive,resume,apply,"
+        "{today,sync,open,apps,skipped,inbox,patterns,facts,prose,library,archive,resume,apply,"
         "repair,validate,replay,changes,fixes,sites}" in output
     )
     assert "\n    answers " not in output  # the library command is gone

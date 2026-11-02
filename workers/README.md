@@ -53,6 +53,29 @@ stored fact with the same
 key still wins until `os hunt facts delete KEY` removes that override, and
 `os hunt facts` marks each one that disagrees with the record.
 
+The narrative library is the writing long-form answers are composed from,
+edited at /library or with `os hunt library get` (its entries as JSON) and
+`os hunt library put FILE` (one entry or a list). `os hunt library import FILE`
+loads the question-bank markdown once into an empty library (`--dry-run` parses
+and links without writing); `jobs/library.py` parses it and links each
+experience and project entry to its career entry by organization or title.
+
+The composer (`jobs/compose.py`) writes one answer per question from the
+library's answered entries, with the career record, facts, and the posting as
+evidence, and names the question's family and the library's coverage (full,
+composable, partial, missing). Its guards refuse a reply that cites an entry it
+was not given, a non-interest entry as the interest, an answer when coverage is
+missing or none when it is not, a semicolon, colon or dash, a cliché, markup, a
+number in no cited source, or a reply over the question's stated limit. A
+rejected reply is retried once with the failures listed; two failures leave the
+question unanswered. `os hunt prose try --library MD --questions TSV --out
+REPORT.md` composes an answer for every prose question in an audit TSV against a
+bank file and writes a report; it fills and saves nothing. `os hunt prose
+coverage` lists the open gaps by family, ranked by companies affected; `--scan`
+runs the composer classify-only over the stored prose questions, records a gap
+for partial or missing coverage, and resolves the open gap once the library
+covers the question. Both bound their model calls with `--max-calls`.
+
 The CLI launches local FastAPI and the dedicated native Windows Chrome profile
 as needed. Chrome is launched only when nothing holds its debugging port; one that
 holds it but is slow to answer is waited for, because launching it again only opens
