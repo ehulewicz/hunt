@@ -248,6 +248,8 @@ class SessionState:
     tier_fact: dict[str, str] = field(default_factory=dict)  # question -> fact it came from
     seed_resolver: dict[str, str] = field(default_factory=dict)  # question -> prose/model id
     asked_claude: dict[str, int] = field(default_factory=dict)  # question -> times asked
+    # A prose question is drafted at most once a run, whatever else is asked.
+    drafted: set[str] = field(default_factory=set)
     judged: set[str] = field(default_factory=set)  # answers already checked against the facts
     check_findings: dict[str, Finding] = field(default_factory=dict)
     model_error: str | None = None
@@ -489,6 +491,16 @@ class AutofillSession:
         self.page = context.page
         self._explainer: Explainer | None = None
         self.timings = AutofillTimings(report=lambda line: console.print(line, style="dim"))
+        from personal_os_worker.jobs import registry
+        from personal_os_worker.jobs.fix import trial
+
+        repo = Path(registry.__file__).resolve().parents[3]
+        self.trial = trial.Trial(
+            repo=repo,
+            api=getattr(context, "api", None),
+            run_id=str(getattr(context, "run_id", "") or ""),
+        )
+        trial.attach(self.trial)
         model.begin_run()
         self._sent_calls = 0  # the learning and fixing calls the API was last told of
 
@@ -512,9 +524,9 @@ class AutofillSession:
         return grouped
 
     def learning_calls(self) -> int:
-        """The calls a site seen before should not need again: learning and fixing."""
+        """The calls a site seen before should not need again: pattern and code."""
         calls = self.model_calls()
-        return calls["learn"] + calls["fix"]
+        return calls["pattern"] + calls["code"]
 
     def call_model[T](self, operation: Callable[..., T], *args: Any, **kwargs: Any) -> T | None:
         """Keep model outages visible without ending the live application."""
@@ -522,10 +534,6 @@ class AutofillSession:
             return None
         try:
             return operation(*args, **kwargs)
-        except model.BudgetSpent as spent:
-            # Only its purpose is spent; say it once and keep the other lanes running.
-            self.warn_once(f"budget-{spent.purpose}", str(spent))
-            return None
         except (ModelError, subprocess.TimeoutExpired, OSError) as error:
             self.state.model_error = str(error) if isinstance(error, ModelError) else (
                 "Claude timed out or could not start; drafting and answer checks unavailable"
@@ -737,12 +745,14 @@ class AutofillSession:
             try:
                 if route.run(SiteHandle(self.page), "", ""):
                     fields = inspect_fields(self.page)
-                    if (
+                    reached = (
                         classify_application_page(
                             self.page, fields, self.state.navigation
                         )
                         == ApplicationPageState.FORM
-                    ):
+                    )
+                    registry.report(route, reached)
+                    if reached:
                         return True
             except (Error, RuntimeError):
                 continue
@@ -1551,9 +1561,9 @@ class AutofillSession:
         if not self.ctx.use_claude:
             return "", "empty", "", "drafting disabled; write it, it is saved at the run's end"
         references = self.references(question)
-        if not self.may_ask(question):
-            return "", "empty", "", "no usable draft after two attempts; answer still needed"
-        self.note_asked(question)
+        if question in self.state.drafted:
+            return "", "empty", "", "a draft was already tried this run; answer still needed"
+        self.state.drafted.add(question)
         draft = self.call_model(self.ctx.drafter,
             question=question,
             base=None,
@@ -1844,8 +1854,7 @@ class AutofillSession:
                 self.state.check_findings[unchecked.question] = Finding(
                     unchecked.question, "model_error", unchecked.question in required,
                     self.state.model_error
-                    or (str(model.BudgetSpent("check")) if model.remaining("check") == 0
-                        else "the answer check returned no judgement"),
+                    or "the answer check returned no judgement",
                     answer=unchecked.answer, source=unchecked.source,
                 )
         for judgement in judgements.values():
@@ -2745,9 +2754,10 @@ class AutofillSession:
             radios = self.page.locator('input[type="radio"]')
             for index in range(radios.count()):
                 with contextlib.suppress(Error):
-                    if learned_question(
+                    text, _reader = learned_question(
                         radios.nth(index), registrable_site(self.page.url)
-                    ):
+                    )
+                    if text:
                         return False
             return True
         if field is None:
@@ -2794,6 +2804,7 @@ class AutofillSession:
             fact_key=finding.fact_key,
             issue_id=self.state.issue_ids.get(key),
             run_id=self.ctx.run_id,
+            structure=self._structure_for(finding.cause, finding.question),
             page_files=sanitize_evidence(files, dict(self.ctx.knowledge.facts)),
         )
 
@@ -3078,7 +3089,10 @@ class AutofillSession:
         )
         with self.ctx.keys:
             outcome = self._run()
-        self.timings.close(model.run_usage(), model.CAPS)
+        from personal_os_worker.jobs.fix import trial
+
+        trial.attach(None)
+        self.timings.close(model.run_usage())
         return outcome
 
     def _run(self) -> dict[str, Any]:

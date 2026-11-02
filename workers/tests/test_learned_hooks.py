@@ -58,14 +58,15 @@ CUSTOM_WIDGET = """
 """
 
 
-def test_a_learned_kind_is_captured_and_filled(browser_page, learned_package):  # type: ignore[no-untyped-def]
+def test_a_learned_kind_is_captured_and_filled(browser_page,
+    learned_package):  # type: ignore[no-untyped-def]
     _write(
         learned_package["kinds"],
         "odd",
         """from personal_os_worker.jobs.registry.api import Kind
 KIND = Kind(
     name="odd_widget", selector=".odd-widget", reads="attribute:data-state",
-    strategies=("odd_pick",), site="fixture.example",
+    strategies=("odd_pick",), sites=("fixture.example",), structure="odd_widget",
 )
 """,
     )
@@ -80,14 +81,15 @@ KIND = Kind(
     assert odd[0]["fingerprint"].startswith("custom|odd_widget|")
 
 
-def test_a_question_reader_names_a_radio_group(browser_page, learned_package):  # type: ignore[no-untyped-def]
+def test_a_question_reader_names_a_radio_group(browser_page,
+    learned_package):  # type: ignore[no-untyped-def]
     _write(
         learned_package["questions"],
         "lead",
         """from personal_os_worker.jobs.registry.api import QuestionReader
 READER = QuestionReader(
     name="lead", group_selector="div.q-block", question_selector="p.q",
-    site="fixture.example",
+    sites=("fixture.example",),
 )
 """,
     )
@@ -103,7 +105,8 @@ READER = QuestionReader(
     assert "Are you 18 or older?" in groups
 
 
-def test_a_learned_strategy_only_after_builtins_fail(browser_page, learned_package):  # type: ignore[no-untyped-def]
+def test_a_learned_strategy_only_after_builtins_fail(browser_page,
+    learned_package):  # type: ignore[no-untyped-def]
     """A kind no built-in knows: only the site's learned strategy can fill it."""
     _write(
         learned_package["kinds"],
@@ -111,7 +114,7 @@ def test_a_learned_strategy_only_after_builtins_fail(browser_page, learned_packa
         """from personal_os_worker.jobs.registry.api import Kind
 KIND = Kind(
     name="odd_widget", selector=".odd-widget", reads="attribute:data-state",
-    strategies=("odd_mark",), site="fixture.example",
+    strategies=("odd_mark",), sites=("fixture.example",), structure="odd_widget",
 )
 """,
     )
@@ -127,7 +130,8 @@ def mark(widget, value):
 
 
 STRATEGY = Strategy(
-    name="odd_mark", kind="odd_widget", operate=mark, site="fixture.example",
+    name="odd_mark", kind="odd_widget",
+        operate=mark, sites=("fixture.example",), structure="odd_widget",
 )
 """,
     )
@@ -174,7 +178,7 @@ def backwards(render_input):
 
 FORMAT = Format(
     name="backwards", fact_keys=("contact.full_name",), render=backwards,
-    site="a.com",
+    sites=("a.com",),
 )
 """,
     )
@@ -210,14 +214,16 @@ FORMAT = Format(
     assert built is not None and built.value == "Ethan"
 
 
-def test_the_policy_refuses_a_file_before_import(learned_package, tmp_path):  # type: ignore[no-untyped-def]
+def test_the_policy_refuses_a_file_before_import(learned_package,
+    tmp_path):  # type: ignore[no-untyped-def]
     _write(
         learned_package["kinds"],
         "sneaky",
         """import os
 from personal_os_worker.jobs.registry.api import Kind
 KIND = Kind(
-    name="x", selector="s", reads="value", strategies=(), site="fixture.example",
+    name="x", selector="s", reads="value",
+        strategies=(), sites=("fixture.example",), structure="odd_widget",
 )
 """,
     )
@@ -227,7 +233,8 @@ KIND = Kind(
     assert any("import os" in item for key in refused for item in refused[key])
 
 
-def test_a_learned_route_reaches_a_posting(browser_page, learned_package):  # type: ignore[no-untyped-def]
+def test_a_learned_route_reaches_a_posting(browser_page,
+    learned_package):  # type: ignore[no-untyped-def]
     _write(
         learned_package["routes"],
         "posting",
@@ -238,7 +245,7 @@ def reach(site_handle, title, company):
     return site_handle.click_text("Open role")
 
 
-ROUTE = Route(site="fixture.example", goal="posting", run=reach)
+ROUTE = Route(sites=("fixture.example",), goal="posting", run=reach)
 """,
     )
     registry.reload_learned()
@@ -271,7 +278,7 @@ def reach(site_handle, title, company):
     return site_handle.click_text("Apply")
 
 
-ROUTE = Route(site="fixture.example", goal="form", run=reach)
+ROUTE = Route(sites=("fixture.example",), goal="form", run=reach)
 """,
     )
     registry.reload_learned()
@@ -298,7 +305,8 @@ document.querySelector('#apply').addEventListener('click', event => {
     assert AutofillSession._learned_form_route(session) is True  # type: ignore[arg-type]
 
 
-def test_replay_learned_loads_the_file_as_its_site(learned_package, tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
+def test_replay_learned_loads_the_file_as_its_site(learned_package, tmp_path,
+    monkeypatch):  # type: ignore[no-untyped-def]
     path = _write(
         learned_package["formats"],
         "backwards",
@@ -312,7 +320,7 @@ def backwards(render_input):
 
 FORMAT = Format(
     name="backwards", fact_keys=("contact.full_name",), render=backwards,
-    site="fixture.example",
+    sites=("fixture.example",),
 )
 """,
     )

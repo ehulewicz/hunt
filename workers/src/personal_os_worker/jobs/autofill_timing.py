@@ -33,17 +33,18 @@ class AutofillTimings:
             })
             self.report(f"Timing step {step + 1}: {phase} {elapsed} ms ({outcome})")
 
-    def close(self, usage: dict[str, dict[str, int]], caps: dict[str, int]) -> None:
-        """The run's closing lines: its model calls against each cap, then its
-        tokens. Learning and fixing are what the next application on this site
-        should not need."""
+    def close(self, usage: dict[str, dict[str, int]]) -> None:
+        """The run's closing lines: its model calls per lane, then its tokens.
+        Learning — pattern and code — is what the next application on this
+        site should not need."""
         by_purpose = ", ".join(
-            f"{purpose} {sums['calls']} of {caps[purpose]}"
-            if purpose in caps else f"{purpose} {sums['calls']}"
-            for purpose, sums in usage.items()
+            f"{purpose} {sums['calls']}" for purpose, sums in usage.items()
         )
-        learning = usage.get("learn", {}).get("calls", 0) + usage.get("fix", {}).get("calls", 0)
-        self.report(f"Model calls this run: {by_purpose} ({learning} learning and fixing)")
+        learning = (
+            usage.get("pattern", {}).get("calls", 0)
+            + usage.get("code", {}).get("calls", 0)
+        )
+        self.report(f"Model calls this run: {by_purpose} ({learning} learning)")
 
         def tokens(purpose: str) -> str:
             sums = usage.get(purpose, {})

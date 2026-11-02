@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import Browser, Error, Page, Playwright, sync_playwright
 
 from personal_os_worker.core.secrets import loaded_values
+from personal_os_worker.jobs import registry
 from personal_os_worker.jobs.autofill import (
     BLANK_KIND,
     FILE_KINDS,
@@ -529,7 +530,7 @@ def _learned_attempts(
     offered: list[str],
     first_error: Exception | None,
     expected: Any,
-) -> tuple[str | None, Any, Exception | None]:
+) -> tuple[str | None, Any, Exception | None, Any]:
     """The site's learned strategies, after every built-in candidate failed."""
     from personal_os_worker.jobs import registry
     from personal_os_worker.jobs.registry.api import WidgetHandle
@@ -542,6 +543,7 @@ def _learned_attempts(
             result = strategy.operate(WidgetHandle(page, control), str(fill.value))
         except (Error, RuntimeError) as error:
             first_error = first_error or error
+            registry.report(strategy, False)
             attempts.append(
                 (name, str(error).splitlines()[0][:200] if str(error) else type(error).__name__)
             )
@@ -550,8 +552,8 @@ def _learned_attempts(
         attempts.append((name, None))
         if result is not None:
             expected = result
-        return name, expected, first_error
-    return None, expected, first_error
+        return name, expected, first_error, strategy
+    return None, expected, first_error, None
 
 
 def apply_autofill(
@@ -609,6 +611,7 @@ def apply_autofill(
         expected = fill.value
         operated: str | None = None
         first_error: Exception | None = None
+        strategy_tried: Any = None
         attempts: list[tuple[str, str | None]] = []
         for name in names:
             try:
@@ -627,7 +630,7 @@ def apply_autofill(
                 expected = result
             break
         if operated is None:
-            operated, expected, first_error = _learned_attempts(
+            operated, expected, first_error, strategy_tried = _learned_attempts(
                 page, control, field, fill, attempts, events, offered,
                 first_error, expected,
             )
@@ -662,6 +665,8 @@ def apply_autofill(
                 resume=is_upload,
                 filename=document.name if is_upload and document is not None else None,
             )
+        if strategy_tried is not None:
+            registry.report(strategy_tried, bool(verified))
         events.append(_attempt_event(
             field, fill, operated, None if verified else "strategy", verified, offered
         ))
@@ -1280,7 +1285,8 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
     from personal_os_worker.jobs.registry.kinds.custom import capture, load
 
     # Built-ins first: a site's learned kinds capture only after them.
-    for kind in [*load().values(), *learned_kinds(registrable_site(page.url))]:
+    learned = learned_kinds(registrable_site(page.url))
+    for kind in [*load().values(), *learned]:
         for frame_index, frame in enumerate(page.frames):
             try:
                 captured = capture(frame, kind)
@@ -1291,6 +1297,8 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
                 item["frame_index"] = frame_index
                 item["frame_url"] = frame.url
                 results.append(item)
+            if captured and kind in learned:
+                registry.report(kind.declaration, True)
     # A radio group with no question of its own asks the site's learned readers.
     from personal_os_worker.jobs.registry.kinds import learned_question
 
@@ -1301,10 +1309,11 @@ def inspect_fields(page: Page) -> list[dict[str, Any]]:
         ):
             try:
                 control = fresh_control(page, item)
-                text = learned_question(control, registrable_site(page.url))
+                text, reader = learned_question(control, registrable_site(page.url))
             except (Error, RuntimeError):
                 continue
             if text:
+                registry.report(reader, True)
                 item["group"] = text
     return results
 

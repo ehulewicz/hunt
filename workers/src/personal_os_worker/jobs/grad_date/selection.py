@@ -38,7 +38,7 @@ SCHEMA = {
 
 
 # Checking runs on every application, so it is counted apart from learning.
-run_claude = partial(model.run, purpose="check")
+run_claude = partial(model.run, purpose="audit")
 
 
 def _prompt(description: str) -> str:

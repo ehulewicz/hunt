@@ -29,10 +29,11 @@ SCHEMA = {
     "properties": {
         "kind": {"type": "string", "enum": ["file", "missing_fact", "impossible"]},
         "file": {"type": "string"},
+        "name": {"type": "string"},
         "missing_fact": {"type": "string"},
         "summary": {"type": "string"},
     },
-    "required": ["kind", "file", "missing_fact", "summary"],
+    "required": ["kind", "file", "name", "missing_fact", "summary"],
 }
 
 # Which registry category each cause asks for.
@@ -59,7 +60,7 @@ GOALS = {
 }
 
 # Fixing: one tool-less call per attempt, purpose "fix" (uncapped).
-run_claude = partial(model.run, purpose="fix")
+run_claude = partial(model.run, purpose="code")
 
 EXAMPLES_DIR = Path("tests/fixtures/learned_examples")
 
@@ -82,6 +83,7 @@ class Problem:
     fact_key: str | None = None
     issue_id: str | None = None
     run_id: str | None = None
+    structure: str = ""
     # The live page as files, sanitized (`page_evidence` + `fix/sanitize.py`).
     page_files: dict[str, bytes] = field(default_factory=dict)
     attempts: int = 0
@@ -110,6 +112,7 @@ class Answer:
     file: str
     summary: str
     missing_fact: str = ""
+    name: str = ""
 
 
 def api_reference(category: str) -> str:
@@ -132,7 +135,13 @@ def api_reference(category: str) -> str:
     return "\n\n".join(parts)
 
 
-def prompt(problem: Problem, feedback: str | None) -> str:
+def prompt(
+    problem: Problem,
+    feedback: str | None,
+    *,
+    revising: str | None = None,
+    name: str = "",
+) -> str:
     """The whole instruction: rules, the category's API and reference, the failure."""
     from personal_os_worker.jobs.registry.policy import _MAX_LINES
 
@@ -160,7 +169,7 @@ the live page, saved as fixture files (sanitized): {fixtures}
 
 RULES
 - The file declares exactly ONE declaration for the site {problem.site!r}
-  (site= must be that string; category {problem.category!r}).
+  (sites= names it; category {problem.category!r}); its name is {name!r}.
 - It imports only `import re`, `from __future__ import annotations`, and
   `from personal_os_worker.jobs.registry.api import ...`. At most {_MAX_LINES} lines.
 - A value never comes from you. The worker fills every field from a fact;
@@ -177,10 +186,18 @@ REFERENCE EXAMPLE (one real file in this category)
 {reference}
 
 Answer with JSON: kind "file" when you wrote the file (the WHOLE source in
-`file`), "missing_fact" when the real gap is a fact about the applicant (name
-it in missing_fact), "impossible" when no declaration can solve it (say why in
-summary); summary in one sentence.
+`file`, its name in `name`), "missing_fact" when the real gap is a fact about
+the applicant (name it in missing_fact), "impossible" when no declaration can
+solve it (say why in summary); summary in one sentence.
     """.strip()
+    if revising is not None:
+        text += (
+            "\n\nA declaration for this same widget already exists for other"
+            " sites and is shown below. REVISE it: keep every earlier example"
+            " (and every earlier site in `sites=` — add this one) and add one"
+            " example proving it on this site's fixture. Do not write a"
+            f" second declaration.\n\n{revising}"
+        )
     if feedback:
         text += "\n\nYOUR LAST ATTEMPT FAILED. Correct it.\n" + feedback[-6000:]
     return text
@@ -196,7 +213,7 @@ def answer_of(output: str) -> Answer | None:
     try:
         structured = model.structured(output)
         if not isinstance(structured, dict) or set(structured) != {
-            "kind", "file", "missing_fact", "summary",
+            "kind", "file", "name", "missing_fact", "summary",
         }:
             return None
         if not all(isinstance(value, str) for value in structured.values()):
@@ -204,11 +221,15 @@ def answer_of(output: str) -> Answer | None:
         kind = structured["kind"]
         if kind not in {"file", "missing_fact", "impossible"}:
             return None
+        name = str(structured.get("name") or "").strip()
+        if kind == "file" and re.fullmatch(r"[a-z][a-z0-9_]{2,40}", name) is None:
+            return None
         return Answer(
             kind,
             str(structured.get("file") or ""),
             " ".join(str(structured.get("summary") or "").split())[:300],
             " ".join(str(structured.get("missing_fact") or "").split())[:120],
+            name,
         )
     except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
         return None
@@ -217,13 +238,25 @@ def answer_of(output: str) -> Answer | None:
 Runner = Callable[..., str]
 
 
-def name_of(problem: Problem) -> str:
-    """The learned file's module name: the site with underscores, plus the slug."""
-    site = re.sub(r"[^a-z0-9]+", "_", problem.site.casefold()).strip("_")
-    return f"{site}_{problem.slug}"
+def name_of(problem: Problem, answer: Answer | None = None) -> str:
+    """The learned file's module name: the answer's readable name, the site for
+    a route; a name taken by a different structure gets a numeric suffix."""
+    if problem.category == "routes":
+        return re.sub(r"[^a-z0-9]+", "_", problem.site.casefold()).strip("_")
+    name = (answer.name if answer else "") or problem.slug
+    return name
 
 
-def write(problem: Problem, feedback: str | None, *, runner: Runner = run_claude) -> Answer | None:
+def write(
+    problem: Problem,
+    feedback: str | None,
+    *,
+    runner: Runner = run_claude,
+    revising: str | None = None,
+    name: str = "",
+) -> Answer | None:
     """One model session; None when it gave no usable answer."""
-    command = model.argv(prompt(problem, feedback), schema=SCHEMA)
+    command = model.argv(
+        prompt(problem, feedback, revising=revising, name=name), schema=SCHEMA
+    )
     return answer_of(runner(command, timeout=WRITE_TIMEOUT_SECONDS))

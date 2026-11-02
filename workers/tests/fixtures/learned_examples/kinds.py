@@ -7,7 +7,9 @@ KIND = Kind(
     selector='div[role="radio"]',
     reads="attribute:aria-checked",
     strategies=("click_div",),
-    site="fixture.example",
+    sites=("fixture.example",),
+    structure="odd_widget",
+    proven=False,
     examples=(
         Example(
             fixture="radios.html",

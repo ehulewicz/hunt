@@ -16,7 +16,9 @@ STRATEGY = Strategy(
     name="slide_to_value",
     kind="slider_widget",
     operate=slide,
-    site="fixture.example",
+    sites=("fixture.example",),
+    structure="odd_widget",
+    proven=False,
     examples=(
         Example(
             fixture="slider.html",

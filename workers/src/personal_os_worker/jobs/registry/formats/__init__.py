@@ -394,6 +394,7 @@ def render(
         )
         if written is not None:
             module = str(getattr(learned_format, "__module__", "")).rsplit(".", 1)[-1]
+            registry.report(learned_format, True)
             return Rendering(written, f"learned:{module}")
     return None
 

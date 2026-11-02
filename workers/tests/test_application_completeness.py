@@ -82,7 +82,7 @@ def test_optional_short_text_is_eligible_for_fact_selection() -> None:
 def test_optional_prose_is_repaired_by_drafting_not_fact_selection(browser_page: Any) -> None:
     browser_page.set_content('<label for="s">Personal Summary</label><textarea id="s"></textarea>')
     session = audit_session(browser_page, facts={})
-    drafts = iter([None, 'I build software for engineering teams.'])
+    drafts = iter(['I build software for engineering teams.'])
     session.ctx.drafter = lambda **_: next(drafts)
     session.ctx.short_drafter = lambda *_, **__: pytest.fail('Prose went to fact selection')
     fields = inspect_fields(browser_page)
@@ -183,7 +183,8 @@ def test_prose_drafting_stops_after_two_attempts_and_stays_a_gap(browser_page: A
     session.fill_long_form(fields)
     for _ in range(3):
         session.audit_and_repair(fields, {'failures': []})
-    assert attempted == ['Personal Summary', 'Personal Summary']
+    # A prose question is drafted at most once a run.
+    assert attempted == ['Personal Summary']
     assert session.state.outlined == {'Personal Summary'}
 
 

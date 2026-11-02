@@ -44,6 +44,8 @@ class CustomKind:
     # Passed to evaluate as an argument beside the element, never interpolated
     # into the script text (an "attribute:" read's name travels this way).
     read_arg: str = ""
+    # The learned declaration this kind came from, for trial bookkeeping.
+    declaration: Any = None
 
 
 KINDS: dict[str, CustomKind] = {}

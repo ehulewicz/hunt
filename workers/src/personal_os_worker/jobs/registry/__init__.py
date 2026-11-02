@@ -52,6 +52,7 @@ def __getattr__(name: str) -> Any:
 
 _cache: dict[tuple[str, str], list[Any]] = {}
 _loaded_modules: dict[str, list[Any]] = {}
+_loaded_paths: dict[str, list[Path]] = {}
 _refused: dict[str, list[str]] = {}
 
 
@@ -88,13 +89,14 @@ def _import_file(path: Path, category: str) -> Any:
     return module
 
 
-def _learned_modules(category: str) -> list[Any]:
-    """Every policy-passing module in the learned package, in filename order."""
+def _learned_modules(category: str) -> list[tuple[Path, Any]]:
+    """Every (file, module) in the learned package that passes policy, in
+    filename order."""
     if category in _loaded_modules:
-        return _loaded_modules[category]
+        return list(zip(_loaded_paths[category], _loaded_modules[category], strict=True))
     from personal_os_worker.jobs.registry import policy
 
-    modules = []
+    modules, paths = [], []
     for path in _learned_files(category):
         violations = policy.check_file(path, category=category)
         if violations:
@@ -103,11 +105,13 @@ def _learned_modules(category: str) -> list[Any]:
             continue
         try:
             modules.append(_import_file(path, category))
+            paths.append(path)
         except Exception as error:
             _refused[str(path)] = [f"import failed: {error}"]
             logger.warning("learned file %s failed to import: %s", path, error)
     _loaded_modules[category] = modules
-    return modules
+    _loaded_paths[category] = paths
+    return list(zip(paths, modules, strict=True))
 
 
 def load_file(path: str | Path, *, category: str) -> list[Any]:
@@ -128,12 +132,27 @@ def load_file(path: str | Path, *, category: str) -> list[Any]:
         for value in vars(_import_file(path, category)).values()
         if isinstance(value, declaration)
     ]
+    from personal_os_worker.jobs.fix import trial
+
+    tracker = trial.current()
+    if tracker is not None:
+        tracker.note_kept(path)
     for value in found:
-        key = (category, str(getattr(value, 'site', '')).casefold())
-        _cache.setdefault(key, [])
-        if value not in _cache[key]:
-            _cache[key].append(value)
+        _remember(value, path)
+        for site in _sites_of(value):
+            key = (category, site)
+            _cache.setdefault(key, [])
+            if value not in _cache[key]:
+                _cache[key].append(value)
     return found
+
+
+def _sites_of(value: object) -> set[str]:
+    """A declaration's sites, casefolded; a lone site= still counts."""
+    sites = getattr(value, "sites", ())
+    if not isinstance(sites, tuple):
+        sites = (getattr(value, "site", ""),)
+    return {str(one).casefold() for one in sites}
 
 
 def learned(category: str, site: str) -> list[Any]:
@@ -141,13 +160,16 @@ def learned(category: str, site: str) -> list[Any]:
     key = (category, site.casefold())
     if key not in _cache:
         declaration = _categories()[category]
-        _cache[key] = [
-            value
-            for module in _learned_modules(category)
+        found = [
+            (path, value)
+            for path, module in _learned_modules(category)
             for value in vars(module).values()
             if isinstance(value, declaration)
-            and str(getattr(value, "site", "")).casefold() == key[1]
+            and key[1] in _sites_of(value)
         ]
+        for path, value in found:
+            _remember(value, path)
+        _cache[key] = [value for _path, value in found]
     return _cache[key]
 
 
@@ -155,7 +177,9 @@ def reload_learned() -> None:
     """Forget the cache, so a file written mid-run is seen."""
     _cache.clear()
     _loaded_modules.clear()
+    _loaded_paths.clear()
     _refused.clear()
+    _decl_source.clear()
 
 
 def reopen_for_version(state_dir: Any, api: Any, *, ats: str = "") -> int:
@@ -184,3 +208,25 @@ def reopen_for_version(state_dir: Any, api: Any, *, ats: str = "") -> int:
 
 
 import contextlib  # noqa: E402
+
+# ----- trial reporting --------------------------------------------------------
+
+_decl_source: dict[int, Path] = {}
+
+
+def _remember(value: object, path: Path) -> None:
+    """Where a learned declaration came from, for trial bookkeeping."""
+    _decl_source[id(value)] = path
+
+
+def decl_source(value: object) -> Path | None:
+    return _decl_source.get(id(value))
+
+
+def report(value: object, ok: bool) -> None:
+    """A declaration's outcome goes to the run's trial tracker, if any."""
+    from personal_os_worker.jobs.fix import trial
+
+    tracker = trial.current()
+    if tracker is not None:
+        tracker.report(value, ok)

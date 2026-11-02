@@ -100,12 +100,13 @@ def test_the_loader_finds_a_sites_declarations(tmp_path, monkeypatch) -> None:
     (package / "a_kind.py").write_text(
         "from personal_os_worker.jobs.registry.api import Kind\n"
         "KIND = Kind(name='slider', selector='[role=slider]', reads='value',\n"
-        "            strategies=('slide',), site='Acme.com')\n"
+        "            strategies=('slide',), structure='slider',\n"
+        "            sites=('Acme.com',))\n"
     )
     (package / "b_kind.py").write_text(
         "from personal_os_worker.jobs.registry.api import Kind\n"
         "KIND = Kind(name='dial', selector='[role=dial]', reads='value',\n"
-        "            strategies=('turn',), site='other.com')\n"
+        "            strategies=('turn',), structure='dial', sites=('other.com',))\n"
     )
     kinds_learned = __import__(
         "personal_os_worker.jobs.registry.kinds.learned", fromlist=["x"]

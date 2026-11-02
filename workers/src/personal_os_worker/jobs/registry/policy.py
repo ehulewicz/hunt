@@ -40,9 +40,10 @@ _ALLOWED_ATTRS = frozenset(
         "VERSION", "READS", "ALLOWED_KEYS", "Kind", "Strategy", "Format",
         "FormatInput", "QuestionReader", "Route", "Example", "WidgetHandle",
         "SiteHandle", "Refused", "NoMatch",
-        "name", "selector", "reads", "strategies", "site", "kind", "operate",
+        "name", "selector", "reads", "strategies", "sites", "kind", "operate",
         "fact_keys", "render", "group_selector", "question_selector", "goal",
         "run", "examples", "fixture", "expected", "value", "value_type",
+        "structure", "proven",
         "options", "question", "input_type",
         # handle methods
         "click", "type", "press", "pick", "attribute", "text", "selected",
@@ -160,13 +161,37 @@ def _declaration_violations(
     if not isinstance(node.targets[0], ast.Name):
         return ["the declaration must be assigned to one name"]
     assert isinstance(call, ast.Call)
-    site_kw = next(
-        (kw for kw in call.keywords if kw.arg == "site"), None
+    sites_kw = next(
+        (kw for kw in call.keywords if kw.arg == "sites"), None
     )
-    if site_kw is None or not isinstance(site_kw.value, ast.Constant) or not isinstance(
-        site_kw.value.value, str
+    if sites_kw is None or not isinstance(sites_kw.value, ast.Tuple):
+        return ["sites= must be a tuple of string literals"]
+    elements = sites_kw.value.elts
+    if not all(
+        isinstance(item, ast.Constant) and isinstance(item.value, str)
+        for item in elements
     ):
-        return ["site= must be a string literal"]
-    if site is not None and site_kw.value.value.casefold() != site.casefold():
-        return [f"site= is {site_kw.value.value!r}, not {site!r}"]
+        return ["sites= must be a tuple of string literals"]
+    sites = {str(item.value).casefold() for item in elements
+             if isinstance(item, ast.Constant)}
+    if declaration == "Route" and len(elements) != 1:
+        return ["a route's sites= names exactly one site"]
+    if site is not None and site.casefold() not in sites:
+        return [f"sites= does not name {site!r}"]
+    if declaration in {"Kind", "Strategy", "QuestionReader"}:
+        structure_kw = next(
+            (kw for kw in call.keywords if kw.arg == "structure"), None
+        )
+        if structure_kw is None or not isinstance(
+            structure_kw.value, ast.Constant
+        ) or not isinstance(structure_kw.value.value, str):
+            return ["structure= must be a string literal"]
+    proven_kw = next(
+        (kw for kw in call.keywords if kw.arg == "proven"), None
+    )
+    if proven_kw is not None and (
+        not isinstance(proven_kw.value, ast.Constant)
+        or not isinstance(proven_kw.value.value, bool)
+    ):
+        return ["proven= must be a boolean literal"]
     return []

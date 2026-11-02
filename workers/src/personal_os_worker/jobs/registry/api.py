@@ -31,13 +31,20 @@ READS = ("text", "value", "selected", "attribute:")
 
 @dataclass(frozen=True)
 class Kind:
-    """A control kind a site needs: what selects it, what to read, its strategies."""
+    """A control kind a site needs: what selects it, what to read, its strategies.
+
+    `sites` is every site this kind was kept for; `structure` is the widget's
+    problem structure (its control key or unknown signature). `proven` flips
+    True once a run it did not enter in makes it work.
+    """
 
     name: str
     selector: str
     reads: str
     strategies: tuple[str, ...]
-    site: str
+    sites: tuple[str, ...]
+    structure: str = ""
+    proven: bool = False
     examples: tuple[Example, ...] = ()
 
 
@@ -48,7 +55,9 @@ class Strategy:
     name: str
     kind: str
     operate: Callable[[WidgetHandle, str], str | None]
-    site: str
+    sites: tuple[str, ...]
+    structure: str = ""
+    proven: bool = False
     examples: tuple[Example, ...] = ()
 
 
@@ -65,12 +74,14 @@ class FormatInput:
 
 @dataclass(frozen=True)
 class Format:
-    """A named way to write one or more facts for a control."""
+    """A named way to write one or more facts for a control; its `fact_keys`
+    are its type."""
 
     name: str
     fact_keys: tuple[str, ...]
     render: Callable[[FormatInput], str | None]
-    site: str
+    sites: tuple[str, ...]
+    proven: bool = False
     examples: tuple[tuple[FormatInput, str | None], ...] = ()
 
 
@@ -85,17 +96,21 @@ class QuestionReader:
     name: str
     group_selector: str
     question_selector: str
-    site: str
+    sites: tuple[str, ...]
+    structure: str = ""
+    proven: bool = False
     examples: tuple[Example, ...] = ()
 
 
 @dataclass(frozen=True)
 class Route:
-    """How to reach a posting or its form on one site (title, company)."""
+    """How to reach a posting or its form on one site (title, company);
+    `sites` always holds exactly one."""
 
-    site: str
+    sites: tuple[str, ...]
     goal: Literal["posting", "form"]
     run: Callable[[SiteHandle, str, str], bool]
+    proven: bool = False
     examples: tuple[Example, ...] = ()
 
 

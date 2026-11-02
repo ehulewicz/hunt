@@ -178,7 +178,7 @@ def test_a_late_fixing_call_reaches_the_api_with_nothing_else_to_save(
     session = AutofillSession(cast(Any, context))
     session.save_now()
     assert api.steps == []
-    model.run(["claude", "-p"], purpose="fix")  # the fixer, in the background, after the last step
+    model.run(["claude", "-p"], purpose="code")  # the fixer, in the background, after the last step
 
     session.save_now()
     session.save_now()

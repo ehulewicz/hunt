@@ -71,7 +71,7 @@ class Verdict:
 
 
 # Learning: a site seen before should not need it again.
-run_claude = partial(model.run, purpose="learn")
+run_claude = partial(model.run, purpose="pattern")
 
 
 def _prompt(
@@ -200,19 +200,10 @@ def draft_short_answers(
             schema=SCHEMA,
         )
 
-    refused: list[model.BudgetSpent] = []
-
     def ask(question: ShortQuestion) -> str:
-        try:
-            return runner(argv_for(question))
-        except model.BudgetSpent as spent:
-            # A cap spent mid-batch keeps the verdicts already paid for.
-            refused.append(spent)
-            return ""
+        return runner(argv_for(question))
 
     with ThreadPoolExecutor(max_workers=min(len(questions), MAX_CONCURRENT_CALLS)) as pool:
         outputs = list(pool.map(ask, questions))
-    if len(refused) == len(questions):
-        raise refused[0]
     items = [item for output in outputs for item in _answers_in(output)]
     return verdicts_from(items, questions, {str(fact["key"]) for fact in facts})

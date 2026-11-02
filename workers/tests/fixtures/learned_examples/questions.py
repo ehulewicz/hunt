@@ -5,7 +5,9 @@ READER = QuestionReader(
     name="lead_in_label",
     group_selector='div[role="radiogroup"]',
     question_selector="p.question",
-    site="fixture.example",
+    sites=("fixture.example",),
+    structure="odd_radios",
+    proven=False,
     examples=(
         Example(
             fixture="group.html",

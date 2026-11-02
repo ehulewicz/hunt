@@ -107,6 +107,8 @@ def check_candidate(attempt_dir: Path, learned_file: Path, problem: lane.Problem
     violations = policy.check_file(learned_file, category=category, site=site)
     if violations:
         return "the policy refused it: " + "; ".join(violations)
+    if "proven=True" in learned_file.read_text():
+        return "a new or revised file stays on trial: proven must be False"
     root = Path(__file__).resolve().parents[3]
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
     for name, command in (
@@ -140,6 +142,81 @@ def check_candidate(attempt_dir: Path, learned_file: Path, problem: lane.Problem
         if replay.returncode != 0:
             return f"replay failed:\n{replay.stdout[-3000:]}"
     return None
+
+
+def _sites_arg(source: str, site: str) -> str | None:
+    """The file with `site` added to its declaration's `sites=` tuple, or None
+    when that tuple could not be edited safely."""
+    import ast
+
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        for keyword in node.keywords:
+            if keyword.arg != "sites" or not isinstance(keyword.value, ast.Tuple):
+                continue
+            value = keyword.value
+            if site.casefold() in {
+                str(getattr(item, "value", "")).casefold() for item in value.elts
+            }:
+                return source  # already named
+            lines = source.splitlines(keepends=True)
+            end_row = getattr(value, "end_lineno", None)
+            end_col = getattr(value, "end_col_offset", None)
+            if end_row is None or end_col is None:
+                return None
+            row, col = end_row - 1, end_col
+            line = lines[row]
+            lines[row] = line[:col - 1] + f'"{site}", ' + line[col - 1:]
+            return "".join(lines)
+    return None
+
+
+def _same_structure(problem: lane.Problem) -> list[Path]:
+    """Learned files of this problem's type with its structure, not yet this site."""
+    from personal_os_worker.jobs import registry
+
+    category = problem.category
+    if category == "routes":
+        return []
+    found: list[Path] = []
+    for path in registry._learned_files(category):
+        try:
+            module = registry._import_file(path, category)
+        except Exception:
+            continue
+        for value in vars(module).values():
+            decl = registry._categories()[category]
+            if not isinstance(value, decl):
+                continue
+            if problem.site.casefold() in registry._sites_of(value):
+                continue  # already lists this site
+            if category == "formats":
+                if problem.fact_key and problem.fact_key in tuple(
+                    getattr(value, "fact_keys", ())
+                ):
+                    found.append(path)
+            elif str(getattr(value, "structure", "")) == problem.structure:
+                found.append(path)
+    return found
+
+
+def add_site(source: str, site: str) -> str | None:
+    """Public spelling of the sites-edit for callers and tests."""
+    return _sites_arg(source, site)
+
+
+def _repo_rel(path: Path) -> str:
+    """The learned file's repo-relative path under registry/<cat>/learned."""
+    parent = path.parent.parent.name
+    return (
+        f"workers/src/personal_os_worker/jobs/registry/{parent}/learned/{path.name}"
+    )
+
+
+def _fixture_rel(path: Path, category: str) -> str:
+    return f"workers/tests/fixtures/learned/{category}/{path.stem}"
 
 
 class FixQueue:
@@ -344,6 +421,9 @@ class FixQueue:
     def _fix(self, problem: lane.Problem) -> None:
         attempts = self._attempts_of(problem)
         feedback: str | None = None
+        same = [] if problem.category == "routes" else _same_structure(problem)
+        if same and self._reuse(problem, same):
+            return
         for attempt in range(attempts + 1, MAX_ATTEMPTS + 1):
             with self._lock:
                 if self._closed:
@@ -352,7 +432,11 @@ class FixQueue:
             self._announce(problem.key, "writing", attempt=attempt)
             self._record_attempt(problem, attempt)
             try:
-                answer = lane.write(problem, feedback, runner=self.runner)
+                answer = lane.write(
+                    problem, feedback, runner=self.runner,
+                    revising=same[-1].read_text() if same else None,
+                    name=lane.name_of(problem),
+                )
             except (ModelError, OSError, subprocess.TimeoutExpired) as error:
                 with self._lock:
                     self.model_error = str(error) or "the model is unavailable"
@@ -372,7 +456,7 @@ class FixQueue:
             attempt_dir = self._attempt_dir(problem, attempt)
             learned_dir = attempt_dir / problem.category / "learned"
             learned_dir.mkdir(parents=True, exist_ok=True)
-            learned_file = learned_dir / f"{lane.name_of(problem)}.py"
+            learned_file = learned_dir / f"{self._file_name(problem, answer)}.py"
             learned_file.write_text(answer.file)
             (attempt_dir / "fixtures").mkdir(exist_ok=True)
             self._write_fixtures(problem, attempt_dir / "fixtures")
@@ -405,6 +489,44 @@ class FixQueue:
         self._finish(problem, "unsolved",
                      f"{MAX_ATTEMPTS} attempts failed; last: {(feedback or '')[:300]}")
 
+    def _file_name(self, problem: lane.Problem, answer: lane.Answer) -> str:
+        """The file's name: a route is its site; a name taken by a different
+        structure gets a numeric suffix."""
+        base = lane.name_of(problem, answer)
+        if problem.category == "routes":
+            return base
+        taken: dict[str, str] = {}
+        try:
+            for path in self._learned_dir(problem.category).glob("*.py"):
+                structure = self._structure_of(path)
+                taken[path.stem] = structure
+        except Exception:
+            return base
+        name, index = base, 2
+        while name in taken and taken[name] != problem.structure:
+            name, index = f"{base}_{index}", index + 1
+        return name
+
+    def _learned_dir(self, category: str) -> Path:
+        from personal_os_worker.jobs import registry
+
+        return Path(registry._learned_package(category).__path__[0])
+
+    def _structure_of(self, path: Path) -> str:
+        import ast
+
+        try:
+            for node in ast.walk(ast.parse(path.read_text())):
+                if isinstance(node, ast.Call):
+                    for kw in node.keywords:
+                        if kw.arg == "structure" and isinstance(
+                            kw.value, ast.Constant
+                        ):
+                            return str(kw.value.value)
+        except Exception:
+            return ""
+        return ""
+
     def _write_fixtures(self, problem: lane.Problem, fixtures: Path) -> None:
         from personal_os_worker.jobs.fix.sanitize import sanitize_evidence
 
@@ -423,6 +545,48 @@ class FixQueue:
                     for row in self.api.facts() or [] if isinstance(row, dict)}
         except Exception:
             return {}
+
+    def _reuse(self, problem: lane.Problem, same: list[Path]) -> bool:
+        """Probe each same-structure file missing this site; the first that
+        reads back just gains the site — no model call. True when kept."""
+        for path in same:
+            self._announce(problem.key, "probing", note=f"reuse {path.stem}")
+            probe = self.prober(
+                Ready(problem, path.parent, path,
+                      lane.Answer("file", "", "reused", "", path.stem), 0),
+                {},
+            )
+            if not probe.get("ok"):
+                continue
+            source = path.read_text()
+            edited = _sites_arg(source, problem.site)
+            if edited is None:
+                continue
+            path.write_text(edited)
+            try:
+                kept = self.keeper(
+                    self.repo,
+                    f"Reuse {path.stem} for {problem.site}\n\n"
+                    f"{problem.question!r} reads back with the same declaration.",
+                    path.parent, _repo_rel(path),
+                    _fixture_rel(path, problem.category),
+                )
+            except KeepError as error:
+                self._report(f"reuse of {path.stem} could not be kept: {error}")
+                continue
+            self._announce(problem.key, "kept",
+                           note=f"{kept.commit[:7]} reused {path.stem}")
+            with self._lock:
+                self._kept += 1
+                self._consecutive_unsolved = 0
+            if self.loader is not None:
+                with suppress(Exception):
+                    self.loader(path, problem.category)
+            self._issue(problem, {"status": "fixed", "fixed_commit": kept.commit,
+                                  "verification_notes": f"reused {path.stem}"})
+            return True
+        return False
+
 
     # ----- attempts, brake, keeping, recording ---------------------------------
 

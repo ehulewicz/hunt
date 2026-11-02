@@ -10,7 +10,7 @@ def reach(site_handle, title, company):
 
 
 ROUTE = Route(
-    site="fixture.example",
+    sites=("fixture.example",),
     goal="posting",
     run=reach,
 )

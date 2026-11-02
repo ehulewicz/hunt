@@ -327,7 +327,12 @@ def find_posting(
             continue
         report("following the site's learned route")
         with suppress(Error, RuntimeError):
-            if learned_route.run(SiteHandle(page), target.title, target.company) and found():
+            reached = bool(
+                learned_route.run(SiteHandle(page), target.title, target.company)
+                and found()
+            )
+            registry.report(learned_route, reached)
+            if reached:
                 return True
     return found()
 

@@ -110,13 +110,13 @@ def test_each_model_call_is_counted_under_its_purpose(monkeypatch: pytest.Monkey
     short_answers.run_claude(["claude", "-p"])
     answer_check.run_claude(["claude", "-p"])
     cover_letter.run_claude(["claude", "-p"])
-    model.run(["claude", "-p"], purpose="fix")
+    model.run(["claude", "-p"], purpose="code")
     after = model.counts()
 
     assert {purpose: after[purpose] - before[purpose] for purpose in model.PURPOSES} == {
-        "learn": 2, "check": 1, "draft": 1, "fix": 1,
+        "pattern": 2, "audit": 1, "draft": 1, "code": 1,
     }
-    assert model.calls("learn", "fix") - (before["learn"] + before["fix"]) == 3
+    assert model.calls("pattern", "code") - (before["pattern"] + before["code"]) == 3
 
 
 def test_a_timed_out_call_still_counts(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -128,26 +128,24 @@ def test_a_timed_out_call_still_counts(monkeypatch: pytest.MonkeyPatch) -> None:
         raise subprocess.TimeoutExpired(cmd="claude", timeout=1)
 
     monkeypatch.setattr(model.subprocess, "run", timeout)
-    before = model.calls("learn")
+    before = model.calls("pattern")
     with pytest.raises(subprocess.TimeoutExpired):
-        model.run(["claude", "-p"], purpose="learn")
-    assert model.calls("learn") == before + 1
+        model.run(["claude", "-p"], purpose="pattern")
+    assert model.calls("pattern") == before + 1
 
 
 def test_the_closing_line_counts_calls_by_purpose() -> None:
-    from personal_os_worker.jobs import model
 
     messages: list[str] = []
     timings = AutofillTimings(report=messages.append)
     usage = {
         purpose: {"calls": calls, "input_tokens": 0, "output_tokens": 0,
                   "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
-        for purpose, calls in (("learn", 2), ("check", 3), ("draft", 1), ("fix", 1))
+        for purpose, calls in (("pattern", 2), ("audit", 3), ("draft", 1), ("code", 1))
     }
-    timings.close(usage, model.CAPS)
+    timings.close(usage)
     assert messages == [
-        "Model calls this run: learn 2 of 20, check 3 of 30, draft 1 of 10, "
-        "fix 1 (3 learning and fixing)",
-        "Model tokens this run: learn 0 in / 0 out, check 0 in / 0 out, "
-        "draft 0 in / 0 out, fix 0 in / 0 out",
+        "Model calls this run: pattern 2, audit 3, draft 1, code 1 (3 learning)",
+        "Model tokens this run: pattern 0 in / 0 out, audit 0 in / 0 out, "
+        "draft 0 in / 0 out, code 0 in / 0 out",
     ]

@@ -6,15 +6,12 @@ metered (`claude_usage`), and a usage limit or failed envelope raises
 tools. No lane passes tools: every call answers text only
 scratch clone of the repository, never the live checkout.
 
-Each call names its purpose and is counted under it, process-wide. Learning
-(`short_answers.py`) and fixing (`fix/`) are what a site should stop needing
-once it has been seen; checking and drafting run on every application.
-
-While a run is active (`begin_run` / `end_run`, set by the apply session),
-learn, check, and draft are capped per run (`CAPS`); fix is uncapped. A spent
-cap raises `BudgetSpent` before anything spawns, so a purpose that ran out is
-said once and the rest keep working. Caps count across a reload (`base`), and
-nothing is capped outside a run.
+Each call names its lane and is counted under it, process-wide. Learning —
+`pattern` (`short_answers.py`) and `code` (`fix/`) — is what a site should
+stop needing once it has been seen; `audit` and `draft` run on every
+application. Nothing is capped per run; the only limits are per problem (two
+pattern asks per question, one draft per question, one audit per answer,
+three code attempts).
 """
 
 from __future__ import annotations
@@ -28,25 +25,12 @@ from pathlib import Path
 from typing import Any, Literal
 
 from personal_os_worker.jobs import claude_usage
-from personal_os_worker.jobs.model_errors import ModelError, checked_output
+from personal_os_worker.jobs.model_errors import checked_output
 
 TIMEOUT_SECONDS = 300
 
-Purpose = Literal["learn", "check", "draft", "fix"]
-PURPOSES: tuple[Purpose, ...] = ("learn", "check", "draft", "fix")
-
-# Each purpose's calls while one run is active; "fix" has no cap.
-CAPS: dict[str, int] = {"learn": 20, "check": 30, "draft": 10}
-
-# What a spent cap means for the run, one message per capped purpose.
-_WHAT_RUNS_OUT: dict[str, str] = {
-    "learn": "this run has made its {cap} learning calls; "
-             "questions no pattern decides are left for you",
-    "check": "this run has made its {cap} answer checks; "
-             "answers not yet checked are listed as unchecked",
-    "draft": "this run has made its {cap} drafting calls; "
-             "prose with no approved writing is left for you",
-}
+Purpose = Literal["pattern", "audit", "draft", "code"]
+PURPOSES: tuple[Purpose, ...] = ("pattern", "audit", "draft", "code")
 
 TOKEN_KEYS = (
     "input_tokens",
@@ -54,14 +38,6 @@ TOKEN_KEYS = (
     "cache_read_input_tokens",
     "cache_creation_input_tokens",
 )
-
-
-class BudgetSpent(ModelError):
-    """This run hit its cap for one purpose; the process never spawned."""
-
-    def __init__(self, purpose: Purpose) -> None:
-        self.purpose = purpose
-        super().__init__(_WHAT_RUNS_OUT[purpose].format(cap=CAPS[purpose]))
 
 
 _calls: Counter[str] = Counter()
@@ -105,17 +81,6 @@ def run_counts() -> dict[str, int]:
         }
 
 
-def remaining(purpose: Purpose) -> int | None:
-    """Calls left under this run's cap; None when uncapped (fix, or no run)."""
-    if purpose not in CAPS:
-        return None
-    with _calls_lock:
-        if _run_calls is None:
-            return None
-        used = _run_base.get(purpose, 0) + _calls[purpose] - _run_calls[purpose]
-    return max(0, CAPS[purpose] - used)
-
-
 def run_usage() -> dict[str, dict[str, int]]:
     """This run's calls and summed tokens per purpose."""
     with _calls_lock:
@@ -137,12 +102,8 @@ def run_usage() -> dict[str, dict[str, int]]:
 
 
 def _reserve(purpose: Purpose) -> None:
-    """Count the call before it spawns; refuse once this run's cap is spent."""
+    """Count the call before it spawns."""
     with _calls_lock:
-        if _run_calls is not None and purpose in CAPS:
-            used = _run_base.get(purpose, 0) + _calls[purpose] - _run_calls[purpose]
-            if used >= CAPS[purpose]:
-                raise BudgetSpent(purpose)
         _calls[purpose] += 1
 
 
@@ -189,7 +150,6 @@ def run(
     purpose: Purpose = "draft",
 ) -> str:
     """Run one call; its envelope, or `ModelError` when the model did not do the work."""
-    # Budget is spent before anything spawns; a refused call never leaves here.
     _reserve(purpose)
     try:
         process = subprocess.run(

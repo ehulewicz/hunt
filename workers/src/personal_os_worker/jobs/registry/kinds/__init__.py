@@ -159,6 +159,7 @@ def _as_custom(kind: Any) -> Any:
             name: lambda _attempt: None for name in kind.strategies
         },
         read_arg=read_arg,
+        declaration=kind,
     )
 
 
@@ -180,8 +181,8 @@ def learned_kind(name: str, site: str) -> Any | None:
     )
 
 
-def learned_question(control: Any, site: str) -> str:
-    """The question a site's readers give this control's group, or the empty string."""
+def learned_question(control: Any, site: str) -> tuple[str, Any]:
+    """The question a site's readers give this control's group, and the reader."""
     from personal_os_worker.jobs import registry
 
     for reader in registry.learned("questions", site):
@@ -204,5 +205,5 @@ def learned_question(control: Any, site: str) -> str:
         except Exception:
             continue
         if str(text or "").strip():
-            return str(text).strip()
-    return ""
+            return str(text).strip(), reader
+    return "", None

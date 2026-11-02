@@ -24,7 +24,8 @@ FORMAT = Format(
     name="completed_menu",
     fact_keys=("education.graduation_date",),
     render=grad_menu,
-    site="fixture.example",
+    sites=("fixture.example",),
+    proven=False,
     examples=(
         (
             FormatInput(

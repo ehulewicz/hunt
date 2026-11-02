@@ -1,18 +1,21 @@
-"""The learned-file policy: what may and may not be imported."""
+"""The policy a learned file must pass before it is ever imported."""
 
-from __future__ import annotations
+from pathlib import Path
 
 import pytest
 
 from personal_os_worker.jobs.registry import policy
 
+K = 'Kind(structure="s", name="k", selector="s", reads="value", strategies=(), sites=("a.com",))'
 DECLARATIONS = {
-    "kinds": 'Kind(name="k", selector="s", reads="value", strategies=(), site="a.com")',
-    "strategies": 'Strategy(name="s", kind="k", operate=go, site="a.com")',
-    "formats": 'Format(name="f", fact_keys=("x",), render=go, site="a.com")',
-    "questions": 'QuestionReader(name="q", group_selector="g", '
-        'question_selector="h", site="a.com")',
-    "routes": 'Route(site="a.com", goal="posting", run=go)',
+    "kinds": K,
+    "strategies": 'Strategy(structure="s", name="s", kind="k", operate=go, sites=("a.com",))',
+    "formats": 'Format(name="f", fact_keys=("x",), render=go, sites=("a.com",))',
+    "questions": (
+        'QuestionReader(structure="s", name="q", group_selector="g", '
+        'question_selector="h", sites=("a.com",))'
+    ),
+    "routes": 'Route(sites=("a.com",), goal="posting", run=go)',
 }
 
 
@@ -20,7 +23,7 @@ def good_source(category: str, site: str = "a.com") -> str:
     return (
         "from personal_os_worker.jobs.registry import api\n\n"
         "def go(*args):\n    return args[0].text()\n\n"
-        f"DECL = api.{DECLARATIONS[category]}\n"
+        f"DECL = api.{DECLARATIONS[category].replace('a.com', site)}\n"
     )
 
 
@@ -30,72 +33,70 @@ def test_one_file_per_category_passes(category: str) -> None:
 
 
 @pytest.mark.parametrize("category", list(DECLARATIONS))
-def test_a_wrong_site_is_refused(category: str) -> None:
+def test_a_site_the_file_does_not_name_is_refused(category: str) -> None:
     assert policy.check_source(good_source(category), category=category, site="b.com")
 
 
+def test_a_route_must_name_exactly_one_site() -> None:
+    source = good_source("routes").replace('sites=("a.com",)', 'sites=("a.com", "b.com")')
+    assert policy.check_source(source, category="routes")
+
+
+def test_a_declaration_without_structure_is_refused() -> None:
+    source = good_source("kinds").replace('structure="s", ', "")
+    assert policy.check_source(source, category="kinds")
+
+
+def test_proven_must_be_a_boolean_literal() -> None:
+    # A proven file (proven=True) loads; only candidates must stay False, and
+    # that is the queue's candidate check, not the policy's.
+    source = good_source("kinds").replace("sites=", "proven=True, sites=")
+    assert policy.check_source(source, category="kinds") == []
+    source = good_source("kinds").replace("sites=", "proven=1, sites=")
+    assert policy.check_source(source, category="kinds")
+
+
+def test_check_file_reads_the_file(tmp_path: Path) -> None:
+    path = tmp_path / "x.py"
+    path.write_text(good_source("kinds"))
+    assert policy.check_file(path, category="kinds") == []
+
+
+HEADER = "from personal_os_worker.jobs.registry.api import Kind\n"
+
 BAD = {
-    "import os": "import os\nfrom personal_os_worker.jobs.registry.api import Kind\n"
-        'K = Kind(name="k", selector="s", reads="value", strategies=(), site="a.com")',
-    "import json": "import json\nfrom personal_os_worker.jobs.registry.api import Kind\n"
-        'K = Kind(name="k", selector="s", reads="value", strategies=(), site="a.com")',
-    "underscore name": "from personal_os_worker.jobs.registry.api import Kind\n"
-        'def _go():\n    return 1\n'
-        'K = Kind(name="k", selector="s", reads="value", strategies=(), site="a.com")',
-    "underscore attribute": "from personal_os_worker.jobs.registry.api import Kind\n"
-        'x = "a".__class__\n'
-        'K = Kind(name="k", selector="s", reads="value", strategies=(), site="a.com")',
-    "eval": "from personal_os_worker.jobs.registry.api import Kind\n"
-        'K = Kind(name="k", selector="s", reads="value", strategies=(), site="a.com")\n'
-        'Y = eval("1")',
-    "open": "from personal_os_worker.jobs.registry.api import Kind\n"
-        'K = Kind(name="k", selector="s", reads="value", strategies=(), site="a.com")\n'
-        'Y = open("f")',
-    "getattr": "from personal_os_worker.jobs.registry.api import Kind\n"
-        'K = Kind(name="k", selector="s", reads="value", strategies=(), site="a.com")\n'
-        'Y = getattr(str, "upper")',
-    ".format": "from personal_os_worker.jobs.registry.api import Kind\n"
-        'K = Kind(name="k", selector="s", reads="value", strategies=(), site="a.com")\n'
-        'Y = "{0}".format(1)',
-    "while": "from personal_os_worker.jobs.registry.api import Kind\n"
-        "def go():\n    while True:\n        break\n"
-        'K = Kind(name="k", selector="s", reads="value", strategies=(), site="a.com")',
-    "class": "from personal_os_worker.jobs.registry.api import Kind\n"
-        "class Widget:\n    pass\n"
-        'K = Kind(name="k", selector="s", reads="value", strategies=(), site="a.com")',
-    "global": "from personal_os_worker.jobs.registry.api import Kind\n"
-        "def go():\n    global X\n"
-        'K = Kind(name="k", selector="s", reads="value", strategies=(), site="a.com")',
-    "async def": "from personal_os_worker.jobs.registry.api import Kind\n"
-        "async def go():\n    return 1\n"
-        'K = Kind(name="k", selector="s", reads="value", strategies=(), site="a.com")',
-    "two declarations": "from personal_os_worker.jobs.registry.api import Kind\n"
-        'K = Kind(name="k", selector="s", reads="value", strategies=(), site="a.com")\n'
-        'L = Kind(name="l", selector="s", reads="value", strategies=(), site="a.com")',
+    "import os": f"import os\n{HEADER}{K.replace('Kind(', 'K = Kind(', 1)}",
+    "import json": f"import json\n{HEADER}async def go():\n    return 1\nK = {K}",
+    "two declarations": f"{HEADER}K = {K}\nL = {K}",
     "no declaration": "import re\nX = re.compile('x')",
-    "site not literal": "from personal_os_worker.jobs.registry.api import Kind\n"
-        'SITE = "a.com"\n'
-        'K = Kind(name="k", selector="s", reads="value", strategies=(), site=SITE)',
-    "type builtin": "from personal_os_worker.jobs.registry.api import Kind\n"
-        'K = Kind(name="k", selector="s", reads="value", strategies=(), site="a.com")\n'
-        'Y = type(1)',
+    "sites not literal": (
+        f"{HEADER}SITE = 'a.com'\nK = {K.replace('sites=(\"a.com\",)', 'sites=SITE')}"
+    ),
+    "type builtin": f"{HEADER}K = {K}\nY = type(1)",
+    "underscore name": f"{HEADER}def _go():\n    return 1\nK = {K}",
+    "underscore attribute": f"{HEADER}x = 'a'.__class__\nK = {K}",
+    "eval": f"{HEADER}K = {K}\nY = eval('1')",
+    "open": f"{HEADER}K = {K}\nY = open('f')",
+    "getattr": f"{HEADER}K = {K}\nY = getattr(str, 'upper')",
+    ".format": f"{HEADER}K = {K}\nY = '{{0}}'.format(1)",
+    "while": f"{HEADER}def go():\n    while True:\n        break\nK = {K}",
+    "class": f"{HEADER}class X:\n    pass\nK = {K}",
+    "global": f"{HEADER}def go():\n    global y\nK = {K}",
+    "async": f"{HEADER}async def go():\n    pass\nK = {K}",
+    "exit": f"{HEADER}K = {K}\nexit()",
+    "private attr": f"{HEADER}K = {K}\nY = 'x'._private",
+    "format_map": f"{HEADER}K = {K}\nY = '{{a}}'.format_map({{'a': 1}})",
 }
 
 
 @pytest.mark.parametrize("name", list(BAD))
-def test_a_failing_file_per_rule(name: str) -> None:
+def test_each_rule_is_refused(name: str) -> None:
     assert policy.check_source(BAD[name], category="kinds"), name
 
 
-def test_too_long_is_refused() -> None:
-    long_file = "import re\n" + "\n".join(f"X{i} = re.compile('x')" for i in range(125))
-    assert any(
-        "120" in violation
-        for violation in policy.check_source(long_file, category="kinds")
+def test_a_dropped_site_or_example_is_refused() -> None:
+    """A revision keeps every earlier site; dropping one is a violation."""
+    source = good_source("kinds").replace(
+        'sites=("a.com",)', 'sites=()'
     )
-
-
-def test_check_file_reads_the_file(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    path = tmp_path / "a.py"
-    path.write_text(good_source("kinds"))
-    assert policy.check_file(path, category="kinds") == []
+    assert policy.check_source(source, category="kinds", site="a.com")

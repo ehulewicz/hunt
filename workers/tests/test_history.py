@@ -135,7 +135,7 @@ def test_sites_marks_a_site_whose_latest_run_needed_no_model(
 ) -> None:
     assert main(["hunt", "sites"]) == 0
     output = capsys.readouterr().out
-    assert "Sites (1 of 2 need no learning or fixing)" in output
+    assert "Sites (1 of 2 need no learning)" in output
     ashby = next(line for line in output.splitlines() if "ashbyhq.com" in line)
     workday = next(line for line in output.splitlines() if "myworkdayjobs.com" in line)
     assert "met" in ashby

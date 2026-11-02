@@ -65,7 +65,7 @@ SCHEMA = {
 }
 
 # Checking runs on every application, so it is counted apart from learning.
-run_claude = partial(model.run, purpose="check")
+run_claude = partial(model.run, purpose="audit")
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,19 +173,10 @@ def check_answers(
     def argv_for(answer: FilledAnswer) -> list[str]:
         return model.argv(_prompt(answer, posting=posting, facts=facts), schema=SCHEMA)
 
-    refused: list[model.BudgetSpent] = []
-
     def ask(answer: FilledAnswer) -> str:
-        try:
-            return runner(argv_for(answer))
-        except model.BudgetSpent as spent:
-            # A cap spent mid-batch keeps the judgements already paid for.
-            refused.append(spent)
-            return ""
+        return runner(argv_for(answer))
 
     with ThreadPoolExecutor(max_workers=min(len(answers), MAX_CONCURRENT_CALLS)) as pool:
         outputs = list(pool.map(ask, answers))
-    if len(refused) == len(answers):
-        raise refused[0]
     items = [item for output in outputs for item in _judgements_in(output)]
     return judgements_from(items, answers, {str(fact["key"]) for fact in facts})

@@ -398,7 +398,8 @@ def check_code(
             except ValueError:
                 continue
             if declarations:
-                site = declarations[0].site
+                sites = getattr(declarations[0], 'sites', ())
+                site = str(sites[0]) if sites else ''
                 break
         if not site:
             raise RuntimeError(f"{learned} declares no format or question reader")

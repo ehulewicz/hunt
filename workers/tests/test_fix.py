@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import subprocess
 from pathlib import Path
@@ -9,10 +10,13 @@ from typing import Any, cast
 
 import pytest
 
+from personal_os_worker.jobs import registry
 from personal_os_worker.jobs.fix import lane
 from personal_os_worker.jobs.fix.keep import Kept, keep
-from personal_os_worker.jobs.fix.queue import MAX_ATTEMPTS, FixQueue
+from personal_os_worker.jobs.fix.queue import MAX_ATTEMPTS, FixQueue, _same_structure
+from personal_os_worker.jobs.fix.trial import Trial
 from personal_os_worker.jobs.registry import policy
+from personal_os_worker.jobs.registry.api import Strategy as api_Strategy
 
 JOBS = "workers/src/personal_os_worker/jobs"
 
@@ -23,7 +27,9 @@ KIND = Kind(
     selector="[data-widget=odd]",
     reads="value",
     strategies=(),
-    site="fixture.example",
+    structure="odd_widget",
+    sites=("fixture.example",),
+    proven=False,
     examples=(Example(fixture="page.html", selector="[data-widget=odd]", value="",
                       expected="3"),),
 )
@@ -141,17 +147,7 @@ class Api:
         pass
 
 
-def _problem(number: int = 1, *, issue_id: str | None = "i1") -> lane.Problem:
-    return lane.Problem(
-        key=f"control_error|fixture.example|w{number}",
-        cause="control_error",
-        question=f"Widget {number}?",
-        note="no strategy held it",
-        target={"kind": "field", "question": f"Widget {number}?"},
-        site="fixture.example",
-        issue_id=issue_id,
-        run_id="run-1",
-    )
+
 
 
 def _queue(api: Api, tmp_path: Path, **kwargs: Any) -> FixQueue:
@@ -350,3 +346,238 @@ def test_retry_opens_an_unsolved_problem_and_resets_its_attempts(
     api.issues["fedcba-9999"] = issue2
     with pytest.raises(RuntimeError, match="open"):
         commands.run_autofill_failure_command("retry", "fedcba")
+
+
+# ----- one file per type, shared across sites, on trial -----------------------
+
+def _learned_package(tmp_path: Path, category: str = "kinds") -> Path:
+    """A temporary learned package wired into the registry."""
+    from personal_os_worker.jobs import registry
+
+    folder = tmp_path / category / "learned"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "__init__.py").write_text("")
+    package = __import__(
+        f"personal_os_worker.jobs.registry.{category}.learned", fromlist=["x"]
+    )
+    package.__path__ = [str(folder)]  # type: ignore[assignment]
+    registry.reload_learned()
+    return folder
+
+
+def test_reuse_adds_a_site_with_no_model_call(repo: Path, tmp_path: Path) -> None:
+    """A same-structure declaration that reads back just gains the site."""
+    folder = _learned_package(tmp_path)
+    (folder / "odd_widget.py").write_text(
+        KIND_SOURCE.replace('sites=("fixture.example",)', 'sites=("other.example",)')
+    )
+    api = Api({"i1": {"status": "open"}})
+    calls: list[int] = []
+
+    def runner(command: Any, timeout: float = 0) -> str:
+        calls.append(1)
+        return "{}"
+
+    probed: list[Path] = []
+    queue = FixQueue(
+        repo=tmp_path, workdir=tmp_path / "fix", api=api, run_id="run-1",
+        report=lambda _l: None, runner=runner,
+        prober=lambda r, _a: probed.append(r.learned_file) or {"ok": True, "note": "read back"},
+        checker=lambda _d, _f, _p: None,
+        keeper=lambda *a, **k: Kept("abc1234", "p", True),
+    )
+    try:
+        problem = dataclasses.replace(
+            _problem(structure="odd_widget"), cause="unknown_control"
+        )
+        assert problem.category == "kinds"
+        queue.statuses[problem.key] = __import__(
+            "personal_os_worker.jobs.fix.queue", fromlist=["Status"]
+        ).Status(problem.key, problem.question, problem.cause)
+        assert queue._reuse(problem, _same_structure(problem)) is True
+        assert calls == []  # the model was never asked
+        assert '"fixture.example"' in (folder / "odd_widget.py").read_text()
+        assert api.issues["i1"]["status"] == "fixed"
+    finally:
+        queue.close()
+
+
+def test_a_revision_keeps_earlier_examples_and_adds_the_site() -> None:
+    """The policy refuses a revised file that drops a site or an example."""
+    old = KIND_SOURCE.replace('sites=("fixture.example",)', 'sites=("a.com", "b.com")')
+    violations = policy.check_source(old, category="kinds", site="b.com")
+    assert violations == []
+    dropped = old.replace(', "b.com"', "")
+    assert policy.check_source(dropped, category="kinds", site="b.com")
+
+
+def test_readable_names_and_suffixing(tmp_path: Path) -> None:
+    api = Api({})
+    queue = _queue(api, tmp_path)
+    try:
+        problem = _problem()
+        answer = lane.Answer("file", "x", "s", "", "odd_widget")
+        assert queue._file_name(problem, answer) == "odd_widget"
+        # a file by that name for a different structure gets a suffix
+        learned = tmp_path / "learned"
+        learned.mkdir()
+        (learned / "odd_widget.py").write_text(
+            'K = Kind(structure="other", name="x", selector="s", reads="v",'
+            ' strategies=(), sites=("a.com",))'
+        )
+        queue._learned_dir = lambda _c: learned  # type: ignore[method-assign]
+        assert queue._file_name(problem, answer) == "odd_widget_2"
+    finally:
+        queue.close()
+
+
+def test_routes_are_named_by_site() -> None:
+    problem = _problem()
+    problem = dataclasses.replace(problem, cause="wall")
+    assert problem.category == "routes"
+    assert lane.name_of(problem) == "fixture_example"
+
+
+def test_mark_proven_and_retire(repo: Path, tmp_path: Path) -> None:
+    from personal_os_worker.jobs.fix.keep import mark_proven, retire
+
+    learned_rel = f"{JOBS}/registry/kinds/learned/odd_widget.py"
+    fixture_rel = "workers/tests/fixtures/learned/kinds/odd_widget"
+    attempt = _attempt_dir(tmp_path)
+    keep(repo, "a fix", attempt, learned_rel, fixture_rel)
+    # a later run proves it
+    proven = mark_proven(repo, learned_rel)
+    assert "proven=True" in (repo / learned_rel).read_text()
+    assert proven.pushed
+    # a trial failure removes a new file and its fixtures
+    old = (repo / learned_rel).read_text()
+    retire(repo, learned_rel, fixture_rel, was_new=True)
+    assert not (repo / learned_rel).exists()
+    assert not (repo / fixture_rel).exists()
+    # and a revised file is restored instead
+    attempt2 = _attempt_dir(tmp_path / "second", old.replace("proven=True", "proven=False"))
+    keep(repo, "a fix", attempt2, learned_rel, fixture_rel)
+    (repo / learned_rel).write_text(old + "\n# changed\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "revise")
+    retire(repo, learned_rel, fixture_rel, was_new=False)
+    assert (repo / learned_rel).exists()
+
+
+def _problem(number: int = 1, *, issue_id: str | None = "i1",
+             structure: str = "") -> lane.Problem:
+    return lane.Problem(
+        key=f"control_error|fixture.example|w{number}",
+        cause="control_error",
+        question=f"Widget {number}?",
+        note="no strategy held it",
+        target={"kind": "field", "question": f"Widget {number}?"},
+        site="fixture.example",
+        issue_id=issue_id,
+        run_id="run-1",
+        structure=structure,
+    )
+
+
+# ----- trial: proven or retired on a later run --------------------------------
+
+STRATEGY_SOURCE = """from personal_os_worker.jobs.registry.api import Strategy
+
+def set_odd(handle, value):
+    handle.fill(value)
+    return handle.read()
+
+STRATEGY = Strategy(
+    name="odd_set",
+    kind="odd_widget",
+    operate=set_odd,
+    structure="odd_widget",
+    sites=("other.example",),
+    proven=False,
+    examples=(),
+)
+"""
+
+
+def _trial(repo: Path, api: Api) -> Trial:
+    return Trial(repo=repo, api=api, run_id="run-1")
+
+
+def test_a_trial_strategy_that_works_becomes_proven(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A declaration loaded unproven that fills on a later run flips proven."""
+    folder = _learned_package(tmp_path, "strategies")
+    source = folder / "odd_set.py"
+    source.write_text(STRATEGY_SOURCE)
+    _keep_file(repo, tmp_path, source, "strategies")
+    tracker = _trial(repo, Api({}))
+    module = registry._import_file(source, "strategies")
+    strategy = next(v for v in vars(module).values() if isinstance(v, api_Strategy))
+    registry._remember(strategy, source)
+    assert strategy.proven is False
+    assert tracker.report(strategy, True) is True
+    learned_rel = "workers/src/personal_os_worker/jobs/registry/strategies/learned/odd_set.py"
+    assert "proven=True" in (repo / learned_rel).read_text()
+
+
+def test_a_trial_strategy_that_fails_is_retired(
+    repo: Path, tmp_path: Path
+) -> None:
+    """A new trial file that fails is removed, fixtures too; a revised file is
+    restored to its previous version."""
+    folder = _learned_package(tmp_path, "strategies")
+    source = folder / "odd_set.py"
+    source.write_text(STRATEGY_SOURCE)
+    _keep_file(repo, tmp_path, source, "strategies")
+    tracker = _trial(repo, Api({}))
+    module = registry._import_file(source, "strategies")
+    strategy = next(v for v in vars(module).values() if isinstance(v, api_Strategy))
+    registry._remember(strategy, source)
+    # new file: retired by deletion
+    assert tracker.report(strategy, False) is True
+    assert not (repo / f"{JOBS}/registry/strategies/learned/odd_set.py").exists()
+    assert not (repo / "workers/tests/fixtures/learned/strategies/odd_set").exists()
+
+
+def test_a_file_kept_this_run_is_neither_proven_nor_retired(tmp_path: Path) -> None:
+    tracker = _trial(tmp_path, Api({}))
+    path = tmp_path / "odd_set.py"
+    path.write_text(STRATEGY_SOURCE)
+    module = registry._import_file(path, "strategies")
+    strategy = next(v for v in vars(module).values() if isinstance(v, api_Strategy))
+    registry._remember(strategy, path)
+    tracker.note_kept(path)
+    assert tracker.report(strategy, True) is False
+    assert tracker.report(strategy, False) is False
+
+
+def test_a_proven_file_that_fails_is_left_alone(repo: Path, tmp_path: Path) -> None:
+    folder = _learned_package(tmp_path, "strategies")
+    source = folder / "odd_set.py"
+    source.write_text(STRATEGY_SOURCE.replace("proven=False", "proven=True"))
+    _keep_file(repo, tmp_path, source, "strategies")
+    tracker = _trial(repo, Api({}))
+    module = registry._import_file(source, "strategies")
+    strategy = next(v for v in vars(module).values() if isinstance(v, api_Strategy))
+    assert tracker.report(strategy, False) is False
+    assert (repo / f"{JOBS}/registry/strategies/learned/odd_set.py").exists()
+
+
+def _keep_file(repo: Path, tmp_path: Path, source: Path, category: str) -> None:
+    """Commit a learned file + fixtures through keep()."""
+    from personal_os_worker.jobs.fix.keep import keep
+
+    attempt = tmp_path / "attempts" / "attempt-1"
+    learned = attempt / category / "learned"
+    learned.mkdir(parents=True, exist_ok=True)
+    (learned / source.name).write_text(source.read_text())
+    fixtures = attempt / "fixtures" / source.stem
+    fixtures.mkdir(parents=True, exist_ok=True)
+    (fixtures / "page.html").write_text("<html/>")
+    keep(repo, f"add {source.stem}", attempt,
+         f"{JOBS}/registry/{category}/learned/{source.name}",
+         f"workers/tests/fixtures/learned/{category}/{source.stem}")
+
+
+

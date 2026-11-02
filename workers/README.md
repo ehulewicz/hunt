@@ -549,11 +549,11 @@ under its purpose: `learn` (`short_answers.py`, the gate pass included), `fix`
 slots). Every step the run stores carries its `learn` plus `fix` calls so far
 as `model_calls`, a reload carries the count into the next process, and the
 run's closing lines print all four with their tokens. While a run is active
-each purpose is capped — 20 `learn`, 30 `check`, 10 `draft`; `fix` is uncapped
+no lane is capped — only per-problem limits (two pattern asks, one draft, three code attempts)
 — and the counts carry across a reload. A spent cap stops only that purpose:
 it is said once, calls already made are kept, and what is left is said to be
 yours. A usage limit still stops every call. Outside a run nothing is capped.
-Only learning and fixing count toward `os hunt sites` marking a site `met`;
+Only learning (pattern and code) counts toward `os hunt sites` marking a site `met`;
 checking and drafting run on every application.
 `jobs/answer_check.py` is the other half: it reads back the answers the page
 already holds and asks whether a fact contradicts one, because an answer can be

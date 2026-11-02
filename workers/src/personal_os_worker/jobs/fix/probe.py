@@ -149,7 +149,7 @@ def probe_question(page: Page, reader: Any) -> dict[str, Any]:
         radios = frame.locator('input[type="radio"]')
         for index in range(radios.count()):
             try:
-                text = learned_question(radios.nth(index), registrable_site(page.url))
+                text, _reader = learned_question(radios.nth(index), registrable_site(page.url))
             except Exception:
                 continue
             if text:
