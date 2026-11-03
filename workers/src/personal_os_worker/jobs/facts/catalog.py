@@ -189,7 +189,8 @@ CATALOG = _entries(
     ),
     CatalogEntry(
         "experience.years_professional",
-        "Whole years of professional experience",
+        "Years of professional experience: experience and research entries, "
+        "overlaps counted once, in half years (two months past a half year rounds up)",
         "number",
         "career",
     ),
@@ -313,9 +314,14 @@ CATALOG = _entries(
     ),
     CatalogEntry(
         "experience.years_full_time",
-        "Whole years of full-time industry experience, not counting internships, "
-        "co-ops, contract or part-time work",
+        "Years of full-time experience: the same total as experience.years_professional",
         "number",
+        "career",
+    ),
+    CatalogEntry(
+        "experience.robotics_competitions",
+        "Competition robotics teams, years and roles",
+        "list",
         "career",
     ),
 )

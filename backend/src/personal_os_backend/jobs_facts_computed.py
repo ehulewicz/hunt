@@ -29,8 +29,9 @@ COMPUTED_FACTS: dict[str, tuple[Source, str, tuple[str, ...]]] = {
     ),
     "experience.years_professional": (
         "career",
-        "Whole years of professional experience",
-        ("career.experience",),
+        "Years of professional experience: experience and research entries, "
+        "overlaps counted once, in half years (two months past a half year rounds up)",
+        ("career.experience", "career.research"),
     ),
     "coop.completed_rotations": (
         "career",
@@ -61,9 +62,13 @@ COMPUTED_FACTS: dict[str, tuple[Source, str, tuple[str, ...]]] = {
     "skills.all": ("career", "Every skill on the resume, in order", ("career.skills",)),
     "experience.years_full_time": (
         "career",
-        "Whole years of full-time industry experience, not counting internships, "
-        "co-ops, contract or part-time work",
-        ("career.experience",),
+        "Years of full-time experience: the same total as experience.years_professional",
+        ("career.experience", "career.research"),
+    ),
+    "experience.robotics_competitions": (
+        "career",
+        "Competition robotics teams, years and roles",
+        ("career.activities",),
     ),
     # derived
     "education.graduation_term": ("derived", "Graduation term", ("education.graduation_date",)),

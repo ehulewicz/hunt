@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 import os
 import re
 from datetime import date
@@ -19,7 +20,6 @@ if TYPE_CHECKING:
 ROTATION_BOUNDARIES = ((5, 1), (8, 1), (11, 1))
 # Entries that count as having done an internship once they have ended.
 INTERNSHIP_TYPES = frozenset({"internship", "coop"})
-DAYS_PER_YEAR = 365.25
 
 
 def _date(value: Any) -> date | None:
@@ -33,37 +33,55 @@ def _next_month(value: date) -> date:
     return date(value.year + value.month // 12, value.month % 12 + 1, 1)
 
 
-def years_of_experience(entries: list[dict[str, Any]], today: date) -> int | None:
-    """Whole years covered by any experience entry, overlaps counted once.
+def _month_index(value: date) -> int:
+    return value.year * 12 + value.month - 1
 
-    An entry runs from its first month through the end of its last month, or
-    through today when it has no end. Research and projects never count.
+
+def months_of_experience(
+    entries: list[dict[str, Any]], today: date, sections: frozenset[str]
+) -> float | None:
+    """Months covered by entries whose section is in `sections`, overlaps once.
+
+    An entry covers its start month through its end month inclusive, or through
+    now when it has no end. Every interval is clipped at now; one with no start
+    date or that has not started counts nothing. None when nothing counts.
     """
-    spans: list[tuple[date, date]] = []
+    days = calendar.monthrange(today.year, today.month)[1]
+    now = _month_index(today) + today.day / days
+    spans: list[tuple[float, float]] = []
     for entry in entries:
-        if entry.get("section") != "experience":
+        if entry.get("section") not in sections:
             continue
         start = _date(entry.get("start_date"))
         if start is None:
             continue
         end = _date(entry.get("end_date"))
-        stop = _next_month(end) if end is not None else today
-        if stop > start:
-            spans.append((start, stop))
+        stop = min(_month_index(end) + 1 if end is not None else now, now)
+        if stop > _month_index(start):
+            spans.append((_month_index(start), stop))
     if not spans:
         return None
-    covered = 0
-    current_start, current_stop = None, None
-    for start, stop in sorted(spans):
-        if current_stop is None or start > current_stop:
+    covered = 0.0
+    current_start: float | None = None
+    current_stop: float | None = None
+    for span_start, span_stop in sorted(spans):
+        if current_stop is None or span_start > current_stop:
             if current_start is not None and current_stop is not None:
-                covered += (current_stop - current_start).days
-            current_start, current_stop = start, stop
+                covered += current_stop - current_start
+            current_start, current_stop = span_start, span_stop
         else:
-            current_stop = max(current_stop, stop)
+            current_stop = max(current_stop, span_stop)
     if current_start is not None and current_stop is not None:
-        covered += (current_stop - current_start).days
-    return int(covered // DAYS_PER_YEAR)
+        covered += current_stop - current_start
+    return covered
+
+
+def half_years(months: float) -> int | float:
+    """Complete half years in a month count, plus one more when the remainder
+    reaches two months."""
+    halves, remainder = divmod(months, 6)
+    years = halves / 2 + (0.5 if remainder >= 2 - 1e-9 else 0.0)
+    return int(years) if years == int(years) else years
 
 
 def completed_rotations(
@@ -193,6 +211,40 @@ def _organizations(entries: list[dict[str, Any]]) -> list[str]:
     return organizations
 
 
+_ROBOTICS_WORD = re.compile(r"\brobotic", re.IGNORECASE)
+_ROBOTICS_LEAGUE = re.compile(r"\b(?:VEX|FIRST|FTC|FRC|FLL)\b")
+
+
+def robotics_competitions(entries: list[dict[str, Any]]) -> list[str]:
+    """The competition robotics teams among the activity entries, in record order.
+
+    Only activities count — a research lab with "Robotics" in its org is not a
+    competition team. Each renders as org, qualifier, years, and role.
+    """
+    teams: list[str] = []
+    for entry in entries:
+        if entry.get("section") != "activity":
+            continue
+        fields = (entry.get("org"), entry.get("qualifier"), entry.get("title"))
+        if not any(
+            _ROBOTICS_WORD.search(str(part)) or _ROBOTICS_LEAGUE.search(str(part))
+            for part in fields
+        ):
+            continue
+        start, end = _date(entry.get("start_date")), _date(entry.get("end_date"))
+        if start is not None and end is not None:
+            years = str(start.year) if start.year == end.year else f"{start.year}-{end.year}"
+        elif start is not None:
+            years = f"{start.year}-present"
+        elif end is not None:
+            years = str(end.year)
+        else:
+            years = ""
+        parts = (entry.get("org"), entry.get("qualifier"), years, entry.get("title"))
+        teams.append(", ".join(str(part) for part in parts if str(part or "").strip()))
+    return teams
+
+
 def _skills(record: dict[str, Any]) -> list[str]:
     """Every skill on the record, in order, once each."""
     skills: list[str] = []
@@ -215,15 +267,10 @@ def career_facts(record: dict[str, Any] | None, today: date) -> dict[str, Any]:
         values.update(_education_facts(education))
     values.update(_high_school_facts(record))
     entries = [entry for entry in record.get("entries") or [] if isinstance(entry, dict)]
-    values["experience.years_professional"] = years_of_experience(entries, today)
-    values["experience.years_full_time"] = years_of_experience(
-        [
-            entry
-            for entry in entries
-            if entry.get("employment_type") in {None, "founder"}
-        ],
-        today,
-    )
+    total = months_of_experience(entries, today, frozenset({"experience", "research"}))
+    years = half_years(total) if total is not None else None
+    values["experience.years_professional"] = years
+    values["experience.years_full_time"] = years
     rotations = completed_rotations(
         entries, today, _date(values.get("education.graduation_date"))
     )
@@ -231,6 +278,7 @@ def career_facts(record: dict[str, Any] | None, today: date) -> dict[str, Any]:
     values["experience.prior_internship"] = prior_internship(entries, today, rotations)
     values.update(_current_job_facts(entries))
     values["employment.organizations"] = _organizations(entries) or None
+    values["experience.robotics_competitions"] = robotics_competitions(entries) or None
     values["skills.all"] = _skills(record) or None
     return {key: value for key, value in values.items() if value not in (None, "")}
 

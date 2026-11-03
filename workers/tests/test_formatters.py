@@ -120,6 +120,21 @@ def test_numbers_render_plainly_and_find_their_range() -> None:
     )
 
 
+def test_a_fractional_number_rounds_down_into_whole_only_options() -> None:
+    whole = {"tag": "select", "options": ["1", "2", "3", "4", "5+"]}
+    assert rendered("experience.years_professional", 3.5, "number", "Years", whole) == (
+        "3", "number_rounded_down"
+    )
+    bands = {"tag": "select", "options": ["0-1", "1-2", "2-3", "3-5"]}
+    assert rendered("experience.years_professional", 2.5, "number", "Years", bands) == (
+        "2-3", "number_as_range_option"
+    )
+    assert rendered(
+        "experience.years_professional", 3.5, "number", "Years",
+        {"tag": "input", "type": "text"},
+    ) == ("3.5", "number_as_text")
+
+
 def test_text_matches_synonyms_and_lists_join_or_check_each_box() -> None:
     gender = {"tag": "select", "options": ["Cisgender man", "Cisgender woman"]}
     assert rendered("eeo.gender_identity", "Male", "text", "Gender", gender) == (

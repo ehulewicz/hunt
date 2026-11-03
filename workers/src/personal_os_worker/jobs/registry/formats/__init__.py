@@ -16,6 +16,7 @@ renderings (plain text, numbers, lists, notice-within), and the dispatch.
 from __future__ import annotations
 
 import contextlib
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -31,6 +32,7 @@ from personal_os_worker.jobs.options import (
     choose_option,
     normalize_answer_question,
 )
+from personal_os_worker.jobs.sites import option_match
 
 MULTI = "\n"
 # A fact whose value is the empty value of its type ("" or []) says the answer
@@ -77,6 +79,17 @@ def _number_text(value: Any) -> str:
     if number == number.to_integral_value():
         return str(int(number))
     return format(number.normalize(), "f")
+
+
+def _rounded_down(value: Any) -> str | None:
+    """A fractional number's floor, as option text; None for a whole or non-number."""
+    try:
+        number = Decimal(str(value))
+    except InvalidOperation:
+        return None
+    if number == number.to_integral_value():
+        return None
+    return str(math.floor(number))
 
 def _multiple(field: dict[str, Any]) -> bool:
     if field.get("multiple") is True:
@@ -272,6 +285,12 @@ def _choose_among(
         ranged = choose_numeric_range(options, _number_text(value))
         if ranged is not None:
             return Rendering(ranged, "number_as_range_option")
+        # Whole-only menus take the value rounded down once nothing matches it.
+        floored = _rounded_down(value)
+        if floored is not None and option_match(options, _number_text(value)) is None:
+            chosen = choose_numeric_range(options, floored) or choose_option(options, floored)
+            if chosen is not None:
+                return Rendering(chosen, "number_rounded_down")
     if key.startswith("compensation.") and value_type == "object":
         return _money_option(value, field, question, options)
     if value_type == "date":

@@ -19,15 +19,16 @@ from datetime import date
 from typing import Any, Literal
 
 from personal_os_worker.jobs.facts.career import (
-    DAYS_PER_YEAR,
     INTERNSHIP_TYPES,
     ROTATION_BOUNDARIES,
     _date,
     _next_month,
     career_facts,
     completed_rotations,
+    half_years,
+    months_of_experience,
     prior_internship,
-    years_of_experience,
+    robotics_competitions,
 )
 from personal_os_worker.jobs.facts.posting import (
     INTERNSHIP_WEEKS,
@@ -46,7 +47,6 @@ from personal_os_worker.jobs.sites import is_non_answer_option
 __all__ = [
     "CAREER_FACTS",
     "COMPUTED_FACTS",
-    "DAYS_PER_YEAR",
     "DERIVED_FACTS",
     "HOURS_PER_YEAR",
     "INTERNSHIP_TYPES",
@@ -67,13 +67,15 @@ __all__ = [
     "computed_refusal",
     "derive",
     "graduation_term",
+    "half_years",
     "internship_window",
+    "months_of_experience",
     "overlaps_final_term",
     "posting_facts",
     "prior_internship",
+    "robotics_competitions",
     "stored_values",
     "worked_for",
-    "years_of_experience",
 ]
 
 HOURS_PER_YEAR = 2080
@@ -244,8 +246,9 @@ CAREER_FACTS = (
     ),
     DerivedFact(
         "experience.years_professional",
-        "Whole years of professional experience (union of experience spans)",
-        ("career.experience",),
+        "Years of experience in half years: experience and research entries, "
+        "overlaps counted once, two months past a half year rounding up",
+        ("career.experience", "career.research"),
     ),
     DerivedFact(
         "coop.completed_rotations",
@@ -272,9 +275,13 @@ CAREER_FACTS = (
     DerivedFact("skills.all", "Every skill on the resume, in order", ("career.skills",)),
     DerivedFact(
         "experience.years_full_time",
-        "Whole years of full-time industry experience, not counting internships, "
-        "co-ops, contract or part-time work",
-        ("career.experience",),
+        "Years of full-time experience, the same total as experience.years_professional",
+        ("career.experience", "career.research"),
+    ),
+    DerivedFact(
+        "experience.robotics_competitions",
+        "Competition robotics teams, years and roles",
+        ("career.activities",),
     ),
 )
 

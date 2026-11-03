@@ -45,10 +45,15 @@ with `os hunt resume get` (the document as JSON on stdout) and
 reason). The backend builds the one-page PDF on each save and serves it at
 /resume; a run downloads that PDF once for every upload in it. Facts the resume
 determines — school, degree, graduation, GPA, coursework, the high school's
-name, city and graduation year (from a `high_school` education row), whole years
-of experience, the current employer, every organization, every skill — are
+name, city and graduation year (from a `high_school` education row), years of
+experience, the competition robotics teams, the current employer, every
+organization, every skill — are
 derived from the record by `jobs/facts/career.py`. Every stored entry counts,
-printed on the resume or not, and an activity never counts as employment. These
+printed on the resume or not, and an activity never counts as employment. The
+totals count experience and research months, overlaps once, in half years —
+two months past a half year rounds up — and `years_full_time` is the same
+total. A single entry's duration is never rounded: it is answered with its
+dates or its months. These
 facts are computed and never stored: a stored row under one of their keys is
 ignored, `os hunt facts` marks it, and `os hunt facts delete KEY` removes it.
 
@@ -463,8 +468,9 @@ include the LGBTQ+
 flag from transgender and orientation, the U.S.-person export statuses from
 citizenship, the degree level, program level, and highest completed degree from
 the degree type and enrollment, and the full-time start year after graduating.
-`jobs/facts/career.py` derives the whole years of full-time experience from the
-career record's non-internship entries. The resolver answers a field
+`jobs/facts/career.py` derives the years of experience — experience and
+research months, overlaps counted once, in half years — and full-time is the
+same total. The resolver answers a field
 in a fixed order: the question's active binding, then active expression
 patterns (exactly one fact among those that match). Consent and "how did you
 hear" are patterns too (R68), each an active expression reading a fact the
@@ -541,7 +547,9 @@ periods as the fact's period, and against bands only at the magnitude they
 count ("81-85k" is annual, never hourly); yes
 and no as whichever option says them ("No, I am not a protected veteran");
 numbers into the range that contains them ("3.75—4.0", "26-30k", "less than
-25k", ">=2.74"); lists as text, or one box per item.
+25k", ">=2.74"), and a fractional number into the option its floor would get
+when a whole-only menu matches it neither exactly nor as a range; lists as
+text, or one box per item.
 A state is written as its postal code in a menu of codes ("Georgia" -> "GA")
 and as its name in a menu of names; a yes/no question naming a state, your
 school (by its full name or "Example University"), a country, or a term is answered

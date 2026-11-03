@@ -417,26 +417,96 @@ def test_a_form_gets_the_entrys_employer_and_job_title_over_its_heading() -> Non
     assert facts["employment.organizations"] == ["Acme Labs", "Acme Inc."]
 
 
+# Shaped like the live record: a current co-op around a founder stint and a
+# contract, two adjacent research terms, and two robotics activities.
+LIVE_ENTRIES = [
+    {"section": "experience", "org": "Northwind", "employment_type": "coop",
+     "start_date": "2025-05-01", "end_date": None},
+    {"section": "experience", "org": "Northhealth AI", "employment_type": "founder",
+     "start_date": "2025-10-01", "end_date": "2026-05-01"},
+    {"section": "experience", "org": "Example Public Schools", "employment_type": "contract",
+     "start_date": "2023-05-01", "end_date": "2023-12-01"},
+    {"section": "research", "org": "Example Lab", "start_date": "2024-04-01",
+     "end_date": "2024-09-01"},
+    {"section": "research", "org": "Sample Lab", "start_date": "2024-09-01",
+     "end_date": "2024-12-01"},
+    {"section": "activity", "org": "VEX Robotics", "title": "Engineer and Programmer",
+     "start_date": "2021-09-01", "end_date": "2022-04-01"},
+    {"section": "activity", "org": "Stealth Robotics", "qualifier": "FIRST Tech Challenge",
+     "title": "Engineer and Driver", "start_date": "2022-06-01", "end_date": "2023-05-01"},
+]
+
+SECTIONS = frozenset({"experience", "research"})
+
+
 @pytest.mark.parametrize(
-    ("today", "years"),
+    ("today", "years"), [(date(2026, 11, 2), 3), (date(2027, 3, 1), 3.5)]
+)
+def test_experience_totals_cover_experience_and_research_in_half_years(
+    today: date, years: float
+) -> None:
+    from personal_os_worker.jobs.facts.derived import career_facts
+
+    found = career_facts({"entries": LIVE_ENTRIES}, today)  # type: ignore[arg-type]
+    assert found["experience.years_professional"] == years
+    assert found["experience.years_full_time"] == years
+
+
+def test_months_of_experience_unions_clips_and_skips() -> None:
+    from personal_os_worker.jobs.facts.derived import months_of_experience
+
+    today = date(2026, 11, 2)
+    assert months_of_experience(LIVE_ENTRIES, today, SECTIONS) == pytest.approx(
+        35.0667, abs=0.001
+    )
+    # Northhealth inside Northwind is counted once; activities never count.
+    assert months_of_experience(
+        LIVE_ENTRIES, today, frozenset({"experience"})
+    ) == pytest.approx(26.0667, abs=0.001)
+    edges = [
+        # Not yet started: counts nothing.
+        {"section": "experience", "start_date": "2026-12-01", "end_date": None},
+        # An end date in the future counts only through today.
+        {"section": "experience", "start_date": "2026-10-01", "end_date": "2027-06-01"},
+        {"section": "activity", "start_date": "2020-01-01", "end_date": "2021-01-01"},
+    ]
+    assert months_of_experience(edges, today, frozenset({"experience"})) == pytest.approx(
+        1 + 2 / 30, abs=0.001
+    )
+
+
+@pytest.mark.parametrize(
+    ("months", "years"),
     [
-        # May-Dec 2023 (245 days) plus May 2025 to today; Northhealth overlaps.
-        (date(2026, 10, 14), 2),
-        (date(2026, 3, 1), 1),
-        (date(2028, 1, 1), 3),
+        (0, 0), (1.9, 0), (2, 0.5), (6, 0.5), (7, 0.5), (8, 1), (13.9, 1),
+        (14.4, 1.5), (25.2, 2), (27, 2.5), (33, 3), (35.16, 3),
     ],
 )
-def test_tenure_is_the_union_of_experience_spans_in_whole_years(today: date, years: int) -> None:
-    from personal_os_worker.jobs.facts.derived import years_of_experience
+def test_half_years_rounds_up_only_from_two_months(months: float, years: float) -> None:
+    from personal_os_worker.jobs.facts.derived import half_years
 
-    assert years_of_experience(CAREER["entries"], today) == years  # type: ignore[arg-type]
+    assert half_years(months) == years
 
 
-def test_research_and_projects_never_count_toward_tenure() -> None:
-    from personal_os_worker.jobs.facts.derived import years_of_experience
+def test_robotics_competitions_names_each_activity_team() -> None:
+    from personal_os_worker.jobs.facts.derived import career_facts, robotics_competitions
 
-    entries = [entry for entry in CAREER["entries"] if entry["section"] != "experience"]
-    assert years_of_experience(entries, date(2030, 1, 1)) is None  # type: ignore[arg-type]
+    entries = [
+        *LIVE_ENTRIES,
+        {"section": "activity", "org": "Chess Club", "title": "Member",
+         "start_date": "2021-09-01", "end_date": "2022-04-01"},
+        {"section": "research", "org": "Robotics Lab", "title": "Researcher",
+         "start_date": "2024-01-01", "end_date": "2024-06-01"},
+    ]
+    # A non-robotics activity and a robotics-named research lab are both out.
+    expected = [
+        "VEX Robotics, 2021-2022, Engineer and Programmer",
+        "Stealth Robotics, FIRST Tech Challenge, 2022-2023, Engineer and Driver",
+    ]
+    assert robotics_competitions(entries) == expected
+    assert career_facts({"entries": entries}, date(2026, 11, 2))[  # type: ignore[arg-type]
+        "experience.robotics_competitions"
+    ] == expected
 
 
 def test_a_stored_row_under_a_computed_key_is_ignored() -> None:
@@ -607,7 +677,7 @@ def test_enrolled_through_the_internship_is_a_posting_fact() -> None:
     )
 
 
-def test_full_time_years_exclude_internships_coops_and_part_time() -> None:
+def test_years_full_time_is_the_same_total_as_professional() -> None:
     record = {
         "entries": [
             {"section": "experience", "start_date": "2023-01-01",
@@ -625,8 +695,9 @@ def test_full_time_years_exclude_internships_coops_and_part_time() -> None:
         ]
     }
     found = career_facts(record, date(2026, 11, 1))  # type: ignore[arg-type]
-    # Two full years (2023-01 to 2025-01) plus one founder year.
-    assert found["experience.years_full_time"] == 3
+    # Every experience kind counts, and full-time is the same total: 46 months.
+    assert found["experience.years_professional"] == 4
+    assert found["experience.years_full_time"] == 4
     assert career_facts({"entries": []}, date(2026, 11, 1)).get(  # type: ignore[arg-type]
         "experience.years_full_time"
     ) is None
@@ -694,7 +765,7 @@ def test_an_off_resume_entry_still_counts_for_organizations_and_tenure() -> None
     ])
     values = career_facts(record, date(2024, 1, 1))
     assert "Hidden Co" in values["employment.organizations"]
-    assert values["experience.years_professional"] == 2
+    assert values["experience.years_professional"] == 2.5
 
 
 def test_an_activity_entry_never_counts_as_employment() -> None:
