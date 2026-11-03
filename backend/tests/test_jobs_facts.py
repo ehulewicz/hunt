@@ -400,7 +400,9 @@ async def test_setting_a_header_fact_rebuilds_the_resume(
 ) -> None:
     store.rows["contact.email"] = _row("contact.email", "old@example.com")
     store.rows["contact.phone"] = _row("contact.phone", "111")
-    response = await client.put("/v1/jobs/facts/contact.phone", json={"value": "222"}, headers=HEADERS)
+    response = await client.put(
+        "/v1/jobs/facts/contact.phone", json={"value": "222"}, headers=HEADERS
+    )
     assert response.status_code == 200
     assert rebuilder.headers == [
         {"contact.email": "old@example.com", "contact.phone": "222"}
@@ -413,7 +415,9 @@ async def test_the_same_header_value_rebuilds_nothing(
     client: httpx.AsyncClient, store: FakeFactStore, rebuilder: FakeRebuilder
 ) -> None:
     store.rows["contact.phone"] = _row("contact.phone", "111")
-    response = await client.put("/v1/jobs/facts/contact.phone", json={"value": "111"}, headers=HEADERS)
+    response = await client.put(
+        "/v1/jobs/facts/contact.phone", json={"value": "111"}, headers=HEADERS
+    )
     assert response.status_code == 200
     assert rebuilder.headers == [] and not rebuilder.ran
 
@@ -449,7 +453,9 @@ async def test_a_changed_record_rolls_the_write_back(
 ) -> None:
     store.rows["contact.phone"] = _row("contact.phone", "111")
     rebuilder.after_error = ResumeConflict()
-    response = await client.put("/v1/jobs/facts/contact.phone", json={"value": "222"}, headers=HEADERS)
+    response = await client.put(
+        "/v1/jobs/facts/contact.phone", json={"value": "222"}, headers=HEADERS
+    )
     assert response.status_code == 409
     assert store.rows["contact.phone"]["value"] == "111"
 
@@ -459,7 +465,9 @@ async def test_a_failed_upload_saves_neither(
 ) -> None:
     store.rows["contact.phone"] = _row("contact.phone", "111")
     rebuilder.after_error = httpx.ConnectError("down")
-    response = await client.put("/v1/jobs/facts/contact.phone", json={"value": "222"}, headers=HEADERS)
+    response = await client.put(
+        "/v1/jobs/facts/contact.phone", json={"value": "222"}, headers=HEADERS
+    )
     assert response.status_code == 503
     assert store.rows["contact.phone"]["value"] == "111"
 
