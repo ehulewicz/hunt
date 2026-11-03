@@ -127,7 +127,9 @@ class PostgresLearnedStore:
             elif outcome == "retired" or action == "retire":
                 current["status"] = "retired"
             elif action == "create":
+                # A kept fix, a revision included: the file is now what it says.
                 current["status"] = "trial"
+                current["latest"] = change
         result = []
         for file_path, entry in by_file.items():
             change = entry["latest"]
@@ -146,7 +148,7 @@ class PostgresLearnedStore:
                 status=entry["status"],
                 created_at=change["created_at"],
             ))
-        return result
+        return sorted(result, key=lambda fix: fix.created_at, reverse=True)
 
     async def _branches(
         self, connection: Any, user_id: UUID

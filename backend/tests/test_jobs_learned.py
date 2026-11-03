@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -146,6 +146,33 @@ async def test_a_proven_fix_reports_proven() -> None:
     connection = ScriptConnection(answer)
     report = await store_for(connection).learned(USER_ID)
     assert report.fixes[0].status == "proven"
+
+
+async def test_a_revised_fix_shows_its_newest_kept_change_and_the_newest_fix_comes_first() -> None:
+    other = FILE.replace("odd_widget", "aria_slider")
+    kept = code_change(created_at=NOW - timedelta(hours=3))
+    proven = code_change(after={"outcome": "proven", "file": FILE},
+                         created_at=NOW - timedelta(hours=2))
+    revised = change_row(subject="code", subject_id="def5678", origin="worker",
+                         created_at=NOW - timedelta(hours=1),
+                         after={"cause": "control_error", "files": [FILE], "revised": True,
+                                "summary": "captured the widget on a second site"})
+    newer = change_row(subject="code", subject_id="0a1b2c3", origin="worker",
+                       created_at=NOW - timedelta(minutes=30),
+                       after={"cause": "control_error", "files": [other],
+                              "summary": "moved the slider"})
+
+    def answer(query: str, _params: Any) -> list[dict[str, Any]]:
+        if "subject = 'code'" in query:
+            return [kept, proven, revised, newer]
+        return []
+
+    report = await store_for(ScriptConnection(answer)).learned(USER_ID)
+    assert [fix.file for fix in report.fixes] == [other, FILE]
+    widget = report.fixes[1]
+    assert (widget.commit, widget.summary, widget.status) == (
+        "def5678", "captured the widget on a second site", "trial"
+    )
 
 
 async def test_retire_records_a_retire_change_as_the_user() -> None:
