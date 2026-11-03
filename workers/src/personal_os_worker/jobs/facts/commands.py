@@ -19,14 +19,15 @@ from rich.table import Table
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
 from personal_os_worker.core.config import console
-from personal_os_worker.jobs.facts.catalog import entry, fact_values
+from personal_os_worker.jobs.facts.catalog import entry
 from personal_os_worker.jobs.facts.derived import (
     CAREER_FACTS,
+    COMPUTED_FACTS,
     DERIVED_FACTS,
     career_facts,
     computed_refusal,
     derive,
-    shadowed,
+    stored_values,
 )
 
 VALUE_TYPES = ("text", "boolean", "number", "date", "choice", "list", "object")
@@ -137,9 +138,10 @@ def render_facts(
     today: date,
     career: dict[str, Any] | None = None,
 ) -> None:
-    stored = fact_values(facts)
+    stored = stored_values(facts)
     from_career = career_facts(career, today)
-    overridden = shadowed(stored, from_career)
+    derived = derive({**from_career, **stored}, today)
+    computed = {**from_career, **derived}
     table = Table(
         title=(
             f"Facts ({len(facts)} stored, {len(DERIVED_FACTS)} derived, "
@@ -157,8 +159,13 @@ def render_facts(
     for fact in facts:
         key = str(fact["key"])
         state = "verified" if fact.get("verified_at") else "[yellow]unverified[/yellow]"
-        if key in overridden:
-            state += f" · [magenta]career says {escape(display(overridden[key]))}[/magenta]"
+        if key in COMPUTED_FACTS:
+            computed_value = computed.get(key)
+            state += (
+                " · [magenta]ignored, computed: "
+                f"{escape(display(computed_value)) if computed_value is not None
+                   else 'missing inputs'}[/magenta]"
+            )
         table.add_row(
             key,
             display(fact.get("value")),
@@ -166,12 +173,11 @@ def render_facts(
             state,
         )
     for item in CAREER_FACTS:
-        if item.key in stored or item.key not in from_career:
+        if item.key not in from_career:
             continue
         table.add_row(
             f"[cyan]{item.key}[/cyan]", escape(display(from_career[item.key])), "career", ""
         )
-    derived = derive({**from_career, **stored}, today)
     for item in DERIVED_FACTS:
         value = derived.get(item.key)
         table.add_row(
@@ -181,10 +187,11 @@ def render_facts(
             "",
         )
     console.print(table)
-    if overridden:
+    ignored = sum(1 for fact in facts if str(fact["key"]) in COMPUTED_FACTS)
+    if ignored:
         console.print(
-            f"{len(overridden)} stored fact(s) override what the career record says; "
-            "delete one with the facts review to let the record decide.",
+            f"{ignored} stored row(s) sit under computed keys and are ignored; "
+            "os hunt facts delete KEY removes one.",
             style="dim",
         )
 
@@ -207,7 +214,7 @@ def run_facts_list() -> int:
 def delete_fact(
     api: WorkerApi, key: str, *, yes: bool = False, ask: Callable[[str], str] = input,
 ) -> bool:
-    """Delete a stored row only, including an override of a career-derived value."""
+    """Delete a stored row; a row under a computed key is a leftover the worker ignores."""
     stored = next((fact for fact in api.facts() if fact["key"] == key), None)
     if stored is None:
         refusal = computed_refusal(key)

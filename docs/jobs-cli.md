@@ -88,10 +88,9 @@ os hunt sites                 # each site's latest run and its learning and fixi
 ```
 
 `facts delete KEY` shows the stored value and asks for confirmation; `--yes`
-skips the prompt. It records the deletion through the API. Removing a stored
-override lets the career record decide that fact again. A career-derived key
-without a stored row must be changed with `os hunt resume put`; other
-computed-only facts belong to code and cannot be deleted. Unknown keys are
+skips the prompt. It records the deletion through the API. A stored row under a
+computed key is ignored, so deleting it changes nothing a form gets; with no
+stored row, `facts delete` names what to change instead. Unknown keys are
 reported without sending a delete request.
 
 ```bash

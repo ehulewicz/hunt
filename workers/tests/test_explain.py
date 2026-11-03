@@ -44,10 +44,8 @@ def resolver() -> Resolver:
 
     return Resolver(Knowledge.build(
         facts=[{"key": "identity.legal_name", "value": "Alex Example"},
-               {"key": "contact.email", "value": "ethan@example.com"},
-               {"key": "education.graduation_date", "value": "2027-12-15",
-                "value_type": "date"}],
-        career=None,
+               {"key": "contact.email", "value": "ethan@example.com"}],
+        career={"education": {"graduation_date": "2027-12-15"}},
         patterns=[binding("first name", "identity.first_name"),
                   binding("email", "contact.email"),
                   {"id": "e1", "kind": "expression", "expression": r"\bgraduat",

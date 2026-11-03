@@ -235,13 +235,6 @@ def career_facts(record: dict[str, Any] | None, today: date) -> dict[str, Any]:
     return {key: value for key, value in values.items() if value not in (None, "")}
 
 
-def shadowed(stored: dict[str, Any], career: dict[str, Any]) -> dict[str, Any]:
-    """Career-derived values that a stored fact with the same key currently overrides."""
-    return {
-        key: value for key, value in career.items() if key in stored and stored[key] != value
-    }
-
-
 def repository_root() -> Path:
     configured = os.environ.get("PERSONAL_OS_REPOSITORY")
     if configured:

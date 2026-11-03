@@ -29,12 +29,13 @@ FIXTURES = Path(__file__).parent / "fixtures"
 def known(
     facts: dict[str, Any],
     *,
+    career: dict[str, Any] | None = None,
     patterns: list[dict[str, Any]] | None = None,
     prose: list[dict[str, Any]] | None = None,
 ) -> Knowledge:
     return Knowledge.build(
         facts=[{"key": key, "value": value} for key, value in facts.items()],
-        career=None,
+        career=career,
         patterns=patterns or [],
         prose=prose or [],
         company="Acme",
@@ -980,9 +981,13 @@ def test_the_model_teaches_a_pattern_and_the_pattern_pass_fills_the_field(
             {
                 "identity.legal_name": "Alex Example",
                 "preferences.other_roles": True,
-                "employment.organizations": ["Northwind"],
-                "education.school_name": "Example Institute of Technology",
                 "education.campus": "Atlanta",
+            },
+            career={
+                "education": {"school": "Example Institute of Technology"},
+                "entries": [{"section": "experience", "title": "Engineer",
+                             "org": "Northwind", "employment_type": "full_time",
+                             "start_date": "2024-01-01", "end_date": None}],
             },
             patterns=[
                 {"id": "11111111-1111-4111-8111-111111111111", "kind": "expression",
@@ -1292,7 +1297,8 @@ def test_a_fact_question_in_a_big_box_gets_the_fact_not_a_draft(
         page=browser_page,
         console_errors=[],
         knowledge=known(
-            {"education.school_name": "Example Institute of Technology"},
+            {},
+            career={"education": {"school": "Example Institute of Technology"}},
             patterns=[{"id": "e1", "kind": "expression", "status": "active",
                        "expression": r"\bschool\b.{0,40}\byou will be enrolled\b",
                        "fact_key": "education.school_name", "resolver_id": "expression:e1"}],

@@ -31,8 +31,8 @@ export function ReviewForm({ review: initialReview, facts, onDone, onBack, origi
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  // /facts contains stored rows only. A matching key may be a removable
-  // override of a career fact; computed-only facts have no row to delete.
+  // /facts contains stored rows only. A stored row under a computed key is a
+  // removable leftover the worker ignores; computed-only facts have no row.
   const canDelete = allowDelete && review.kind === "fact" && facts.some((fact) => fact.key === review.item.key);
   const inFlight = useRef(false);
   const title = review.kind === "fact" ? review.item.label ?? ("missing_fact" in review.item ? review.item.missing_fact : null) ?? "Missing fact"
@@ -128,7 +128,7 @@ export function ReviewForm({ review: initialReview, facts, onDone, onBack, origi
         {review.kind === "question" && review.item.answers.length > 0 && <details className="previous-answers"><summary>Previous answers</summary>{review.item.answers.map((answer, index) => <p key={index}><strong>{answer.company_name}</strong>: {answer.answer_text}</p>)}</details>}
         <div className="review-actions">
           {confirmingDelete && review.kind === "fact" && canDelete ? <>
-            <p role="alert">Delete {title}? This removes the stored fact. Any career-derived value with the same key will apply again.</p>
+            <p role="alert">Delete {title}? This removes the stored fact.</p>
             <button className="button button-secondary" onClick={() => void save((token) => deleteFact(token, factKey), "deleted")} type="button">{busy ? "Deleting…" : "Confirm delete"}</button>
             <button className="text-button" onClick={() => { setConfirmingDelete(false); setError(null); }} type="button">Cancel</button>
           </> : <>

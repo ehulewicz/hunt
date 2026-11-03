@@ -162,8 +162,8 @@ def test_a_format_repair_finds_the_rendering_a_typeahead_accepts(page) -> None: 
     page.set_content(TERMS_TYPEAHEAD)
     field = find_field(inspect_fields(page), "Expected graduation")
     knowledge = Knowledge.build(
-        facts=[{"key": "education.graduation_date", "value": "2027-12-15", "value_type": "date"}],
-        career=None,
+        facts=[],
+        career={"education": {"graduation_date": "2027-12-15"}},
     )
     candidate = repair_format(
         page, field, knowledge, "education.graduation_date",  # type: ignore[arg-type]
@@ -220,8 +220,8 @@ def test_a_fill_repairs_in_place_on_any_site_and_stores_the_candidate(  # type: 
         (issue_id, body)
     ))
     knowledge = Knowledge.build(
-        facts=[{"key": "education.graduation_date", "value": "2027-12-15", "value_type": "date"}],
-        career=None,
+        facts=[],
+        career={"education": {"graduation_date": "2027-12-15"}},
     )
     session = AutofillSession(cast(Any, SimpleNamespace(page=page, api=api, knowledge=knowledge)))
     failures = [
@@ -268,8 +268,8 @@ def test_a_repair_the_api_will_not_record_keeps_its_value_and_the_run(  # type: 
         )
 
     knowledge = Knowledge.build(
-        facts=[{"key": "education.graduation_date", "value": "2027-12-15", "value_type": "date"}],
-        career=None,
+        facts=[],
+        career={"education": {"graduation_date": "2027-12-15"}},
     )
     session = AutofillSession(cast(Any, SimpleNamespace(
         page=page, api=SimpleNamespace(update_autofill_failure=refuse), knowledge=knowledge,

@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from personal_os_worker.jobs.inbox import (
+    fact_view,
     print_waiting_facts,
     propose_expression,
     walk_inbox,
@@ -221,3 +222,17 @@ def test_a_missing_computed_fact_names_what_to_change(
     assert "missing fact: education.gpa (asked by 'GPA?'); education.gpa is computed " in out
     assert "os hunt resume put" in out
     assert "missing fact: contact.phone (asked by 'Phone?'); 'os hunt facts set' gives it" in out
+
+
+def test_fact_view_ignores_a_row_under_a_computed_key() -> None:
+    values = fact_view(
+        [
+            {"key": "identity.first_name", "value": "Nobody"},
+            {"key": "identity.legal_name", "value": "Eah Tree"},
+            {"key": "education.gpa", "value": 2.0},
+        ],
+        None,
+        TODAY,
+    )
+    assert values["identity.first_name"] == "Eah"
+    assert "education.gpa" not in values

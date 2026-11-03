@@ -5,14 +5,12 @@ A key is `stored` (a row in `jobs_facts` that you set and verify), `career`
 date, or the posting). The archive's translations, the Inbox, and the facts
 session all name facts by these keys, so a fact proposed from an old answer
 arrives with the right label and type.
-
-`fact_values` turns fact rows into a plain `{key: value}` mapping.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal
 
 Source = Literal["stored", "career", "derived"]
 ValueType = Literal["text", "boolean", "number", "date", "choice", "list", "object"]
@@ -325,8 +323,3 @@ CATALOG = _entries(
 
 def entry(key: str) -> CatalogEntry | None:
     return CATALOG.get(key)
-
-
-def fact_values(facts: list[dict[str, Any]]) -> dict[str, Any]:
-    """Fact rows as `{key: value}`."""
-    return {str(fact["key"]): fact.get("value") for fact in facts if fact.get("key")}

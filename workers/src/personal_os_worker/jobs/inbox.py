@@ -26,9 +26,14 @@ from typing import Any
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
 from personal_os_worker.core.config import console
-from personal_os_worker.jobs.facts.catalog import CATALOG, entry, fact_values
+from personal_os_worker.jobs.facts.catalog import CATALOG, entry
 from personal_os_worker.jobs.facts.commands import VALUE_TYPES, display, parse_value
-from personal_os_worker.jobs.facts.derived import career_facts, computed_refusal, derive
+from personal_os_worker.jobs.facts.derived import (
+    career_facts,
+    computed_refusal,
+    derive,
+    stored_values,
+)
 
 Ask = Callable[[str], str]
 FACT_KEY = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
@@ -41,9 +46,9 @@ class Quit(Exception):
 def fact_view(
     facts: list[dict[str, Any]], career: dict[str, Any] | None, today: date
 ) -> dict[str, Any]:
-    """What the system would read for each key: stored over career (R51), then derived."""
-    values = {**career_facts(career, today), **fact_values(facts)}
-    return {**derive(values, today), **values}
+    """What the system reads for each key: computed facts win over a stored row."""
+    values = {**career_facts(career, today), **stored_values(facts)}
+    return {**values, **derive(values, today)}
 
 
 def shown(key: str, values: dict[str, Any]) -> str:

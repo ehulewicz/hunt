@@ -439,24 +439,49 @@ def test_research_and_projects_never_count_toward_tenure() -> None:
     assert years_of_experience(entries, date(2030, 1, 1)) is None  # type: ignore[arg-type]
 
 
-def test_a_stored_fact_shadows_the_career_value_and_is_named() -> None:
-    from personal_os_worker.jobs.facts.derived import career_facts, shadowed
+def test_a_stored_row_under_a_computed_key_is_ignored() -> None:
+    from personal_os_worker.jobs.facts.derived import stored_values
     from personal_os_worker.jobs.resolve import Knowledge
 
-    from_career = career_facts(CAREER, date(2026, 10, 14))
-    stored = {"education.degree_type": "Bachelor's", "experience.years_professional": 4,
-              "education.school_name": "Example Institute of Technology"}
-    assert shadowed(stored, from_career) == {
-        "education.degree_type": "BS", "experience.years_professional": 2,
-    }
+    rows = [
+        {"key": "education.gpa", "value": 2.0, "label": "Mine", "value_type": "text"},
+        {"key": "identity.first_name", "value": "Nobody"},
+        {"key": "availability.term", "value": "Winter"},
+        {"key": "identity.legal_name", "value": "Eah Tree"},
+    ]
+    assert stored_values(rows) == {"identity.legal_name": "Eah Tree"}
     knowledge = Knowledge.build(
-        facts=[{"key": key, "value": value} for key, value in stored.items()],
+        facts=rows,
         career=CAREER,
         today=date(2026, 10, 14),
+        company="Acme",
+        title="Software Engineering Intern - Summer 2027",
     )
-    assert knowledge.facts["education.degree_type"] == "Bachelor's"
-    assert knowledge.facts["experience.years_professional"] == 4
-    assert knowledge.facts["education.field_of_study"] == "Computer Science"  # the career decides
+    # A career key, a derived key, and a posting key alike: the computed value
+    # wins, and the leftover row's label and type do not leak through either.
+    assert knowledge.facts["education.gpa"] == 3.78
+    assert knowledge.labels["education.gpa"] == "GPA"
+    assert knowledge.types["education.gpa"] == "number"
+    assert knowledge.facts["identity.first_name"] == "Eah"
+    assert knowledge.facts["availability.term"] == "Summer 2027"
+
+
+def test_facts_list_marks_a_row_under_a_computed_key_ignored(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from personal_os_worker.jobs.facts.commands import render_facts
+
+    monkeypatch.setenv("COLUMNS", "200")  # wide enough for the whole state column
+    render_facts(
+        [{"key": "education.gpa", "value": 2.0, "value_type": "number",
+          "verified_at": "earlier"}],
+        today=date(2026, 10, 14),
+        career=CAREER,
+    )
+    out = capsys.readouterr().out
+    assert out.count("education.gpa") == 2  # the leftover row and the computed one
+    assert "ignored, computed: 3.78" in out
+    assert "1 stored row(s) sit under computed keys and are ignored" in out
 
 
 @pytest.mark.parametrize(

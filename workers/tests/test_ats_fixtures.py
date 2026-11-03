@@ -1,3 +1,4 @@
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -68,7 +69,13 @@ BINDINGS: dict[str, tuple[str, str | None]] = {
 }
 
 
-def knowing(facts: dict[str, Any], *, company: str = "Acme") -> Resolver:
+def knowing(
+    facts: dict[str, Any],
+    *,
+    career: dict[str, Any] | None = None,
+    today: date | None = None,
+    company: str = "Acme",
+) -> Resolver:
     """Facts decide the value; accepted bindings only say which fact a question asks for."""
     rows = [{"key": key, "value": value} for key, value in facts.items()]
     patterns = [
@@ -77,7 +84,9 @@ def knowing(facts: dict[str, Any], *, company: str = "Acme") -> Resolver:
         for index, (question, (key, formatter)) in enumerate(BINDINGS.items())
     ]
     return Resolver(
-        Knowledge.build(facts=rows, career=None, patterns=patterns, company=company)
+        Knowledge.build(
+            facts=rows, career=career, patterns=patterns, company=company, today=today
+        )
     )
 
 
@@ -147,10 +156,16 @@ def test_ashby_megazone_fixture_fills_standing_facts(browser_page) -> None:  # t
     resolver = knowing(
         {
             "compensation.minimum": {"amount": 40, "currency": "USD", "period": "hour"},
-            "education.graduation_date": "2027-12-15",
-            "coop.completed_rotations": 4,
             "availability.onsite": True,
         },
+        career={
+            "education": {"graduation_date": "2027-12-15"},
+            # The co-op's four passed boundaries decide the rotation count.
+            "entries": [{"section": "experience", "title": "Co-op", "org": "Acme",
+                         "employment_type": "coop", "start_date": "2025-05-01",
+                         "end_date": None}],
+        },
+        today=date(2026, 10, 14),
         company="Megazone",
     )
     plan = build_autofill_plan(fields, resolver=resolver)
@@ -647,10 +662,13 @@ def test_ashby_education_controls_use_nested_labels_and_search_for_school(
     plan = build_autofill_plan(
         fields,
         resolver=knowing(
-            {
-                "education.school_name": "Example Institute of Technology",
-                "education.graduation_date": "2027-12-15",
-            }
+            {},
+            career={
+                "education": {
+                    "school": "Example Institute of Technology",
+                    "graduation_date": "2027-12-15",
+                }
+            },
         ),
     )
     assert [(fill.index, fill.value) for fill in plan.fills] == [
@@ -977,7 +995,7 @@ def test_free_entry_typeahead_commits_the_typed_value_with_enter(
 ) -> None:
     browser_page.set_content(FREE_ENTRY_GPA)
     fields = inspect_fields(browser_page)
-    plan = build_autofill_plan(fields, resolver=knowing({"education.gpa": 3.78}))
+    plan = build_autofill_plan(fields, resolver=knowing({}, career={"education": {"gpa": "3.78"}}))
     assert [fill.value for fill in plan.fills] == ["3.78"]
     result = apply_autofill(
         browser_page, fields, plan, resume_path=None, assert_active=lambda: None
@@ -989,7 +1007,9 @@ def test_free_entry_typeahead_commits_the_typed_value_with_enter(
     assert refreshed[0]["filled"] is True
     assert snapshot_values(browser_page, refreshed)[refreshed[0]["label"]]["answer_text"] == "3.78"
     # Already answered: no tier plans it again.
-    replan = build_autofill_plan(refreshed, resolver=knowing({"education.gpa": 4.0}))
+    replan = build_autofill_plan(
+        refreshed, resolver=knowing({}, career={"education": {"gpa": "4.0"}})
+    )
     assert replan.fills == ()
 
 
@@ -1046,7 +1066,7 @@ def test_gpa_number_picks_the_listed_range_without_typing_it_away(
     ]
     assert browser_page.locator("[role=option]").count() == 0  # menu closed again
 
-    plan = build_autofill_plan(fields, resolver=knowing({"education.gpa": 3.78}))
+    plan = build_autofill_plan(fields, resolver=knowing({}, career={"education": {"gpa": "3.78"}}))
     result = apply_autofill(
         browser_page, fields, plan, resume_path=None, assert_active=lambda: None
     )

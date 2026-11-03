@@ -48,10 +48,9 @@ determines — school, degree, graduation, GPA, coursework, the high school's
 name, city and graduation year (from a `high_school` education row), whole years
 of experience, the current employer, every organization, every skill — are
 derived from the record by `jobs/facts/career.py`. Every stored entry counts,
-printed on the resume or not, and an activity never counts as employment. A
-stored fact with the same
-key still wins until `os hunt facts delete KEY` removes that override, and
-`os hunt facts` marks each one that disagrees with the record.
+printed on the resume or not, and an activity never counts as employment. These
+facts are computed and never stored: a stored row under one of their keys is
+ignored, `os hunt facts` marks it, and `os hunt facts delete KEY` removes it.
 
 The narrative library is the writing long-form answers are composed from,
 edited at /library or with `os hunt library get` (its entries as JSON) and
@@ -457,8 +456,10 @@ them; missing facts never imply No.
 An unanswered field remains an outlined, actionable gap even when optional.
 
 **Which value.** Every value comes from a fact. `jobs/resolve.py` builds the
-run's `Knowledge` — stored facts over career-derived ones, then the derived and
-posting facts: the derived ones in `jobs/facts/derived.py` include the LGBTQ+
+run's `Knowledge` — the career, derived, and posting facts are computed and
+always win, while a stored row under one of their keys is ignored and stored
+facts answer every other key: the derived ones in `jobs/facts/derived.py`
+include the LGBTQ+
 flag from transgender and orientation, the U.S.-person export statuses from
 citizenship, the degree level, program level, and highest completed degree from
 the degree type and enrollment, and the full-time start year after graduating.

@@ -6,9 +6,9 @@ names), the career record's rows, and the date it is asked on.
 
 Career-derived facts follow the resume: education from its primary row, tenure
 from the union of experience spans, co-op rotations and prior internships from
-its co-op and internship entries, the current employer, and every skill. Until
-the facts session settles them, a stored fact with the same key wins (R51);
-`shadowed` names the ones where the two disagree.
+its co-op and internship entries, the current employer, and every skill. Every
+fact declared here is computed (COMPUTED_FACTS): never stored, and a stored row
+under its key is ignored.
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ from personal_os_worker.jobs.facts.career import (
     career_facts,
     completed_rotations,
     prior_internship,
-    shadowed,
     years_of_experience,
 )
 from personal_os_worker.jobs.facts.posting import (
@@ -72,7 +71,7 @@ __all__ = [
     "overlaps_final_term",
     "posting_facts",
     "prior_internship",
-    "shadowed",
+    "stored_values",
     "worked_for",
     "years_of_experience",
 ]
@@ -343,6 +342,16 @@ def computed_refusal(key: str) -> str | None:
         steps.append(f"set {', '.join(stored)}")
     tail = "; ".join(steps) if steps else "it is decided for each application"
     return f"{key} is computed from {', '.join(item.reads)}; {tail}"
+
+
+def stored_values(facts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Fact rows as `{key: value}`; a stored row under a computed key is a
+    leftover and is ignored."""
+    return {
+        str(fact["key"]): fact.get("value")
+        for fact in facts
+        if fact.get("key") and str(fact["key"]) not in COMPUTED_FACTS
+    }
 
 
 def graduation_term(graduation: date) -> str:

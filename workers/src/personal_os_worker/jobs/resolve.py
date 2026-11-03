@@ -23,8 +23,14 @@ from datetime import date
 from typing import Any, Literal
 
 from personal_os_worker.jobs.autofill import AnswerResolution, is_narrative_box
-from personal_os_worker.jobs.facts.catalog import CATALOG, fact_values
-from personal_os_worker.jobs.facts.derived import career_facts, derive, posting_facts
+from personal_os_worker.jobs.facts.catalog import CATALOG
+from personal_os_worker.jobs.facts.derived import (
+    COMPUTED_FACTS,
+    career_facts,
+    derive,
+    posting_facts,
+    stored_values,
+)
 from personal_os_worker.jobs.options import (
     expression_matches,
     normalize_answer_question,
@@ -88,21 +94,26 @@ class Knowledge:
         referral: dict[str, Any] | None = None,
         site: str = "",
     ) -> Knowledge:
-        """Stored facts over career-derived ones (R51), then derived and posting facts."""
+        """Career, derived, and posting facts are computed and always win.
+
+        A stored row under one of their keys is ignored; stored facts answer
+        every other key.
+        """
         day = today or date.today()
-        stored = fact_values(facts)
+        stored = stored_values(facts)
         base = {**career_facts(career, day), **stored}
+        derived = derive(base, day)
         values = {
-            **derive(base, day),
+            **base,
+            **derived,
             **posting_facts(
-                {**derive(base, day), **base},
+                {**base, **derived},
                 company,
                 prior_applications,
                 title=title,
                 today=day,
                 referral=referral,
             ),
-            **base,
         }
         types: dict[str, str] = {
             key: CATALOG[key].value_type for key in values if key in CATALOG
@@ -111,11 +122,16 @@ class Knowledge:
             str(row["key"]): str(row.get("value_type"))
             for row in facts
             if row.get("key") and row.get("value_type")
+            and str(row["key"]) not in COMPUTED_FACTS
         }
         for key, value in values.items():
             types.setdefault(key, _type_of(value))
         labels = {key: CATALOG[key].label for key in values if key in CATALOG}
-        labels |= {str(row["key"]): str(row.get("label")) for row in facts if row.get("label")}
+        labels |= {
+            str(row["key"]): str(row.get("label"))
+            for row in facts
+            if row.get("label") and str(row["key"]) not in COMPUTED_FACTS
+        }
         return cls(
             facts=values,
             types=types,

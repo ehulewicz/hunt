@@ -12,10 +12,12 @@ YES_NO = {"tag": "select", "options": ["Yes", "No"]}
 def knowledge(
     facts: dict[str, Any],
     patterns: list[dict[str, Any]] | None = None,
+    *,
+    career: dict[str, Any] | None = None,
 ) -> Knowledge:
     return Knowledge.build(
         facts=[{"key": key, "value": value} for key, value in facts.items()],
-        career=None,
+        career=career,
         patterns=patterns or [],
         company="Acme",
     )
@@ -75,7 +77,7 @@ def test_without_a_pattern_nothing_answers_even_an_old_question() -> None:
 
 
 def test_misses_say_which_fact_is_missing_or_what_did_not_fit() -> None:
-    resolver = Resolver(knowledge({"education.gpa": 3.78}, patterns=[
+    resolver = Resolver(knowledge({}, career={"education": {"gpa": "3.78"}}, patterns=[
         binding("are you at least 18 years of age", "identity.adult"),
         binding("what is your gpa", "education.gpa"),
     ]))
