@@ -340,23 +340,37 @@ src/personal_os_backend/
   main.py           create_app, CORS, error middleware, /health and /v1/account
   auth.py           JWKS fetch, JWT validation, single-identity enforcement
   config.py         pydantic-settings Settings, PERSONAL_OS_API_* env vars
-  database.py       psycopg async pool, role assumption, bootstrap store
+  database.py       psycopg async pool, role assumption, bootstrap store, StoreBase
   models.py         non-Jobs response models
   jobs_router.py    every /v1/jobs/* route except facts
   jobs_facts.py     /v1/jobs/facts: models, store, routes, per-type value validation
-  jobs_career.py    /v1/jobs/career: the resume as rows, rendered to and parsed from its document
+  jobs_career.py    /v1/jobs/career routes; the record lives in the three modules below
+  jobs_career_text.py  how the resume spells months, ranges, titles, locations, decimals, the header
+  jobs_career_document.py  the document and row models, the writing rules, conversion both ways
+  jobs_career_store.py  the record in Postgres: read as rows with its document, replaced from one
   jobs_registry.py  fill-event models and recording, with control and strategy upserts
   jobs_models.py    Jobs request/response schemas and validation
-  jobs_store.py     all Jobs SQL (the largest module by far)
+  jobs_store.py     JobsStore and PostgresJobsStore, composed from the table-family modules below
+  jobs_listings.py  postings and companies: the board, the sync, lookup by number, id, or URL
+  jobs_applications.py  the application lifecycle
+  jobs_runs.py      autofill runs: created with their context, steps, completion, stop
+  jobs_answer_history.py  a run's observed and final answer rows, and the prose kept from them
+  jobs_failures.py  failure issues and occurrences: the repair queue, sites, validation targets
   jobs_sources.py   SpeedyApply README parsing and location normalization
   jobs_sync.py      standalone sync entry point, runs as the Cloud Run Job
   jobs_storage.py   private Storage bucket reads and writes (incl. the resume PDF)
-  jobs_answers.py   questions, patterns, prose, the archive, and the Inbox
+  jobs_answers.py   inbox, question, pattern, prose, and archive routes over the modules below
+  jobs_questions.py  whether a label asks a question, its key, expression matching, recording it
+  jobs_patterns.py  bindings and expressions to facts, what a model may not undo, activation
+  jobs_dispositions.py  questions by disposition, and changing one
+  jobs_prose.py     prose with where each stretch came from, and the read-only archive
+  jobs_inbox.py     the Inbox: everything waiting on you
   jobs_changes.py   /v1/jobs/changes and /sightings: the change history and what it is replayed against
   jobs_search.py    cached question embeddings and similarity search
   jobs_devices.py   /v1/jobs/devices: the heartbeat upsert and the device list
   jobs_career_pdf.py  deterministic LaTeX builds: the resume PDF, the printed
                     projection, and POST /v1/jobs/cover-letter/pdf
+  jobs_career_latex.py  the LaTeX those builds compile: the preamble, resume and letter bodies
   jobs_public.py    /v1/public/resume.pdf: the one unauthenticated read
   jobs_library.py   /v1/jobs/library: the narrative library
   jobs_gaps.py      /v1/jobs/prose/gaps and application-scoped prose reuse

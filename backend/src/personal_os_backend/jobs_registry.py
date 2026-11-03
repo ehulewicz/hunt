@@ -105,23 +105,7 @@ async def record_fill_events(
         attributes = Jsonb(event.attributes)
         control_key = (event.kind, repr(sorted(event.attributes.items())))
         if control_key not in controls:
-            cursor = await connection.execute(
-                """
-                with inserted as (
-                  insert into app.jobs_controls (user_id, kind, attributes)
-                  values (%s, %s, %s)
-                  on conflict (user_id, kind, attributes) do nothing
-                  returning id
-                )
-                select id from inserted
-                union all
-                select id from app.jobs_controls
-                where user_id = %s and kind = %s and attributes = %s
-                limit 1
-                """,
-                (user_id, event.kind, attributes, user_id, event.kind, attributes),
-            )
-            row = await cursor.fetchone()
+            row = await _upsert_control(connection, user_id, event.kind, attributes)
             if row is None:
                 continue
             controls[control_key] = row["id"]
@@ -129,61 +113,112 @@ async def record_fill_events(
         if event.strategy is not None:
             strategy_key = (event.strategy, event.kind)
             if strategy_key not in strategies:
-                cursor = await connection.execute(
-                    """
-                    with inserted as (
-                      insert into app.jobs_strategies (user_id, name, control_kind, precedence)
-                      values (%s, %s, %s, %s)
-                      on conflict (user_id, name, control_kind) do nothing
-                      returning id
-                    )
-                    select id from inserted
-                    union all
-                    select id from app.jobs_strategies
-                    where user_id = %s and name = %s and control_kind = %s
-                    limit 1
-                    """,
-                    (
-                        user_id, event.strategy, event.kind, UNSEEDED_PRECEDENCE,
-                        user_id, event.strategy, event.kind,
-                    ),
-                )
-                row = await cursor.fetchone()
+                row = await _upsert_strategy(connection, user_id, event.strategy, event.kind)
                 if row is not None:
                     strategies[strategy_key] = row["id"]
             strategy_id = strategies.get(strategy_key)
-        await connection.execute(
-            """
-            insert into app.jobs_fill_events (
-              user_id, run_id, step, question_key, resolver_id, fact_key, formatter,
-              source, control_id, strategy_id, ats, value_hash, stopped_at, operated_ok,
-              question_id, pattern_id, options, knowledge
-            ) values (
-              %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-              (select id from app.jobs_patterns where id = %s and user_id = %s), %s, %s
-            )
-            """,
-            (
-                user_id,
-                run_id,
-                step,
-                question_key,
-                event.resolver_id,
-                event.fact_key,
-                event.formatter,
-                event.source,
-                controls[control_key],
-                strategy_id,
-                ats,
-                event.value_hash,
-                event.stopped_at,
-                event.operated_ok,
-                question_id,
-                event.pattern_id,
-                user_id,
-                Jsonb(event.options) if event.options is not None else None,
-                Jsonb(event.knowledge.model_dump()) if event.knowledge is not None else None,
-            ),
+        await _insert_fill_event(
+            connection, event, user_id=user_id, run_id=run_id, step=step, ats=ats,
+            question_key=question_key, question_id=question_id,
+            control_id=controls[control_key], strategy_id=strategy_id,
         )
         written += 1
     return written
+
+
+async def _upsert_control(
+    connection: AsyncConnection[Any], user_id: UUID, kind: str, attributes: Jsonb
+) -> Any:
+    """The control's row, inserting it the first time its kind and attributes are seen."""
+    cursor = await connection.execute(
+        """
+        with inserted as (
+          insert into app.jobs_controls (user_id, kind, attributes)
+          values (%s, %s, %s)
+          on conflict (user_id, kind, attributes) do nothing
+          returning id
+        )
+        select id from inserted
+        union all
+        select id from app.jobs_controls
+        where user_id = %s and kind = %s and attributes = %s
+        limit 1
+        """,
+        (user_id, kind, attributes, user_id, kind, attributes),
+    )
+    return await cursor.fetchone()
+
+
+async def _upsert_strategy(
+    connection: AsyncConnection[Any], user_id: UUID, strategy: str, kind: str
+) -> Any:
+    """The strategy's row for this kind, registering an unseeded one at the fallback precedence."""
+    cursor = await connection.execute(
+        """
+        with inserted as (
+          insert into app.jobs_strategies (user_id, name, control_kind, precedence)
+          values (%s, %s, %s, %s)
+          on conflict (user_id, name, control_kind) do nothing
+          returning id
+        )
+        select id from inserted
+        union all
+        select id from app.jobs_strategies
+        where user_id = %s and name = %s and control_kind = %s
+        limit 1
+        """,
+        (
+            user_id, strategy, kind, UNSEEDED_PRECEDENCE,
+            user_id, strategy, kind,
+        ),
+    )
+    return await cursor.fetchone()
+
+
+async def _insert_fill_event(
+    connection: AsyncConnection[Any],
+    event: FillEventCreate,
+    *,
+    user_id: UUID,
+    run_id: UUID,
+    step: int,
+    ats: str,
+    question_key: str,
+    question_id: UUID | None,
+    control_id: UUID,
+    strategy_id: UUID | None,
+) -> None:
+    """Write one attempt's row, linked to its question, control, strategy, and pattern."""
+    await connection.execute(
+        """
+        insert into app.jobs_fill_events (
+          user_id, run_id, step, question_key, resolver_id, fact_key, formatter,
+          source, control_id, strategy_id, ats, value_hash, stopped_at, operated_ok,
+          question_id, pattern_id, options, knowledge
+        ) values (
+          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+          (select id from app.jobs_patterns where id = %s and user_id = %s), %s, %s
+        )
+        """,
+        (
+            user_id,
+            run_id,
+            step,
+            question_key,
+            event.resolver_id,
+            event.fact_key,
+            event.formatter,
+            event.source,
+            control_id,
+            strategy_id,
+            ats,
+            event.value_hash,
+            event.stopped_at,
+            event.operated_ok,
+            question_id,
+            event.pattern_id,
+            user_id,
+            Jsonb(event.options) if event.options is not None else None,
+            Jsonb(event.knowledge.model_dump()) if event.knowledge is not None else None,
+        ),
+    )

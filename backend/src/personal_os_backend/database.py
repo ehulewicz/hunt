@@ -9,6 +9,13 @@ from psycopg_pool import AsyncConnectionPool
 from personal_os_backend.config import Settings
 
 
+class StoreBase:
+    """The pool and timeout every store mixin shares; the composed store sets both."""
+
+    _pool: AsyncConnectionPool[Any]
+    _timeout: float
+
+
 def create_pool(settings: Settings) -> AsyncConnectionPool[Any]:
     return AsyncConnectionPool(
         conninfo=str(settings.database_url),

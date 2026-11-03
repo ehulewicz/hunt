@@ -28,7 +28,7 @@ def normalize_answer_question(value: str) -> str:
 
 # Marks a form puts on a label that are not part of the question: a required
 # star, a colon, a question mark, a trailing "(optional)" or "(please note...)".
-# The backend keeps an identical copy in jobs_answers.py.
+# The backend keeps an identical copy in jobs_questions.py.
 TRAILING_MARKS = re.compile(r"(?:\s*(?:[*\u2731:?]|\([^()]*\)))+\s*$")
 
 
