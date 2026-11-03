@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from time import monotonic
 from typing import Annotated, Any, Protocol, cast
 from uuid import UUID
@@ -6,12 +7,40 @@ import httpx
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 
 from personal_os_backend.config import Settings
-from personal_os_backend.models import Principal
 
 ALLOWED_ALGORITHMS = frozenset({"RS256", "ES256", "EdDSA"})
 bearer = HTTPBearer(auto_error=False)
+
+
+@dataclass(frozen=True, slots=True)
+class Principal:
+    user_id: UUID
+    email: str
+    display_name: str
+    avatar_url: str | None
+
+
+class AccountResponse(BaseModel):
+    user_id: UUID
+    email: str
+    display_name: str
+    avatar_url: str | None
+
+    @classmethod
+    def from_principal(cls, principal: Principal) -> "AccountResponse":
+        return cls(
+            user_id=principal.user_id,
+            email=principal.email,
+            display_name=principal.display_name,
+            avatar_url=principal.avatar_url,
+        )
+
+
+class HealthResponse(BaseModel):
+    status: str
 
 
 class InvalidAccessToken(Exception):

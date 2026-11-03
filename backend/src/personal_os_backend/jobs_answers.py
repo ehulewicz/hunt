@@ -19,8 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from psycopg_pool import AsyncConnectionPool
 
 from personal_os_backend.auth import CurrentPrincipal
-from personal_os_backend.config import Settings
-from personal_os_backend.database import StoreBase
+from personal_os_backend.config import Settings, StoreBase
 from personal_os_backend.jobs_dispositions import QuestionsMixin, QuestionsStore
 from personal_os_backend.jobs_inbox import Inbox, InboxMixin, InboxStore, ProseGap
 from personal_os_backend.jobs_patterns import (

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal, Protocol
 from uuid import UUID, uuid4
 
 import httpx
@@ -15,8 +15,13 @@ from fastapi import (
     UploadFile,
     status,
 )
+from psycopg_pool import AsyncConnectionPool
 
 from personal_os_backend.auth import CurrentPrincipal
+from personal_os_backend.config import Settings, StoreBase
+from personal_os_backend.jobs_applications import ApplicationsMixin, ApplicationsStore
+from personal_os_backend.jobs_failures import FailuresMixin, FailuresStore
+from personal_os_backend.jobs_listings import AmbiguousReference, ListingsMixin, ListingsStore
 from personal_os_backend.jobs_models import (
     ApplicationCreate,
     ApplicationUpdate,
@@ -39,15 +44,26 @@ from personal_os_backend.jobs_models import (
     RoleFamily,
     ValidationTarget,
 )
+from personal_os_backend.jobs_runs import AutofillRunsMixin, AutofillRunsStore, CompletionConflict
 from personal_os_backend.jobs_sources import SpeedyApplySource
 from personal_os_backend.jobs_storage import JobsDocumentStorage
-from personal_os_backend.jobs_store import (
-    AmbiguousReference,
-    CompletionConflict,
-    JobsStore,
-    get_jobs_store,
-)
-from personal_os_backend.jobs_sync import run_sync
+
+
+class JobsStore(ListingsStore, ApplicationsStore, AutofillRunsStore, FailuresStore, Protocol): ...
+
+
+class PostgresJobsStore(
+    ListingsMixin, ApplicationsMixin, AutofillRunsMixin, FailuresMixin, StoreBase
+):
+    def __init__(self, pool: AsyncConnectionPool[Any], timeout: float) -> None:
+        self._pool = pool
+        self._timeout = timeout
+
+
+async def get_jobs_store(request: Request) -> JobsStore:
+    settings: Settings = request.app.state.settings
+    return PostgresJobsStore(request.app.state.pool, settings.database_pool_timeout_seconds)
+
 
 router = APIRouter(prefix="/v1/jobs", tags=["jobs"])
 Store = Annotated[JobsStore, Depends(get_jobs_store)]
@@ -110,6 +126,8 @@ async def get_listing(reference: str, principal: CurrentPrincipal, store: Store)
 
 @router.post("/listings/sync", response_model=ListingSyncResponse)
 async def sync_listings(principal: CurrentPrincipal, store: Store) -> ListingSyncResponse:
+    from personal_os_backend.jobs_sync import run_sync
+
     try:
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             return await run_sync(principal.user_id, SpeedyApplySource(client), store)

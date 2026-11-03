@@ -10,7 +10,7 @@ from personal_os_backend.jobs_models import (
     AutofillRunComplete,
     AutofillStepCreate,
 )
-from personal_os_backend.jobs_store import PostgresJobsStore
+from personal_os_backend.jobs_router import PostgresJobsStore
 
 
 class RecordingConnection:
@@ -302,7 +302,7 @@ def test_finish_rejects_inconsistent_submission_status() -> None:
 
 async def test_finish_conflict_exits_transaction_without_inserting_answers() -> None:
     from personal_os_backend.jobs_models import AutofillRunFinish
-    from personal_os_backend.jobs_store import CompletionConflict
+    from personal_os_backend.jobs_runs import CompletionConflict
 
     class ConflictConnection(RecordingConnection):
         rolled_back = False

@@ -137,7 +137,7 @@ its own binding: the named pattern must be the question's active binding with
 origin `model`, and activating the new one retires the old. A fill
 event never proposes a pattern. An expression matches a label as written or
 with its trailing marks stripped ("Gender *" is "Gender"), like the worker's
-resolver. `GET /v1/jobs/inbox` · `GET /v1/jobs/learned` (the Learned section: fixes with trial/proven/retired status, model-taught branches, unsolved problems, per-run model usage) · `POST /v1/jobs/learned/changes/code/{id}/retire` (reverts a kept fix) lists candidate and
+resolver. `GET /v1/jobs/inbox` · `GET /v1/jobs/learned` (the Learned section: fixes with trial/proven/retired status, model-taught branches, unsolved problems, per-run model usage) · `POST /v1/jobs/changes/code/{change_id}/retire` (reverts a kept fix) lists candidate and
 repaired patterns with the answers recorded for their question (`checks` holds
 those whose replay failed, apart from plain `candidates`), unbound short
 questions you answered, unapproved prose, `facts` waiting on you (never
@@ -325,7 +325,7 @@ uses it. All three must pass:
 cd backend && uv run ruff check . && uv run mypy src/ && uv run pytest -q
 ```
 
-Currently 257 tests. `mypy` is scoped to `src/` because the test suite is not
+Currently 262 tests. `mypy` is scoped to `src/` because the test suite is not
 annotated; `pyproject.toml` already pins `packages = ["personal_os_backend"]`, so bare
 `uv run mypy` — the form CI uses — checks the same files.
 
@@ -337,12 +337,11 @@ starts the same way from anywhere.
 
 ```text
 src/personal_os_backend/
-  main.py           create_app, CORS, error middleware, /health and /v1/account
-  auth.py           JWKS fetch, JWT validation, single-identity enforcement
-  config.py         pydantic-settings Settings, PERSONAL_OS_API_* env vars
-  database.py       psycopg async pool, role assumption, bootstrap store, StoreBase
-  models.py         non-Jobs response models
-  jobs_router.py    every /v1/jobs/* route except facts
+  main.py           create_app, CORS, error middleware, /health, /v1/me and /v1/bootstrap
+  auth.py           JWKS fetch, JWT validation, single-identity enforcement, the Principal,
+                    and the non-Jobs response models
+  config.py         pydantic-settings Settings, PERSONAL_OS_API_* env vars, the psycopg
+                    async pool, its readiness check, and StoreBase
   jobs_facts.py     /v1/jobs/facts: models, store, routes, per-type value validation
   jobs_career.py    /v1/jobs/career routes; the record lives in the three modules below
   jobs_career_text.py  how the resume spells months, ranges, titles, locations, decimals, the header
@@ -350,7 +349,8 @@ src/personal_os_backend/
   jobs_career_store.py  the record in Postgres: read as rows with its document, replaced from one
   jobs_registry.py  fill-event models and recording, with control and strategy upserts
   jobs_models.py    Jobs request/response schemas and validation
-  jobs_store.py     JobsStore and PostgresJobsStore, composed from the table-family modules below
+  jobs_router.py    listing, application, autofill-run, failure, and /worker/doctor routes over
+                    JobsStore and PostgresJobsStore, composed from the table-family modules below
   jobs_listings.py  postings and companies: the board, the sync, lookup by number, id, or URL
   jobs_applications.py  the application lifecycle
   jobs_runs.py      autofill runs: created with their context, steps, completion, stop
@@ -366,6 +366,8 @@ src/personal_os_backend/
   jobs_prose.py     prose with where each stretch came from, and the read-only archive
   jobs_inbox.py     the Inbox: everything waiting on you
   jobs_changes.py   /v1/jobs/changes and /sightings: the change history and what it is replayed against
+  jobs_learned.py   /v1/jobs/learned: the Inbox's Learned section, kept code fixes and how each
+                    stands, model-taught branches, unsolved problems, per-run model usage
   jobs_search.py    cached question embeddings and similarity search
   jobs_devices.py   /v1/jobs/devices: the heartbeat upsert and the device list
   jobs_career_pdf.py  deterministic LaTeX builds: the resume PDF, the printed

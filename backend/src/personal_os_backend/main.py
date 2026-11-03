@@ -8,9 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
-from personal_os_backend.auth import CurrentPrincipal, JwtValidator
-from personal_os_backend.config import Settings
-from personal_os_backend.database import create_pool, database_is_ready
+from personal_os_backend.auth import AccountResponse, CurrentPrincipal, HealthResponse, JwtValidator
+from personal_os_backend.config import Settings, create_pool, database_is_ready
 from personal_os_backend.jobs_answers import router as answers_router
 from personal_os_backend.jobs_career import router as career_router
 from personal_os_backend.jobs_career_pdf import router as career_pdf_router
@@ -23,7 +22,6 @@ from personal_os_backend.jobs_library import router as library_router
 from personal_os_backend.jobs_public import router as public_router
 from personal_os_backend.jobs_router import router as jobs_router
 from personal_os_backend.jobs_search import router as search_router
-from personal_os_backend.models import AccountResponse, HealthResponse
 
 Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None]]
 

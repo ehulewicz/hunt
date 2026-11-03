@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 from pydantic import ValidationError
 
+from personal_os_backend.auth import Principal
 from personal_os_backend.config import Settings
 from personal_os_backend.jobs_library import (
     LibraryEntryWrite,
@@ -15,7 +16,6 @@ from personal_os_backend.jobs_library import (
     get_library_store,
 )
 from personal_os_backend.main import create_app
-from personal_os_backend.models import Principal
 
 USER_ID = UUID("c3c8d239-162d-4e5e-a2a1-4ac0d1b3695f")
 HEADERS = {"Authorization": "Bearer approved"}

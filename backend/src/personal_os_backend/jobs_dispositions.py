@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 from uuid import UUID
 
-from personal_os_backend.database import StoreBase
+from personal_os_backend.config import StoreBase
 from personal_os_backend.jobs_changes import record_change
 from personal_os_backend.jobs_patterns import (
     PATTERN_COLUMNS,

@@ -8,7 +8,7 @@ from uuid import UUID
 from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 
-from personal_os_backend.database import StoreBase
+from personal_os_backend.config import StoreBase
 from personal_os_backend.jobs_answer_history import (
     record_final_answer,
     record_observation,

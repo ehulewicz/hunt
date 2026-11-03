@@ -8,6 +8,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from personal_os_backend.auth import Principal
 from personal_os_backend.config import Settings
 from personal_os_backend.jobs_devices import (
     DeviceHeartbeat,
@@ -16,7 +17,6 @@ from personal_os_backend.jobs_devices import (
     is_online,
 )
 from personal_os_backend.main import create_app
-from personal_os_backend.models import Principal
 
 USER_ID = UUID("c3c8d239-162d-4e5e-a2a1-4ac0d1b3695f")
 DEVICE_ID = UUID("33333333-3333-4333-8333-333333333333")

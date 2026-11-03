@@ -9,7 +9,7 @@ from uuid import UUID
 from psycopg import AsyncConnection
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from personal_os_backend.database import StoreBase
+from personal_os_backend.config import StoreBase
 from personal_os_backend.jobs_changes import Action, Origin, record_change
 from personal_os_backend.jobs_questions import upsert_question
 

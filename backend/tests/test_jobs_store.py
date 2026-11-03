@@ -113,7 +113,7 @@ def test_autofill_run_cte_returns_the_selected_ats() -> None:
 
 def test_board_numbers_listings_once_before_any_filter() -> None:
     """The row number is a window over the whole board, so every view agrees."""
-    from personal_os_backend.jobs_store import BOARD_QUERY
+    from personal_os_backend.jobs_listings import BOARD_QUERY
 
     board = " ".join(BOARD_QUERY.as_string(None).split())
     assert "row_number() over ( order by case when posting.role_families && %s::text[]" in board

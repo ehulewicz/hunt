@@ -6,11 +6,11 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from personal_os_backend.auth import Principal
 from personal_os_backend.config import Settings
 from personal_os_backend.jobs_career_pdf import PdfError, get_pdf_compiler
 from personal_os_backend.jobs_storage import get_document_storage
 from personal_os_backend.main import create_app
-from personal_os_backend.models import Principal
 
 USER_ID = UUID("c3c8d239-162d-4e5e-a2a1-4ac0d1b3695f")
 HEADERS = {"Authorization": "Bearer approved"}

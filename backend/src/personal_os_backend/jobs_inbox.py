@@ -10,7 +10,7 @@ from uuid import UUID
 from psycopg import AsyncConnection
 from pydantic import BaseModel, Field
 
-from personal_os_backend.database import StoreBase
+from personal_os_backend.config import StoreBase
 from personal_os_backend.jobs_changes import CHANGE_SELECT, Change, latest_failed
 from personal_os_backend.jobs_patterns import (
     FACT_KEY,

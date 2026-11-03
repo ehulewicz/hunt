@@ -8,7 +8,7 @@ from uuid import UUID
 
 from psycopg import sql
 
-from personal_os_backend.database import StoreBase
+from personal_os_backend.config import StoreBase
 from personal_os_backend.jobs_models import ApplicationUpdate, JobApplication
 
 

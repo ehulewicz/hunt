@@ -8,17 +8,12 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from personal_os_backend.auth import InvalidAccessToken
+from personal_os_backend.auth import InvalidAccessToken, Principal
 from personal_os_backend.config import Settings
+from personal_os_backend.jobs_failures import latest_per_site, registrable_site
 from personal_os_backend.jobs_models import AutofillSite
-from personal_os_backend.jobs_store import (
-    PostgresJobsStore,
-    get_jobs_store,
-    latest_per_site,
-    registrable_site,
-)
+from personal_os_backend.jobs_router import PostgresJobsStore, get_jobs_store
 from personal_os_backend.main import create_app
-from personal_os_backend.models import Principal
 
 USER_ID = UUID("c3c8d239-162d-4e5e-a2a1-4ac0d1b3695f")
 

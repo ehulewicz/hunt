@@ -7,7 +7,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from personal_os_backend.auth import InvalidAccessToken
+from personal_os_backend.auth import InvalidAccessToken, Principal
 from personal_os_backend.config import Settings
 from personal_os_backend.jobs_models import (
     ApplicationUpdate,
@@ -16,10 +16,9 @@ from personal_os_backend.jobs_models import (
     JobListingPage,
     ListingSyncResponse,
 )
+from personal_os_backend.jobs_router import get_jobs_store
 from personal_os_backend.jobs_sources import SpeedyApplySource
-from personal_os_backend.jobs_store import get_jobs_store
 from personal_os_backend.main import create_app
-from personal_os_backend.models import Principal
 
 USER_ID = UUID("c3c8d239-162d-4e5e-a2a1-4ac0d1b3695f")
 APPLICATION_ID = UUID("11111111-1111-4111-8111-111111111111")
@@ -58,7 +57,7 @@ class FakeJobsStore:
         return JobListingPage(items=[], total=0, limit=200, offset=0)
 
     async def get_listing(self, user_id: UUID, reference: str) -> JobListing | None:
-        from personal_os_backend.jobs_store import AmbiguousReference
+        from personal_os_backend.jobs_listings import AmbiguousReference
 
         if reference == "1111":
             raise AmbiguousReference(reference)
@@ -448,7 +447,7 @@ async def test_atomic_finish_validates_outcome_and_reports_conflicts(
     app: FastAPI, client: httpx.AsyncClient,
 ) -> None:
     from personal_os_backend.jobs_models import AutofillRunFinish
-    from personal_os_backend.jobs_store import CompletionConflict
+    from personal_os_backend.jobs_runs import CompletionConflict
 
     calls: list[UUID] = []
 

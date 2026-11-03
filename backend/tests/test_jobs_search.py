@@ -81,9 +81,9 @@ async def test_similar_no_longer_takes_prose_only() -> None:
 
     from fastapi import FastAPI
 
+    from personal_os_backend.auth import Principal
     from personal_os_backend.config import Settings
     from personal_os_backend.main import create_app
-    from personal_os_backend.models import Principal
 
     user = UUID("c3c8d239-162d-4e5e-a2a1-4ac0d1b3695f")
 
