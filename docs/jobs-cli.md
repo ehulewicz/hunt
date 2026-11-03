@@ -198,8 +198,9 @@ pattern decides goes to one bounded local Claude pass per page step, which only
 names the fact that answers it and may propose an expression for every wording;
 the worker saves it as a pattern (tagged `learned`) and the pattern pass fills
 the field. A question a pattern decides never goes to the model, even when its
-fact is missing. `--no-claude` skips that pass. A textarea is seeded with approved prose
-for the same question, else a Claude draft that leans on your earlier writing.
+fact is missing. `--no-claude` skips that pass. A textarea is seeded with an answer
+composed from the narrative library, else a Claude draft grounded in the facts
+and the whole career record, with your earlier writing as reference only.
 
 Once every tier has had its turn on a page step, the **audit** looks at what is
 still wrong and fixes what it can before telling you anything. A field with no

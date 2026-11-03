@@ -163,6 +163,9 @@ def test_a_linked_run_that_fails_tells_the_page_why(
         def career(self) -> dict[str, Any]:
             return {"document": {}}
 
+        def library(self) -> list[dict[str, Any]]:
+            return []
+
         def create_autofill_run(self, **_: Any) -> dict[str, Any]:
             return {"run_id": "r1", "application_url": "https://jobs.example/1",
                     "company_name": "Acme", "title": "Intern"}

@@ -6,7 +6,6 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
-import httpx
 from playwright.sync_api import Error
 
 from personal_os_worker.core.config import console
@@ -19,6 +18,7 @@ from personal_os_worker.jobs.browser import (
     fresh_control,
     verify_control,
 )
+from personal_os_worker.jobs.compose import Posting, fact_rows
 from personal_os_worker.jobs.cover_letter import (
     placeholder_slots,
     render_letter,
@@ -51,18 +51,15 @@ def similar_answers(
     threshold: float = SIMILAR_THRESHOLD,
     limit: int = SIMILAR_LIMIT,
 ) -> list[dict[str, Any]]:
-    """Rank library answers whose question resembles this one, best first.
+    """Rank stored prose whose question resembles this one, best first.
 
-    Exact matches are excluded because the caller already handles them as the
-    seed; this list is the reference material below the divider.
+    The exact match ranks first at ratio 1.0: nothing is seeded from prose any
+    more, so this list is reference material only.
     """
-    key = normalize_answer_question(question)
     scored: list[tuple[float, dict[str, Any]]] = []
     for answer in answers:
         other = str(answer.get("question") or answer.get("normalized_question") or "")
         if not other or not str(answer.get("answer_text") or "").strip():
-            continue
-        if normalize_answer_question(other) == key:
             continue
         score = question_similarity(question, other)
         if score >= threshold:
@@ -75,26 +72,11 @@ class WritingMixin(SessionBase):
     # ----- long-form drafts ------------------------------------------------
 
     def references(self, question: str) -> list[dict[str, Any]]:
-        """Your approved writing on similar questions; the archive is never a suggestion."""
+        """Stored prose on similar questions, best first: reference for the
+        fallback drafter only, never filled as is."""
         key = normalize_answer_question(question)
         if key in self.state.similar_prose:
             return self.state.similar_prose[key]
-        search = getattr(self.ctx.api, "similar_questions", None)
-        if search is not None:
-            try:
-                matches = search(question, prose_only=True)
-                references = [
-                    {"question": match["question"], "answer_text": prose["text"]}
-                    for match in matches for prose in match.get("prose") or []
-                    if prose.get("approved") and str(prose.get("text") or "").strip()
-                ][:5]
-                self.state.similar_prose[key] = references
-                return references
-            except (httpx.HTTPError, RuntimeError):
-                self.warn_once(
-                    "similarity-unavailable", "Question similarity is unavailable; "
-                    "using wording matches for approved prose.",
-                )
         writing = [
             {"question": item.get("question_label"), "answer_text": item.get("text")}
             for item in self.ctx.knowledge.prose
@@ -104,26 +86,15 @@ class WritingMixin(SessionBase):
 
     def seed_for(self, question: str, *, limit: int | None = None) -> tuple[str, str, str, str]:
         """Return (seed text, seed source, resolver id, human note)."""
-        key = normalize_answer_question(question)
-        approved = next(
-            (
-                item
-                for item in self.ctx.knowledge.prose
-                if normalize_answer_question(str(item.get("question_label") or "")) == key
-                and str(item.get("text") or "").strip()
-            ),
-            None,
-        )
-        if approved is not None:
-            text = str(approved["text"]).strip()
-            self.state.origins[question] = ("", (text,))
-            return text, "prose", f"prose:{approved.get('id')}", "approved prose (edit freely)"
         if not self.ctx.use_claude:
-            return "", "empty", "", "drafting disabled; write it, it is saved at the run's end"
-        references = self.references(question)
+            return "", "empty", "", "drafting disabled; write it yourself"
         if question in self.state.drafted:
             return "", "empty", "", "a draft was already tried this run; answer still needed"
         self.state.drafted.add(question)
+        composed = self._compose_seed(question, limit)
+        if composed is not None:
+            return composed
+        references = self.references(question)
         draft = self.call_model(self.ctx.drafter,
             question=question,
             base=None,
@@ -143,14 +114,50 @@ class WritingMixin(SessionBase):
                 draft, tuple(str(item.get("answer_text") or "") for item in references)
             )
             return draft, "model", "model:long_form_v1", "claude draft tailored to this posting"
-        return "", "empty", "", "no approved prose and no claude draft; write from scratch"
+        return (
+            "", "empty", "",
+            "the library did not cover it and no claude draft came back; write it yourself",
+        )
+
+    def _compose_seed(
+        self, question: str, limit: int | None
+    ) -> tuple[str, str, str, str] | None:
+        """One answer composed from the narrative library, or None when it does not cover it."""
+        if not self.ctx.library:
+            return None
+        composed = self.call_model(
+            self.ctx.composer,
+            question=question,
+            max_length=int(limit) if limit is not None else None,
+            posting=Posting(self.ctx.company, self.ctx.title, self.ctx.description or ""),
+            # Rebuilt per call: a fact set mid-run rebuilds this knowledge.
+            facts=fact_rows(self.ctx.knowledge),
+            career=self.ctx.resume_json,
+            library=self.ctx.library,
+            attempts=2,
+        )
+        if (
+            composed is None
+            or composed.composition is None
+            or composed.composition.coverage == "missing"
+            or not composed.composition.answer.strip()
+        ):
+            return None
+        composition = composed.composition
+        return (
+            composition.answer,
+            "prose",
+            "library:" + ",".join(composition.sources),
+            "composed from library " + ", ".join(composition.sources),
+        )
 
     def fill_long_form(self, fields: list[dict[str, Any]]) -> None:
         """Seed every prose control with its best answer and say which deserve a look.
 
-        An exact library answer goes in as is. Otherwise a Claude draft grounded
-        in the posting goes in and is flagged for review. A control that already
-        holds text is kept, and one with nothing to offer is left alone.
+        An answer composed from the narrative library goes in first. Otherwise
+        a Claude draft grounded in the facts and the whole career record goes in
+        and is flagged for review. A control that already holds text is kept,
+        and one with nothing to offer is left alone.
         """
         for item in fields:
             if not is_long_form_field(item):
@@ -196,7 +203,7 @@ class WritingMixin(SessionBase):
             key = f"{self.state.step}:{item.get('fingerprint') or ''}#{item['index']}"
             self.state.resolutions[key] = AnswerResolution(seed, source, resolver_id)
             self.state.announced[key] = seed
-            label = "claude draft" if source == "model" else "prose"
+            label = "claude draft" if source == "model" else "library"
             echo("long-form", question, seed, note=label)
             if source == "model":
                 self.state.review.append((question, label))

@@ -14,7 +14,7 @@ from personal_os_backend.jobs_answer_history import (
     record_observation,
 )
 from personal_os_backend.jobs_failures import record_step_failures
-from personal_os_backend.jobs_gaps import application_prose
+from personal_os_backend.jobs_gaps import stored_prose
 from personal_os_backend.jobs_models import (
     AutofillFailureIssue,
     AutofillRunComplete,
@@ -119,9 +119,9 @@ class AutofillRunsMixin(StoreBase):
             )
             preferences = await _control_preferences(connection, user_id)
             patterns = await active_patterns(connection, user_id)
-            # Only this application's own saved prose is reused (approved or
-            # not); approving prose no longer feeds other applications.
-            prose = await application_prose(connection, user_id, row["application_id"])
+            # Every stored prose row rides along as reference for the fallback
+            # drafter; nothing fills a field from it as is.
+            prose = await stored_prose(connection, user_id)
         return AutofillRunContext(
             **{key: value for key, value in row.items() if key != "company_id"},
             facts=[dict(fact) for fact in facts],

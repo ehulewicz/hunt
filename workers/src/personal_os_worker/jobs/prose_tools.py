@@ -9,13 +9,17 @@ jobs/compose.py with purpose "draft", each question its own begin_run.
 from __future__ import annotations
 
 import csv
-from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from personal_os_worker.core.config import console
 from personal_os_worker.jobs import model
-from personal_os_worker.jobs.compose import LibraryText, Posting, compose
+from personal_os_worker.jobs.compose import (
+    Posting,
+    compose,
+    fact_rows,
+    library_texts,
+)
 from personal_os_worker.jobs.library import link_entries, parse_bank
 from personal_os_worker.jobs.resolve import Knowledge
 
@@ -26,45 +30,6 @@ SKIP_CLUSTERS = {"fact", "followup", "quiz"}
 FACT_HEADINGS = ("org", "employer", "title")
 
 
-def _linked_names(
-    entries: Sequence[dict[str, Any]], career: dict[str, Any]
-) -> dict[str, str]:
-    """Each entry's linked career entry heading (`title | org`, or just title)."""
-    career_rows = {
-        str(row.get("id")): row
-        for section in ("experience", "research", "projects", "activities")
-        for row in (career.get(section) or [])
-    }
-    names = {}
-    for entry in entries:
-        row = career_rows.get(str(entry.get("entry_id") or ""))
-        if row:
-            parts = [str(row.get("title") or ""), str(row.get("org") or "")]
-            names[entry["code"]] = " | ".join(part for part in parts if part)
-    return names
-
-
-def library_texts(entries: Sequence[dict[str, Any]], career: dict[str, Any]) -> list[LibraryText]:
-    """Answered entries only, as the composer sees them."""
-    names = _linked_names(entries, career)
-    return [
-        LibraryText(
-            code=entry["code"], section=entry["section"],
-            subject=entry.get("subject"), linked=names.get(entry["code"]),
-            prompt=entry.get("prompt") or "", answer=entry.get("answer") or "",
-        )
-        for entry in entries
-        if (entry.get("answer") or "").strip()
-    ]
-
-
-def _facts(api: WorkerApi, knowledge: Knowledge) -> list[tuple[str, str, Any]]:
-    return [
-        (key, str(knowledge.labels.get(key) or key), value)
-        for key, value in knowledge.facts.items()
-    ]
-
-
 def run_prose_try(
     api: WorkerApi, *, library: Path, questions: Path, out: Path, max_calls: int | None
 ) -> int:
@@ -72,7 +37,7 @@ def run_prose_try(
     entries, _warnings = link_entries(parse_bank(library), career)
     texts = library_texts(entries, career)
     knowledge = Knowledge.build(facts=api.facts(), career=api.career())
-    facts = _facts(api, knowledge)
+    facts = fact_rows(knowledge)
     rows = [
         row for row in csv.DictReader(questions.open(encoding="utf-8"), delimiter="\t")
         if row.get("cluster") not in SKIP_CLUSTERS
@@ -187,7 +152,7 @@ def run_prose_coverage(
     entries = api.library()
     texts = library_texts(entries, career)
     knowledge = Knowledge.build(facts=api.facts(), career=api.career())
-    facts = _facts(api, knowledge)
+    facts = fact_rows(knowledge)
     open_gaps = {
         str(gap.get("question_id")): gap for gap in api.prose_gaps(open_only=True)
     }

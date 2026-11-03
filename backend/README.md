@@ -114,9 +114,8 @@ ones. The Inbox carries open gaps in `gaps`.
 
 A prose span's `source` is `model`, `previous`, or `library`; a `library` span
 names its library entry code in `entry`, and only a library span has one. A
-run's context carries only **this application's** saved prose — the latest row
-per question, approved or not — so approving an answer feeds no other
-application.
+run's context carries every stored prose row, newest first and approved or not,
+as reference for the fallback drafter; nothing fills a field from it as is.
 
 ### Questions, patterns, prose, and the archive
 
@@ -162,7 +161,7 @@ while the GitHub file remains the discovery URL.
 
 The signed-in CLI creates an autofill run from a posting ID. FastAPI upserts the
 application and returns only that user's direct URL, posting context, facts,
-active patterns, this application's saved prose (the latest row per question),
+active patterns, every stored prose row (newest first),
 validated control preferences, and duplicate-company warnings.
 Step results, changed-answer observations, and final values come back through
 authenticated endpoints and are stored as application history linked to their
@@ -375,7 +374,7 @@ src/personal_os_backend/
   jobs_career_latex.py  the LaTeX those builds compile: the preamble, resume and letter bodies
   jobs_public.py    /v1/public/resume.pdf: the one unauthenticated read
   jobs_library.py   /v1/jobs/library: the narrative library
-  jobs_gaps.py      /v1/jobs/prose/gaps and application-scoped prose reuse
+  jobs_gaps.py      /v1/jobs/prose/gaps and the stored prose a run carries
 tests/              pytest suite, async mode auto
 Dockerfile          builds from the repository root build context, not from here
 ```

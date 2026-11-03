@@ -30,6 +30,7 @@ from personal_os_worker.jobs.autofill import (
     is_sensitive_field,
 )
 from personal_os_worker.jobs.browser import VisibleBrowser
+from personal_os_worker.jobs.compose import Composed, LibraryText, compose
 from personal_os_worker.jobs.cover_letter import (
     LetterSlots,
     LetterTemplate,
@@ -62,6 +63,7 @@ class SkippedByUser(Exception):
 
 
 Drafter = Callable[..., str | None]
+Composer = Callable[..., Composed]
 ShortDrafter = Callable[..., dict[str, Verdict]]
 AnswerChecker = Callable[..., dict[str, Judgement]]
 
@@ -90,9 +92,13 @@ class SessionContext:
     description: str | None
     # The career record, so a fact set mid-application can rebuild what is known.
     career: dict[str, Any] | None = None
+    # The narrative library, as the composer sees it; empty means the fallback
+    # drafter writes every long-form answer.
+    library: tuple[LibraryText, ...] = ()
     transcript_pdf: Path | None = None
     dry_run: bool = False
     drafter: Drafter = draft_contextual_answer
+    composer: Composer = compose
     short_drafter: ShortDrafter = draft_short_answers
     # Orders facts by how close their labels are to each question, for the
     # short-answer pass; None runs it unranked.

@@ -18,6 +18,7 @@ from personal_os_worker.core.doctor import python_check
 from personal_os_worker.core.service import ensure_chrome
 from personal_os_worker.device.link import socket_path
 from personal_os_worker.jobs.account import AccountFlow
+from personal_os_worker.jobs.compose import LibraryText, library_texts
 from personal_os_worker.jobs.posting_page import _reach_the_posting
 from personal_os_worker.jobs.resolve import Knowledge
 
@@ -92,7 +93,7 @@ def _run_application(posting_id: str, options: _ApplyOptions) -> str:
     mirror = contextlib.ExitStack()
     result = "failed"
     try:
-        career, resume_json, resume_pdf, run = _create_run(api, posting_id)
+        career, resume_json, resume_pdf, run, library = _create_run(api, posting_id)
         run_id = str(run["run_id"])
         link = RunLink.connect(
             run_id=run_id,
@@ -123,8 +124,8 @@ def _run_application(posting_id: str, options: _ApplyOptions) -> str:
             result = _fill_application(
                 api, browser, page, console_errors, reused=reused, run=run, run_id=run_id,
                 ats=ats, knowledge=knowledge, career=career, resume_json=resume_json,
-                resume_pdf=resume_pdf, fixes=fixes, link=link, cdp_url=config.cdp_url,
-                options=options,
+                resume_pdf=resume_pdf, library=library, fixes=fixes, link=link,
+                cdp_url=config.cdp_url, options=options,
             )
             return result
     except KeyboardInterrupt:
@@ -179,20 +180,21 @@ def _prepare(remote: bool) -> tuple[CliConfig, WorkerApi]:
 
 def _create_run(
     api: WorkerApi, posting_id: str
-) -> tuple[dict[str, Any], dict[str, Any], Path, dict[str, Any]]:
-    """Read the career record and the resume PDF, then create the run."""
+) -> tuple[dict[str, Any], dict[str, Any], Path, dict[str, Any], list[LibraryText]]:
+    """Read the career record, the library, and the resume PDF, then create the run."""
     from personal_os_worker.core.service import state_dir
     from personal_os_worker.jobs.facts.career import download_resume_pdf
     from personal_os_worker.jobs.sites import adapter_version
 
     career = api.career()
     resume_json = dict(career["document"])
+    library = library_texts(api.library(), resume_json)
     resume_pdf = download_resume_pdf(api, state_dir() / "resume")
     version = adapter_version()
     run = api.create_autofill_run(
             posting_id=posting_id, ats="generic", adapter_version=version
         )
-    return career, resume_json, resume_pdf, run
+    return career, resume_json, resume_pdf, run, library
 
 
 def _knowledge(
@@ -283,6 +285,7 @@ def _fill_application(
     career: dict[str, Any],
     resume_json: dict[str, Any],
     resume_pdf: Path,
+    library: list[LibraryText],
     fixes: FixQueue | None,
     link: RunLink | None,
     cdp_url: str,
@@ -316,6 +319,7 @@ def _fill_application(
             title=expected_title,
             description=body,
             career=career,
+            library=tuple(library),
             transcript_pdf=transcript_pdf_path(),
             dry_run=options.dry_run,
             use_claude=not options.no_claude,

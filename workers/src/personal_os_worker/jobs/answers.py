@@ -80,10 +80,10 @@ def draft_contextual_answer(
     limit: int | None = None,
     attempts: int = 2,
 ) -> str | None:
-    """Draft one long-form answer from the posting, the resume, and the facts.
+    """Draft one long-form answer from the posting, the whole career record, and the facts.
 
-    `references` is your approved prose on similar questions, to lean on; it is
-    never copied verbatim unless it is the `base`.
+    `references` is your stored prose on similar questions, reference only; it
+    is never copied verbatim unless it is the `base`.
     """
     schema = {
         "type": "object",
@@ -110,10 +110,16 @@ from silence. A personal summary should use the supplied career record and stren
 QUESTION: {question}
 BASE: {base or "(new answer)"}
 POSTING: {json.dumps(posting, default=str)[:30000]}
-CANONICAL RESUME: {json.dumps(resume, default=str)[:30000]}
-KNOWN FACTS: {json.dumps(facts, default=str)[:15000]}
-YOUR EARLIER WRITING ON SIMILAR QUESTIONS: {json.dumps(references, default=str)[:15000]}
     """.strip()
+    prompt += (
+        "\nCAREER RECORD (every entry is true, including entries marked \"onResume\": false"
+        " and every \"moreBullets\" item, which are left off the printed resume): "
+        f"{json.dumps(resume, default=str)}\n"
+        f"KNOWN FACTS: {json.dumps(facts, default=str)[:15000]}\n"
+        "YOUR EARLIER WRITING ON SIMILAR QUESTIONS (reference only, often written for"
+        " another company; never copy a sentence that names or depends on that company): "
+        f"{json.dumps(references, default=str)[:15000]}"
+    )
     fact_text = json.dumps({"resume": resume, "facts": facts, "base": base}, default=str)
     for _ in range(attempts):
         output = model.run(model.argv(prompt, schema=schema), purpose="draft")

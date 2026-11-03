@@ -83,6 +83,24 @@ def test_compose_accepts_and_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "failed these checks" in calls[1]
 
 
+def test_compose_retries_a_non_json_reply() -> None:
+    calls: list[str] = []
+    outputs = iter(["not json at all", *reply(GOOD)])
+    result = compose(question="Why Acme?", max_length=None, posting=POSTING,
+                     facts=[], career={}, library=[lib()],
+                     runner=lambda argv: (calls.append(argv[-1]), next(outputs))[1])
+    assert result.composition is not None and result.attempts == 2
+    assert "reply is not JSON" in calls[1]
+
+
+def test_compose_fails_on_non_json_twice() -> None:
+    result = compose(question="Q", max_length=None, posting=POSTING,
+                     facts=[], career={}, library=[lib()],
+                     runner=lambda argv: "not json at all")
+    assert result.composition is None and result.attempts == 2
+    assert result.failures == ("reply is not JSON",)
+
+
 def test_compose_fails_twice() -> None:
     bad = {**GOOD, "sources": ["9.9"]}
     result = compose(question="Q", max_length=None, posting=POSTING,

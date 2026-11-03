@@ -68,7 +68,12 @@ was not given, a non-interest entry as the interest, an answer when coverage is
 missing or none when it is not, a semicolon, colon or dash, a cliché, markup, a
 number in no cited source, or a reply over the question's stated limit. A
 rejected reply is retried once with the failures listed; two failures leave the
-question unanswered. `os hunt prose try --library MD --questions TSV --out
+question unanswered. At fill time every long-form field is composed this way
+first; a question the library does not cover — an empty library, coverage
+missing, an empty answer, or two failed attempts — goes to the fallback
+drafter, which writes it from the facts and the whole career record with the
+run's stored prose as reference only, and is flagged for review.
+`os hunt prose try --library MD --questions TSV --out
 REPORT.md` composes an answer for every prose question in an audit TSV against a
 bank file and writes a report; it fills and saves nothing. `os hunt prose
 coverage` lists the open gaps by family, ranked by companies affected; `--scan`
@@ -257,11 +262,9 @@ yours. Previous writing wins when both sources match, and matches shorter than
 ordered, and never overlap. Every run saves its prose for review, including runs
 not submitted: a long-form answer goes to the API the moment its text changes, a
 draft as it is written and your edits as you make them, so a killed run loses
-none of it. For a new question, the worker asks FastAPI for semantically similar
-questions with approved prose, caches that result for the run, and supplies up
-to five pieces to the existing drafting call. Exact approved questions reuse
-their prose directly. If semantic search is unavailable, it reports that and
-uses the existing wording comparison; no embedding key is kept on the device.
+none of it. The fallback drafter sees up to five pieces of stored prose on
+similar questions — a wording comparison, best first, cached for the run — as
+reference only; stored prose is never filled as it stands.
 
 ## Repair
 

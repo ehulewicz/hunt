@@ -2,9 +2,8 @@
 
 An entry is a piece of writing or a direction for it — an interest, evidence,
 a story, a note — named by a dotted code (1.1, 2.2.11, 5.1.E2, 6.1.P3), and
-optionally bound to the resume entry it backs. The worker's fill-time model
-calls read the library when they draft long-form answers; a `library`
-provenance span records which entry a stretch came from. Every write here
+optionally bound to the resume entry it backs. At fill time the worker
+composes long-form answers from it. Every write here
 records a `jobs_changes` row in the same transaction, and only an explicit
 DELETE removes an entry.
 """

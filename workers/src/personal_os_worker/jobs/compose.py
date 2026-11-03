@@ -13,10 +13,13 @@ import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from personal_os_worker.jobs import model
 from personal_os_worker.jobs.answers import CLICHES, TAG_LEAK, clean_answer_text
+
+if TYPE_CHECKING:
+    from personal_os_worker.jobs.resolve import Knowledge
 
 FAMILIES = ("why_company", "why_role", "proudest_work", "technical_deep_dive",
             "hardest_problem", "ownership", "ai_tools", "learning_goals",
@@ -82,6 +85,48 @@ class Composed:
     composition: Composition | None   # None when no attempt passed the guards
     failures: tuple[str, ...]         # the last attempt's guard failures
     attempts: int                     # model calls made
+
+
+def _linked_names(
+    entries: Sequence[dict[str, Any]], career: dict[str, Any]
+) -> dict[str, str]:
+    """Each entry's linked career entry heading (`title | org`, or just title)."""
+    career_rows = {
+        str(row.get("id")): row
+        for section in ("experience", "research", "projects", "activities")
+        for row in (career.get(section) or [])
+    }
+    names = {}
+    for entry in entries:
+        row = career_rows.get(str(entry.get("entry_id") or ""))
+        if row:
+            parts = [str(row.get("title") or ""), str(row.get("org") or "")]
+            names[entry["code"]] = " | ".join(part for part in parts if part)
+    return names
+
+
+def library_texts(
+    entries: Sequence[dict[str, Any]], career: dict[str, Any]
+) -> list[LibraryText]:
+    """Answered entries only, as the composer sees them."""
+    names = _linked_names(entries, career)
+    return [
+        LibraryText(
+            code=entry["code"], section=entry["section"],
+            subject=entry.get("subject"), linked=names.get(entry["code"]),
+            prompt=entry.get("prompt") or "", answer=entry.get("answer") or "",
+        )
+        for entry in entries
+        if (entry.get("answer") or "").strip()
+    ]
+
+
+def fact_rows(knowledge: Knowledge) -> list[tuple[str, str, Any]]:
+    """Every fact with its label, as the composer sees them."""
+    return [
+        (key, str(knowledge.labels.get(key) or key), value)
+        for key, value in knowledge.facts.items()
+    ]
 
 
 _WORD_MAXES = re.compile(
@@ -413,7 +458,11 @@ def compose(
     for attempt in range(attempts):
         text = prompt + (RETRY.format(failures="; ".join(failure_list)) if attempt else "")
         made += 1
-        payload = model.structured(runner(model.argv(text, schema=SCHEMA)))
+        try:
+            payload = model.structured(runner(model.argv(text, schema=SCHEMA)))
+        except json.JSONDecodeError:
+            failure_list = ["reply is not JSON"]
+            continue
         failure_list, parsed = _guard_failures(
             payload, library=library, career=career, facts=facts,
             posting=posting, limit=limit, classify_only=classify_only,

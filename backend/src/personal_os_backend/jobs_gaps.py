@@ -1,12 +1,12 @@
-"""Prose gaps and application-scoped prose reuse.
+"""Prose gaps and the stored prose a run carries.
 
 A gap records a long-form question the library covers only partly or not at
 all, so the Inbox can hold it until the writing exists. A question carries at
 most one open gap: posting again updates it, and resolving it frees the next.
 
-`application_prose` is the only prose a run's context carries: this
-application's own saved answers, latest per question, approved or not. Saved
-prose never feeds a different application.
+`stored_prose` is the prose a run's context carries: every stored row, newest
+first. The worker's fallback drafter reads it as reference only; nothing fills
+a field from it as is.
 """
 
 from __future__ import annotations
@@ -69,19 +69,11 @@ class ProseGapWrite(BaseModel):
     missing_detail: str = Field(default="", max_length=2000)
 
 
-async def application_prose(
-    connection: AsyncConnection[Any], user_id: UUID, application_id: UUID
-) -> list[Prose]:
-    """This application's own saved prose, latest row per question."""
+async def stored_prose(connection: AsyncConnection[Any], user_id: UUID) -> list[Prose]:
+    """Every stored prose row for the user, newest first."""
     cursor = await connection.execute(
-        f"""
-        select distinct on (prose.question_id) *
-        from (
-          {PROSE_SELECT} where prose.user_id = %s and prose.application_id = %s
-        ) prose
-        order by prose.question_id, prose.updated_at desc
-        """,
-        (user_id, application_id),
+        f"{PROSE_SELECT} where prose.user_id = %s order by prose.updated_at desc",
+        (user_id,),
     )
     return [Prose.model_validate(row) for row in await cursor.fetchall()]
 

@@ -40,8 +40,8 @@ FORMATTER   how to write it for this control ◄────┤
 | **Control** | The widget, identified by one of 7 kinds (text, select, radio group, multi-choice, toggle, typeahead, file) or a custom kind, plus its structure. Never by question or ATS | `jobs_controls`, for tracking only; custom kinds in `jobs/registry/kinds/learned/` | A widget no kind captures is an `unknown_control` finding |
 | **Strategy** | The Python operation that puts a value into that kind of widget: type, pick an option, click a radio, type then pick a suggestion | worker code (`jobs/registry/strategies/`, `OPERATIONS`, a custom kind's own); the run's code fixer is switched off. `jobs_strategies` only tracks names | A validated repair can prefer a strategy for one control |
 | **Fill event** | One row per attempt: question, control, strategy, fact, formatter, and where it stopped | `jobs_fill_events` | n/a |
-| **Answer history** | What the page actually held, and who put it there: pattern, model, you, or reused prose | `jobs_application_questions` | Marked submitted or not |
-| **Prose** | Long-form writing, on its own track. Reused for the same question once approved | `jobs_prose` | `approved` is set |
+| **Answer history** | What the page actually held, and who put it there: pattern, model, you, or composed prose | `jobs_application_questions` | Marked submitted or not |
+| **Prose** | Long-form writing, on its own track. A run carries it as reference for the fallback drafter, never filled as is | `jobs_prose` | `approved` is set |
 | **Archive** | The answer library from before the Oct 14 restart | `jobs_archive_answers` | Read-only, and no run reads it |
 
 ## Where the details are

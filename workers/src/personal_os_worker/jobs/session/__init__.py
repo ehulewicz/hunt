@@ -5,7 +5,8 @@ pattern: one you accepted, or one a model verdict taught and the worker checked
 (design §8, R67). The model never writes a value; prose and the cover letter's
 slots are the only text it drafts.
 The archive is never consulted while applying. Every textarea is seeded with
-approved prose or a Claude draft, and drafts are listed for review. Everything
+an answer composed from the narrative library or a Claude draft, and drafts are
+listed for review. Everything
 still empty — required or optional — is outlined on the page and listed with why
 it is empty; the user types it, the worker polls the page, saves every answer it
 can see, and watches for a visible Submit control. The user owns Next and
@@ -28,6 +29,7 @@ from personal_os_worker.jobs.session.context import (
     TRIED,
     VALUE_WIDTH,
     AnswerChecker,
+    Composer,
     Drafter,
     LetterDrafter,
     LetterRenderer,
@@ -63,6 +65,7 @@ __all__ = [
     "VALUE_WIDTH",
     "AnswerChecker",
     "AutofillSession",
+    "Composer",
     "Drafter",
     "LetterDrafter",
     "LetterRenderer",

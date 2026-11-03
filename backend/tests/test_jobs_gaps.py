@@ -12,8 +12,8 @@ from personal_os_backend.config import Settings
 from personal_os_backend.jobs_gaps import (
     PostgresGapStore,
     ProseGapWrite,
-    application_prose,
     get_gap_store,
+    stored_prose,
 )
 from personal_os_backend.main import create_app
 
@@ -248,13 +248,16 @@ class CaptureConnection:
         return []
 
 
-async def test_run_prose_is_scoped_to_its_application() -> None:
+async def test_run_prose_is_every_stored_row_newest_first() -> None:
     connection = CaptureConnection()
-    result = await application_prose(connection, USER_ID, APPLICATION_ID)  # type: ignore[arg-type]
+    result = await stored_prose(connection, USER_ID)  # type: ignore[arg-type]
     assert result == []
-    assert connection.params == (USER_ID, APPLICATION_ID)
+    assert connection.params == (USER_ID,)
     assert connection.query is not None
-    assert "prose.application_id = %s" in connection.query
+    assert "prose.user_id = %s" in connection.query
+    # No application filter: every stored row rides along, newest first.
+    assert "prose.application_id = %s" not in connection.query
+    assert "order by prose.updated_at desc" in connection.query
     # Approved or not: there is no approved filter on the rows it reads.
     assert "and prose.approved" not in connection.query
 

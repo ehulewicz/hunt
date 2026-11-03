@@ -68,7 +68,7 @@ class FakeApi:
     def __init__(self) -> None:
         self.steps: list[dict[str, Any]] = []
         self.artifacts: list[str] = []
-        self.library: dict[str, dict[str, Any]] = {}
+        self.saved_library: dict[str, dict[str, Any]] = {}
         self.facts_set: list[tuple[str, Any]] = []
         self.patterns_created: list[dict[str, Any]] = []
         # Accepted answers a learned pattern is replayed against (`/v1/jobs/sightings`).
@@ -109,8 +109,11 @@ class FakeApi:
         return [{"key": key, "value": value} for key, value in self.facts_set]
 
     def create_answer(self, **item: Any) -> dict[str, Any]:
-        self.library[str(item["question"])] = item
+        self.saved_library[str(item["question"])] = item
         return item
+
+    def library(self) -> list[dict[str, Any]]:
+        return []
 
     def persist_autofill_step(self, run_id: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
         self.steps.append(payload)
@@ -136,7 +139,7 @@ def test_save_now_does_not_approve_collected_model_answer() -> None:
     session.save_now()
     session.save_now()
 
-    assert api.library == {}
+    assert api.saved_library == {}
     assert len(api.steps) == 1
     assert api.steps[0]["observations"] == [
         {"event_index": 0, "question": "Why this company?"}
@@ -655,7 +658,7 @@ def test_ctrl_d_skips_the_listing_and_still_saves_what_was_picked_up(
     (tmp_path / "main.pdf").write_bytes(b"%PDF-1.4\n%%EOF")
     outcome = AutofillSession(context).run()
     assert outcome["skipped"] is True and "submitted" not in outcome
-    assert api.library == {}
+    assert api.saved_library == {}
     assert any(item["answer_text"] == "Half an answer." for item in outcome["answers"])
 
 
@@ -917,7 +920,7 @@ def test_session_seeds_long_form_records_every_answer_and_ends_on_submit(
     assert "Review before submitting" in printed
     assert "picked up  Country" in printed and "-> Canada" in printed
     # Ctrl+S keeps the current values in the run without approving reuse.
-    assert api.library == {}
+    assert api.saved_library == {}
     assert "answer observation(s) for review" in printed
     assert printed.count("picked up  Country") == 1
     assert "picked up  Why this team?" not in printed  # the seed already reported it
@@ -1054,7 +1057,7 @@ def test_the_model_teaches_a_pattern_and_the_pattern_pass_fills_the_field(
     assert (campus["source"], campus["pattern_id"]) == ("pattern", "learned-1")
     assert all(event["source"] != "model" for event in events)
     assert all(event["knowledge"]["facts"]["education.campus"] == "Atlanta" for event in events)
-    assert api.library == {}
+    assert api.saved_library == {}
     # Nothing accepted was there to contradict it; it was replayed all the same.
     assert api.created_with[0]["verification"] == {"sampled": 0, "failed": 0}
     assert api.created_with[0]["failure"] == {
@@ -1466,7 +1469,7 @@ def test_ctrl_a_saves_marks_submitted_and_ends(
     outcome = AutofillSession(context).run()
 
     assert outcome["submitted"] is True
-    assert api.library == {}
+    assert api.saved_library == {}
     assert "Marked as submitted." in capsys.readouterr().out
 
 
@@ -1550,18 +1553,20 @@ def test_no_claude_leaves_unmatched_long_form_manual() -> None:
     assert "disabled" in note
 
 
-def test_no_claude_still_reuses_approved_prose_for_the_same_question() -> None:
+def test_stored_prose_is_reference_only_never_seeded_verbatim() -> None:
     session = state_machine_session()
     session.ctx.use_claude = False
+    session.ctx.library = ()
     session.ctx.knowledge = known(
         {},
         prose=[{"id": "p1", "question_label": "Why this team?", "text": "Approved wording"}],
     )
-    assert session.seed_for("Why this team?") == (
-        "Approved wording", "prose", "prose:p1", "approved prose (edit freely)"
-    )
-    seed, source, _resolver, _note = session.seed_for("Why that team?")
+    seed, source, _resolver, _note = session.seed_for("Why this team?")
     assert (seed, source) == ("", "empty")
+    # The stored row still reaches the fallback drafter as reference, best first.
+    assert session.references("Why this team?") == [
+        {"question": "Why this team?", "answer_text": "Approved wording"}
+    ]
 
 
 def test_consent_group_with_two_boxes_announces_each_box_once(
@@ -1603,7 +1608,8 @@ def test_greenhouse_short_answer_essay_input_is_seeded_like_a_textarea(
     session = AutofillSession(cast(Any, SimpleNamespace(
         page=browser_page, browser=FakeBrowser(browser_page), use_claude=True,
         company="Gemini", title="Software Engineer", description="Crypto exchange",
-        resume_json={}, knowledge=known({}), api=FakeApi(),
+        resume_json={}, knowledge=known({}), api=FakeApi(), library=(),
+        composer=lambda **_: None,
         drafter=lambda **_: "Short draft that fits.",
     )))
 
@@ -1622,7 +1628,8 @@ def test_a_draft_over_the_controls_cap_is_left_for_the_user(
     session = AutofillSession(cast(Any, SimpleNamespace(
         page=browser_page, browser=FakeBrowser(browser_page), use_claude=True,
         company="Gemini", title="Software Engineer", description="Crypto exchange",
-        resume_json={}, knowledge=known({}), api=FakeApi(),
+        resume_json={}, knowledge=known({}), api=FakeApi(), library=(),
+        composer=lambda **_: None,
         drafter=lambda **_: "x" * 300,
     )))
 

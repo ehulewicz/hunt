@@ -1,7 +1,10 @@
+import pytest
+
 from personal_os_worker.jobs.answers import (
     answer_match,
     changed_word_ratio,
     clean_answer_text,
+    draft_contextual_answer,
     valid_generated_answer,
 )
 
@@ -42,3 +45,31 @@ def test_generated_answer_hygiene_rejects_leaked_tool_call_markup() -> None:
         "I'd bring the same first-principles approach to this role.</answer>\n</invoke>"
     )
     assert not valid_generated_answer(leaked, base=None, fact_text="")
+
+
+def test_draft_prompt_carries_the_whole_career_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Off-resume entries and the record's last moreBullets item reach the prompt."""
+    from personal_os_worker.jobs import model
+
+    prompts: list[str] = []
+    monkeypatch.setattr(
+        model, "run",
+        lambda argv, **_: (prompts.append(argv[-1]), '{"answer": "ok"}')[1],
+    )
+    resume = {
+        "experience": [{"title": "SWE", "org": "Acme", "bullets": ["x" * 31000]}],
+        "activities": [
+            {"title": "OFF RESUME CLUB", "org": "Tech", "onResume": False,
+             "bullets": [], "moreBullets": ["TAIL MARKER"]},
+        ],
+    }
+    draft_contextual_answer(
+        question="Why us?", base=None,
+        posting={"company": "Acme", "role": "SWE", "description": ""},
+        resume=resume, facts={}, references=[], attempts=1,
+    )
+    assert len(prompts) == 1
+    assert "OFF RESUME CLUB" in prompts[0]
+    assert "TAIL MARKER" in prompts[0]
