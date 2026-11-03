@@ -499,10 +499,6 @@ def apply_posting(
         download_resume_pdf,
         transcript_pdf_path,
     )
-    from personal_os_worker.jobs.autofill_session import (
-        AutofillSession,
-        SessionContext,
-    )
     from personal_os_worker.jobs.browser import (
         VisibleBrowser,
         identifies_posting,
@@ -519,6 +515,10 @@ def apply_posting(
     from personal_os_worker.jobs.letter_review import review_letter
     from personal_os_worker.jobs.navigate import Target, is_posting, reach_posting
     from personal_os_worker.jobs.remote import LinkedKeys, RunLink, mirrored
+    from personal_os_worker.jobs.session import (
+        AutofillSession,
+        SessionContext,
+    )
     from personal_os_worker.jobs.sites import adapter_version, failure_signature
 
     if remote and not socket_path().exists():

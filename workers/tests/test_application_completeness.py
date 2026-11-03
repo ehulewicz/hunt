@@ -11,7 +11,6 @@ from test_autofill_session import browser_page as browser_page
 
 from personal_os_worker.jobs.answer_check import Judgement
 from personal_os_worker.jobs.autofill import build_autofill_plan
-from personal_os_worker.jobs.autofill_session import _claude_questions
 from personal_os_worker.jobs.browser import (
     apply_autofill,
     audit_filled_form,
@@ -21,6 +20,7 @@ from personal_os_worker.jobs.registry.formats import render
 from personal_os_worker.jobs.registry.kinds import question_of
 from personal_os_worker.jobs.registry.strategies.combobox import select_combobox_option
 from personal_os_worker.jobs.resolve import Resolver
+from personal_os_worker.jobs.session import _claude_questions
 from personal_os_worker.jobs.short_answers import run_claude
 
 

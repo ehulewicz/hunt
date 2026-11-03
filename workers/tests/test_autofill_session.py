@@ -5,21 +5,22 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from conftest import patch_session
 from playwright.sync_api import Error, sync_playwright
 
 from personal_os_worker.jobs.answer_check import Judgement
 from personal_os_worker.jobs.audit import Budget
 from personal_os_worker.jobs.autofill import normalize_question
-from personal_os_worker.jobs.autofill_session import (
-    REPAIR_COST,
-    AutofillSession,
-    SessionContext,
-)
 from personal_os_worker.jobs.browser import BrowserClosedError, VisibleBrowser, inspect_fields
 from personal_os_worker.jobs.options import normalize_answer_question
 from personal_os_worker.jobs.page_state import ApplicationPageState, classify_application_page
 from personal_os_worker.jobs.registry.kinds import question_of
 from personal_os_worker.jobs.resolve import Knowledge
+from personal_os_worker.jobs.session import (
+    REPAIR_COST,
+    AutofillSession,
+    SessionContext,
+)
 from personal_os_worker.jobs.short_answers import Verdict
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -198,9 +199,7 @@ def test_repeated_question_on_two_controls_keeps_both_observations(
         {"question": "Location", "answer_text": "Remote", "control_kind": "text",
          "field_fingerprint": "location-secondary"},
     ]
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.snapshot_entries",
-        lambda *_: entries,
+    patch_session(monkeypatch, "snapshot_entries", lambda *_: entries,
     )
 
     session.record_snapshot([])
@@ -220,8 +219,7 @@ def test_cleared_control_is_removed_from_final_answers_and_logged(
         [{"question": "Location", "answer_text": "", "control_kind": "text",
           "field_fingerprint": "location#1"}],
     ])
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.snapshot_entries", lambda *_: next(snapshots)
+    patch_session(monkeypatch, "snapshot_entries", lambda *_: next(snapshots)
     )
 
     fields = [{"fingerprint": "location", "index": 1}]
@@ -241,8 +239,7 @@ def test_failed_control_read_preserves_last_known_answer(
           "field_fingerprint": "location#1"}],
         [],  # The reader omitted a control it could not read.
     ])
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.snapshot_entries", lambda *_: next(snapshots)
+    patch_session(monkeypatch, "snapshot_entries", lambda *_: next(snapshots)
     )
     fields = [{"fingerprint": "location", "index": 1}]
     session.record_snapshot(fields)
@@ -264,8 +261,7 @@ def test_edit_retains_resolver_responsible_for_initial_answer(
           "field_fingerprint": "location#1"}]
         for value in ("Atlanta", "Remote")
     ])
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.snapshot_entries", lambda *_: next(snapshots)
+    patch_session(monkeypatch, "snapshot_entries", lambda *_: next(snapshots)
     )
     session.record_snapshot([])
     session.record_snapshot([])
@@ -323,13 +319,10 @@ def test_overview_return_stays_in_the_same_wait_step(
     states = iter(
         [ApplicationPageState.OVERVIEW, ApplicationPageState.FORM, ApplicationPageState.SUBMITTED]
     )
-    monkeypatch.setattr("personal_os_worker.jobs.autofill_session.inspect_fields", lambda _: fields)
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.classify_application_page",
-        lambda *_: next(states),
+    patch_session(monkeypatch, "inspect_fields", lambda _: fields)
+    patch_session(monkeypatch, "classify_application_page", lambda *_: next(states),
     )
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.has_submit_control", lambda _: False
+    patch_session(monkeypatch, "has_submit_control", lambda _: False
     )
     session.sleep = lambda: None  # type: ignore[method-assign]
     session.record_snapshot = lambda _: None  # type: ignore[method-assign]
@@ -347,15 +340,12 @@ def test_temporary_empty_application_rerender_does_not_report_a_wall(
         [ApplicationPageState.LOADING, ApplicationPageState.FORM, ApplicationPageState.SUBMITTED]
     )
     failures: list[str] = []
-    monkeypatch.setattr("personal_os_worker.jobs.autofill_session.inspect_fields", lambda _: fields)
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.classify_application_page",
-        lambda *_: next(states),
+    patch_session(monkeypatch, "inspect_fields", lambda _: fields)
+    patch_session(monkeypatch, "classify_application_page", lambda *_: next(states),
     )
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.has_submit_control", lambda _: False
+    patch_session(monkeypatch, "has_submit_control", lambda _: False
     )
-    monkeypatch.setattr("personal_os_worker.jobs.autofill_session.time.monotonic", lambda: 1.0)
+    patch_session(monkeypatch, "time.monotonic", lambda: 1.0)
     session.sleep = lambda: None  # type: ignore[method-assign]
     session.record_snapshot = lambda _: None  # type: ignore[method-assign]
     session.report_page_failure = (  # type: ignore[method-assign]
@@ -373,13 +363,10 @@ def test_an_account_wall_after_the_first_page_is_the_next_steps_to_pass(
     fields = [{"fingerprint": "email"}]
     states = iter([ApplicationPageState.ACCOUNT, ApplicationPageState.ACCOUNT])
     times = iter([1.0, 7.0])
-    monkeypatch.setattr("personal_os_worker.jobs.autofill_session.inspect_fields", lambda _: fields)
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.classify_application_page",
-        lambda *_: next(states),
+    patch_session(monkeypatch, "inspect_fields", lambda _: fields)
+    patch_session(monkeypatch, "classify_application_page", lambda *_: next(states),
     )
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.time.monotonic", lambda: next(times)
+    patch_session(monkeypatch, "time.monotonic", lambda: next(times)
     )
     session.sleep = lambda: None  # type: ignore[method-assign]
 
@@ -404,16 +391,12 @@ def test_unrelated_foreground_tab_stands_by_until_the_form_returns(
     )
     times = iter([1.0, 1.0, 7.0, 8.0, 9.0, 10.0])
     failures: list[str] = []
-    monkeypatch.setattr("personal_os_worker.jobs.autofill_session.inspect_fields", lambda _: fields)
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.classify_application_page",
-        lambda *_: next(states),
+    patch_session(monkeypatch, "inspect_fields", lambda _: fields)
+    patch_session(monkeypatch, "classify_application_page", lambda *_: next(states),
     )
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.has_submit_control", lambda _: False
+    patch_session(monkeypatch, "has_submit_control", lambda _: False
     )
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.time.monotonic", lambda: next(times)
+    patch_session(monkeypatch, "time.monotonic", lambda: next(times)
     )
     session.sleep = lambda: None  # type: ignore[method-assign]
     session.record_snapshot = lambda _: None  # type: ignore[method-assign]
@@ -540,11 +523,9 @@ def test_session_stops_when_page_closes_during_form_inspection(
     def closed_inspection(_: Any) -> list[dict[str, Any]]:
         raise Error("Target page, context or browser has been closed")
 
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.reveal_application_form", lambda _: False
+    patch_session(monkeypatch, "reveal_application_form", lambda _: False
     )
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.inspect_fields", closed_inspection
+    patch_session(monkeypatch, "inspect_fields", closed_inspection
     )
     context = SessionContext(
         api=FakeApi(),  # type: ignore[arg-type]
@@ -580,11 +561,9 @@ def test_session_reraises_unrelated_playwright_error_that_mentions_target_closed
     def failed_inspection(_: Any) -> list[dict[str, Any]]:
         raise Error('Locator.click: Timeout waiting for get_by_text("Target closed")')
 
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.reveal_application_form", lambda _: False
+    patch_session(monkeypatch, "reveal_application_form", lambda _: False
     )
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.inspect_fields", failed_inspection
+    patch_session(monkeypatch, "inspect_fields", failed_inspection
     )
     context = SessionContext(
         api=FakeApi(),  # type: ignore[arg-type]
@@ -620,8 +599,7 @@ def test_session_stops_cleanly_when_browser_or_application_tab_closes(
         url="https://boards.example/jobs/123",
         is_closed=lambda: False,
     )
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.reveal_application_form", lambda _: False
+    patch_session(monkeypatch, "reveal_application_form", lambda _: False
     )
     browser = VisibleBrowser("http://unused")
     browser._browser = cast(Any, SimpleNamespace(contexts=contexts))
@@ -1540,7 +1518,7 @@ def test_duplicate_labels_keep_control_resolver_after_edit(
         "0:home#0": AnswerResolution("Atlanta", "jobs_profile", "profile:city"),
         "0:office#1": AnswerResolution("Rochester", "pattern", "builtin:office"),
     }
-    monkeypatch.setattr("personal_os_worker.jobs.autofill_session.snapshot_entries", lambda *_: [
+    patch_session(monkeypatch, "snapshot_entries", lambda *_: [
         {"question": "Location", "answer_text": value, "control_kind": "text",
          "field_fingerprint": fingerprint}
         for value, fingerprint in [("Atlanta", "home#0"), ("Remote", "office#1")]
@@ -1599,8 +1577,7 @@ def test_consent_group_with_two_boxes_announces_each_box_once(
          "answer_text": "By clicking this box you consent to background checks.",
          "control_kind": "checkbox", "field_fingerprint": "consent#18"},
     ]
-    monkeypatch.setattr(
-        "personal_os_worker.jobs.autofill_session.snapshot_entries", lambda *_: entries
+    patch_session(monkeypatch, "snapshot_entries", lambda *_: entries
     )
 
     for _ in range(5):

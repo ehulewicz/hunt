@@ -212,7 +212,7 @@ def test_a_fill_repairs_in_place_on_any_site_and_stores_the_candidate(  # type: 
     from types import SimpleNamespace
     from typing import cast
 
-    from personal_os_worker.jobs.autofill_session import AutofillSession
+    from personal_os_worker.jobs.session import AutofillSession
 
     page.set_content(TERMS_TYPEAHEAD + '<button type="submit">Submit application</button>')
     updates: list[tuple[str, dict[str, Any]]] = []
@@ -257,7 +257,7 @@ def test_a_repair_the_api_will_not_record_keeps_its_value_and_the_run(  # type: 
 
     import httpx
 
-    from personal_os_worker.jobs.autofill_session import AutofillSession
+    from personal_os_worker.jobs.session import AutofillSession
 
     page.set_content(TERMS_TYPEAHEAD + '<button type="submit">Submit application</button>')
 

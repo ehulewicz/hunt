@@ -270,7 +270,7 @@ def test_reopen_for_version_reopens_unsolved_problems_once(tmp_path: Path) -> No
 # ----- escalate skips what a row already decided --------------------------------
 
 def test_escalate_skips_a_problem_whose_row_is_unsolved() -> None:
-    from personal_os_worker.jobs.autofill_session import AutofillSession
+    from personal_os_worker.jobs.session import AutofillSession
 
 
     api = Api()
