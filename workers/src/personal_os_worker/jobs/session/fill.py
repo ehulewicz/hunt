@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -13,6 +14,7 @@ from personal_os_worker.jobs.autofill import (
     BLANK_KIND,
     NOT_APPLICABLE,
     AnswerResolution,
+    AutofillPlan,
     FormFill,
     is_cover_letter_field,
     is_long_form_field,
@@ -97,6 +99,40 @@ class FillMixin(SessionBase):
         def in_scope(item: dict[str, Any]) -> bool:
             return only is None or normalize_answer_question(question_of(item)) in only
 
+        plan = self._narrow_plan(fields, plan, only, in_scope)
+        explainer = self._announce_pass(fields, plan, only, note, resolver, in_scope)
+        if self.ctx.dry_run:
+            return self._persist_dry_run(fields, plan, explainer)
+        before = page_evidence(self.page, fields, console_errors=self.ctx.console_errors)
+        with armed(self.page):
+            result = apply_autofill(
+                self.page,
+                fields,
+                plan,
+                resume_path=self.ctx.resume_pdf,
+                transcript_path=self.ctx.transcript_pdf,
+                assert_active=lambda: None,
+                preferences=self.ctx.knowledge.preferences,
+                observer=explainer,
+            )
+        if explainer is not None:
+            explainer.finish()
+        self._note_applied(fields, plan, result)
+        self._unanswered_failures(fields, result)
+        self._capture_evidence(fields, plan, result, before)
+        issues = self._persist_pass(fields, plan, result, in_scope)
+        if self.ctx.repair:
+            self.repair_in_place(fields, result["failures"], issues)
+        return result
+
+    def _narrow_plan(
+        self,
+        fields: list[dict[str, Any]],
+        plan: AutofillPlan,
+        only: set[str] | None,
+        in_scope: Callable[[dict[str, Any]], bool],
+    ) -> AutofillPlan:
+        """The plan this pass operates: the `only` questions, and no prose without a fact."""
         if only is not None:
             plan = type(plan)(
                 tuple(fill for fill in plan.fills if in_scope(fields[fill.index])),
@@ -128,6 +164,18 @@ class FillMixin(SessionBase):
                     if is_long_form_field(fields[fill.index]) and not from_a_fact(fill)
                 },
             )
+        return plan
+
+    def _announce_pass(
+        self,
+        fields: list[dict[str, Any]],
+        plan: AutofillPlan,
+        only: set[str] | None,
+        note: str,
+        resolver: Resolver,
+        in_scope: Callable[[dict[str, Any]], bool],
+    ) -> Explainer | None:
+        """Print the pass's header and begin its `--explain` trace, when there is one."""
         if only is None:
             console.print()
             console.rule(f"[bold]Step {self.state.step + 1}[/bold]", align="left")
@@ -148,32 +196,34 @@ class FillMixin(SessionBase):
                 resolver,
                 scope=in_scope,
             )
-        if self.ctx.dry_run:
-            if explainer is not None:
-                explainer.dry_run()
-            self.persist_step(
-                self.ctx.run_id,
-                {
-                    "step_number": self.state.step,
-                    "url": self.page.url,
-                    "fill_events": planned_events(fields, plan, misses=self.state.misses),
-                },
-            )
-            return {"filled_fields": [], "skipped_fields": [], "failures": [], "plan": plan}
-        before = page_evidence(self.page, fields, console_errors=self.ctx.console_errors)
-        with armed(self.page):
-            result = apply_autofill(
-                self.page,
-                fields,
-                plan,
-                resume_path=self.ctx.resume_pdf,
-                transcript_path=self.ctx.transcript_pdf,
-                assert_active=lambda: None,
-                preferences=self.ctx.knowledge.preferences,
-                observer=explainer,
-            )
+        return explainer
+
+    def _persist_dry_run(
+        self,
+        fields: list[dict[str, Any]],
+        plan: AutofillPlan,
+        explainer: Explainer | None,
+    ) -> dict[str, Any]:
+        """Record a dry run's planned events and return its empty result."""
         if explainer is not None:
-            explainer.finish()
+            explainer.dry_run()
+        self.persist_step(
+            self.ctx.run_id,
+            {
+                "step_number": self.state.step,
+                "url": self.page.url,
+                "fill_events": planned_events(fields, plan, misses=self.state.misses),
+            },
+        )
+        return {"filled_fields": [], "skipped_fields": [], "failures": [], "plan": plan}
+
+    def _note_applied(
+        self,
+        fields: list[dict[str, Any]],
+        plan: AutofillPlan,
+        result: dict[str, Any],
+    ) -> None:
+        """Remember what each fill applied and where it came from, and echo it."""
         for fill in plan.fills:
             question = _question_for(fields[fill.index])
             applied = result["applied"].get(fill.index)
@@ -202,6 +252,13 @@ class FillMixin(SessionBase):
                     else:
                         echo(fill.resolution.source, question, applied,
                              note=fill.resolution.fact_key)
+
+    def _unanswered_failures(
+        self,
+        fields: list[dict[str, Any]],
+        result: dict[str, Any],
+    ) -> None:
+        """Add a required_field_empty failure for every required question still open."""
         for question in result["unanswered_required_questions"]:
             item = next(
                 (
@@ -228,6 +285,15 @@ class FillMixin(SessionBase):
                     },
                 }
             )
+
+    def _capture_evidence(
+        self,
+        fields: list[dict[str, Any]],
+        plan: AutofillPlan,
+        result: dict[str, Any],
+        before: dict[str, bytes],
+    ) -> None:
+        """Keep the page's evidence from before and after the pass, plan and verification."""
         after = page_evidence(
             self.page, inspect_fields(self.page), console_errors=self.ctx.console_errors
         )
@@ -250,6 +316,15 @@ class FillMixin(SessionBase):
             default=str,
         ).encode()
         self.evidence = {**before, **{f"after-{k}": v for k, v in after.items()}}
+
+    def _persist_pass(
+        self,
+        fields: list[dict[str, Any]],
+        plan: AutofillPlan,
+        result: dict[str, Any],
+        in_scope: Callable[[dict[str, Any]], bool],
+    ) -> list[dict[str, Any]]:
+        """Upload evidence when a fill went wrong, persist the step, and return its issues."""
         artifact_paths: dict[str, str] = {}
         # A field left for the user is expected; only a fill that went wrong
         # earns the page evidence, which is twenty uploads.
@@ -277,9 +352,7 @@ class FillMixin(SessionBase):
             },
         )
         result["artifact_paths"] = artifact_paths
-        if self.ctx.repair:
-            self.repair_in_place(fields, result["failures"], issues)
-        return result
+        return issues
 
     def repair_in_place(
         self,

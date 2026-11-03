@@ -43,7 +43,7 @@ from personal_os_worker.jobs.registry.strategies.native import set_registered_va
 from personal_os_worker.jobs.remote import gap_items
 from personal_os_worker.jobs.repair.repairer import find_field
 from personal_os_worker.jobs.replay import same_answer
-from personal_os_worker.jobs.resolve import Resolver
+from personal_os_worker.jobs.resolve import Miss, Resolver
 from personal_os_worker.jobs.safety import armed
 from personal_os_worker.jobs.session.base import SessionBase
 from personal_os_worker.jobs.session.context import (
@@ -234,19 +234,7 @@ class AuditMixin(SessionBase):
                                           or "")): failure
             for failure in failures
         }
-        resolver = Resolver(self.ctx.knowledge)
-        resolved: dict[str, AnswerResolution] = {}
-        for question in open_questions["required_unfilled"] + open_questions["optional_unfilled"]:
-            field = find_field(current, question)
-            # A signature or a password is yours: no lane may type into it.
-            if field is None or question in self.state.blanks or is_sensitive_field(field):
-                continue
-            resolution = resolver.resolve(
-                dict(field) | {"label": question, "options": self.options_for(current, field)}
-            )
-            if resolution is not None and resolution.formatter != BLANK:
-                resolved[normalize_answer_question(question)] = resolution
-        misses = {**self.state.misses, **resolver.misses}
+        resolved, misses = self._resolve_open(current, open_questions)
         findings = [
             classify_empty(
                 question,
@@ -296,6 +284,27 @@ class AuditMixin(SessionBase):
         with contextlib.suppress(Error):
             findings += classify_unknown(inspect_unknown_controls(self.page), captured)
         return order(findings + self.wrong_answers(current))
+
+    def _resolve_open(
+        self,
+        current: list[dict[str, Any]],
+        open_questions: dict[str, list[str]],
+    ) -> tuple[dict[str, AnswerResolution], dict[str, Miss]]:
+        """What a pattern answers among the open questions, and every miss on record."""
+        resolver = Resolver(self.ctx.knowledge)
+        resolved: dict[str, AnswerResolution] = {}
+        for question in open_questions["required_unfilled"] + open_questions["optional_unfilled"]:
+            field = find_field(current, question)
+            # A signature or a password is yours: no lane may type into it.
+            if field is None or question in self.state.blanks or is_sensitive_field(field):
+                continue
+            resolution = resolver.resolve(
+                dict(field) | {"label": question, "options": self.options_for(current, field)}
+            )
+            if resolution is not None and resolution.formatter != BLANK:
+                resolved[normalize_answer_question(question)] = resolution
+        misses = {**self.state.misses, **resolver.misses}
+        return resolved, misses
 
     def audit_and_repair(
         self, fields: list[dict[str, Any]], result: dict[str, Any]

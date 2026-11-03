@@ -146,10 +146,6 @@ def apply_autofill(
     not, becomes a fill event. A failure is recorded and the run moves on. A
     strategy a validated repair found for this exact control goes first.
     """
-    from personal_os_worker.jobs.browser.readback import (
-        fresh_control,
-        verify_control,
-    )
     filled_labels: list[str] = []
     skipped: list[str] = []
     applied: dict[int, str] = {}  # values that passed readback, keyed by control
@@ -161,124 +157,10 @@ def apply_autofill(
     ordered_fills = sorted(plan.fills, key=lambda fill: 0 if fill.kind in FILE_KINDS else 1)
     for fill in ordered_fills:
         assert_active()
-        field = fields[fill.index]
-        offered = offered_options(fields, field)
-        label = str(field.get("label") or field.get("name") or fill.index)
-        document = documents.get(fill.kind)
-        if fill.kind == BLANK_KIND:
-            # A none fact: the answer is to leave it blank, so nothing is operated.
-            events.append(_attempt_event(field, fill, None, None, None, offered))
-            if observer is not None:
-                observer.after(field, fill, {"skipped": "left blank on purpose"})
-            continue
-        if fill.kind in FILE_KINDS and document is None:
-            skipped.append(f"{label} (no {fill.kind} provided)")
-            events.append(_attempt_event(field, fill, None, None, None, offered))
-            if observer is not None:
-                observer.after(field, fill, {"skipped": f"no {fill.kind} provided"})
-            continue
-        names = candidates(classify(field), field, fill, has_document=document is not None)
-        preferred = (preferences or {}).get(control_key(field))
-        if preferred in names:
-            names = [preferred, *(name for name in names if name != preferred)]
-        if observer is not None and not observer.before(field, fill, names):
-            skipped.append(f"{label} (skipped while stepping)")
-            continue
-        control = fresh_control(page, field)
-        expected = fill.value
-        operated: str | None = None
-        first_error: Exception | None = None
-        strategy_tried: Any = None
-        attempts: list[tuple[str, str | None]] = []
-        for name in names:
-            try:
-                result = OPERATIONS[name](Attempt(page, control, field, fill, document))
-            except (Error, RuntimeError) as error:
-                first_error = first_error or error
-                attempts.append((name, str(error).splitlines()[0][:200] if str(error) else
-                                 type(error).__name__))
-                events.append(
-                    _attempt_event(field, fill, name, stopped_stage(error), False, offered)
-                )
-                continue
-            attempts.append((name, None))
-            operated = name
-            if result is not None:
-                expected = result
-            break
-        if operated is None:
-            operated, expected, first_error, strategy_tried = _learned_attempts(
-                page, control, field, fill, attempts, events, offered,
-                first_error, expected,
-            )
-        if operated is None and first_error is not None:
-            message = str(first_error)
-            if field.get("required") is True:
-                unanswered.append(label)
-            failures.append(
-                _failure(
-                    field, failure_category(message), message, intended=fill.value,
-                    stopped_at=stopped_stage(first_error), fill=fill,
-                )
-            )
-            if observer is not None:
-                observer.after(field, fill, {
-                    "attempts": attempts, "operated": None,
-                    "stopped_at": stopped_stage(first_error),
-                })
-            continue
-        is_upload = fill.kind in FILE_KINDS
-        observed: str | None = None
-        if fill.clear:
-            try:
-                verified = not fresh_control(page, field).is_checked(timeout=CONTROL_TIMEOUT_MS)
-            except Error:
-                verified = False
-        else:
-            verified = verify_control(
-                page,
-                field,
-                expected,
-                resume=is_upload,
-                filename=document.name if is_upload and document is not None else None,
-            )
-        if strategy_tried is not None:
-            registry.report(strategy_tried, bool(verified))
-        events.append(_attempt_event(
-            field, fill, operated, None if verified else "strategy", verified, offered
-        ))
-        if verified:
-            filled_labels.append(label)
-            if expected is not None and not is_upload:
-                applied[fill.index] = (
-                    str(field.get("label") or field.get("value") or expected)
-                    if field.get("type") in {"radio", "checkbox"} else expected
-                )
-        else:
-            try:
-                observed = fresh_control(page, field).input_value(timeout=CONTROL_TIMEOUT_MS)
-            except Error:
-                observed = None
-            failures.append(
-                _failure(
-                    field,
-                    "readback_mismatch",
-                    "value did not register",
-                    intended=fill.value,
-                    observed=observed,
-                    stopped_at="strategy",
-                    fill=fill,
-                )
-            )
-            if field.get("required") is True:
-                unanswered.append(label)
-        if observer is not None:
-            observer.after(field, fill, {
-                "attempts": attempts, "operated": operated, "expected": expected,
-                "verified": verified,
-                "observed": observed,
-                "stopped_at": None if verified else "strategy",
-            })
+        _apply_fill(
+            page, fields, fill, documents, preferences, observer,
+            filled_labels, skipped, applied, unanswered, failures, events,
+        )
     # The page remains open in the dedicated visible profile for manual review.
     return {
         "captured_url": page.url,
@@ -290,6 +172,187 @@ def apply_autofill(
         "events": events,
         "submitted": False,
     }
+
+
+def _apply_fill(
+    page: Page,
+    fields: list[dict[str, Any]],
+    fill: FormFill,
+    documents: dict[str, Path | None],
+    preferences: dict[str, str] | None,
+    observer: FillObserver | None,
+    filled_labels: list[str],
+    skipped: list[str],
+    applied: dict[int, str],
+    unanswered: list[str],
+    failures: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+) -> None:
+    """Operate one planned fill and record its events, failures and readback."""
+    from personal_os_worker.jobs.browser.readback import fresh_control
+    field = fields[fill.index]
+    offered = offered_options(fields, field)
+    label = str(field.get("label") or field.get("name") or fill.index)
+    document = documents.get(fill.kind)
+    if fill.kind == BLANK_KIND:
+        # A none fact: the answer is to leave it blank, so nothing is operated.
+        events.append(_attempt_event(field, fill, None, None, None, offered))
+        if observer is not None:
+            observer.after(field, fill, {"skipped": "left blank on purpose"})
+        return
+    if fill.kind in FILE_KINDS and document is None:
+        skipped.append(f"{label} (no {fill.kind} provided)")
+        events.append(_attempt_event(field, fill, None, None, None, offered))
+        if observer is not None:
+            observer.after(field, fill, {"skipped": f"no {fill.kind} provided"})
+        return
+    names = candidates(classify(field), field, fill, has_document=document is not None)
+    preferred = (preferences or {}).get(control_key(field))
+    if preferred in names:
+        names = [preferred, *(name for name in names if name != preferred)]
+    if observer is not None and not observer.before(field, fill, names):
+        skipped.append(f"{label} (skipped while stepping)")
+        return
+    control = fresh_control(page, field)
+    operated, expected, first_error, strategy_tried, attempts = _operate(
+        page, control, field, fill, names, document, offered, events
+    )
+    if operated is None and first_error is not None:
+        message = str(first_error)
+        if field.get("required") is True:
+            unanswered.append(label)
+        failures.append(
+            _failure(
+                field, failure_category(message), message, intended=fill.value,
+                stopped_at=stopped_stage(first_error), fill=fill,
+            )
+        )
+        if observer is not None:
+            observer.after(field, fill, {
+                "attempts": attempts, "operated": None,
+                "stopped_at": stopped_stage(first_error),
+            })
+        return
+    _verify_fill(
+        page, field, fill, label, operated, expected, strategy_tried, attempts, document,
+        offered, observer, filled_labels, applied, unanswered, failures, events,
+    )
+
+
+def _operate(
+    page: Page,
+    control: Any,
+    field: dict[str, Any],
+    fill: FormFill,
+    names: list[str],
+    document: Path | None,
+    offered: list[str],
+    events: list[dict[str, Any]],
+) -> tuple[str | None, str | None, Exception | None, Any, list[tuple[str, str | None]]]:
+    """Try each candidate strategy until one operates, then the site's learned ones."""
+    expected = fill.value
+    operated: str | None = None
+    first_error: Exception | None = None
+    strategy_tried: Any = None
+    attempts: list[tuple[str, str | None]] = []
+    for name in names:
+        try:
+            result = OPERATIONS[name](Attempt(page, control, field, fill, document))
+        except (Error, RuntimeError) as error:
+            first_error = first_error or error
+            attempts.append((name, str(error).splitlines()[0][:200] if str(error) else
+                             type(error).__name__))
+            events.append(
+                _attempt_event(field, fill, name, stopped_stage(error), False, offered)
+            )
+            continue
+        attempts.append((name, None))
+        operated = name
+        if result is not None:
+            expected = result
+        break
+    if operated is None:
+        operated, expected, first_error, strategy_tried = _learned_attempts(
+            page, control, field, fill, attempts, events, offered,
+            first_error, expected,
+        )
+    return operated, expected, first_error, strategy_tried, attempts
+
+
+def _verify_fill(
+    page: Page,
+    field: dict[str, Any],
+    fill: FormFill,
+    label: str,
+    operated: str | None,
+    expected: str | None,
+    strategy_tried: Any,
+    attempts: list[tuple[str, str | None]],
+    document: Path | None,
+    offered: list[str],
+    observer: FillObserver | None,
+    filled_labels: list[str],
+    applied: dict[int, str],
+    unanswered: list[str],
+    failures: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+) -> None:
+    """Read the operated control back and record whether the fill took."""
+    from personal_os_worker.jobs.browser.readback import fresh_control, verify_control
+    is_upload = fill.kind in FILE_KINDS
+    observed: str | None = None
+    if fill.clear:
+        try:
+            verified = not fresh_control(page, field).is_checked(timeout=CONTROL_TIMEOUT_MS)
+        except Error:
+            verified = False
+    else:
+        verified = verify_control(
+            page,
+            field,
+            expected,
+            resume=is_upload,
+            filename=document.name if is_upload and document is not None else None,
+        )
+    if strategy_tried is not None:
+        registry.report(strategy_tried, bool(verified))
+    events.append(_attempt_event(
+        field, fill, operated, None if verified else "strategy", verified, offered
+    ))
+    if verified:
+        filled_labels.append(label)
+        if expected is not None and not is_upload:
+            applied[fill.index] = (
+                str(field.get("label") or field.get("value") or expected)
+                if field.get("type") in {"radio", "checkbox"} else expected
+            )
+    else:
+        try:
+            observed = fresh_control(page, field).input_value(timeout=CONTROL_TIMEOUT_MS)
+        except Error:
+            observed = None
+        failures.append(
+            _failure(
+                field,
+                "readback_mismatch",
+                "value did not register",
+                intended=fill.value,
+                observed=observed,
+                stopped_at="strategy",
+                fill=fill,
+            )
+        )
+        if field.get("required") is True:
+            unanswered.append(label)
+    if observer is not None:
+        observer.after(field, fill, {
+            "attempts": attempts, "operated": operated, "expected": expected,
+            "verified": verified,
+            "observed": observed,
+            "stopped_at": None if verified else "strategy",
+        })
+
+
 def _failure(
     field: dict[str, Any],
     category: str,

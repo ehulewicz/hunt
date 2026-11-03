@@ -143,74 +143,15 @@ class CaptureMixin(SessionBase):
             else:
                 self.state.withheld.pop(control_key, None)
             if not value:
-                if previous is not None:
-                    self.state.collected.pop(control_key)
-                    event = {**previous, "event_index": len(self.state.observations),
-                             "page_url": self.page.url, "answer_text": "", "source": "manual"}
-                    self.state.observations.append(event)
+                self._forget_answer(control_key, previous)
                 continue
-            proposed_value = (
-                self.state.tier_answers.get(question)
-                or self.state.planned.get(question)
-                or seed
-                or None
+            source, resolver_id, proposed_value = self._proposal(
+                question, value, source, seed, control_key, previous
             )
-            if source in {"pattern", "model"} and question in self.state.tier_resolver:
-                resolver_id: str | None = self.state.tier_resolver[question]
-            elif source in {"prose", "model"}:
-                resolver_id = self.state.seed_resolver.get(question) or "model:long_form_v1"
-            else:
-                resolver_id = previous.get("resolver_id") if previous else None
-                if previous:
-                    proposed_value = previous.get("proposed_value")
-            resolution = self.state.resolutions.get(control_key)
-            if resolution is not None:
-                source = resolution.source if value == resolution.value else "manual"
-                resolver_id = resolution.resolver_id
-                proposed_value = resolution.value
-            self.state.collected[control_key] = {
-                "question": question,
-                "answer_text": value,
-                "source": source,
-                "form": item.get("form") or "short",
-                "step_number": self.state.step,
-                "page_url": self.page.url,
-                "control_kind": str(item["control_kind"]),
-                "field_fingerprint": fingerprint,
-                "resolver_id": resolver_id,
-                "proposed_value": proposed_value,
-            }
-            origin = self.state.origins.get(question)
-            if item.get("form") == "long" and origin is not None:
-                draft, started_from = origin
-                self.state.collected[control_key]["provenance"] = spans(
-                    value, draft=draft, previous=started_from
-                )
-            if previous is None or previous["answer_text"] != value:
-                self.state.observations.append(
-                    {
-                        "event_index": len(self.state.observations),
-                        "step_number": self.state.step,
-                        "page_url": self.page.url,
-                        "question": question,
-                        "answer_text": value,
-                        "source": source,
-                        "form": item.get("form") or "short",
-                        "control_kind": str(item["control_kind"]),
-                        "field_fingerprint": fingerprint,
-                        "resolver_id": resolver_id,
-                        "proposed_value": proposed_value,
-                    }
-                    | (
-                        {"provenance": self.state.collected[control_key]["provenance"]}
-                        if "provenance" in self.state.collected[control_key] else {}
-                    )
-                )
-                writing |= item.get("form") == "long"
-            # Echo what the user typed or chose so they can see it was picked up.
-            if source == "manual" and self.state.announced.get(control_key) != value:
-                self.state.announced[control_key] = value
-                echo("picked up", question, value)
+            writing |= self._collect_answer(
+                item, question, value, source, fingerprint, control_key, previous,
+                resolver_id, proposed_value,
+            )
         if writing and not self.ctx.dry_run:
             # Writing is kept as it is written: a run that is killed loses none of it.
             with contextlib.suppress(httpx.HTTPError, RuntimeError):
@@ -221,6 +162,104 @@ class CaptureMixin(SessionBase):
                 highlight_unfilled(
                     self.page, fields, self.state.outlined | self.state.na_flagged | contradicted
                 )
+
+    def _forget_answer(self, control_key: str, previous: dict[str, Any] | None) -> None:
+        """Drop a collected answer the page no longer shows, logging it as cleared by you."""
+        if previous is not None:
+            self.state.collected.pop(control_key)
+            event = {**previous, "event_index": len(self.state.observations),
+                     "page_url": self.page.url, "answer_text": "", "source": "manual"}
+            self.state.observations.append(event)
+
+    def _proposal(
+        self,
+        question: str,
+        value: str,
+        source: str,
+        seed: str,
+        control_key: str,
+        previous: dict[str, Any] | None,
+    ) -> tuple[str, str | None, str | None]:
+        """The answer's source, the resolver that proposed it, and the value it proposed."""
+        proposed_value = (
+            self.state.tier_answers.get(question)
+            or self.state.planned.get(question)
+            or seed
+            or None
+        )
+        if source in {"pattern", "model"} and question in self.state.tier_resolver:
+            resolver_id: str | None = self.state.tier_resolver[question]
+        elif source in {"prose", "model"}:
+            resolver_id = self.state.seed_resolver.get(question) or "model:long_form_v1"
+        else:
+            resolver_id = previous.get("resolver_id") if previous else None
+            if previous:
+                proposed_value = previous.get("proposed_value")
+        resolution = self.state.resolutions.get(control_key)
+        if resolution is not None:
+            source = resolution.source if value == resolution.value else "manual"
+            resolver_id = resolution.resolver_id
+            proposed_value = resolution.value
+        return source, resolver_id, proposed_value
+
+    def _collect_answer(
+        self,
+        item: dict[str, Any],
+        question: str,
+        value: str,
+        source: str,
+        fingerprint: str,
+        control_key: str,
+        previous: dict[str, Any] | None,
+        resolver_id: str | None,
+        proposed_value: str | None,
+    ) -> bool:
+        """Collect the answer, log it when it changed, and echo yours; True for new prose."""
+        writing = False
+        self.state.collected[control_key] = {
+            "question": question,
+            "answer_text": value,
+            "source": source,
+            "form": item.get("form") or "short",
+            "step_number": self.state.step,
+            "page_url": self.page.url,
+            "control_kind": str(item["control_kind"]),
+            "field_fingerprint": fingerprint,
+            "resolver_id": resolver_id,
+            "proposed_value": proposed_value,
+        }
+        origin = self.state.origins.get(question)
+        if item.get("form") == "long" and origin is not None:
+            draft, started_from = origin
+            self.state.collected[control_key]["provenance"] = spans(
+                value, draft=draft, previous=started_from
+            )
+        if previous is None or previous["answer_text"] != value:
+            self.state.observations.append(
+                {
+                    "event_index": len(self.state.observations),
+                    "step_number": self.state.step,
+                    "page_url": self.page.url,
+                    "question": question,
+                    "answer_text": value,
+                    "source": source,
+                    "form": item.get("form") or "short",
+                    "control_kind": str(item["control_kind"]),
+                    "field_fingerprint": fingerprint,
+                    "resolver_id": resolver_id,
+                    "proposed_value": proposed_value,
+                }
+                | (
+                    {"provenance": self.state.collected[control_key]["provenance"]}
+                    if "provenance" in self.state.collected[control_key] else {}
+                )
+            )
+            writing |= item.get("form") == "long"
+        # Echo what the user typed or chose so they can see it was picked up.
+        if source == "manual" and self.state.announced.get(control_key) != value:
+            self.state.announced[control_key] = value
+            echo("picked up", question, value)
+        return writing
 
     def wait_and_advance(self, fields: list[dict[str, Any]]) -> ApplicationPageState:
         """Collect manual answers while the user owns page navigation and submission."""
