@@ -135,6 +135,19 @@ def api_reference(category: str) -> str:
     return "\n\n".join(parts)
 
 
+def _naming(problem: Problem, revising: str | None, name: str) -> str:
+    """The prompt's rule for the `name` an answer gives."""
+    if revising is not None:
+        return f"- Its name stays {name!r}: answer that name."
+    if problem.category == "routes":
+        return "- The worker names the file itself; still answer a valid `name`."
+    return (
+        "- Answer `name` with a short readable snake_case name for what it"
+        " declares (matching [a-z][a-z0-9_]{2,40}, e.g. aria_slider,"
+        " salary_band); the file is saved under it."
+    )
+
+
 def prompt(
     problem: Problem,
     feedback: str | None,
@@ -158,16 +171,7 @@ def prompt(
         for one in sorted(problem.page_files)
         if one.endswith((".html", ".json"))
     ) or "(none were captured)"
-    if revising is not None:
-        naming = f"- Its name stays {name!r}: answer that name."
-    elif problem.category == "routes":
-        naming = "- The worker names the file itself; still answer a valid `name`."
-    else:
-        naming = (
-            "- Answer `name` with a short readable snake_case name for what it"
-            " declares (matching [a-z][a-z0-9_]{2,40}, e.g. aria_slider,"
-            " salary_band); the file is saved under it."
-        )
+    naming = _naming(problem, revising, name)
     structure = (
         f"- `structure=` must be exactly {problem.structure!r}.\n"
         if problem.category in {"kinds", "strategies", "questions"} else ""

@@ -308,24 +308,27 @@ never ends because its URL was a careers home.
 `jobs/fix/` is the fixer. A failure the lanes without code cannot settle — a
 widget no kind captures, a strategy or rendering the repair lane ran out of,
 an unreadable question, a wall, a posting the navigator cannot find — is one
-problem, one failure-issue row, handed to a background thread (`queue.py`).
+problem, one failure-issue row, handed to a background thread (`queue.py`;
+the thread is `background.py`, its attempts and records `recording.py`, over
+the typed state in `base.py`).
 Each attempt is one tool-less model call (`lane.py`) that answers with one new
 file declaring one thing for the failing site under
 `jobs/registry/<category>/learned/`, written only against `registry/api.py`
 and named for what it declares — a readable snake_case stem
 (`aria_slider.py`), site and goal for a route (`acme_com_form.py`). When a
 file of the same structure for other sites already exists, the fixer first
-tries just adding this site to its `sites=` — checked, then probed at the
-safe point like any candidate, no model call — and asks the model to revise
-it only when that fails; a revision keeps every earlier site and example.
+tries just adding this site to its `sites=` (`source.py`) — checked, then
+probed at the safe point like any candidate, no model call — and asks the
+model to revise it only when that fails; a revision keeps every earlier site
+and example.
 The worker checks the file against `registry/policy.py`, then ruff, mypy, and
 the file's embedded examples (`fix/examples.py`) — plus replay for formats and
-question readers — in one subprocess, tries it on the live page (`probe.py`),
-and keeps it only on a readback: `keep.py` commits exactly that file and its
-sanitized fixtures (`fix/sanitize.py` — the page's HTML and controls, each
-file prefixed with its site, never the screenshot) on `main`, pushes, records
-it with the failure it fixed, and `load_file` puts it into the running run —
-no reload.
+question readers — in one subprocess (`gates.py`), tries it on the live page
+(`probe.py`), and keeps it only on a readback: `keep.py` commits exactly that
+file and its sanitized fixtures (`fix/sanitize.py` — the page's HTML and
+controls, each file prefixed with its site, never the screenshot) on `main`,
+pushes, records it with the failure it fixed, and `load_file` puts it into the
+running run — no reload.
 A fix you revert on the Hunt page is recorded as retired: from then on the
 registry never loads its file, and a device that is online removes the file and
 its fixtures in one commit on `main` and pushes (`fix/trial.py revert_retired`,

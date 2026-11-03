@@ -178,6 +178,28 @@ def _text_candidates(
     return [Rendering(text, "text_as_is")] if text else []
 
 
+def _money_option(
+    value: Any, field: dict[str, Any], question: str, options: list[str]
+) -> Rendering | None:
+    """A compensation fact among the options: its menu, else a range or option it matches."""
+    menu = _money_menu(value, field, question, options)
+    if menu is not None:
+        return menu
+    magnitude = _money_magnitude(options)
+    for rendering in _money(value, field, question):
+        if magnitude is not None and rendering.formatter != (
+            "money_as_annual" if magnitude == "annual" else "money_as_hourly"
+        ):
+            continue
+        digits = re.sub(r"[^\d.]", "", rendering.value)
+        ranged = choose_numeric_range(options, digits) or choose_option(
+            options, rendering.value
+        )
+        if ranged is not None:
+            return Rendering(ranged, f"{rendering.formatter}_option")
+    return None
+
+
 def _choose_among(
     key: str,
     value: Any,
@@ -228,22 +250,7 @@ def _choose_among(
         if ranged is not None:
             return Rendering(ranged, "number_as_range_option")
     if key.startswith("compensation.") and value_type == "object":
-        menu = _money_menu(value, field, question, options)
-        if menu is not None:
-            return menu
-        magnitude = _money_magnitude(options)
-        for rendering in _money(value, field, question):
-            if magnitude is not None and rendering.formatter != (
-                "money_as_annual" if magnitude == "annual" else "money_as_hourly"
-            ):
-                continue
-            digits = re.sub(r"[^\d.]", "", rendering.value)
-            ranged = choose_numeric_range(options, digits) or choose_option(
-                options, rendering.value
-            )
-            if ranged is not None:
-                return Rendering(ranged, f"{rendering.formatter}_option")
-        return None
+        return _money_option(value, field, question, options)
     if value_type == "date":
         with contextlib.suppress(ValueError):
             when = date.fromisoformat(str(value))
@@ -263,6 +270,46 @@ def _choose_among(
         if chosen is not None:
             return Rendering(chosen, f"{rendering.formatter}_option")
     return None
+
+
+def _none_for(field: dict[str, Any]) -> Rendering:
+    """How this control says the answer is none: a None option, N/A, or BLANK."""
+    options = _options(field)
+    for option in options:
+        if normalize_answer_question(option) in {"none", "n a", "not applicable"}:
+            return Rendering(option, "none_as_option")
+    if (not options and field.get("tag") in {"input", "textarea"}
+            and _input_type(field) in {"", "text", "search"}
+            and field.get("role") != "combobox"):
+        return Rendering("N/A", "none_as_na")
+    return Rendering("", BLANK)
+
+
+def _engineering_focus(
+    value: list[Any],
+    field: dict[str, Any],
+    question: str,
+    options: list[str],
+    *,
+    seed: str,
+    context: Mapping[str, Any] | None,
+) -> Rendering | None:
+    """The engineering focus: the options the interests choose, else focus text."""
+    title = str((context or {}).get("posting.title") or "")
+    interests = [str(item) for item in value if str(item).strip()]
+    if options:
+        focused = choose_focus(
+            options,
+            interests,
+            title=title,
+            seed=seed,
+            question=question,
+            multiple=_multiple(field),
+        )
+        return Rendering(MULTI.join(focused), "focus_choice") if focused else None
+    text = focus_text(interests, title=title, seed=seed)
+    return Rendering(text, "focus_text") if text else None
+
 
 def _render(
     key: str,
@@ -285,33 +332,12 @@ def _render(
     if value is None:
         return None
     if is_blank(value):
-        options = _options(field)
-        for option in options:
-            if normalize_answer_question(option) in {"none", "n a", "not applicable"}:
-                return Rendering(option, "none_as_option")
-        if (not options and field.get("tag") in {"input", "textarea"}
-                and _input_type(field) in {"", "text", "search"}
-                and field.get("role") != "combobox"):
-            return Rendering("N/A", "none_as_na")
-        return Rendering("", BLANK)
+        return _none_for(field)
     options = _options(field)
     if key in LIVE_MENU:
         return _standing(key, value, field, options, context)
     if key == "preferences.engineering_focus" and isinstance(value, list) and value:
-        title = str((context or {}).get("posting.title") or "")
-        interests = [str(item) for item in value if str(item).strip()]
-        if options:
-            focused = choose_focus(
-                options,
-                interests,
-                title=title,
-                seed=seed,
-                question=question,
-                multiple=_multiple(field),
-            )
-            return Rendering(MULTI.join(focused), "focus_choice") if focused else None
-        text = focus_text(interests, title=title, seed=seed)
-        return Rendering(text, "focus_text") if text else None
+        return _engineering_focus(value, field, question, options, seed=seed, context=context)
     phone = _phone_country(key, value, context)
     if phone is not None and calling_code_menu(options):
         chosen = calling_code_option(options, *phone)

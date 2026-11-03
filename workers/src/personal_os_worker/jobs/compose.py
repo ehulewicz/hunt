@@ -294,6 +294,23 @@ def _prompt(*, question: str, limit: Limit, posting: Posting,
     )
 
 
+def _style_failures(raw: str) -> list[str]:
+    """The punctuation, cliche, and markup rules an answer breaks, in guard order."""
+    failures: list[str] = []
+    if ";" in raw:
+        failures.append("answer contains a semicolon")
+    if "\u2014" in raw or "\u2013" in raw:
+        failures.append("answer contains a dash")
+    if ":" in URL.sub("", raw):
+        failures.append("answer contains a colon")
+    lowered = raw.casefold()
+    if any(cliche in lowered for cliche in CLICHES):
+        failures.append("answer contains a cliche")
+    if TAG_LEAK.search(raw):
+        failures.append("answer contains markup")
+    return failures
+
+
 def _guard_failures(
     payload: Any, *, library: Sequence[LibraryText], career: dict[str, Any],
     facts: Sequence[tuple[str, str, Any]], posting: Posting, limit: Limit,
@@ -343,17 +360,7 @@ def _guard_failures(
     raw = answer
     if classify_only:
         return failures, payload
-    if ";" in raw:
-        failures.append("answer contains a semicolon")
-    if "\u2014" in raw or "\u2013" in raw:
-        failures.append("answer contains a dash")
-    if ":" in URL.sub("", raw):
-        failures.append("answer contains a colon")
-    lowered = raw.casefold()
-    if any(cliche in lowered for cliche in CLICHES):
-        failures.append("answer contains a cliche")
-    if TAG_LEAK.search(raw):
-        failures.append("answer contains markup")
+    failures.extend(_style_failures(raw))
 
     allowed_numbers = set()
     for code in sources:
