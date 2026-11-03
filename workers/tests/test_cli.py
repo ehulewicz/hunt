@@ -371,6 +371,11 @@ def test_autofill_no_claude_flag_defaults_off() -> None:
     assert build_parser().parse_args(["hunt", "apply", "7", "--no-claude"]).no_claude is True
 
 
+def test_a_bare_failures_command_names_the_commands_that_exist() -> None:
+    with pytest.raises(SystemExit, match=r"os hunt apply failures list.*os hunt fixes --retry"):
+        main(["hunt", "apply", "failures"])
+
+
 def test_autofill_failure_commands_preserve_the_documented_syntax() -> None:
     listed = build_parser().parse_args(["hunt", "apply", "failures", "list"])
     shown = build_parser().parse_args(["hunt", "apply", "failures", "show", "2"])
@@ -499,6 +504,21 @@ def test_repair_and_validate_are_commands_and_apply_repairs_by_default() -> None
         main(["hunt", "apply", "7", "--done", "--no-repair"])
     with pytest.raises(SystemExit, match="--done takes no other flags"):
         main(["hunt", "apply", "7", "--done", "--fresh"])
+    for flag in (["--accept-letter"], ["--referred"], ["--referred", "Sam"]):
+        with pytest.raises(SystemExit, match="--done takes no other flags"):
+            main(["hunt", "apply", "7", "--done", *flag])
+
+
+def test_done_records_a_posting_url_with_the_company_and_title_given(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[tuple[str, dict[str, object]]] = []
+    monkeypatch.setattr(
+        apply_commands, "run_mark_applied", lambda ref, **kw: seen.append((ref, kw)) or 0
+    )
+    url = "https://jobs.example.com/acme/123"
+    assert main(["hunt", "apply", url, "--done", "--company", "Acme", "--title", "Intern"]) == 0
+    assert seen == [(url, {"company": "Acme", "title": "Intern"})]
 
 
 @pytest.mark.parametrize(

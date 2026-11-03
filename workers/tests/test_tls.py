@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -64,3 +65,34 @@ def test_a_run_on_the_wrong_interpreter_never_starts(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(commands, "connected", connected)
     with pytest.raises(RuntimeError, match=r"Python: it is Python 3\.14"):
         commands.apply_posting("posting", dry_run=False, no_claude=True)
+
+
+def test_a_run_that_fails_while_settling_earlier_runs_closes_its_api_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from personal_os_worker.core.doctor import DoctorCheck
+    from personal_os_worker.jobs import apply_run as commands
+    from personal_os_worker.jobs import knowledge
+
+    closed: list[bool] = []
+
+    class FakeApi:
+        def __init__(self, *_: Any) -> None:
+            pass
+
+        def close(self) -> None:
+            closed.append(True)
+
+    def unreachable(_: Any) -> Any:
+        raise RuntimeError("the facts could not be read")
+
+    monkeypatch.setattr(commands, "python_check", lambda: DoctorCheck("Python", True, ""))
+    monkeypatch.setattr(
+        commands, "connected", lambda: (SimpleNamespace(cdp_url="http://cdp"), "token")
+    )
+    monkeypatch.setattr(commands, "ensure_chrome", lambda _url: None)
+    monkeypatch.setattr(commands, "WorkerApi", FakeApi)
+    monkeypatch.setattr(knowledge, "resolve_pending_facts", unreachable)
+    with pytest.raises(RuntimeError, match="the facts could not be read"):
+        commands.apply_posting("posting", dry_run=False, no_claude=True)
+    assert closed == [True]

@@ -262,11 +262,11 @@ def _dispatch_apply(args: argparse.Namespace) -> int:
     if args.done:
         if (args.dry_run or args.no_claude or args.ats or not args.repair
                 or args.fresh or args.explain or args.step or args.ask_facts
-                or args.remote):
-            raise RuntimeError("--done takes no other flags")
+                or args.remote or args.accept_letter or args.referred is not None):
+            raise RuntimeError("--done takes no other flags but --company and --title")
         if args.ref is None or args.ref == "today":
             raise RuntimeError("--done needs a listing row or id")
-        return apply_commands.run_mark_applied(args.ref)
+        return apply_commands.run_mark_applied(args.ref, company=args.company, title=args.title)
     if args.remote and args.step:
         raise RuntimeError("--step pauses at a terminal; a remote run has none")
     if args.ref is None or args.ref == "today":

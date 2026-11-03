@@ -166,10 +166,14 @@ def _prepare(remote: bool) -> tuple[CliConfig, WorkerApi]:
     config, token = connected()
     ensure_chrome(config.cdp_url)
     api = WorkerApi(config, token)
-    # A fact you set on the web since the last run is checked before this one.
-    report_pending_facts(resolve_pending_facts(api))
-    # Attempt folders from a run that never got to tidy up are gone by now.
-    clear_stale(state_dir() / "fix")
+    try:
+        # A fact you set on the web since the last run is checked before this one.
+        report_pending_facts(resolve_pending_facts(api))
+        # Attempt folders from a run that never got to tidy up are gone by now.
+        clear_stale(state_dir() / "fix")
+    except BaseException:
+        api.close()
+        raise
     return config, api
 
 

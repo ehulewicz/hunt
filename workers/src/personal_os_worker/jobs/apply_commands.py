@@ -195,12 +195,14 @@ def run_autofill_top(
     return 0
 
 
-def run_mark_applied(reference: str) -> int:
+def run_mark_applied(
+    reference: str, *, company: str | None = None, title: str | None = None
+) -> int:
     """`apply <row> --done`: you applied outside the worker; record it as applied."""
     config, token = connected()
     api = WorkerApi(config, token)
     try:
-        listing = listing_for(api, reference)
+        listing = listing_for(api, reference, company=company, title=title)
         posting_id = str(listing["id"])
         application = next(
             (item for item in api.applications() if str(item.get("posting_id")) == posting_id),
@@ -226,7 +228,10 @@ def run_autofill_failure_command(action: str | None, reference: str | None) -> i
     from personal_os_worker.core.tables import short_id
 
     if action not in {"list", "show", "retry"}:
-        raise RuntimeError("Use: os hunt fixes [list|show|--retry]")
+        raise RuntimeError(
+            "Use: os hunt apply failures list, os hunt apply failures show N, "
+            "or os hunt fixes --retry N"
+        )
     config, token = connected()
     api = WorkerApi(config, token)
     try:

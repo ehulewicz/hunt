@@ -274,8 +274,8 @@ def fixture_name(site: str, name: str) -> str:
 
 def name_of(problem: Problem, answer: Answer | None = None) -> str:
     """The learned file's module name: the answer's readable name, site and
-    goal for a route; a name taken by a different structure gets a numeric
-    suffix."""
+    goal for a route. `FixQueue._file_name` adds a numeric suffix when the
+    name is taken."""
     if problem.category == "routes":
         return f"{site_slug(problem.site)}_{problem.goal}"
     name = (answer.name if answer else "") or problem.slug
