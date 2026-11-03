@@ -9,8 +9,8 @@ from typing import Any
 
 from playwright.sync_api import Error
 
+from personal_os_worker.core.page_scripts import load
 from personal_os_worker.jobs.autofill import MULTI
-from personal_os_worker.jobs.page_scripts import load
 from personal_os_worker.jobs.registry.strategies import (
     CONTROL_TIMEOUT_MS,
     Attempt,

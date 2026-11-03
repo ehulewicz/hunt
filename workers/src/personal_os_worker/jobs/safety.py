@@ -25,7 +25,7 @@ from typing import Any
 
 from playwright.sync_api import Error, Page, Route
 
-from personal_os_worker.jobs.page_scripts import load
+from personal_os_worker.core.page_scripts import load
 
 SUBMITTING = re.compile(
     r"^\s*submit\b|\bsubmit\s+(?:my\s+|your\s+)?application\b|\bsend\s+application\b"

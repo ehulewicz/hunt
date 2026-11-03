@@ -20,13 +20,13 @@ from typing import Any
 
 from playwright.sync_api import Error, Page
 
+from personal_os_worker.core.page_scripts import load
 from personal_os_worker.jobs.account_page import inspect_account
 from personal_os_worker.jobs.browser import (
     has_submit_control,
     inspect_fields,
     looks_like_application_form,
 )
-from personal_os_worker.jobs.page_scripts import load
 from personal_os_worker.jobs.registry.kinds import GATEWAY
 from personal_os_worker.jobs.registry.strategies import (
     CONTROL_TIMEOUT_MS,

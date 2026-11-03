@@ -16,8 +16,8 @@ from typing import Any
 
 from playwright.sync_api import Error, Page
 
+from personal_os_worker.core.page_scripts import load
 from personal_os_worker.jobs.autofill import FILE_KINDS, FormFill
-from personal_os_worker.jobs.page_scripts import load
 from personal_os_worker.jobs.registry.kinds import BUTTON_GROUP
 
 # Playwright auto-waits 30s for a control before an action fails; a control that

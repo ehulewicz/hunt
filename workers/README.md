@@ -273,7 +273,7 @@ fill, on any site. `repairer.py` retries one failed field — every applicable
 strategy for a `strategy` failure, every other rendering of the fact for a
 `format` failure — and returns the first that reads back. `jobs/safety.py` holds
 everything that keeps the worker from submitting: the two independent guards, a
-page script (`page_scripts/submit_guard.js`, installed only from `safety.py`)
+page script (`core/page_scripts/submit_guard.js`, installed only from `safety.py`)
 that cancels submissions and submit-labelled clicks and a network
 route that aborts any non-GET request naming a submission, and the worker's own
 refusal to operate a control that reads as submitting. A repair or validation

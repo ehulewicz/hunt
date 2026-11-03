@@ -15,6 +15,7 @@ from typing import Any, Literal
 
 from playwright.sync_api import Error, Page
 
+from personal_os_worker.core.page_scripts import load
 from personal_os_worker.jobs.account_inspect import (
     ACCOUNT_SCRIPT,
     CHECK_EMAIL_WORDS,
@@ -48,7 +49,6 @@ from personal_os_worker.jobs.browser import (
     inspect_fields,
     looks_like_application_form,
 )
-from personal_os_worker.jobs.page_scripts import load
 from personal_os_worker.jobs.registry.strategies import CONTROL_TIMEOUT_MS
 
 __all__ = [

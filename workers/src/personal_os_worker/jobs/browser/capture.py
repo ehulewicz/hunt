@@ -6,7 +6,8 @@ from typing import Any, cast
 
 from playwright.sync_api import Error, Page
 
-from personal_os_worker.jobs import page_scripts, registry
+from personal_os_worker.core import page_scripts
+from personal_os_worker.jobs import registry
 from personal_os_worker.jobs.registry.kinds.custom import QUESTION_OF
 
 

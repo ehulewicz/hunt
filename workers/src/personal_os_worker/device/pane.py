@@ -5,6 +5,8 @@ from __future__ import annotations
 import contextlib
 from typing import Any
 
+from personal_os_worker.core.page_scripts import load
+
 MAX_SIDE = 2560
 DEFAULT_SIZE = (1280, 800)
 # Narrower than this, most boards switch to their tablet layout.
@@ -80,27 +82,7 @@ def layout_size(view: dict[str, Any], fit: int | None = None) -> dict[str, Any] 
 
 
 # Where the page's text and controls sit across the viewport, with how much each one weighs.
-TEXT_BOXES = r"""(() => {
-  const boxes = [], width = document.documentElement.clientWidth;
-  const add = (box, weight) => {
-    if (box.width >= 2 && box.height >= 2 && box.right > 0 && box.left < width) {
-      boxes.push([box.left, box.right, weight]);
-    }
-  };
-  const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  const range = document.createRange();
-  for (let node; (node = walk.nextNode()) && boxes.length < 5000;) {
-    const text = node.data.trim();
-    if (!text) continue;
-    range.selectNodeContents(node);
-    for (const box of range.getClientRects()) add(box, text.length);
-  }
-  const controls = 'input:not([type=hidden]),textarea,select,button,[role=combobox]';
-  for (const control of document.querySelectorAll(controls)) {
-    add(control.getBoundingClientRect(), 10);
-  }
-  return {width, boxes, scroll: document.documentElement.scrollWidth};
-})()"""
+TEXT_BOXES = load("text_boxes")
 
 
 def text_span(boxes: list[Any]) -> tuple[float, float] | None:

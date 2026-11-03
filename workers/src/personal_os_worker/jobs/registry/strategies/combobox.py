@@ -10,9 +10,9 @@ from typing import Any
 
 from playwright.sync_api import Error, Page
 
+from personal_os_worker.core.page_scripts import load
 from personal_os_worker.jobs.office import parse
 from personal_os_worker.jobs.options import choose_option, choose_synonym, normalize_question
-from personal_os_worker.jobs.page_scripts import load
 from personal_os_worker.jobs.registry.formats.choices import (
     affirmative_option,
     source_option,

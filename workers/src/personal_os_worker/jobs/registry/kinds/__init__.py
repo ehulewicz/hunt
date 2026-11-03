@@ -12,7 +12,7 @@ import json
 import re
 from typing import Any
 
-from personal_os_worker.jobs import page_scripts
+from personal_os_worker.core import page_scripts
 
 CONTROL_KINDS = (
     "text_entry",

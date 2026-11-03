@@ -32,7 +32,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from personal_os_worker.jobs import page_scripts
+from personal_os_worker.core import page_scripts
 
 Operation = Callable[[Any], str | None]
 

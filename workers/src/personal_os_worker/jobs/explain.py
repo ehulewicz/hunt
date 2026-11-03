@@ -28,6 +28,7 @@ from playwright.sync_api import Error, Page
 from rich.markup import escape
 
 from personal_os_worker.core.config import console
+from personal_os_worker.core.page_scripts import load
 from personal_os_worker.jobs.autofill import (
     BLANK_KIND,
     AutofillPlan,
@@ -40,7 +41,6 @@ from personal_os_worker.jobs.autofill import (
 )
 from personal_os_worker.jobs.browser import fresh_control
 from personal_os_worker.jobs.keys import read_key
-from personal_os_worker.jobs.page_scripts import load
 from personal_os_worker.jobs.registry.kinds import classify, control_attributes, question_of
 
 LABEL_WIDTH = 17

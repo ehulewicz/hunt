@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
 from personal_os_worker.core.config import console, pick
+from personal_os_worker.core.page_scripts import load
 from personal_os_worker.core.service import ensure_chrome
 from personal_os_worker.jobs.apply_run import apply_posting
 from personal_os_worker.jobs.commands import (
@@ -16,7 +17,6 @@ from personal_os_worker.jobs.commands import (
     by_ats,
     today_listings,
 )
-from personal_os_worker.jobs.page_scripts import load
 
 POSTING_URL = re.compile(r"^https?://", re.IGNORECASE)
 SITE_SUFFIX = re.compile(r"\.(jobs|careers|com|io|co|net|org)$", re.IGNORECASE)

@@ -13,7 +13,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from personal_os_worker.jobs import page_scripts, registry
+from personal_os_worker.core import page_scripts
+from personal_os_worker.jobs import registry
 from personal_os_worker.jobs.registry.api import (
     Format,
     Kind,

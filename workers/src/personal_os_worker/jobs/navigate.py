@@ -32,8 +32,8 @@ from urllib.parse import urlsplit
 from playwright.sync_api import Error, Page
 
 from personal_os_worker.core.config import console
+from personal_os_worker.core.page_scripts import load
 from personal_os_worker.jobs.browser import registrable_site, rendered_body_text
-from personal_os_worker.jobs.page_scripts import load
 
 MAX_HOPS = 4
 RESULT_WAIT_MS = 2_500
