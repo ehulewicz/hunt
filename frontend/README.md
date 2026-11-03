@@ -60,7 +60,7 @@ A Next.js rewrite proxies `GET /v1/public/resume.pdf` on the API —
 `NEXT_PUBLIC_API_URL` — while keeping `/resume` in the address bar. The backend
 sends the inline disposition itself, so the browser's PDF viewer opens it with
 the applicant's name as the download filename. No copy is committed here; the
-published PDF refreshes when the career record is saved. Workspace routes
+published PDF refreshes when the career record or a header fact is saved. Workspace routes
 remain authenticated.
 
 `/research/tiny-object-tracking` serves `public/Tiny_Object_Tracking.pdf` the

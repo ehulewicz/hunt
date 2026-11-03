@@ -10,6 +10,12 @@ from fastapi import FastAPI
 
 from personal_os_backend.auth import Principal
 from personal_os_backend.config import Settings
+from personal_os_backend.jobs_career import (
+    PostgresResumeRebuilder,
+    ResumeConflict,
+    get_resume_rebuilder,
+)
+from personal_os_backend.jobs_career_pdf import PdfError
 from personal_os_backend.jobs_facts import (
     Fact,
     FactWrite,
@@ -42,12 +48,15 @@ class FakeFactStore:
     async def list_facts(self, user_id: UUID) -> list[Fact]:
         return [Fact.model_validate(self.rows[key]) for key in sorted(self.rows)]
 
-    async def set_fact(self, user_id: UUID, key: str, item: FactWrite) -> Fact:
+    async def set_fact(
+        self, user_id: UUID, key: str, item: FactWrite, *, after: Any = None
+    ) -> Fact:
         existing = self.rows.get(key, {})
         label = item.label or existing.get("label")
         value_type = item.value_type or existing.get("value_type")
         if not label or not value_type:
             raise ValueError("A new fact needs a label and a value_type")
+        backup = dict(self.rows)
         now = datetime.now(UTC)
         self.rows[key] = {
             "key": key,
@@ -57,6 +66,12 @@ class FakeFactStore:
             "verified_at": now if item.verified else None,
             "updated_at": now,
         }
+        if after is not None:
+            try:
+                await after(self)
+            except Exception:
+                self.rows = backup  # a failed hook rolls the row back
+                raise
         return Fact.model_validate(self.rows[key])
 
     async def verify_fact(self, user_id: UUID, key: str) -> Fact | None:
@@ -65,8 +80,42 @@ class FakeFactStore:
         self.rows[key]["verified_at"] = datetime.now(UTC)
         return Fact.model_validate(self.rows[key])
 
-    async def delete_fact(self, user_id: UUID, key: str) -> bool:
-        return self.rows.pop(key, None) is not None
+    async def delete_fact(self, user_id: UUID, key: str, *, after: Any = None) -> bool:
+        row = self.rows.pop(key, None)
+        if row is None:
+            return False
+        if after is not None:
+            try:
+                await after(self)
+            except Exception:
+                self.rows[key] = row  # a failed hook rolls the delete back
+                raise
+        return True
+
+
+class FakeRebuilder:
+    """prepare() records the header it was asked to build with."""
+
+    def __init__(self) -> None:
+        self.headers: list[dict[str, Any]] = []
+        self.ran = False
+        self.build_error: Exception | None = None
+        self.after_error: Exception | None = None
+        self.returns_none = False
+
+    async def prepare(self, user_id: UUID, header: dict[str, Any]) -> Any:
+        self.headers.append(header)
+        if self.build_error is not None:
+            raise self.build_error
+        if self.returns_none:
+            return None
+
+        async def after(connection: Any) -> None:
+            self.ran = True
+            if self.after_error is not None:
+                raise self.after_error
+
+        return after
 
 
 @pytest.fixture
@@ -75,7 +124,14 @@ def store() -> FakeFactStore:
 
 
 @pytest.fixture
-async def client(store: FakeFactStore) -> AsyncIterator[httpx.AsyncClient]:
+def rebuilder() -> FakeRebuilder:
+    return FakeRebuilder()
+
+
+@pytest.fixture
+async def client(
+    store: FakeFactStore, rebuilder: FakeRebuilder
+) -> AsyncIterator[httpx.AsyncClient]:
     settings = Settings(
         database_url="postgresql://postgres:password@localhost:5432/postgres",
         supabase_url="https://exampleprojectref.supabase.co",
@@ -89,6 +145,7 @@ async def client(store: FakeFactStore) -> AsyncIterator[httpx.AsyncClient]:
         return store
 
     app.dependency_overrides[get_fact_store] = override
+    app.dependency_overrides[get_resume_rebuilder] = lambda: rebuilder
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as api_client:
@@ -329,3 +386,213 @@ async def test_computed_facts_are_listed_read_only(client: httpx.AsyncClient) ->
         "source": "career",
         "reads": ["career.education"],
     } in items
+
+
+def _row(key: str, value: Any, value_type: str = "text") -> dict[str, Any]:
+    return {
+        "key": key, "label": key, "value": value, "value_type": value_type,
+        "verified_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z",
+    }
+
+
+async def test_setting_a_header_fact_rebuilds_the_resume(
+    client: httpx.AsyncClient, store: FakeFactStore, rebuilder: FakeRebuilder
+) -> None:
+    store.rows["contact.email"] = _row("contact.email", "old@example.com")
+    store.rows["contact.phone"] = _row("contact.phone", "111")
+    response = await client.put("/v1/jobs/facts/contact.phone", json={"value": "222"}, headers=HEADERS)
+    assert response.status_code == 200
+    assert rebuilder.headers == [
+        {"contact.email": "old@example.com", "contact.phone": "222"}
+    ]
+    assert rebuilder.ran
+    assert store.rows["contact.phone"]["value"] == "222"
+
+
+async def test_the_same_header_value_rebuilds_nothing(
+    client: httpx.AsyncClient, store: FakeFactStore, rebuilder: FakeRebuilder
+) -> None:
+    store.rows["contact.phone"] = _row("contact.phone", "111")
+    response = await client.put("/v1/jobs/facts/contact.phone", json={"value": "111"}, headers=HEADERS)
+    assert response.status_code == 200
+    assert rebuilder.headers == [] and not rebuilder.ran
+
+
+async def test_a_non_header_fact_never_rebuilds(
+    client: httpx.AsyncClient, rebuilder: FakeRebuilder
+) -> None:
+    response = await client.put(
+        "/v1/jobs/facts/contact.phone_extension",
+        json={"value": "5", "label": "Extension", "value_type": "text"},
+        headers=HEADERS,
+    )
+    assert response.status_code == 200
+    assert rebuilder.headers == []
+
+
+async def test_a_failed_build_refuses_the_write(
+    client: httpx.AsyncClient, store: FakeFactStore, rebuilder: FakeRebuilder
+) -> None:
+    rebuilder.build_error = PdfError("no resume")
+    response = await client.put(
+        "/v1/jobs/facts/contact.phone",
+        json={"value": "1", "label": "Phone", "value_type": "text"},
+        headers=HEADERS,
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == "no resume"
+    assert "contact.phone" not in store.rows
+
+
+async def test_a_changed_record_rolls_the_write_back(
+    client: httpx.AsyncClient, store: FakeFactStore, rebuilder: FakeRebuilder
+) -> None:
+    store.rows["contact.phone"] = _row("contact.phone", "111")
+    rebuilder.after_error = ResumeConflict()
+    response = await client.put("/v1/jobs/facts/contact.phone", json={"value": "222"}, headers=HEADERS)
+    assert response.status_code == 409
+    assert store.rows["contact.phone"]["value"] == "111"
+
+
+async def test_a_failed_upload_saves_neither(
+    client: httpx.AsyncClient, store: FakeFactStore, rebuilder: FakeRebuilder
+) -> None:
+    store.rows["contact.phone"] = _row("contact.phone", "111")
+    rebuilder.after_error = httpx.ConnectError("down")
+    response = await client.put("/v1/jobs/facts/contact.phone", json={"value": "222"}, headers=HEADERS)
+    assert response.status_code == 503
+    assert store.rows["contact.phone"]["value"] == "111"
+
+
+async def test_deleting_a_header_fact_rebuilds_without_it(
+    client: httpx.AsyncClient, store: FakeFactStore, rebuilder: FakeRebuilder
+) -> None:
+    store.rows["contact.github_url"] = _row("contact.github_url", "gh")
+    store.rows["contact.email"] = _row("contact.email", "e@example.com")
+    response = await client.delete("/v1/jobs/facts/contact.github_url", headers=HEADERS)
+    assert response.status_code == 204
+    assert rebuilder.headers == [{"contact.email": "e@example.com"}]
+    assert "contact.github_url" not in store.rows
+
+
+async def test_a_failed_delete_build_keeps_the_row(
+    client: httpx.AsyncClient, store: FakeFactStore, rebuilder: FakeRebuilder
+) -> None:
+    store.rows["contact.github_url"] = _row("contact.github_url", "gh")
+    rebuilder.build_error = PdfError("no resume")
+    response = await client.delete("/v1/jobs/facts/contact.github_url", headers=HEADERS)
+    assert response.status_code == 422
+    assert store.rows["contact.github_url"]["value"] == "gh"
+
+
+async def test_no_resume_writes_the_fact_alone(
+    client: httpx.AsyncClient, store: FakeFactStore, rebuilder: FakeRebuilder
+) -> None:
+    rebuilder.returns_none = True
+    response = await client.put(
+        "/v1/jobs/facts/contact.phone",
+        json={"value": "1", "label": "Phone", "value_type": "text"},
+        headers=HEADERS,
+    )
+    assert response.status_code == 200
+    assert store.rows["contact.phone"]["value"] == "1"
+
+
+class FakeCareerStore:
+    def __init__(self, record: Any) -> None:
+        self.record = record
+
+    async def get_record(self, user_id: UUID) -> Any:
+        return self.record
+
+
+class FakeCompiler:
+    def __init__(self) -> None:
+        self.printed_arg: Any = None
+
+    def printed_document(self, document: Any) -> Any:
+        self.printed_arg = document
+        return document
+
+    def build_resume_pdf(self, printed: Any) -> bytes:
+        return b"%PDF"
+
+
+class FakeStorage:
+    def __init__(self) -> None:
+        self.uploads: list[bytes] = []
+
+    async def upload_resume(self, user_id: UUID, content: bytes) -> None:
+        self.uploads.append(content)
+
+
+class _Conn:
+    async def execute(self, *args: Any) -> "_Conn":
+        return self
+
+
+def _record() -> Any:
+    from personal_os_backend.jobs_career_document import (
+        CareerRecord,
+        EducationRow,
+    )
+
+    school = EducationRow.model_validate({
+        "school": "Example University", "location": "Atlanta, GA", "level": "university",
+        "is_primary": True, "on_resume": True, "degree_type": "BS",
+        "field_of_study": "CS", "concentrations": None, "coursework": [],
+        "graduation_date": "2027-12-15", "gpa": None, "gpa_scale": None,
+    })
+    return CareerRecord(education=school, schools=[school], entries=[], skills=[], document={})
+
+
+async def test_the_rebuilder_builds_and_uploads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from personal_os_backend.jobs_career_document import document_from_rows
+    from personal_os_backend.jobs_career_text import contact_from_facts
+
+    record = _record()
+    compiler, storage = FakeCompiler(), FakeStorage()
+    rebuilder = PostgresResumeRebuilder(FakeCareerStore(record), compiler, storage)
+    after = await rebuilder.prepare(USER_ID, {"contact.phone": "5550123456"})
+    assert after is not None
+    assert compiler.printed_arg["contact"]["phone"] == "555-012-3456"
+    # The re-read record renders the same document the build used.
+    record.document = document_from_rows(
+        record.schools, record.entries, record.skills,
+        contact_from_facts({"contact.phone": "5550123456"}),
+    )
+    monkeypatch.setattr(
+        "personal_os_backend.jobs_career.read_record",
+        lambda *args: _async_return(record),
+    )
+    await after(_Conn())
+    assert storage.uploads == [b"%PDF"]
+
+
+async def _async_return(value: Any) -> Any:
+    return value
+
+
+async def test_the_rebuilder_raises_when_the_record_changed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = _record()
+    compiler, storage = FakeCompiler(), FakeStorage()
+    rebuilder = PostgresResumeRebuilder(FakeCareerStore(record), compiler, storage)
+    after = await rebuilder.prepare(USER_ID, {"contact.phone": "5550123456"})
+    assert after is not None
+    record.document = {"contact": {"phone": "changed meanwhile"}}
+    monkeypatch.setattr(
+        "personal_os_backend.jobs_career.read_record",
+        lambda *args: _async_return(record),
+    )
+    with pytest.raises(ResumeConflict):
+        await after(_Conn())
+    assert storage.uploads == []
+
+
+async def test_the_rebuilder_returns_none_without_a_record() -> None:
+    rebuilder = PostgresResumeRebuilder(FakeCareerStore(None), FakeCompiler(), FakeStorage())
+    assert await rebuilder.prepare(USER_ID, {}) is None

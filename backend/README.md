@@ -67,7 +67,12 @@ with the deterministic TeX build in `jobs_career_pdf.py` (one page, no bullet
 past two rendered lines, content-derived trailer id, pinned `SOURCE_DATE_EPOCH`)
 and stores the PDF at `resume/{user_id}/current.pdf` in the private
 `jobs-documents` bucket inside the same transaction. A failed compile refuses
-the write before anything is stored; a failed upload rolls it back.
+the write before anything is stored; a failed upload rolls it back. A set or
+delete of one of the six header facts rebuilds the PDF from the record with
+the new header before the fact write: a failed build refuses it with the build
+error, a record change during the build refuses it, and the PDF upload runs in
+the fact's transaction so a failed upload saves neither; without a career
+record the fact is written alone.
 `GET /v1/public/resume.pdf` (`jobs_public.py`) serves that object
 unauthenticated and read-only — the one public route — with a 60-second cache.
 `POST /v1/jobs/cover-letter/pdf` compiles a letter for one application on the
@@ -328,7 +333,7 @@ uses it. All three must pass:
 cd backend && uv run ruff check . && uv run mypy src/ && uv run pytest -q
 ```
 
-Currently 270 tests. `mypy` is scoped to `src/` because the test suite is not
+Currently 283 tests. `mypy` is scoped to `src/` because the test suite is not
 annotated; `pyproject.toml` already pins `packages = ["personal_os_backend"]`, so bare
 `uv run mypy` — the form CI uses — checks the same files.
 

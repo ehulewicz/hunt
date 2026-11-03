@@ -50,64 +50,73 @@ async def contact_facts(connection: AsyncConnection[Any], user_id: UUID) -> dict
     return contact_from_facts({str(row["key"]): row["value"] for row in await cursor.fetchall()})
 
 
+# Serialize writers on the user's record before deciding anything; the
+# resume rebuild a header fact triggers takes the same lock.
+CAREER_LOCK = "select pg_advisory_xact_lock(hashtext('jobs_career:' || %s::text))"
+
+
+async def read_record(
+    connection: AsyncConnection[Any], user_id: UUID
+) -> CareerRecord | None:
+    """The whole career record, or None when it has no primary school."""
+    cursor = await connection.execute(
+        """
+        select school, location, level, is_primary, on_resume, degree_type,
+               field_of_study, concentrations, coursework, graduation_date,
+               gpa, gpa_scale
+        from app.jobs_education where user_id = %s order by display_order
+        """,
+        (user_id,),
+    )
+    schools = [EducationRow.model_validate(row) for row in await cursor.fetchall()]
+    primary = next((school for school in schools if school.is_primary), None)
+    if primary is None:
+        return None
+    cursor = await connection.execute(
+        """
+        select entry.id, entry.section, entry.title, entry.org, entry.city,
+               entry.region, entry.country, entry.qualifier, entry.job_title,
+               entry.employer, entry.employment_type, entry.start_date,
+               entry.end_date, entry.on_resume,
+               coalesce(
+                 array_agg(bullet.text order by bullet.display_order)
+                   filter (where bullet.on_resume),
+                 array[]::text[]
+               ) as bullets,
+               coalesce(
+                 array_agg(bullet.text order by bullet.display_order)
+                   filter (where not bullet.on_resume),
+                 array[]::text[]
+               ) as more_bullets
+        from app.jobs_resume_entries entry
+        left join app.jobs_resume_bullets bullet on bullet.entry_id = entry.id
+        where entry.user_id = %s
+        group by entry.id
+        order by entry.section, entry.display_order
+        """,
+        (user_id,),
+    )
+    entries = [EntryRow.model_validate(row) for row in await cursor.fetchall()]
+    cursor = await connection.execute(
+        "select category, items from app.jobs_skills where user_id = %s order by display_order",
+        (user_id,),
+    )
+    skills = [SkillRow.model_validate(row) for row in await cursor.fetchall()]
+    return CareerRecord(
+        education=primary,
+        schools=schools,
+        entries=entries,
+        skills=skills,
+        document=document_from_rows(
+            schools, entries, skills, await contact_facts(connection, user_id)
+        ),
+    )
+
+
 class PostgresCareerStore:
     def __init__(self, pool: AsyncConnectionPool[Any], timeout: float) -> None:
         self._pool = pool
         self._timeout = timeout
-
-    async def _read(self, connection: AsyncConnection[Any], user_id: UUID) -> CareerRecord | None:
-        cursor = await connection.execute(
-            """
-            select school, location, level, is_primary, on_resume, degree_type,
-                   field_of_study, concentrations, coursework, graduation_date,
-                   gpa, gpa_scale
-            from app.jobs_education where user_id = %s order by display_order
-            """,
-            (user_id,),
-        )
-        schools = [EducationRow.model_validate(row) for row in await cursor.fetchall()]
-        primary = next((school for school in schools if school.is_primary), None)
-        if primary is None:
-            return None
-        cursor = await connection.execute(
-            """
-            select entry.id, entry.section, entry.title, entry.org, entry.city,
-                   entry.region, entry.country, entry.qualifier, entry.job_title,
-                   entry.employer, entry.employment_type, entry.start_date,
-                   entry.end_date, entry.on_resume,
-                   coalesce(
-                     array_agg(bullet.text order by bullet.display_order)
-                       filter (where bullet.on_resume),
-                     array[]::text[]
-                   ) as bullets,
-                   coalesce(
-                     array_agg(bullet.text order by bullet.display_order)
-                       filter (where not bullet.on_resume),
-                     array[]::text[]
-                   ) as more_bullets
-            from app.jobs_resume_entries entry
-            left join app.jobs_resume_bullets bullet on bullet.entry_id = entry.id
-            where entry.user_id = %s
-            group by entry.id
-            order by entry.section, entry.display_order
-            """,
-            (user_id,),
-        )
-        entries = [EntryRow.model_validate(row) for row in await cursor.fetchall()]
-        cursor = await connection.execute(
-            "select category, items from app.jobs_skills where user_id = %s order by display_order",
-            (user_id,),
-        )
-        skills = [SkillRow.model_validate(row) for row in await cursor.fetchall()]
-        return CareerRecord(
-            education=primary,
-            schools=schools,
-            entries=entries,
-            skills=skills,
-            document=document_from_rows(
-                schools, entries, skills, await contact_facts(connection, user_id)
-            ),
-        )
 
     async def get_record(self, user_id: UUID) -> CareerRecord | None:
         async with (
@@ -115,7 +124,7 @@ class PostgresCareerStore:
             connection.transaction(),
         ):
             await connection.execute("set local role personal_os_api")
-            return await self._read(connection, user_id)
+            return await read_record(connection, user_id)
 
     async def write_record(
         self,
@@ -140,9 +149,7 @@ class PostgresCareerStore:
         ):
             await connection.execute("set local role personal_os_api")
             # Serialize writers on the user's record before deciding anything.
-            await connection.execute(
-                "select pg_advisory_xact_lock(hashtext('jobs_career:' || %s::text))", (user_id,)
-            )
+            await connection.execute(CAREER_LOCK, (user_id,))
             conflicts = contact_conflicts(document, await contact_facts(connection, user_id))
             if conflicts:
                 raise CareerError("; ".join(conflicts))
@@ -168,7 +175,7 @@ class PostgresCareerStore:
             await _write_skills(connection, user_id, skills)
             # Inside the transaction: an upload failure rolls the write back.
             await storage.upload_resume(user_id, pdf)
-            return await self._read(connection, user_id)
+            return await read_record(connection, user_id)
 
 
 async def _write_schools(

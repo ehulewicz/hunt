@@ -17,10 +17,12 @@ leftover stored row.
 from __future__ import annotations
 
 import re
+from collections.abc import Awaitable, Callable
 from datetime import date, datetime
 from typing import Annotated, Any, Literal, Protocol
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
@@ -29,6 +31,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from personal_os_backend.auth import CurrentPrincipal
 from personal_os_backend.config import Settings
+from personal_os_backend.jobs_career import (
+    ResumeConflict,
+    ResumeRebuilder,
+    get_resume_rebuilder,
+)
+from personal_os_backend.jobs_career_document import CONTACT_FACTS
+from personal_os_backend.jobs_career_pdf import PdfError
 from personal_os_backend.jobs_changes import (
     Action,
     Failure,
@@ -118,14 +127,23 @@ class FactWrite(BaseModel):
     verification: Verification | None = None
 
 
+# A hook a fact write runs inside its transaction after the row and its change
+# are recorded: today only the resume rebuild a header fact triggers.
+FactAfter = Callable[[AsyncConnection[Any]], Awaitable[None]]
+
+
 class FactStore(Protocol):
     async def list_facts(self, user_id: UUID) -> list[Fact]: ...
 
-    async def set_fact(self, user_id: UUID, key: str, item: FactWrite) -> Fact: ...
+    async def set_fact(
+        self, user_id: UUID, key: str, item: FactWrite, *, after: FactAfter | None = None
+    ) -> Fact: ...
 
     async def verify_fact(self, user_id: UUID, key: str) -> Fact | None: ...
 
-    async def delete_fact(self, user_id: UUID, key: str) -> bool: ...
+    async def delete_fact(
+        self, user_id: UUID, key: str, *, after: FactAfter | None = None
+    ) -> bool: ...
 
 
 async def _record_fact(
@@ -169,7 +187,9 @@ class PostgresFactStore:
             rows = await cursor.fetchall()
         return [Fact.model_validate(row) for row in rows]
 
-    async def set_fact(self, user_id: UUID, key: str, item: FactWrite) -> Fact:
+    async def set_fact(
+        self, user_id: UUID, key: str, item: FactWrite, *, after: FactAfter | None = None
+    ) -> Fact:
         async with (
             self._pool.connection(timeout=self._timeout) as connection,
             connection.transaction(),
@@ -215,6 +235,8 @@ class PostgresFactStore:
                 origin=item.origin, failure=item.failure, verification=item.verification,
                 pending=item.verification is None,
             )
+            if after is not None:
+                await after(connection)
         return Fact.model_validate(row)
 
     async def verify_fact(self, user_id: UUID, key: str) -> Fact | None:
@@ -239,7 +261,9 @@ class PostgresFactStore:
                 await _record_fact(connection, user_id, key, "update", before, row)
         return Fact.model_validate(row) if row else None
 
-    async def delete_fact(self, user_id: UUID, key: str) -> bool:
+    async def delete_fact(
+        self, user_id: UUID, key: str, *, after: FactAfter | None = None
+    ) -> bool:
         async with (
             self._pool.connection(timeout=self._timeout) as connection,
             connection.transaction(),
@@ -253,6 +277,8 @@ class PostgresFactStore:
             before = await cursor.fetchone()
             if before is not None:
                 await _record_fact(connection, user_id, key, "delete", before, None)
+                if after is not None:
+                    await after(connection)
         return before is not None
 
 
@@ -263,6 +289,11 @@ async def get_fact_store(request: Request) -> FactStore:
 
 router = APIRouter(prefix="/v1/jobs/facts", tags=["facts"])
 Store = Annotated[FactStore, Depends(get_fact_store)]
+Rebuilder = Annotated[ResumeRebuilder, Depends(get_resume_rebuilder)]
+
+# The facts the resume's header renders; a set or delete of one rebuilds the
+# stored PDF before the fact's transaction commits.
+HEADER_FACTS = frozenset(CONTACT_FACTS.values())
 
 
 def _checked_key(key: str) -> str:
@@ -297,14 +328,59 @@ def _computed_check(key: str) -> None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, refusal)
 
 
-@router.put("/{key}", response_model=Fact)
-async def set_fact(key: str, item: FactWrite, principal: CurrentPrincipal, store: Store) -> Fact:
-    checked = _checked_key(key)
-    _computed_check(checked)
+RESUME_CONFLICT = (
+    "The career record changed while the resume was being rebuilt; "
+    "nothing was saved. Try again."
+)
+
+
+async def _header_after(
+    user_id: UUID, key: str, item: FactWrite, store: FactStore, rebuilder: ResumeRebuilder
+) -> FactAfter | None:
+    """The resume rebuild for a header fact write that changes the value."""
+    facts = await store.list_facts(user_id)
+    existing = next((fact for fact in facts if fact.key == key), None)
+    value_type = item.value_type or (existing.value_type if existing else None)
+    if value_type is None:
+        return None  # the store's own "needs a label and a value_type" applies
     try:
-        return await store.set_fact(principal.user_id, checked, item)
+        value = validate_fact_value(value_type, item.value)
     except ValueError as error:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
+    if existing is not None and existing.value == value:
+        return None
+    header = {fact.key: fact.value for fact in facts if fact.key in HEADER_FACTS}
+    header[key] = value
+    try:
+        return await rebuilder.prepare(user_id, header)
+    except PdfError as error:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
+
+
+@router.put("/{key}", response_model=Fact)
+async def set_fact(
+    key: str,
+    item: FactWrite,
+    principal: CurrentPrincipal,
+    store: Store,
+    rebuilder: Rebuilder,
+) -> Fact:
+    checked = _checked_key(key)
+    _computed_check(checked)
+    after = None
+    if checked in HEADER_FACTS:
+        after = await _header_after(principal.user_id, checked, item, store, rebuilder)
+    try:
+        return await store.set_fact(principal.user_id, checked, item, after=after)
+    except ValueError as error:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
+    except ResumeConflict:
+        raise HTTPException(status.HTTP_409_CONFLICT, RESUME_CONFLICT) from None
+    except httpx.HTTPError:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "The resume PDF could not be stored; nothing was saved",
+        ) from None
 
 
 @router.post("/{key}/verify", response_model=Fact)
@@ -318,7 +394,31 @@ async def verify_fact(key: str, principal: CurrentPrincipal, store: Store) -> Fa
 
 
 @router.delete("/{key}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_fact(key: str, principal: CurrentPrincipal, store: Store) -> Response:
-    if not await store.delete_fact(principal.user_id, _checked_key(key)):
+async def delete_fact(
+    key: str, principal: CurrentPrincipal, store: Store, rebuilder: Rebuilder
+) -> Response:
+    checked = _checked_key(key)
+    after = None
+    if checked in HEADER_FACTS:
+        facts = await store.list_facts(principal.user_id)
+        header = {fact.key: fact.value for fact in facts if fact.key in HEADER_FACTS}
+        if checked in header:
+            del header[checked]
+            try:
+                after = await rebuilder.prepare(principal.user_id, header)
+            except PdfError as error:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)
+                ) from None
+    try:
+        deleted = await store.delete_fact(principal.user_id, checked, after=after)
+    except ResumeConflict:
+        raise HTTPException(status.HTTP_409_CONFLICT, RESUME_CONFLICT) from None
+    except httpx.HTTPError:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "The resume PDF could not be stored; nothing was saved",
+        ) from None
+    if not deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Fact not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)

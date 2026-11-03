@@ -486,3 +486,36 @@ async def test_prose_and_question_dispositions_are_changes_too() -> None:
     assert (question["subject"], question["subject_id"]) == ("question", str(question_id))
     assert (question["before"], question["after"]) == (
         {"disposition": "unbound"}, {"disposition": "long_form"})
+
+
+async def test_after_runs_inside_the_write_transaction() -> None:
+    rows: dict[str, dict[str, Any]] = {}
+
+    def answer(query: str, params: Any) -> list[dict[str, Any]]:
+        key = params[1] if params else None
+        if query.lstrip().startswith("select") and "from app.jobs_facts" in query:
+            return [rows[key]] if key in rows else []
+        if "insert into app.jobs_facts" in query:
+            rows[key] = {"key": key, "label": params[2], "value": params[3].obj,
+                         "value_type": params[4], "verified_at": NOW, "updated_at": NOW}
+            return [rows[key]]
+        if "delete from app.jobs_facts" in query:
+            return [rows.pop(key)] if key in rows else []
+        return []
+
+    connection = ScriptConnection(answer)
+    store = PostgresFactStore(ScriptPool(connection), 5)  # type: ignore[arg-type]
+    seen: list[tuple[Any, int]] = []
+
+    async def hook(conn: Any) -> None:
+        # The row's change is already recorded when the hook runs.
+        seen.append((conn, len(connection.changes)))
+
+    await store.set_fact(USER_ID, "identity.middle_name", FactWrite(
+        value="A.", label="Middle name", value_type="text"), after=hook)
+    assert seen == [(connection, 1)]
+    # A no-op set never runs it; a missing row's delete doesn't either.
+    await store.set_fact(USER_ID, "identity.middle_name", FactWrite(value="A."), after=hook)
+    assert await store.delete_fact(USER_ID, "identity.middle_name", after=hook)
+    assert not await store.delete_fact(USER_ID, "identity.middle_name", after=hook)
+    assert seen == [(connection, 1), (connection, 2)]

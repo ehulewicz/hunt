@@ -42,7 +42,7 @@ os device status
 The resume is the career record in the database, edited at /resume/edit or
 with `os hunt resume get` (the document as JSON on stdout) and
 `os hunt resume put <file>` (validates and saves it; a refusal prints the API's
-reason). The backend builds the one-page PDF on each save and serves it at
+reason). The backend builds the one-page PDF on each save — and when a header fact changes — and serves it at
 /resume; a run downloads that PDF once for every upload in it. Facts the resume
 determines — school, degree, graduation, GPA, coursework, the high school's
 name, city and graduation year (from a `high_school` education row), years of
