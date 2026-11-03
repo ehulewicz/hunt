@@ -1,4 +1,4 @@
-"""A run's answer history: observed and final rows, and the long-form prose kept from them."""
+"""A run's answer history: observed and final rows."""
 
 from __future__ import annotations
 
@@ -6,10 +6,8 @@ from typing import Any
 from uuid import UUID
 
 from psycopg import AsyncConnection
-from psycopg.types.json import Jsonb
 
 from personal_os_backend.jobs_models import AutofillAnswer, AutofillObservation
-from personal_os_backend.jobs_prose import stripped_spans
 from personal_os_backend.jobs_questions import normalize_answer_key, upsert_question
 
 ANSWER_SOURCES = frozenset(
@@ -24,7 +22,7 @@ async def record_observation(
     application_id: UUID,
     observation: AutofillObservation,
 ) -> None:
-    """Record a step's observed answer as drafted history, and keep long-form writing as prose."""
+    """Record a step's observed answer as drafted history."""
     source = observation.source if observation.source in ANSWER_SOURCES else "manual"
     question_id = await upsert_question(
         connection, user_id=user_id, label=observation.question,
@@ -63,10 +61,6 @@ async def record_observation(
             question_id,
         ),
     )
-    await save_prose(
-        connection, user_id, application_id, question_id, observation,
-        submitted=False,
-    )
 
 
 async def record_final_answer(
@@ -78,7 +72,7 @@ async def record_final_answer(
     *,
     submitted: bool,
 ) -> None:
-    """Record an answer as its run's final event, and keep long-form writing as prose."""
+    """Record an answer as its run's final event."""
     question = answer.question
     answer_text = answer.answer_text.strip()
     if not question or not answer_text:
@@ -117,55 +111,5 @@ async def record_final_answer(
             answer.resolver_id,
             answer.proposed_value,
             question_id,
-        ),
-    )
-    await save_prose(
-        connection, user_id, application_id, question_id, answer,
-        submitted=submitted,
-    )
-
-
-async def save_prose(
-    connection: AsyncConnection[Any],
-    user_id: UUID,
-    application_id: UUID,
-    question_id: UUID | None,
-    answer: AutofillAnswer,
-    *,
-    submitted: bool,
-) -> None:
-    """Keep a long-form answer as writing, as it is written and again at the run's end.
-
-    It waits in the Inbox until approved for reuse: one row per application and
-    question, holding the latest text. Approved prose reused as it was is not
-    saved again, and neither is an empty box.
-    """
-    text = answer.answer_text.strip()
-    if answer.form != "long" or answer.source == "prose" or question_id is None or not text:
-        return
-    spans = stripped_spans(answer.answer_text, answer.provenance)
-    prose = (
-        text,
-        "model" if answer.source == "model" else "manual",
-        Jsonb(spans) if spans is not None else None,
-        submitted,
-    )
-    await connection.execute(
-        """
-        with kept as (
-          update app.jobs_prose
-          set text = %s, origin = %s, provenance = %s, submitted = %s, updated_at = now()
-          where user_id = %s and application_id = %s and question_id = %s and not approved
-          returning id
-        )
-        insert into app.jobs_prose (
-          user_id, question_id, application_id, text, approved, origin, provenance, submitted
-        )
-        select %s, %s, %s, %s, false, %s, %s, %s
-        where not exists (select 1 from kept)
-        """,
-        (
-            *prose, user_id, application_id, question_id,
-            user_id, question_id, application_id, *prose,
         ),
     )

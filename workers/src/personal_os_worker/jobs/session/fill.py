@@ -159,7 +159,10 @@ class FillMixin(SessionBase):
                 ),
                 plan.unanswered_required_questions,
                 plan.reasons | {
-                    fill.index: "long-form: seeded from approved prose, else a Claude draft"
+                    fill.index: (
+                        "long-form: composed from the narrative library, "
+                        "else a Claude draft"
+                    )
                     for fill in plan.fills
                     if is_long_form_field(fields[fill.index]) and not from_a_fact(fill)
                 },

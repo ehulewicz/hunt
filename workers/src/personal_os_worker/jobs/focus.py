@@ -2,8 +2,8 @@
 
 Reads the `preferences.engineering_focus` fact — your engineering interests as
 an unordered set, not a ranking. It applies only to a question that asks you to
-choose among offered disciplines; "what do you want to work on" in prose is the
-approved writing, never this.
+choose among offered disciplines; "what do you want to work on" in prose is
+composed from the narrative library, never this.
 
 A choice question takes, in order: an option that fits the posting — the title
 names it, or shares one of its engineering families — and is also one of your

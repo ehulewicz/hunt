@@ -23,9 +23,8 @@ os hunt inbox        # accept or reject what was learned; bind questions to fact
 os hunt patterns     # what fills deterministically (active) and what waits (candidate)
 os hunt patterns --all
 os hunt replay       # the code as it stands, against the answers you accepted
-os hunt prose        # saved long-form writing
-os hunt prose add --question "Why this company?" --file ./answer.md
-os hunt prose approve 2
+os hunt prose        # old stored long-form writing, kept as reference
+os hunt prose delete 2
 os hunt archive      # the old answer library, for the facts session only
 os hunt archive rules
 os hunt archive prose --markdown ~/archived-answers.md
@@ -141,14 +140,14 @@ question or control on any other. `--ats` and a run's ATS are only labels.
 pattern check also says how many accepted answers its replay would change),
 questions you answered that nothing is bound to (bind to a fact — `?` lists
 every fact key — creating it from the catalog if needed; keep as a one-off; or
-mark long-form), and long-form writing from
-submitted applications (approve for reuse, or delete). Binding a question then
+mark long-form). Binding a question then
 offers to widen it: a regular expression — proposed from the question's own
 distinctive word, or typed — that answers every question matching it from the
 same fact, including phrasings no application has used yet. An accepted pattern
 is `active`, and the next application fills that question deterministically;
-`os hunt patterns` shows the state of the loop. Prose is reused only once
-approved; `prose add` saves writing directly, approved.
+`os hunt patterns` shows the state of the loop. Stored prose rows are old
+reference the fallback drafter reads; `os hunt prose list` and
+`os hunt prose delete` view and prune them.
 
 The letter template and the transcript are portable Git artifacts:
 

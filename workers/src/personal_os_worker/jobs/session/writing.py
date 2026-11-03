@@ -110,9 +110,6 @@ class WritingMixin(SessionBase):
             attempts=1,
         )
         if draft:
-            self.state.origins[question] = (
-                draft, tuple(str(item.get("answer_text") or "") for item in references)
-            )
             return draft, "model", "model:long_form_v1", "claude draft tailored to this posting"
         return (
             "", "empty", "",

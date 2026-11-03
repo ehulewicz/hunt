@@ -20,8 +20,7 @@ from personal_os_backend.jobs_answers import (
     PatternRefused,
     PatternUpdate,
     PostgresAnswerStore,
-    ProseSpan,
-    ProseUpdate,
+    Prose,
     Question,
     QuestionUpdate,
     _model_refusal,
@@ -30,7 +29,6 @@ from personal_os_backend.jobs_answers import (
     get_answer_store,
     normalize_answer_key,
     runaway_expression,
-    stripped_spans,
 )
 from personal_os_backend.main import create_app
 
@@ -118,8 +116,6 @@ def test_pattern_is_reached_by_accepting_a_binding_not_set_directly() -> None:
         QuestionUpdate.model_validate({"disposition": "pattern"})
     assert QuestionUpdate(disposition="one_off").disposition == "one_off"
     with pytest.raises(ValidationError):
-        ProseUpdate.model_validate({})
-    with pytest.raises(ValidationError):
         PatternUpdate.model_validate({"status": "validated"})
 
 
@@ -191,6 +187,12 @@ class FakeAnswerStore:
         )
         return self.patterns[pattern_id]
 
+    async def list_prose(self, user_id: UUID) -> list[Prose]:
+        return []
+
+    async def delete_prose(self, user_id: UUID, prose_id: UUID) -> bool:
+        return True
+
     async def list_archive(self, user_id: UUID) -> list[ArchivedAnswer]:
         return [
             ArchivedAnswer(
@@ -200,7 +202,7 @@ class FakeAnswerStore:
         ]
 
     async def inbox(self, user_id: UUID) -> Inbox:
-        return Inbox(candidates=[], questions=[], prose=[])
+        return Inbox(candidates=[], questions=[])
 
 
 @asynccontextmanager
@@ -281,7 +283,7 @@ async def test_inbox_questions_and_archive_are_readable(client: httpx.AsyncClien
     async with client:
         inbox = await client.get("/v1/jobs/inbox", headers=HEADERS)
         assert inbox.json() == {
-            "candidates": [], "checks": [], "questions": [], "prose": [], "facts": [],
+            "candidates": [], "checks": [], "questions": [], "facts": [],
             "unsolved": [], "gaps": [],
         }
         questions = await client.get("/v1/jobs/questions?disposition=unbound", headers=HEADERS)
@@ -293,6 +295,22 @@ async def test_inbox_questions_and_archive_are_readable(client: httpx.AsyncClien
         archive = await client.get("/v1/jobs/archive/answers", headers=HEADERS)
         assert archive.json()[0]["answer_text"] == "Yes"
         assert (await client.get("/v1/jobs/answers", headers=HEADERS)).status_code == 404
+
+
+async def test_prose_reads_and_prunes_but_never_writes(client: httpx.AsyncClient) -> None:
+    prose_id = str(uuid4())
+    async with client:
+        assert (await client.get("/v1/jobs/prose", headers=HEADERS)).status_code == 200
+        assert (await client.post(
+            "/v1/jobs/prose", headers=HEADERS,
+            json={"question": "Why us?", "text": "Because."},
+        )).status_code == 405
+        assert (await client.patch(
+            f"/v1/jobs/prose/{prose_id}", headers=HEADERS, json={"approved": True}
+        )).status_code == 405
+        assert (await client.delete(
+            f"/v1/jobs/prose/{prose_id}", headers=HEADERS
+        )).status_code == 204
 
 
 class InboxConnection:
@@ -501,31 +519,3 @@ async def test_replacing_a_model_binding_and_only_that_binding() -> None:
     assert await _model_refusal(connection, USER_ID, item) == (  # type: ignore[arg-type]
         "only the binding a model taught, and only the one named, can be replaced"
     )
-
-
-def test_a_library_span_names_its_entry_and_only_a_library_span_has_one() -> None:
-    span = ProseSpan.model_validate({"start": 0, "end": 5, "source": "library",
-                                     "entry": "2.2.11"})
-    assert span.entry == "2.2.11"
-    # Old spans, model or previous, keep reading without an entry.
-    ProseSpan.model_validate({"start": 0, "end": 5, "source": "previous"})
-    ProseSpan.model_validate({"start": 0, "end": 5, "source": "model"})
-    with pytest.raises(ValidationError):
-        ProseSpan.model_validate({"start": 0, "end": 5, "source": "library"})
-    with pytest.raises(ValidationError):
-        ProseSpan.model_validate(
-            {"start": 0, "end": 5, "source": "model", "entry": "1.1"}
-        )
-
-
-def test_stripped_spans_keeps_the_entry_only_for_library_spans() -> None:
-    spans = [
-        ProseSpan(start=0, end=3, source="model"),
-        ProseSpan(start=3, end=8, source="library", entry="1.1"),
-        ProseSpan(start=8, end=11, source="previous"),
-    ]
-    assert stripped_spans("abcdefghijk", spans) == [
-        {"start": 0, "end": 3, "source": "model"},
-        {"start": 3, "end": 8, "source": "library", "entry": "1.1"},
-        {"start": 8, "end": 11, "source": "previous"},
-    ]

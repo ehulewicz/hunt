@@ -32,7 +32,8 @@ per user and key, recorded when first met, with a disposition (`unbound`,
 `expression` (a regex), always reading one fact key, with a lifecycle status;
 at most one binding per question is `active`, and one row exists per question
 and fact. Prose is long-form writing tied to the question and application it
-was written for, unapproved until reviewed. Answer history and fill events carry
+was written for; runs never write it — the rows are old reference the
+worker's fallback drafter reads. Answer history and fill events carry
 `question_id`, and fill events the `pattern_id` that produced their value.
 `jobs_questions.embedding` caches `extensions.vector(1536)` for the single
 pinned question-embedding model. It remains in the private `app` schema, and
@@ -55,7 +56,7 @@ or code, with who made it and the failure issue it fixed (`failure_issue_id`).
 An observed history row is identified by run and event index; final rows retain the
 submitted or drafted value with step and control context. Autofill activates only a
 pattern it learned from a model verdict and checked (origin `model`), and never
-approves prose. `jobs_worker_credentials` stores only SHA-256 token hashes plus
+writes prose. `jobs_worker_credentials` stores only SHA-256 token hashes plus
 scope, expiry, use, and revocation timestamps. Listing source metadata keeps
 discovery and direct application URLs separate, records the FAANG+/Quant/general
 source section, and stores normalized location arrays for match-any filtering.

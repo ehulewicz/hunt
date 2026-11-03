@@ -24,7 +24,6 @@ const GAPS: Inbox["gaps"] = [
 const INBOX: Inbox = {
   questions: [], candidates: [], checks: [], unsolved: [],
   facts: [],
-  prose: [{ id: "pr1", question_label: "Why Acme?", company_name: "Acme", text: "Draft.", approved: false, origin: "model", provenance: null, submitted: false }],
   gaps: GAPS,
 };
 
@@ -37,7 +36,7 @@ beforeEach(() => {
 test("open gaps list under Writing and a resolve posts to the gap", async () => {
   const onRefresh = vi.fn();
   render(<HuntInbox facts={[]} inbox={INBOX} onRefresh={onRefresh} />);
-  fireEvent.click(screen.getByRole("button", { name: "Writing 3" }));
+  fireEvent.click(screen.getByRole("button", { name: "Writing 2" }));
   expect(screen.getByText("Why this company?")).toBeInTheDocument();
   expect(screen.getByText("Acme · Backend Intern")).toBeInTheDocument();
   expect(screen.getByText("Not covered · why company")).toBeInTheDocument();
@@ -52,27 +51,3 @@ test("open gaps list under Writing and a resolve posts to the gap", async () => 
   await waitFor(() => expect(onRefresh).toHaveBeenCalled());
 });
 
-test("library spans render plain with the entry code as their title", () => {
-  const inbox: Inbox = {
-    ...INBOX,
-    gaps: [],
-    prose: [{
-      id: "pr1", question_label: "Why?", company_name: "Acme", approved: false,
-      origin: "model", submitted: false, text: "mine model library",
-      provenance: [
-        { start: 0, end: 4, source: "previous" },
-        { start: 5, end: 10, source: "model" },
-        { start: 11, end: 18, source: "library", entry: "2.2.11" },
-      ],
-    }],
-  };
-  render(<HuntInbox facts={[]} inbox={inbox} onRefresh={vi.fn()} />);
-  fireEvent.click(screen.getByRole("button", { name: "Writing 1" }));
-  fireEvent.click(screen.getByRole("button", { name: "Review Why?" }));
-  expect(screen.getByText("model", { selector: "mark" })).toHaveClass("prose-model");
-  expect(screen.getByText("mine", { selector: "mark" })).toHaveClass("prose-previous");
-  const span = screen.getByTitle("Library 2.2.11");
-  expect(span.tagName).toBe("SPAN");
-  expect(span).not.toHaveClass("prose-library");
-  expect(screen.getByText(/Your text and library writing are plain/)).toBeInTheDocument();
-});

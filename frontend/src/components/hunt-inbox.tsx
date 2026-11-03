@@ -78,7 +78,7 @@ export function HuntInbox({ inbox, facts, onRefresh }: { inbox: Inbox | null; fa
   }
   // Failed checks first: each would change an answer you accepted.
   const patterns = inbox ? [...(inbox.checks ?? []), ...inbox.candidates] : [];
-  const counts: Record<string, number> | null = inbox ? { Questions: inbox.questions.length, "Facts to verify": toVerify.length, Writing: inbox.prose.length + (inbox.gaps?.length ?? 0), "Pattern checks": patterns.length, Unsolved: inbox.unsolved?.length ?? 0 } : null;
+  const counts: Record<string, number> | null = inbox ? { Questions: inbox.questions.length, "Facts to verify": toVerify.length, Writing: inbox.gaps?.length ?? 0, "Pattern checks": patterns.length, Unsolved: inbox.unsolved?.length ?? 0 } : null;
   const total = counts ? Object.values(counts).reduce((sum, count) => sum + count, 0) : null;
 
   return (
@@ -104,7 +104,6 @@ export function HuntInbox({ inbox, facts, onRefresh }: { inbox: Inbox | null; fa
                   : <div className="review-list">
                     {section === "Questions" && inbox.questions.map((item) => <button aria-label={`Review ${item.question.sample_label}`} className="review-row" key={item.question.id} onClick={() => setReview({ kind: "question", item })} type="button"><span className="review-icon"><Link2 aria-hidden="true" /></span><span><strong>{item.question.sample_label}</strong><small>{item.answers.length > 0 ? `${item.answers.length} previous answers` : "No previous answers"}</small></span><ChevronRight aria-hidden="true" /></button>)}
                     {section === "Facts to verify" && toVerify.map((item) => <button aria-label={`Review ${item.label ?? item.missing_fact ?? "Missing fact"}`} className="review-row" key={`${item.reason}:${item.issue_id ?? item.key}`} onClick={() => setReview({ kind: "fact", item })} type="button"><span className="review-icon"><Check aria-hidden="true" /></span><span><strong>{item.label ?? item.missing_fact ?? "Missing fact"}</strong><small>Cause: {item.reason}</small>{item.question && <small>Question: {item.question}</small>}{item.missing_fact && <small>Needed: {item.missing_fact}</small>}{item.reason !== "missing" && <small>{factDisplayValue(item.value)}</small>}<small><ReplayResult check={item.check} /></small></span><ChevronRight aria-hidden="true" /></button>)}
-                    {section === "Writing" && inbox.prose.map((item) => <button aria-label={`Review ${item.question_label ?? "Written answer"}`} className="review-row" key={item.id} onClick={() => setReview({ kind: "prose", item })} type="button"><span className="review-icon"><FileText aria-hidden="true" /></span><span><strong>{item.question_label ?? "Written answer"}</strong><small>{item.company_name ?? "Application answer"}</small>{item.origin && <small>Cause: {item.origin}</small>}</span><ChevronRight aria-hidden="true" /></button>)}
                     {section === "Writing" && (inbox.gaps ?? []).map((gap) => <div className="review-row review-row-static" key={gap.id}>
                       <span className="review-icon"><FileText aria-hidden="true" /></span>
                       <span><strong>{gap.question ?? "Long-form question"}</strong>

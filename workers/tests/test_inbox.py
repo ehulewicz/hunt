@@ -80,10 +80,6 @@ class FakeApi:
         self.calls.append(("fact", (key, value, fields)))
         return {}
 
-    def update_prose(self, prose_id: str, **fields: Any) -> dict[str, Any]:
-        self.calls.append(("prose", (prose_id, fields)))
-        return {}
-
     def delete_prose(self, prose_id: str) -> None:
         self.calls.append(("delete prose", prose_id))
 
@@ -148,21 +144,11 @@ def test_one_off_long_form_and_skip_are_dispositions() -> None:
 
 def test_a_question_an_active_expression_covers_is_not_asked() -> None:
     api = FakeApi(
-        {"candidates": [], "questions": [question("Do you need sponsorship?")], "prose": []},
+        {"candidates": [], "questions": [question("Do you need sponsorship?")]},
         expressions=[r"\bsponsor(ship)?\b"],
     )
     counts = walk_inbox(api, ask=answers(), today=TODAY)  # type: ignore[arg-type]
     assert api.calls == [] and sum(counts.values()) == 0
-
-
-def test_prose_is_approved_or_deleted_and_quit_stops() -> None:
-    api = FakeApi({"candidates": [], "questions": [], "prose": [
-        {"id": "x1", "question_label": "Why us?", "company_name": "Figma", "text": "Because."},
-        {"id": "x2", "question_label": "Why them?", "company_name": "Veeam", "text": "Hmm."},
-        {"id": "x3", "question_label": "Why?", "company_name": "Exegy", "text": "Never asked."},
-    ]})
-    walk_inbox(api, ask=answers("a", "d", "q"), today=TODAY)  # type: ignore[arg-type]
-    assert api.calls == [("prose", ("x1", {"approved": True})), ("delete prose", "x2")]
 
 
 def test_a_question_proposes_the_word_it_asks_about() -> None:

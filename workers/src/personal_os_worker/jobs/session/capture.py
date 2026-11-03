@@ -1,14 +1,11 @@
-"""Manual completion, capture with each long-form answer's provenance, and advance."""
+"""Manual completion, capture, and advance."""
 
 from __future__ import annotations
 
 import contextlib
 import time
-from collections.abc import Sequence
-from difflib import SequenceMatcher
-from typing import Any, Literal
+from typing import Any
 
-import httpx
 from playwright.sync_api import Error
 
 from personal_os_worker.core.config import console
@@ -44,34 +41,6 @@ from personal_os_worker.jobs.session.context import (
     echo,
     page_signature,
 )
-
-Source = Literal["model", "previous"]
-# A shared stretch shorter than this is common words, not borrowed text.
-MIN_SPAN = 16
-
-
-def spans(final: str, *, draft: str = "", previous: Sequence[str] = ()) -> list[dict[str, object]]:
-    """Ordered, non-overlapping spans of `final`, each with where it came from."""
-    marks: list[Source | None] = [None] * len(final)
-    sources: list[tuple[Source, str]] = [("previous", text) for text in previous if text]
-    if draft:
-        sources.append(("model", draft))
-    for source, text in sources:
-        matcher = SequenceMatcher(None, final, text, autojunk=False)
-        for block in matcher.get_matching_blocks():
-            if block.size < MIN_SPAN:
-                continue
-            for index in range(block.a, block.a + block.size):
-                if marks[index] is None:
-                    marks[index] = source
-    found: list[dict[str, object]] = []
-    start = 0
-    for index in range(1, len(final) + 1):
-        if index == len(final) or marks[index] != marks[start]:
-            if marks[start] is not None:
-                found.append({"start": start, "end": index, "source": marks[start]})
-            start = index
-    return found
 
 
 class CaptureMixin(SessionBase):
@@ -133,7 +102,6 @@ class CaptureMixin(SessionBase):
         self.state.na_flagged = flagged
 
     def record_snapshot(self, fields: list[dict[str, Any]]) -> None:
-        writing = False  # a long-form answer changed: saved at once, not at the run's end
         withheld = dict(self.state.withheld)
         flagged = self.state.na_flagged
         held: dict[str, str] = {}  # question -> what the page shows for it
@@ -177,14 +145,10 @@ class CaptureMixin(SessionBase):
             source, resolver_id, proposed_value = self._proposal(
                 question, value, source, seed, control_key, previous
             )
-            writing |= self._collect_answer(
+            self._collect_answer(
                 item, question, value, source, fingerprint, control_key, previous,
                 resolver_id, proposed_value,
             )
-        if writing and not self.ctx.dry_run:
-            # Writing is kept as it is written: a run that is killed loses none of it.
-            with contextlib.suppress(httpx.HTTPError, RuntimeError):
-                self._save_now(quiet=True)
         self.flag_follow_ups(fields, held)
         if self.state.withheld != withheld or self.state.na_flagged != flagged:
             with contextlib.suppress(Error):
@@ -242,9 +206,8 @@ class CaptureMixin(SessionBase):
         previous: dict[str, Any] | None,
         resolver_id: str | None,
         proposed_value: str | None,
-    ) -> bool:
-        """Collect the answer, log it when it changed, and echo yours; True for new prose."""
-        writing = False
+    ) -> None:
+        """Collect the answer, log it when it changed, and echo yours."""
         self.state.collected[control_key] = {
             "question": question,
             "answer_text": value,
@@ -257,12 +220,6 @@ class CaptureMixin(SessionBase):
             "resolver_id": resolver_id,
             "proposed_value": proposed_value,
         }
-        origin = self.state.origins.get(question)
-        if item.get("form") == "long" and origin is not None:
-            draft, started_from = origin
-            self.state.collected[control_key]["provenance"] = spans(
-                value, draft=draft, previous=started_from
-            )
         if previous is None or previous["answer_text"] != value:
             self.state.observations.append(
                 {
@@ -278,17 +235,11 @@ class CaptureMixin(SessionBase):
                     "resolver_id": resolver_id,
                     "proposed_value": proposed_value,
                 }
-                | (
-                    {"provenance": self.state.collected[control_key]["provenance"]}
-                    if "provenance" in self.state.collected[control_key] else {}
-                )
             )
-            writing |= item.get("form") == "long"
         # Echo what the user typed or chose so they can see it was picked up.
         if source == "manual" and self.state.announced.get(control_key) != value:
             self.state.announced[control_key] = value
             echo("picked up", question, value)
-        return writing
 
     def wait_and_advance(self, fields: list[dict[str, Any]]) -> ApplicationPageState:
         """Collect manual answers while the user owns page navigation and submission."""

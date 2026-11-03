@@ -276,7 +276,7 @@ class AuditMixin(SessionBase):
                      for question, item in unidentified.items()]
         findings = [
             replace(item, cause="draft_error", note=self.state.model_error
-                    or "prose still needs an answer from approved writing or a grounded draft")
+                    or "prose still needs an answer from the narrative library or a grounded draft")
             if item.cause == "pattern_gap"
             and (control := find_field(current, item.question)) is not None
             and is_long_form_field(control) else item

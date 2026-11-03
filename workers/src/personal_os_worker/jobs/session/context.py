@@ -187,9 +187,6 @@ class SessionState:
     sightings_read: bool = False
     # (question, fact) -> why a lesson waits in the Inbox: it is saved once a run.
     held: dict[tuple[str, str], str] = field(default_factory=dict)
-    # question -> (the model's draft, the previous answers it started from), for
-    # each long-form answer's provenance.
-    origins: dict[str, tuple[str, tuple[str, ...]]] = field(default_factory=dict)
     similar_prose: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     # Model calls by purpose made by the processes this run reloaded from.
 

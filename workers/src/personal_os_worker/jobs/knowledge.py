@@ -295,46 +295,28 @@ def render_prose(items: list[dict[str, Any]]) -> None:
     console.print(view)
 
 
-def run_prose(
-    action: str | None,
-    reference: str | None,
-    *,
-    question: str | None = None,
-    file: str | None = None,
-) -> int:
+def run_prose(action: str | None, reference: str | None) -> int:
     config, token = connected()
     api = WorkerApi(config, token)
     try:
         if action in {None, "list"}:
             items = api.prose()
             if not items:
-                console.print("No prose yet. Long-form answers you submit land in the Inbox.")
+                console.print(
+                    "No stored prose. Runs no longer save long-form answers; "
+                    "your writing lives in the narrative library (os hunt library get)."
+                )
                 return 0
             render_prose(items)
-            return 0
-        if action == "add":
-            if not question or not file:
-                raise RuntimeError("'prose add' needs --question and --file")
-            try:
-                text = Path(file).expanduser().read_text(encoding="utf-8").strip()
-            except FileNotFoundError:
-                raise RuntimeError(f"Prose file not found: {file}") from None
-            if not text:
-                raise RuntimeError("The prose file is empty")
-            item = api.create_prose(question=question, text=text)
-            console.print(f"Saved prose {short_id(str(item['id']))} for {question!r}, approved.")
             return 0
         if reference is None:
             raise RuntimeError(f"'prose {action}' needs a row from 'os hunt prose' or an id prefix")
         item = pick(api.prose(), reference, kind="prose")
-        if action == "approve":
-            api.update_prose(str(item["id"]), approved=True)
-            console.print(f"Approved prose {short_id(str(item['id']))} for reuse.")
-        elif action == "delete":
+        if action == "delete":
             api.delete_prose(str(item["id"]))
             console.print(f"Deleted prose {short_id(str(item['id']))}.")
         else:
-            raise RuntimeError("Use: os hunt prose [list|add|approve|delete]")
+            raise RuntimeError("Use: os hunt prose [list|delete]")
     finally:
         api.close()
     return 0

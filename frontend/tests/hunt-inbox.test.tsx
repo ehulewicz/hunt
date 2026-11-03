@@ -13,7 +13,6 @@ const FACTS: Fact[] = [
 ];
 const INBOX: Inbox = {
   questions: [{ question: { id: "q1", sample_label: "Your extension?" }, answers: [] }],
-  prose: [{ id: "pr1", question_label: "Why Acme?", company_name: "Acme", text: "I build useful tools.", approved: false, origin: "model", provenance: null, submitted: false }],
   candidates: [], checks: [], unsolved: [],
   facts: FACTS.slice(0, 2).map((fact) => ({ ...fact, reason: "unverified", question: null, missing_fact: null, issue_id: null, check: null })),
 };
@@ -22,9 +21,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
   vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+    if (input.endsWith("/prose")) return Response.json([{ id: "pr2", question_id: null, question_label: "Career goals", application_id: null, company_name: "Acme", text: "I build useful tools.", approved: true, origin: "manual", submitted: true, created_at: "2026-10-01", updated_at: "2026-10-01" }]);
     if (input.endsWith("/questions")) return Response.json([{ id: "q2", sample_label: "Your email?", disposition: "pattern", form: "short", pattern_id: "pat1" }]);
     if (input.endsWith("/facts")) return Response.json(FACTS);
-    if (input.endsWith("/prose")) return Response.json([{ ...INBOX.prose[0], id: "pr2", question_label: "Career goals", approved: true }]);
     if (input.includes("/changes?")) return Response.json([]);
     if (input.includes("/patterns?")) return Response.json([{ id: "pat1", question_id: "q2", question_label: "Your email?", expression: null, fact_key: "contact.email", formatter: null, status: "retired" }]);
     return Response.json({});
@@ -59,9 +58,10 @@ test("Library reads saved records beyond the Inbox and shows empty history expli
   expect(fetch).toHaveBeenCalledWith(expect.stringContaining("status=retired"), expect.anything());
   fireEvent.click(screen.getByRole("button", { name: "All items" }));
   fireEvent.click(screen.getByRole("button", { name: /^Writing/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Review Career goals" }));
-  expect(screen.getByRole("textbox", { name: "Answer" })).toHaveValue("I build useful tools.");
-  expect(screen.getByText("Origin highlights were not recorded for this answer.")).toBeInTheDocument();
+  const row = screen.getByText("Career goals").closest(".review-row");
+  expect(row).toHaveClass("review-row-static");
+  expect(row).toHaveTextContent("Acme: Approved");
+  expect(screen.queryByRole("button", { name: "Review Career goals" })).toBeNull();
 });
 
 test("a failed Library load offers retry instead of empty records", async () => {
@@ -71,15 +71,6 @@ test("a failed Library load offers retry instead of empty records", async () => 
   expect(await screen.findByRole("alert")).toHaveTextContent("Library unavailable");
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   expect(await screen.findByRole("button", { name: "View Your email?" })).toBeInTheDocument();
-});
-
-test("writing can be saved as a draft without approving it", async () => {
-  render(<HuntInbox facts={FACTS} inbox={INBOX} onRefresh={vi.fn()} />);
-  fireEvent.click(screen.getByRole("button", { name: "Writing 1" }));
-  fireEvent.click(screen.getByRole("button", { name: "Review Why Acme?" }));
-  fireEvent.change(screen.getByLabelText("Answer"), { target: { value: "My revised draft." } });
-  fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
-  await waitFor(() => expect(fetch).toHaveBeenCalledWith("https://api.test/v1/jobs/prose/pr1", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ text: "My revised draft.", approved: false, origin: "inbox" }) })));
 });
 
 test("invalid JSON stays in the fact editor and an empty list saves as a list", async () => {
@@ -94,18 +85,6 @@ test("invalid JSON stays in the fact editor and an empty list saves as a list", 
   fireEvent.change(screen.getByLabelText("Value"), { target: { value: "[]" } });
   fireEvent.click(screen.getByRole("button", { name: "Save verified fact" }));
   await waitFor(() => expect(fetch).toHaveBeenCalledWith("https://api.test/v1/jobs/facts/education.certifications", expect.objectContaining({ method: "PUT", body: JSON.stringify({ value: [], verified: true, origin: "inbox" }) })));
-});
-
-test("a rejected writing save keeps edits available for retry", async () => {
-  vi.mocked(fetch).mockResolvedValueOnce(Response.json({ detail: "Could not save writing" }, { status: 503 }));
-  render(<HuntInbox facts={FACTS} inbox={INBOX} onRefresh={vi.fn()} />);
-  fireEvent.click(screen.getByRole("button", { name: "Writing 1" }));
-  fireEvent.click(screen.getByRole("button", { name: "Review Why Acme?" }));
-  fireEvent.change(screen.getByLabelText("Answer"), { target: { value: "Keep this draft." } });
-  fireEvent.click(screen.getByRole("button", { name: "Approve for reuse" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("Could not save writing");
-  expect(screen.getByLabelText("Answer")).toHaveValue("Keep this draft.");
-  expect(screen.getByRole("button", { name: "Approve for reuse" })).toBeEnabled();
 });
 
 const CHANGE = {
@@ -131,18 +110,6 @@ test("Inbox uses server fact reasons, failed checks first, and unsolved notes", 
   expect(screen.queryByRole("button", { name: "Review Phone extension" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Unsolved 1" }));
   expect(screen.getByText("Upload still unreadable")).toBeInTheDocument();
-});
-
-test("prose displays Unicode provenance as one answer and edits without stale highlights", () => {
-  render(<HuntInbox facts={FACTS} inbox={{ ...INBOX, prose: [{ ...INBOX.prose[0], text: "😀 mine model previous", provenance: [{ start: 7, end: 12, source: "model" }, { start: 13, end: 21, source: "previous" }] }] }} onRefresh={vi.fn()} />);
-  fireEvent.click(screen.getByRole("button", { name: "Writing 1" }));
-  fireEvent.click(screen.getByRole("button", { name: "Review Why Acme?" }));
-  expect(screen.getByLabelText("Answer origins")).toHaveTextContent("😀 mine model previous");
-  expect(screen.getByText("model", { selector: "mark" })).toHaveClass("prose-model");
-  expect(screen.getByText("previous", { selector: "mark" })).toHaveClass("prose-previous");
-  fireEvent.click(screen.getByRole("button", { name: "Edit answer" }));
-  expect(screen.getByLabelText("Answer")).toHaveValue("😀 mine model previous");
-  expect(screen.queryByLabelText("Answer origins")).not.toBeInTheDocument();
 });
 
 test("Library renders item verification history and code fix details", async () => {
@@ -187,13 +154,9 @@ test("an unknown missing fact stays editable and saves typed metadata with Inbox
   await waitFor(() => expect(fetch).toHaveBeenCalledWith("https://api.test/v1/jobs/facts/availability.start", expect.objectContaining({ body: JSON.stringify({ value: "2027-05-24", verified: true, origin: "inbox", label: "Start date", value_type: "date" }) })));
 });
 
-test("question disposition and prose discard send Inbox origin", async () => {
+test("question disposition sends Inbox origin", async () => {
   render(<HuntInbox facts={FACTS} inbox={INBOX} onRefresh={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "Review Your extension?" }));
-  fireEvent.click(screen.getByRole("button", { name: "Answer only on the form" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Answer only on the form" }));
   await waitFor(() => expect(fetch).toHaveBeenCalledWith("https://api.test/v1/jobs/questions/q1", expect.objectContaining({ body: JSON.stringify({ disposition: "one_off", origin: "inbox" }) })));
-  fireEvent.click(screen.getByRole("button", { name: "Writing 1" }));
-  fireEvent.click(screen.getByRole("button", { name: "Review Why Acme?" }));
-  fireEvent.click(screen.getByRole("button", { name: "Discard draft" }));
-  await waitFor(() => expect(fetch).toHaveBeenCalledWith("https://api.test/v1/jobs/prose/pr1", expect.objectContaining({ method: "DELETE", body: JSON.stringify({ origin: "inbox" }) })));
 });

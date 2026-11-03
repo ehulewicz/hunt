@@ -479,11 +479,12 @@ def test_the_learning_commands_parse() -> None:
     assert build_parser().parse_args(["hunt", "inbox"]).hunt_command == "inbox"
     patterns = build_parser().parse_args(["hunt", "patterns", "--all"])
     assert patterns.hunt_command == "patterns" and patterns.every is True
-    prose = build_parser().parse_args(
-        ["hunt", "prose", "add", "--question", "Why us?", "--file", "a.md"]
-    )
-    assert (prose.action, prose.question, prose.file) == ("add", "Why us?", "a.md")
-    assert build_parser().parse_args(["hunt", "prose", "approve", "2"]).ref == "2"
+    assert build_parser().parse_args(["hunt", "prose", "list"]).action == "list"
+    assert build_parser().parse_args(["hunt", "prose", "delete", "2"]).ref == "2"
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "prose", "add", "--question", "Q", "--file", "a.md"])
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["hunt", "prose", "approve", "2"])
     archive = build_parser().parse_args(["hunt", "archive", "prose", "--markdown", "/tmp/a.md"])
     assert (archive.section, archive.markdown) == ("prose", "/tmp/a.md")
     assert build_parser().parse_args(["hunt", "archive"]).section == "answers"

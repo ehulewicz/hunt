@@ -1,4 +1,4 @@
-"""The Inbox: learned patterns, questions, prose, facts, gaps, and failures waiting on you."""
+"""The Inbox: learned patterns, questions, facts, gaps, and failures waiting on you."""
 
 from __future__ import annotations
 
@@ -19,7 +19,6 @@ from personal_os_backend.jobs_patterns import (
     PATTERN_FROM,
     Pattern,
 )
-from personal_os_backend.jobs_prose import PROSE_SELECT, Prose
 from personal_os_backend.jobs_questions import (
     QUESTION_COLUMNS,
     Question,
@@ -101,7 +100,6 @@ class Inbox(BaseModel):
     candidates: list[InboxCandidate]
     checks: list[InboxCandidate] = Field(default_factory=list)
     questions: list[InboxQuestion]
-    prose: list[Prose]
     facts: list[InboxFact] = Field(default_factory=list)
     unsolved: list[InboxUnsolved] = Field(default_factory=list)
     # Open prose gaps, filled by `jobs_gaps.open_gaps`.
@@ -136,7 +134,7 @@ class InboxStore(Protocol):
 
 class InboxMixin(StoreBase):
     async def inbox(self, user_id: UUID) -> Inbox:
-        """Everything waiting on the user: candidate patterns, unbound questions, new prose.
+        """Everything waiting on the user: candidate patterns and unbound questions.
 
         An unbound question an active expression already decides, or one that
         asks nothing, is not waiting on anyone.
@@ -149,12 +147,6 @@ class InboxMixin(StoreBase):
             candidates, failed_checks = await _waiting_patterns(connection, user_id)
             expressions = await _active_expressions(connection, user_id)
             questions = await _unbound_questions(connection, user_id, expressions)
-            cursor = await connection.execute(
-                f"{PROSE_SELECT} where prose.user_id = %s and not prose.approved "
-                "order by prose.created_at",
-                (user_id,),
-            )
-            prose = [Prose.model_validate(row) for row in await cursor.fetchall()]
             facts = await _facts_waiting(connection, user_id)
             unsolved = await _unsolved(connection, user_id)
             # Imported here: jobs_gaps imports this module for its models.
@@ -162,7 +154,7 @@ class InboxMixin(StoreBase):
 
             gaps = await open_gaps(connection, user_id)
         return Inbox(
-            candidates=candidates, checks=failed_checks, questions=questions, prose=prose,
+            candidates=candidates, checks=failed_checks, questions=questions,
             facts=facts, unsolved=unsolved, gaps=gaps,
         )
 

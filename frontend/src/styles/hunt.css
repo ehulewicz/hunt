@@ -263,10 +263,6 @@ input::placeholder, textarea::placeholder { color: var(--ui-faint); opacity: 1; 
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
 
-.prose-origins { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-control); padding: 12px; }
-.prose-model { color: var(--ui-accent-hover); background: var(--ui-accent-soft); }
-.prose-previous { color: var(--ui-success); background: var(--ui-success-soft); }
-.prose-legend { font-size: 11px; line-height: 1.7; }
 .unsolved-row { display: grid; gap: 8px; padding: 16px 22px; border-bottom: 1px solid var(--ui-border); overflow-wrap: anywhere; }
 .unsolved-row small { color: var(--ui-muted); }
 .unsolved-row p { white-space: pre-wrap; }

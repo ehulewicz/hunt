@@ -15,7 +15,6 @@ from personal_os_backend.jobs_answers import (
     PatternCreate,
     PatternUpdate,
     PostgresAnswerStore,
-    ProseUpdate,
     QuestionUpdate,
 )
 from personal_os_backend.jobs_changes import (
@@ -455,18 +454,18 @@ async def test_a_code_change_records_its_parent_detail_and_failure_issue() -> No
 
 async def test_prose_and_question_dispositions_are_changes_too() -> None:
     prose_id, question_id = uuid4(), uuid4()
-    texts = iter(["First draft.", "First draft, edited."])
+    texts = iter(["First draft."])
 
     def prose_row() -> dict[str, Any]:
         return {"id": prose_id, "question_id": question_id, "question_label": "Why us?",
                 "application_id": None, "company_name": None, "text": next(texts),
-                "approved": False, "origin": "model", "provenance": None, "submitted": False,
+                "approved": False, "origin": "model", "submitted": False,
                 "created_at": NOW, "updated_at": NOW}
 
     def answer(query: str, params: Any) -> list[dict[str, Any]]:
         if "from app.jobs_prose prose" in query:
             return [prose_row()]
-        if "update app.jobs_prose" in query:
+        if "delete from app.jobs_prose" in query:
             return [{"id": prose_id}]
         if "select disposition from app.jobs_questions" in query:
             return [{"disposition": "unbound"}]
@@ -478,14 +477,12 @@ async def test_prose_and_question_dispositions_are_changes_too() -> None:
 
     connection = ScriptConnection(answer)
     store = PostgresAnswerStore(ScriptPool(connection), 5)  # type: ignore[arg-type]
-    await store.update_prose(USER_ID, prose_id, ProseUpdate(text="First draft, edited.",
-                                                            origin="inbox"))
+    await store.delete_prose(USER_ID, prose_id)
     await store.update_question(USER_ID, question_id, QuestionUpdate(disposition="long_form"))
 
     prose, question = connection.changes
-    assert (prose["subject"], prose["action"], prose["origin"]) == ("prose", "update", "inbox")
-    assert (prose["before"]["text"], prose["after"]["text"]) == (
-        "First draft.", "First draft, edited.")
+    assert (prose["subject"], prose["action"], prose["origin"]) == ("prose", "delete", "you")
+    assert prose["before"]["text"] == "First draft." and prose["after"] is None
     assert (question["subject"], question["subject_id"]) == ("question", str(question_id))
     assert (question["before"], question["after"]) == (
         {"disposition": "unbound"}, {"disposition": "long_form"})

@@ -112,9 +112,7 @@ refused — and upserts the single open gap for it; resolving (`POST
 /gaps/{id}/resolve`) frees the next. `GET /gaps?open=true` lists only the open
 ones. The Inbox carries open gaps in `gaps`.
 
-A prose span's `source` is `model`, `previous`, or `library`; a `library` span
-names its library entry code in `entry`, and only a library span has one. A
-run's context carries every stored prose row, newest first and approved or not,
+A run's context carries every stored prose row, newest first and approved or not,
 as reference for the fallback drafter; nothing fills a field from it as is.
 
 ### Questions, patterns, prose, and the archive
@@ -139,18 +137,16 @@ with its trailing marks stripped ("Gender *" is "Gender"), like the worker's
 resolver. `GET /v1/jobs/inbox` · `GET /v1/jobs/learned` (the Learned section: fixes with trial/proven/retired status, model-taught branches, unsolved problems, per-run model usage) · `POST /v1/jobs/changes/code/{change_id}/retire` (reverts a kept fix) lists candidate and
 repaired patterns with the answers recorded for their question (`checks` holds
 those whose replay failed, apart from plain `candidates`), unbound short
-questions you answered, unapproved prose, `facts` waiting on you (never
+questions you answered, `facts` waiting on you (never
 verified, named missing by a run's `fact_gap` issue, or contradicted by the
 replay of their latest change), and `unsolved` failure issues the fixer gave up
 on. An unbound question that active expressions already decide
 (they match it and name one fact, as the worker's resolver requires) is left
 out, and so is one recorded before the rule above that asks nothing. Accepting a binding (`PATCH /patterns/{id}` to `active`)
 retires the question's previous binding and marks the question `pattern`, and
-rejecting or retiring one hands the question back. A long-form answer is saved
-as unapproved prose as soon as a step carries it, and again at the run's end,
-one row per application and question holding the latest text, with `submitted` and its `provenance`: the spans the worker found
-drafted by a model or taken from a previous answer; text in neither is yours.
-Approved prose reused as it was is not re-saved. The old
+rejecting or retiring one hands the question back. Runs never save long-form text as prose: `jobs_prose` holds old reference
+rows the fallback drafter reads, listed at `GET /v1/jobs/prose` and pruned at
+`DELETE /v1/jobs/prose/{id}`. The old
 answer library is `jobs_archive_answers`, served read-only at
 `/v1/jobs/archive/answers` for the facts session and never in a run's context:
 no application reads it. Discovery is always limited to internships/co-ops, ordered
@@ -165,7 +161,7 @@ active patterns, every stored prose row (newest first),
 validated control preferences, and duplicate-company warnings.
 Step results, changed-answer observations, and final values come back through
 authenticated endpoints and are stored as application history linked to their
-questions; nothing in a run activates a pattern or approves prose.
+questions; nothing in a run activates a pattern or writes prose.
 
 `POST /v1/jobs/autofill/runs/{id}/finish` is atomic: run completion, final history,
 and application status share one transaction, and it requires a status of `applied`,
@@ -173,7 +169,7 @@ and application status share one transaction, and it requires a status of `appli
 same target status may transition; a concurrent lifecycle change returns `409` and
 rolls back. The legacy `/complete` endpoint keeps its history-only contract, and
 completed-run retries return `404` so they cannot duplicate final history. Invalid
-question/value/provenance metadata fails with `422` before persistence.
+question/value metadata fails with `422` before persistence.
 
 Every step can also carry fill events, one per attempt to fill a control,
 written in the step's transaction by `jobs_registry.py`. A control is upserted
@@ -353,7 +349,7 @@ src/personal_os_backend/
   jobs_listings.py  postings and companies: the board, the sync, lookup by number, id, or URL
   jobs_applications.py  the application lifecycle
   jobs_runs.py      autofill runs: created with their context, steps, completion, stop
-  jobs_answer_history.py  a run's observed and final answer rows, and the prose kept from them
+  jobs_answer_history.py  a run's observed and final answer rows
   jobs_failures.py  failure issues and occurrences: the repair queue, sites, validation targets
   jobs_sources.py   SpeedyApply README parsing and location normalization
   jobs_sync.py      standalone sync entry point, runs as the Cloud Run Job
@@ -362,7 +358,7 @@ src/personal_os_backend/
   jobs_questions.py  whether a label asks a question, its key, expression matching, recording it
   jobs_patterns.py  bindings and expressions to facts, what a model may not undo, activation
   jobs_dispositions.py  questions by disposition, and changing one
-  jobs_prose.py     prose with where each stretch came from, and the read-only archive
+  jobs_prose.py     stored prose rows and the read-only archive
   jobs_inbox.py     the Inbox: everything waiting on you
   jobs_changes.py   /v1/jobs/changes and /sightings: the change history and what it is replayed against
   jobs_learned.py   /v1/jobs/learned: the Inbox's Learned section, kept code fixes and how each

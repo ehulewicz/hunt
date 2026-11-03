@@ -53,7 +53,7 @@ def _type_of(value: Any) -> str:
 
 @dataclass(frozen=True, slots=True)
 class Knowledge:
-    """What one run knows: fact values and types, active patterns, approved prose.
+    """What one run knows: fact values and types, active patterns, stored prose for reference.
 
     Nothing here is withheld from anything. Jobs holds no fact worth hiding from
     its own model calls or its own terminal, and hiding one only made a fill

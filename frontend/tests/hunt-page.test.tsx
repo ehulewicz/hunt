@@ -35,7 +35,7 @@ beforeEach(() => {
       { ...APPLICATION, id: "a2", company_name: "Orbit", status: "rejected", applied_at: "2026-10-19T12:00:00Z" },
       { ...APPLICATION, id: "a3", company_name: "Linear", status: "interview", applied_at: "2026-10-18T12:00:00Z" },
     ]);
-    if (input.endsWith("/inbox")) return Response.json({ candidates: [], questions: [], prose: [] });
+    if (input.endsWith("/inbox")) return Response.json({ candidates: [], questions: [] });
     if (input.endsWith("/facts")) return Response.json([]);
     return Response.json({ items: [], total: 42, limit: 1, offset: 0 });
   }));
@@ -136,23 +136,3 @@ test("an unavailable overview does not pretend its totals are zero", async () =>
   expect(screen.getByRole("button", { name: "Next on board" })).toBeEnabled();
 });
 
-test("reviewing prose saves an explicit approval through the API", async () => {
-  const fetcher = vi.mocked(fetch);
-  const original = fetcher.getMockImplementation()!;
-  fetcher.mockImplementation(async (...args) => {
-    if (String(args[0]).endsWith("/inbox")) return Response.json({
-      candidates: [], questions: [], prose: [{ id: "prose1", question_label: "Why Acme?", company_name: "Acme", text: "I build useful tools.", approved: false }],
-    });
-    return original(...args);
-  });
-  render(<HuntPage />);
-  fireEvent.click(await screen.findByRole("button", { name: /Writing.*1/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Review Why Acme?" }));
-  const editor = screen.getByRole("textbox", { name: "Answer" });
-  fireEvent.change(editor, { target: { value: "I build tools people use." } });
-  expect(fetcher.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
-  fireEvent.click(screen.getByRole("button", { name: "Approve for reuse" }));
-  await waitFor(() => expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("/prose/prose1"), expect.objectContaining({
-    method: "PATCH", body: JSON.stringify({ text: "I build tools people use.", approved: true, origin: "inbox" }),
-  })));
-});

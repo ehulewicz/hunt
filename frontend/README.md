@@ -108,24 +108,20 @@ not fix, including their notes and occurrence counts. Cause tags use recorded
 origins, fact reasons, replay disagreements, or failure categories where known.
 Unbound questions can be linked to an existing fact or a new typed fact. Empty
 text is saved unchanged; lists use JSON, including `[]`, and both display as None.
-Writing is one text, with model and previous-answer spans tinted separately and
-the user's and library's text plain; a library span's hover names its entry
-code. Edit answer switches that text into the editor; highlights
-are not reused against edited text. Older writing without provenance says so.
-The current API leaves provenance unchanged after a text edit; reopening edited
-writing can therefore show stale offsets until the API clears or recomputes them.
-Writing can be saved as an unapproved draft, approved for reuse, or discarded.
+The Inbox Writing section holds prose gaps only; each resolves from its row.
 Failed pattern checks come before suggestions and show how many accepted answers
 the replay changed. Patterns show their fact's current value and can be accepted
 or rejected. Inbox review requests send `origin: "inbox"`; direct Library edits
-send `origin: "you"`. The prose DELETE endpoint does not record a supplied origin.
+send `origin: "you"`.
 
 Library loads on opening and refreshes every 30 seconds, independently of the
 overview. Its searchable Questions, Facts, Writing, and Patterns categories read
-`/v1/jobs/questions`, `/facts`, `/prose`, and `/patterns`. It includes approved
-writing, verified facts, and all pattern statuses, including rejected and retired
-records, plus repaired and validated patterns. Facts and writing use the same
-editors as Inbox; questions and patterns expose their stored details. A stored
+`/v1/jobs/questions`, `/facts`, `/prose`, and `/patterns`. Stored prose rows are
+old reference, listed read-only under Writing; the narrative library (`/library`)
+is the only approved writing. It includes verified facts, and all pattern
+statuses, including rejected and retired records, plus repaired and validated
+patterns. Facts use the same editor as the Inbox; questions and patterns expose
+their stored details. A stored
 fact's Delete action asks for confirmation, then refreshes Library and Inbox.
 Deleting an override lets the career-derived value apply again. The facts API
 lists stored rows only, so computed-only facts have no Delete action: change

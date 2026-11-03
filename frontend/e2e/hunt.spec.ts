@@ -106,7 +106,6 @@ async function setup(page: Page, busy = false) {
     if (url.includes("/jobs/listings?")) return route.fulfill({ json: { total: 284, items: [], limit: 1, offset: 0 } });
     if (url.endsWith("/jobs/inbox")) return route.fulfill({ json: {
       questions: [{ question: { id: "q1", sample_label: "Will you need visa sponsorship?" }, answers: [] }],
-      prose: [{ id: "pr1", question_label: "Why do you want to work at Acme?", company_name: "Acme", text: "I enjoy building tools that make complicated work feel simple.", approved: false }],
       facts: storedFacts.filter((fact) => !fact.verified_at).map((fact) => ({ ...fact, reason: "unverified", question: null, missing_fact: null, issue_id: null, check: null })),
       checks: [], unsolved: [{ issue_id: "issue1", category: "wall", question: "Account verification", control_kind: null, note: "Verification could not be completed", occurrence_count: 2, last_seen_at: "2026-10-20T12:00:00Z" }],
       candidates: [{ check: null, pattern: { id: "pat1", question_label: "Are you a US citizen?", fact_key: "work_auth.us_citizen", status: "candidate" }, answers: [] }],
@@ -265,7 +264,7 @@ test("an unreachable device explains the tailnet connection and can retry", asyn
   await expect(page.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
 });
 
-test("facts, writing and pattern checks are reviewed in place with explicit writes", async ({ page }) => {
+test("facts and pattern checks are reviewed in place with explicit writes", async ({ page }) => {
   const agent = await setup(page);
   await page.goto("/hunt");
   await page.getByRole("button", { name: /Facts to verify/ }).click();
@@ -273,12 +272,6 @@ test("facts, writing and pattern checks are reviewed in place with explicit writ
   await page.getByRole("textbox", { name: "Value", exact: true }).fill("2027-05-24");
   await page.getByRole("button", { name: "Save verified fact" }).click();
   await expect.poll(() => agent.writes).toContainEqual({ url: "https://api.test/v1/jobs/facts/availability.start_date", body: { value: "2027-05-24", verified: true, origin: "inbox" } });
-  await page.getByRole("button", { name: /Writing 1/ }).click();
-  await page.getByRole("button", { name: "Review Why do you want to work at Acme?" }).click();
-  await page.getByRole("textbox", { name: "Answer", exact: true }).fill("I build tools people use.");
-  expect(agent.writes).toHaveLength(1);
-  await page.getByRole("button", { name: "Approve for reuse" }).click();
-  await expect.poll(() => agent.writes.length).toBe(2);
   await page.getByRole("button", { name: /Pattern checks 1/ }).click();
   await page.getByRole("button", { name: "Review Are you a US citizen?" }).click();
   await expect(page.getByText("true", { exact: true })).toBeVisible();
@@ -330,9 +323,8 @@ test("Library exposes saved records, history and code changes and works on mobil
   await expect(page.getByText("replay changed 2 of 7 accepted answers")).toBeVisible();
   await expect(page.getByText("alex.example@example.com", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: /Writing 1/ }).click();
-  await page.getByRole("button", { name: "Review Career goals" }).click();
-  await expect(page.getByRole("textbox", { name: "Answer" })).toHaveValue("Build useful tools for people.\nKeep learning from their feedback.");
-  await expect(page.getByText("Origin highlights were not recorded for this answer.")).toBeVisible();
+  await expect(page.getByText("Career goals")).toBeVisible();
+  expect(await page.getByRole("button", { name: "Review Career goals" }).count()).toBe(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await noHorizontalOverflow(page);
   await page.getByRole("button", { name: /Facts 5/ }).click();
@@ -424,22 +416,3 @@ test("Unsolved notes and recorded code fixes are readable without a device sessi
   expect(agent.sockets()).toBe(0);
 });
 
-test("writing shows one provenance-tinted answer and switches to the editor", async ({ page }) => {
-  await setup(page);
-  await page.route("https://api.test/v1/jobs/inbox", (route) => route.fulfill({ json: {
-    questions: [], candidates: [], checks: [], facts: [], unsolved: [],
-    prose: [{ id: "pr1", question_label: "Why Acme?", company_name: "Acme", approved: false, origin: "model", submitted: true,
-      text: "😀 mine model previous", provenance: [{ start: 7, end: 12, source: "model" }, { start: 13, end: 21, source: "previous" }] }],
-  } }));
-  await page.goto("/hunt");
-  await page.getByRole("button", { name: /Writing 1/ }).click();
-  await page.getByRole("button", { name: "Review Why Acme?" }).click();
-  const answer = page.getByLabel("Answer origins");
-  await expect(answer).toHaveText("😀 mine model previous");
-  await expect(answer.locator("mark.prose-model")).toHaveText("model");
-  await expect(answer.locator("mark.prose-previous")).toHaveText("previous");
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-  await page.getByRole("button", { name: "Edit answer" }).click();
-  await expect(answer).toHaveCount(0);
-  await expect(page.getByRole("textbox", { name: "Answer", exact: true })).toHaveValue("😀 mine model previous");
-});

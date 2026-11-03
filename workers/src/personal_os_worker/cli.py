@@ -196,9 +196,7 @@ def _dispatch_learning(args: argparse.Namespace) -> int:
         finally:
             api.close()
     if args.hunt_command == "prose":
-        return knowledge.run_prose(
-            args.action, args.ref, question=args.question, file=args.file
-        )
+        return knowledge.run_prose(args.action, args.ref)
     if args.hunt_command == "archive":
         return knowledge.run_archive(args.section, markdown=args.markdown)
     return 2

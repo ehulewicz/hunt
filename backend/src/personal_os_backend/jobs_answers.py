@@ -5,7 +5,7 @@ first time a fill event meets it. A pattern connects a short-form question to a
 fact; only `active` patterns are read when filling. A model never fills: the
 worker checks the fact a model names and saves the pattern active with origin
 `model` (R67), and the Inbox lists a pattern only while it waits on you. Prose is
-long-form writing saved from submitted applications, reused once approved. The
+old long-form writing kept as reference; runs never save new rows. The
 old answer library is the archive: readable, never written, and kept only for
 the facts session — no application reads it.
 """
@@ -38,13 +38,8 @@ from personal_os_backend.jobs_prose import (
     PROSE_SELECT,
     ArchivedAnswer,
     Prose,
-    ProseCreate,
     ProseMixin,
-    ProseSpan,
     ProseStore,
-    ProseUpdate,
-    check_spans,
-    stripped_spans,
 )
 from personal_os_backend.jobs_questions import (
     Disposition,
@@ -67,20 +62,16 @@ __all__ = [
     "PostgresAnswerStore",
     "Prose",
     "ProseGap",
-    "ProseSpan",
-    "ProseUpdate",
     "Question",
     "QuestionUpdate",
     "_model_refusal",
     "active_patterns",
     "answered_by_expression",
     "asks_a_question",
-    "check_spans",
     "get_answer_store",
     "normalize_answer_key",
     "router",
     "runaway_expression",
-    "stripped_spans",
     "upsert_question",
 ]
 
@@ -160,21 +151,6 @@ async def update_pattern(
 @router.get("/prose", response_model=list[Prose])
 async def list_prose(principal: CurrentPrincipal, store: Store) -> list[Prose]:
     return await store.list_prose(principal.user_id)
-
-
-@router.post("/prose", response_model=Prose, status_code=status.HTTP_201_CREATED)
-async def create_prose(item: ProseCreate, principal: CurrentPrincipal, store: Store) -> Prose:
-    return await store.create_prose(principal.user_id, item)
-
-
-@router.patch("/prose/{prose_id}", response_model=Prose)
-async def update_prose(
-    prose_id: UUID, item: ProseUpdate, principal: CurrentPrincipal, store: Store
-) -> Prose:
-    prose = await store.update_prose(principal.user_id, prose_id, item)
-    if prose is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Prose not found")
-    return prose
 
 
 @router.delete("/prose/{prose_id}", status_code=status.HTTP_204_NO_CONTENT)

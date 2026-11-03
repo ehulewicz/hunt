@@ -125,13 +125,6 @@ export type JobApplication = {
   updated_at: string;
 };
 
-export type ProseSpan = {
-  start: number;
-  end: number;
-  source: "model" | "previous" | "library";
-  entry?: string;
-};
-
 export type Prose = {
   id: string;
   question_label: string | null;
@@ -139,7 +132,6 @@ export type Prose = {
   text: string;
   approved: boolean;
   origin: "manual" | "model" | "archive";
-  provenance: ProseSpan[] | null;
   submitted: boolean;
 };
 
@@ -240,7 +232,6 @@ export type Inbox = {
   facts: InboxFact[];
   unsolved: InboxUnsolved[];
   questions: InboxQuestion[];
-  prose: Prose[];
   gaps?: ProseGap[];
 };
 

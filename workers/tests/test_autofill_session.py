@@ -2530,7 +2530,7 @@ class WatchingKeys(ScriptedKeys):
         raise KeyboardInterrupt
 
 
-def test_writing_is_sent_as_it_is_written_not_at_the_runs_end(
+def test_a_long_form_edit_saves_nothing_mid_run_and_carries_no_provenance(
     browser_page,  # type: ignore[no-untyped-def]
     tmp_path: Path,
 ) -> None:
@@ -2544,33 +2544,47 @@ def test_writing_is_sent_as_it_is_written_not_at_the_runs_end(
         """
     )
     api = FakeApi()
-    keys = WatchingKeys(api)
-    resume_pdf = tmp_path / "main.pdf"
-    resume_pdf.write_bytes(b"%PDF-1.4\n%%EOF")
-    draft = "I build software for business workflows and take it through production."
-    session = AutofillSession(SessionContext(
+    context = SessionContext(
         api=api,  # type: ignore[arg-type]
-        run_id="run-writing",
-        ats="generic",
+        run_id="run-long",
+        ats="greenhouse",
         browser=FakeBrowser(browser_page),  # type: ignore[arg-type]
         page=browser_page,
         console_errors=[],
         knowledge=known({}),
         resume_json={},
-        resume_pdf=resume_pdf,
+        resume_pdf=tmp_path / "missing.pdf",
         company="Acme",
         title="Backend Engineer Intern",
         description=None,
-        drafter=lambda **_: draft,
-        poll_seconds=0.05,
-        keys=keys,
-    ))
+        use_claude=False,
+        keys=WatchingKeys(api),
+        poll_seconds=0.01,
+    )
+    keys = context.keys
+    session = AutofillSession(context)
+    browser_page.fill("#summary", "My own long answer.")
+
     session.run()
 
-    # Already with the API while the run waited on you, with where the text came from.
-    assert keys.held and keys.held[0]["answer_text"] == draft
-    assert keys.held[0]["provenance"] == [{"start": 0, "end": len(draft), "source": "model"}]
-
+    # No step save ran while the text changed: at the wait nothing held the
+    # long-form observation yet (the normal step save persists it later).
+    assert keys.held == []
+    session.capture_final_snapshot()
+    persisted = [
+        observation
+        for step in api.steps
+        for observation in step.get("observations") or []
+    ]
+    assert all("provenance" not in observation for observation in persisted)
+    assert all(
+        "provenance" not in collected
+        for collected in session.state.collected.values()
+    )
+    assert all(
+        "provenance" not in observation
+        for observation in session.state.observations
+    )
 
 def test_a_factual_textarea_goes_to_the_fact_pass_then_draft_only_what_it_leaves(
     browser_page,  # type: ignore[no-untyped-def]

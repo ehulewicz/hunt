@@ -185,10 +185,8 @@ def _add_learning_commands(
     )
     prose = jobs_commands.add_parser("prose", help="Saved long-form writing")
     prose.add_argument("action", nargs="?",
-                       choices=["list", "add", "approve", "delete", "try", "coverage"])
+                       choices=["list", "delete", "try", "coverage"])
     prose.add_argument("ref", nargs="?", help="Row number from 'os hunt prose' or id prefix")
-    prose.add_argument("--question", help="The question the writing answers (add)")
-    prose.add_argument("--file", help="Read the writing from a UTF-8 file (add)")
     prose.add_argument("--library", help="Question-bank markdown file (try)")
     prose.add_argument("--questions", help="Audit questions TSV (try)")
     prose.add_argument("--out", help="Report markdown path (try)")

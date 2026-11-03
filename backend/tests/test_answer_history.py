@@ -346,7 +346,7 @@ def test_completion_rejects_invalid_answer_metadata(metadata: dict[str, Any]) ->
 
 
 @pytest.mark.asyncio
-async def test_a_submitted_long_form_answer_waits_in_the_inbox_as_prose() -> None:
+async def test_a_long_form_answer_writes_history_and_never_prose() -> None:
     application_id = uuid4()
     connection = RecordingConnection({"application_id": application_id})
     store = PostgresJobsStore(RecordingPool(connection), 5)  # type: ignore[arg-type]
@@ -356,7 +356,7 @@ async def test_a_submitted_long_form_answer_waits_in_the_inbox_as_prose() -> Non
         answers=[
             {"question": "Why us?", "answer_text": "Because of X", "source": "manual",
              "form": "long"},
-            {"question": "Why this team?", "answer_text": "Reused", "source": "prose",
+            {"question": "Why this team?", "answer_text": "Composed", "source": "prose",
              "form": "long"},
             {"question": "Are you 18?", "answer_text": "Yes", "source": "manual",
              "form": "short"},
@@ -365,62 +365,18 @@ async def test_a_submitted_long_form_answer_waits_in_the_inbox_as_prose() -> Non
 
     assert await store.complete_autofill_run(uuid4(), uuid4(), item)
 
-    prose = [
-        params for query, params in connection.queries if "insert into app.jobs_prose" in query
+    statements = [query for query, _ in connection.queries]
+    assert not any("jobs_prose" in query for query in statements)
+    history = [
+        params for query, params in connection.queries
+        if "insert into app.jobs_application_questions" in query
     ]
-    assert len(prose) == 1
-    assert prose[0] is not None
-    assert "Because of X" in prose[0] and application_id in prose[0] and "manual" in prose[0]
+    assert len(history) == 3
+    assert "Because of X" in history[0] and "prose" in history[1]
 
 
 @pytest.mark.asyncio
-async def test_every_runs_writing_is_saved_with_where_each_stretch_came_from() -> None:
-    application_id = uuid4()
-    connection = RecordingConnection({"application_id": application_id})
-    store = PostgresJobsStore(RecordingPool(connection), 5)  # type: ignore[arg-type]
-    text = "  I build tools. I also like puzzles."
-    item = AutofillRunComplete(
-        final_url="https://example.test/apply",
-        submitted=False,
-        answers=[{
-            "question": "Why us?", "answer_text": text, "source": "manual", "form": "long",
-            "provenance": [{"start": 2, "end": 17, "source": "model"},
-                           {"start": 17, "end": 37, "source": "previous"}],
-        }],
-    )
-
-    assert await store.complete_autofill_run(uuid4(), uuid4(), item)
-
-    [(query, params)] = [
-        (query, params) for query, params in connection.queries if "jobs_prose" in query
-    ]
-    # The latest run's text replaces the unapproved one written for this application.
-    assert "update app.jobs_prose" in query and "where not exists" in query
-    saved, origin, spans, submitted = params[:4]
-    assert (saved, origin, submitted) == ("I build tools. I also like puzzles.", "manual", False)
-    # The spans follow the text as saved, without its leading spaces.
-    assert spans.obj == [{"start": 0, "end": 15, "source": "model"},
-                         {"start": 15, "end": 35, "source": "previous"}]
-    assert saved[0:15] == "I build tools. "
-
-
-@pytest.mark.parametrize("spans", [
-    [{"start": 5, "end": 3, "source": "model"}],
-    [{"start": 0, "end": 40, "source": "model"}],
-    [{"start": 0, "end": 6, "source": "model"}, {"start": 4, "end": 8, "source": "previous"}],
-    [{"start": 0, "end": 4, "source": "you"}],
-])
-def test_spans_must_be_ordered_apart_and_inside_the_answer(spans: list[dict[str, Any]]) -> None:
-    with pytest.raises(ValidationError):
-        AutofillRunComplete(
-            final_url="https://example.test",
-            answers=[{"question": "Why us?", "answer_text": "Because of X", "form": "long",
-                      "provenance": spans}],
-        )
-
-
-@pytest.mark.asyncio
-async def test_a_long_form_answer_is_kept_as_writing_the_moment_it_is_seen() -> None:
+async def test_an_observed_long_form_answer_writes_history_and_never_prose() -> None:
     application_id = uuid4()
     connection = RecordingConnection(running_run(application_id))
     store = PostgresJobsStore(RecordingPool(connection), 5)  # type: ignore[arg-type]
@@ -428,17 +384,18 @@ async def test_a_long_form_answer_is_kept_as_writing_the_moment_it_is_seen() -> 
         step_number=0,
         url="https://example.test/apply",
         observations=[
-            observation(event_index=0, form="long", answer_text="A draft",
-                        provenance=[{"start": 0, "end": 7, "source": "model"}]),
-            observation(event_index=1, form="long", answer_text="Reused", source="prose"),
+            observation(event_index=0, form="long", answer_text="A draft"),
+            observation(event_index=1, form="long", answer_text="Composed", source="prose"),
             observation(event_index=2, form="long", answer_text="   "),
         ],
     )
 
     assert await store.persist_autofill_step(uuid4(), uuid4(), item) == []
 
-    [params] = [p for q, p in connection.queries if "jobs_prose" in q]
-    assert params is not None
-    # Not submitted yet; the run's end updates the same row.
-    assert params[:2] == ("A draft", "model") and params[3] is False
-    assert application_id in params
+    statements = [query for query, _ in connection.queries]
+    assert not any("jobs_prose" in query for query in statements)
+    history = [
+        query for query, _ in connection.queries
+        if "insert into app.jobs_application_questions" in query
+    ]
+    assert len(history) == 3

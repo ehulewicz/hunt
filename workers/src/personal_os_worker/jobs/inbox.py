@@ -1,6 +1,6 @@
 """`os hunt inbox`: everything the system has learned and is waiting on you for.
 
-Three kinds of item, in this order:
+Two kinds of item, in this order:
 
 - **Candidates** — a binding the model proposed when it filled a question from a
   fact. Accept it and the next application fills that question
@@ -8,8 +8,6 @@ Three kinds of item, in this order:
 - **Unbound questions** — met, answered by you, never bound. Bind one to a fact
   (creating the fact from the catalog when it does not exist yet), keep it a
   one-off, or mark it long-form.
-- **Prose** — long-form writing from a submitted application, waiting to be
-  approved for reuse.
 
 Repaired rules wait here too, but they are validated by watching them fill a
 live form, so the Inbox only counts them and points at `os hunt validate`.
@@ -262,26 +260,6 @@ def review_question(
         counts["skipped"] += 1
 
 
-def review_prose(
-    api: WorkerApi, item: dict[str, Any], *, ask: Ask, counts: dict[str, int]
-) -> None:
-    text = str(item.get("text") or "")
-    console.print(
-        f"\n[bold]Prose[/bold]  {item.get('question_label') or ''}"
-        f"  [dim](written for {item.get('company_name') or 'an application'})[/dim]"
-    )
-    console.print("  " + (text if len(text) <= 600 else text[:597] + "..."), markup=False)
-    choice = choose(ask, "  [a]pprove for reuse  [d]elete  [s]kip  [q]uit: ", "ads")
-    if choice == "a":
-        api.update_prose(str(item["id"]), approved=True)
-        counts["approved"] += 1
-    elif choice == "d":
-        api.delete_prose(str(item["id"]))
-        counts["deleted"] += 1
-    else:
-        counts["skipped"] += 1
-
-
 def print_waiting_facts(facts: list[dict[str, Any]]) -> None:
     """The facts a run named missing or a replay contradicts; 'facts review' settles them."""
     missing = [item for item in facts if item.get("reason") == "missing"]
@@ -339,7 +317,7 @@ def walk_inbox(api: WorkerApi, *, ask: Ask = input, today: date | None = None) -
     repaired = sum(1 for issue in api.autofill_failures() if issue.get("status") == "repaired")
     # Failed pattern checks first: each would change an answer you accepted.
     candidates = [*(inbox.get("checks") or []), *(inbox.get("candidates") or [])]
-    total = len(candidates) + len(questions) + len(inbox.get("prose") or [])
+    total = len(candidates) + len(questions)
     if repaired:
         console.print(
             f"{repaired} repaired rule(s) wait for 'os hunt validate', which shows each one "
@@ -364,8 +342,6 @@ def walk_inbox(api: WorkerApi, *, ask: Ask = input, today: date | None = None) -
                 ask=ask,
                 counts=counts,
             )
-        for prose in inbox.get("prose") or []:
-            review_prose(api, prose, ask=ask, counts=counts)
     except Quit:
         pass
     return counts

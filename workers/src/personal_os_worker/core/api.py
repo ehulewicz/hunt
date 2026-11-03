@@ -401,30 +401,6 @@ class WorkerApi:
         payload = self._json(self._client.get("/v1/jobs/prose"), "Prose")
         return payload if isinstance(payload, list) else []
 
-    def create_prose(self, *, question: str, text: str, approved: bool = True) -> dict[str, Any]:
-        payload = self._json(
-            self._client.post(
-                "/v1/jobs/prose", json={"question": question, "text": text, "approved": approved}
-            ),
-            "Prose",
-        )
-        if not isinstance(payload, dict):
-            raise RuntimeError("Prose response was invalid")
-        return payload
-
-    def update_prose(
-        self, prose_id: str, *, text: str | None = None, approved: bool | None = None
-    ) -> dict[str, Any]:
-        body = {
-            key: value
-            for key, value in {"text": text, "approved": approved}.items()
-            if value is not None
-        }
-        payload = self._json(self._client.patch(f"/v1/jobs/prose/{prose_id}", json=body), "Prose")
-        if not isinstance(payload, dict):
-            raise RuntimeError("Prose response was invalid")
-        return payload
-
     def delete_prose(self, prose_id: str) -> None:
         response = self._client.delete(f"/v1/jobs/prose/{prose_id}")
         if response.status_code == 404:

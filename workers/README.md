@@ -255,16 +255,13 @@ what disagrees is printed, and a failed replay puts the fact in the Inbox as
 contradicted. `facts set`, `facts review`, the Inbox, and a fact given mid-run
 all replay what they set.
 
-**Prose attribution.** `spans` in `jobs/session/capture.py` marks matching
-stretches of a final long-form answer as `previous` or `model`; unmarked text is
-yours. Previous writing wins when both sources match, and matches shorter than
-16 characters are ignored. Spans use character offsets in the final text, are
-ordered, and never overlap. Every run saves its prose for review, including runs
-not submitted: a long-form answer goes to the API the moment its text changes, a
-draft as it is written and your edits as you make them, so a killed run loses
-none of it. The fallback drafter sees up to five pieces of stored prose on
-similar questions — a wording comparison, best first, cached for the run — as
-reference only; stored prose is never filled as it stands.
+**Stored prose.** A run saves no long-form text: `jobs_prose` holds old
+reference rows, and the narrative library is the only approved writing
+(`os hunt library get`, `/library`). The fallback drafter sees up to five
+pieces of stored prose on similar questions — a wording comparison, best
+first, cached for the run — as reference only; stored prose is never filled
+as it stands. `os hunt prose list` and `os hunt prose delete` view and prune
+the old rows.
 
 ## Repair
 
@@ -444,9 +441,10 @@ One-time setup, on the machine that runs `os hunt apply`:
 
 **Completion policy.** Every field is answered, including optional short text,
 long-form questions, and uploads. Optional is the employer's validation rule,
-never permission for the worker to skip it. Give useful information from facts,
-approved writing, or a grounded draft. No and N/A are valid answers only when
-the facts or the answer above establish them; missing facts never imply No.
+never permission for the worker to skip it. Give useful information from
+facts, writing composed from the narrative library, or a grounded draft. No
+and N/A are valid answers only when the facts or the answer above establish
+them; missing facts never imply No.
 An unanswered field remains an outlined, actionable gap even when optional.
 
 **Which value.** Every value comes from a fact. `jobs/resolve.py` builds the
