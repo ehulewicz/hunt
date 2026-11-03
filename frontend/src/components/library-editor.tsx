@@ -30,6 +30,7 @@ export function LibraryEditor() {
   const [entries, setEntries] = useState<LibraryEntry[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [unansweredOnly, setUnansweredOnly] = useState(false);
+  const [belowHuman, setBelowHuman] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -62,7 +63,13 @@ export function LibraryEditor() {
     );
   }
 
-  const visible = unansweredOnly ? entries.filter((entry) => !entry.answer?.trim()) : entries;
+  const visible = entries.filter((entry) => {
+    if (unansweredOnly) return !entry.answer?.trim();
+    if (!belowHuman) return true;
+    if (!entry.answer?.trim()) return false;
+    const percent = entry.human_percent ?? null;
+    return percent === null || percent < 80;
+  });
 
   return (
     <>
@@ -78,6 +85,14 @@ export function LibraryEditor() {
           type="checkbox"
         />
         Unanswered only
+      </label>
+      <label className="library-filter">
+        <input
+          checked={belowHuman}
+          onChange={(event) => setBelowHuman(event.target.checked)}
+          type="checkbox"
+        />
+        Below 80% human
       </label>
       {SECTIONS.map(([section, heading]) => {
         const group = visible.filter((entry) => entry.section === section);
@@ -98,6 +113,16 @@ export function LibraryEditor() {
       {visible.length === 0 && <p className="muted">Every entry has an answer.</p>}
     </>
   );
+}
+
+function HumanBadge({ entry }: { entry: LibraryEntry }) {
+  if (!entry.answer?.trim()) return null;
+  const percent = entry.human_percent ?? null;
+  if (percent === null) {
+    return <span className="human-badge human-unchecked">Not checked</span>;
+  }
+  const band = percent >= 80 ? "high" : percent >= 50 ? "mid" : "low";
+  return <span className={`human-badge human-${band}`}>Human {percent}%</span>;
 }
 
 function LibraryEntryEditor({
@@ -131,6 +156,7 @@ function LibraryEntryEditor({
       <header className="library-entry-head">
         <strong>{entry.code}</strong>
         {entry.subject && <span className="muted">{entry.subject}</span>}
+        <HumanBadge entry={entry} />
       </header>
       <p>{entry.prompt}</p>
       {entry.guidance && (

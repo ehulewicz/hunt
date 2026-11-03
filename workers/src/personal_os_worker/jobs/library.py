@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from rich.text import Text
 
 from personal_os_worker.core.config import console
 from personal_os_worker.jobs.facts.career import rejection
@@ -230,6 +231,58 @@ def run_library_get(api: WorkerApi) -> int:
     return 0
 
 
+# Fields the API owns; a `library get` round trip strips them before `put`.
+READ_ONLY = {"id", "created_at", "updated_at", "human_percent"}
+
+
+def _human_cell(entry: dict[str, Any]) -> Text:
+    """The entry's GPTZero share, styled by band; muted when there is none."""
+    if not str(entry.get("answer") or "").strip():
+        return Text("no answer", style="dim")
+    percent = entry.get("human_percent")
+    if percent is None:
+        return Text("unchecked", style="dim")
+    style = "green" if percent >= 80 else "yellow" if percent >= 50 else "red"
+    return Text(f"{percent}%", style=style)
+
+
+def run_library_list(api: WorkerApi) -> int:
+    entries = api.library()
+    checked = below = 0
+    for entry in entries:
+        answer = str(entry.get("answer") or "").strip()
+        percent = entry.get("human_percent")
+        if answer and percent is not None:
+            checked += 1
+            below += percent < 80
+        prompt = " ".join(str(entry.get("prompt") or "").split())
+        width = max(20, console.width - 60)
+        if len(prompt) > width:
+            prompt = prompt[: width - 1] + "…"
+        line = Text(
+            f"{entry['code']:<10} {entry['section']:<9} "
+            f"{len(answer.split()):>4}w  "
+        )
+        line.append_text(_human_cell(entry))
+        line.append(f"  {prompt}")
+        console.print(line)
+    console.print(
+        f"{len(entries)} entries · {checked} checked · "
+        f"{below} below 80% human · {len(entries) - checked} unchecked"
+    )
+    return 0
+
+
+def run_library_score(api: WorkerApi, code: str, percent: int) -> int:
+    try:
+        entry = api.set_library_human_percent(code, percent)
+    except httpx.HTTPStatusError as error:
+        console.print(f"Score not saved: {rejection(error)}")
+        return 1
+    console.print(f"{entry['code']}: {entry['human_percent']}% human")
+    return 0
+
+
 def run_library_put(api: WorkerApi, file: str) -> int:
     try:
         payload = json.loads(Path(file).expanduser().read_text(encoding="utf-8"))
@@ -240,10 +293,16 @@ def run_library_put(api: WorkerApi, file: str) -> int:
         return 1
     try:
         if isinstance(payload, list):
-            api.put_library(payload)
+            api.put_library([
+                {key: value for key, value in entry.items() if key not in READ_ONLY}
+                for entry in payload
+            ])
         elif isinstance(payload, dict):
             code = str(payload.get("code") or "")
-            api.put_library_entry(code, payload)
+            api.put_library_entry(
+                code,
+                {key: value for key, value in payload.items() if key not in READ_ONLY},
+            )
         else:
             raise RuntimeError("Library JSON must be an object or a list")
     except httpx.HTTPStatusError as error:

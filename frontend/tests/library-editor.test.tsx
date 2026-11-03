@@ -114,3 +114,62 @@ test("the saved notice stays visible after a save", async () => {
   fireEvent.change(box, { target: { value: "Kept words, edited again." } });
   expect(screen.queryByRole("status")).not.toBeInTheDocument();
 });
+
+test("the human badge shows the score band, unchecked, or nothing", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+    if (input.endsWith("/v1/jobs/library")) return Response.json([
+      entry({ code: "1.1", prompt: "High.", answer: "Words.", human_percent: 92 }),
+      entry({ code: "1.2", prompt: "Mid.", answer: "Words.", human_percent: 65 }),
+      entry({ code: "1.3", prompt: "Low.", answer: "Words.", human_percent: 30 }),
+      entry({ code: "1.4", prompt: "Unchecked.", answer: "Words." }),
+      entry({ code: "1.5", prompt: "Empty.", answer: null }),
+    ]);
+    return Response.json([]);
+  }));
+  render(<LibraryEditor />);
+  await screen.findByLabelText("Answer 1.1");
+  expect(screen.getByText("Human 92%")).toHaveClass("human-high");
+  expect(screen.getByText("Human 65%")).toHaveClass("human-mid");
+  expect(screen.getByText("Human 30%")).toHaveClass("human-low");
+  expect(screen.getByText("Not checked")).toHaveClass("human-unchecked");
+  expect(screen.queryByText("Human 0%")).not.toBeInTheDocument();
+});
+
+test("the below-80 filter keeps unchecked and low-scoring answered entries", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+    if (input.endsWith("/v1/jobs/library")) return Response.json([
+      entry({ code: "1.1", prompt: "High.", answer: "Words.", human_percent: 92 }),
+      entry({ code: "1.2", prompt: "Mid.", answer: "Words.", human_percent: 65 }),
+      entry({ code: "1.3", prompt: "Unchecked.", answer: "Words." }),
+      entry({ code: "1.4", prompt: "Empty.", answer: null }),
+    ]);
+    return Response.json([]);
+  }));
+  render(<LibraryEditor />);
+  await screen.findByLabelText("Answer 1.1");
+  fireEvent.click(screen.getByLabelText("Below 80% human"));
+  expect(screen.getByLabelText("Answer 1.2")).toBeInTheDocument();
+  expect(screen.getByLabelText("Answer 1.3")).toBeInTheDocument();
+  expect(screen.queryByLabelText("Answer 1.1")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Answer 1.4")).not.toBeInTheDocument();
+});
+
+test("saving an answer resets the badge to Not checked", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: string, init?: RequestInit) => {
+    if (init?.method === "PUT") {
+      const body = JSON.parse(String(init.body));
+      return Response.json({ ...entry({}), ...body, id: "id", created_at: "2026-10-30", updated_at: "2026-10-30" });
+    }
+    if (input.endsWith("/v1/jobs/library")) return Response.json([
+      entry({ code: "1.1", prompt: "A prompt.", answer: "Words.", human_percent: 92 }),
+    ]);
+    return Response.json([]);
+  }));
+  render(<LibraryEditor />);
+  await screen.findByLabelText("Answer 1.1");
+  expect(screen.getByText("Human 92%")).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Answer 1.1"), { target: { value: "New words." } });
+  fireEvent.click(screen.getByRole("button", { name: "Save answer" }));
+  expect(await screen.findByText("Not checked")).toBeInTheDocument();
+  expect(screen.queryByText("Human 92%")).not.toBeInTheDocument();
+});

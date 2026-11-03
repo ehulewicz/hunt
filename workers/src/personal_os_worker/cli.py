@@ -175,6 +175,10 @@ def _dispatch_learning(args: argparse.Namespace) -> int:
         try:
             if args.library_command == "get":
                 return library_cmd.run_library_get(api)
+            if args.library_command == "list":
+                return library_cmd.run_library_list(api)
+            if args.library_command == "score":
+                return library_cmd.run_library_score(api, args.code, args.percent)
             if args.library_command == "put":
                 return library_cmd.run_library_put(api, args.file)
             return library_cmd.run_library_import(api, args.file, dry_run=args.dry_run)

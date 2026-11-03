@@ -41,7 +41,9 @@ os hunt facts delete address.line_2 --yes # skip confirmation
 os hunt resume get        # print the record's resume document as JSON
 os hunt resume put FILE   # validate and save a resume document
 os hunt library get       # the library's entries as JSON
-os hunt library put FILE  # save library JSON (one entry or a list)
+os hunt library list      # each entry's word count and human share
+os hunt library score CODE PERCENT  # record a GPTZero human share (0-100)
+os hunt library put FILE  # save library JSON (one entry or a list; read-only fields are stripped)
 os hunt library import FILE  # load the question bank once (--dry-run to preview)
 os hunt prose try --library MD --questions TSV --out REPORT.md
 os hunt prose coverage [--scan] [--max-calls N]

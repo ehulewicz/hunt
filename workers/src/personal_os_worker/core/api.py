@@ -244,6 +244,16 @@ class WorkerApi:
             raise RuntimeError("Library response was invalid")
         return payload
 
+    def set_library_human_percent(self, code: str, percent: int) -> dict[str, Any]:
+        response = self._client.put(
+            f"/v1/jobs/library/{code}/human-percent", json={"percent": percent}
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Library response was invalid")
+        return payload
+
     def import_library(self, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         response = self._client.post("/v1/jobs/library/import", json=entries)
         response.raise_for_status()

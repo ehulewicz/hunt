@@ -102,7 +102,10 @@ is a 422 — `PUT` upserts a list in one transaction and never deletes what it
 omits; only an explicit `DELETE /{code}` removes an entry. `POST /import` loads
 the first entries and 409s once any exist. Every write records a `jobs_changes`
 row with subject `library` in the same transaction; an upsert that changes
-nothing writes and records nothing.
+nothing writes and records nothing. `PUT /{code}/human-percent` records a
+GPTZero scan's human share on an answered entry (404 unknown code, 422 no
+answer); any change to the entry's answer clears it back to null, and the
+write body never carries it.
 
 `/v1/jobs/prose/gaps` (`jobs_gaps.py`) records where saved writing does not
 cover a long-form question: a `family` (why_company, why_role, and the rest of

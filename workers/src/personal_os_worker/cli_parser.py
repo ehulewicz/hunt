@@ -195,6 +195,16 @@ def _add_learning_commands(
     library = jobs_commands.add_parser("library", help="The narrative library")
     library_actions = library.add_subparsers(dest="library_command", required=True)
     library_actions.add_parser("get", help="Print the library's entries as JSON to stdout")
+    library_actions.add_parser(
+        "list", help="Each entry with its word count and human share"
+    )
+    library_score = library_actions.add_parser(
+        "score", help="Set an entry's GPTZero human share"
+    )
+    library_score.add_argument("code", help="The entry's code")
+    library_score.add_argument(
+        "percent", type=int, help="GPTZero's human share, 0 to 100"
+    )
     library_put = library_actions.add_parser("put", help="Save library JSON (one entry or a list)")
     library_put.add_argument("file", help="The library JSON file to save")
     library_import = library_actions.add_parser(

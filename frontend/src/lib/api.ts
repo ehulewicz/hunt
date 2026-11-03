@@ -322,6 +322,7 @@ export type LibraryEntry = {
   guidance: string;
   answer: string | null;
   display_order: number;
+  human_percent: number | null;
   created_at: string;
   updated_at: string;
 };

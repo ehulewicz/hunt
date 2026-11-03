@@ -113,7 +113,8 @@ can only read it.
 `jobs_library_entries` is the narrative library: one row per code, a `section`
 (`interest`, `direction`, `evidence`, `story`, `entry`, `note`), a prompt with
 optional guidance and answer, an optional `entry_id` into the career record,
-and a display order. `jobs_prose_gaps` records a long-form question the library covers only
+a `human_percent` share (0 to 100) a GPTZero scan sets — cleared when the
+answer changes — and a display order. `jobs_prose_gaps` records a long-form question the library covers only
 partly or not at all (`coverage` `partial` or `missing`, a fixed
 `family`, an optional application); a partial unique index makes at most one
 gap per question open at a time, and `resolved_at` closes it — the API role

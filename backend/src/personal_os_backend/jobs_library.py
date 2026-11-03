@@ -5,7 +5,8 @@ a story, a note — named by a dotted code (1.1, 2.2.11, 5.1.E2, 6.1.P3), and
 optionally bound to the resume entry it backs. At fill time the worker
 composes long-form answers from it. Every write here
 records a `jobs_changes` row in the same transaction, and only an explicit
-DELETE removes an entry.
+DELETE removes an entry. Each entry can carry a GPTZero human share set by a
+scan; any change to the answer clears it.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ Section = Literal["interest", "direction", "evidence", "story", "entry", "note"]
 
 LIBRARY_COLUMNS = """
     id, code, section, entry_id, subject, prompt, guidance, answer,
-    display_order, created_at, updated_at
+    display_order, human_percent, created_at, updated_at
 """
 
 
@@ -76,18 +77,31 @@ class LibraryEntry(BaseModel):
     guidance: str
     answer: str | None
     display_order: int
+    # GPTZero's share the answer reads as human; a scan sets it, an answer
+    # change clears it. Read-only here: no write model carries it.
+    human_percent: int | None = None
     created_at: datetime
     updated_at: datetime
 
     def fields(self) -> dict[str, Any]:
         """The written fields, for a change record or a no-change comparison."""
         return self.model_dump(
-            mode="json", exclude={"id", "created_at", "updated_at"}
+            mode="json", exclude={"id", "created_at", "updated_at", "human_percent"}
         )
+
+
+class HumanPercentWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    percent: int = Field(ge=0, le=100)
 
 
 class LibraryStore(Protocol):
     async def list_entries(self, user_id: UUID) -> list[LibraryEntry]: ...
+
+    async def set_human_percent(
+        self, user_id: UUID, code: str, percent: int
+    ) -> LibraryEntry | None: ...
 
     async def put_entry(
         self, user_id: UUID, code: str, item: LibraryEntryWrite
@@ -146,7 +160,10 @@ async def _upsert(
           prompt = excluded.prompt,
           guidance = excluded.guidance,
           answer = excluded.answer,
-          display_order = excluded.display_order
+          display_order = excluded.display_order,
+          human_percent = case
+            when app.jobs_library_entries.answer is distinct from excluded.answer
+            then null else app.jobs_library_entries.human_percent end
         returning {LIBRARY_COLUMNS}
         """,
         (
@@ -216,6 +233,43 @@ class PostgresLibraryStore:
         ):
             await connection.execute("set local role personal_os_api")
             return await _write_entry(connection, user_id, item)
+
+    async def set_human_percent(
+        self, user_id: UUID, code: str, percent: int
+    ) -> LibraryEntry | None:
+        async with (
+            self._pool.connection(timeout=self._timeout) as connection,
+            connection.transaction(),
+        ):
+            await connection.execute("set local role personal_os_api")
+            before = await _entry(connection, user_id, code)
+            if before is None:
+                return None
+            if before.answer is None:
+                raise LibraryError("the entry has no answer to score")
+            if before.human_percent == percent:
+                return before
+            cursor = await connection.execute(
+                "update app.jobs_library_entries set human_percent = %s "
+                "where user_id = %s and code = %s "
+                f"returning {LIBRARY_COLUMNS}",
+                (percent, user_id, code),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                raise RuntimeError("Human-percent update returned no row")
+            after = LibraryEntry.model_validate(row)
+            await record_change(
+                connection,
+                user_id,
+                subject="library",
+                subject_id=after.code,
+                action="update",
+                before={"human_percent": before.human_percent},
+                after={"human_percent": after.human_percent},
+                origin="you",
+            )
+        return after
 
     async def put_entries(
         self, user_id: UUID, items: list[LibraryEntryWrite]
@@ -318,6 +372,19 @@ async def put_library(
         return await store.put_entries(principal.user_id, items)
     except LibraryError as error:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
+
+
+@router.put("/{code}/human-percent", response_model=LibraryEntry)
+async def put_human_percent(
+    code: str, item: HumanPercentWrite, principal: CurrentPrincipal, store: Store
+) -> LibraryEntry:
+    try:
+        entry = await store.set_human_percent(principal.user_id, code, item.percent)
+    except LibraryError as error:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
+    if entry is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No library entry has that code")
+    return entry
 
 
 @router.delete("/{code}", status_code=status.HTTP_204_NO_CONTENT)

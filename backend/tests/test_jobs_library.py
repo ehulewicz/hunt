@@ -78,12 +78,17 @@ class LibraryConnection:
             self._one = self.rows.get(params[1])
         elif "from app.jobs_resume_entries" in query:
             self._one = {"x": 1} if params[0] in self.resume_ids else None
+        elif "update app.jobs_library_entries" in query:
+            row = self.rows[params[2]]
+            row["human_percent"] = params[0]
+            self._one = dict(row)
         elif "insert into app.jobs_library_entries" in query:
             (
                 _user, code, section, entry_id, subject, prompt, guidance, answer,
                 display_order,
             ) = params
             row = self.rows.get(code)
+            old_answer = row.get("answer") if row is not None else None
             if row is None:
                 row = {"id": uuid4(), "code": code, "created_at": NOW}
                 self.rows[code] = row
@@ -91,6 +96,10 @@ class LibraryConnection:
                 section=section, entry_id=entry_id, subject=subject, prompt=prompt,
                 guidance=guidance, answer=answer, display_order=display_order,
                 updated_at=NOW,
+            )
+            # The conflict clause clears the score only when the answer changed.
+            row["human_percent"] = (
+                row.get("human_percent") if old_answer == answer else None
             )
             self._one = dict(row)
         elif "insert into app.jobs_changes" in query:
@@ -221,6 +230,60 @@ async def test_bulk_upsert_never_deletes_what_it_omits(
             "/v1/jobs/library", headers=HEADERS, json=[entry(), entry()]
         )
         assert duplicate.status_code == 422
+
+
+async def test_human_percent_is_scored_and_cleared_by_an_answer_change(
+    client: httpx.AsyncClient, connection: LibraryConnection
+) -> None:
+    async with client:
+        await client.put("/v1/jobs/library/1.1", headers=HEADERS, json=entry())
+
+        unscored = await client.put(
+            "/v1/jobs/library/1.1/human-percent", headers=HEADERS,
+            json={"percent": 92},
+        )
+        assert unscored.status_code == 422
+
+        await client.put(
+            "/v1/jobs/library/1.1", headers=HEADERS, json=entry(answer="The story.")
+        )
+        scored = await client.put(
+            "/v1/jobs/library/1.1/human-percent", headers=HEADERS,
+            json={"percent": 92},
+        )
+        assert scored.status_code == 200 and scored.json()["human_percent"] == 92
+        assert connection.changes[-1][3] == "update"
+        assert connection.changes[-1][4].obj == {"human_percent": None}
+        assert connection.changes[-1][5].obj == {"human_percent": 92}
+
+        # A no-change score records nothing.
+        changes = len(connection.changes)
+        assert (await client.put(
+            "/v1/jobs/library/1.1/human-percent", headers=HEADERS,
+            json={"percent": 92},
+        )).status_code == 200
+        assert len(connection.changes) == changes
+
+        kept = await client.put(
+            "/v1/jobs/library/1.1", headers=HEADERS,
+            json=entry(answer="The story.", guidance="Say less."),
+        )
+        assert kept.status_code == 200 and kept.json()["human_percent"] == 92
+
+        cleared = await client.put(
+            "/v1/jobs/library/1.1", headers=HEADERS, json=entry(answer="Edited.")
+        )
+        assert cleared.status_code == 200 and cleared.json()["human_percent"] is None
+
+        assert (await client.put(
+            "/v1/jobs/library/9.9/human-percent", headers=HEADERS,
+            json={"percent": 50},
+        )).status_code == 404
+        for bad in (101, -1):
+            assert (await client.put(
+                "/v1/jobs/library/1.1/human-percent", headers=HEADERS,
+                json={"percent": bad},
+            )).status_code == 422
 
 
 async def test_import_only_while_the_library_is_empty(client: httpx.AsyncClient) -> None:

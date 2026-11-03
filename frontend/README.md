@@ -34,8 +34,11 @@ menu; Settings is still a routed placeholder.
 PUTs, and reloads what the API rendered back — the record gets stable entry
 ids — and a compile refusal from the PDF build shows inline. `/library` edits
 the narrative library: entries grouped by section with read-only prompt and
-guidance, a per-entry answer box with a live word count, and an unanswered
-filter; saving one entry PUTs its full write body under its code.
+guidance, a per-entry answer box with a live word count, unanswered and
+below-80%-human filters, and a human-share badge on each answered entry —
+green at 80 or more, amber at 50–79, red below, "Not checked" when null;
+saving one entry PUTs its full write body under its code, and an answer
+change clears the badge back to Not checked.
 
 Both use `document-editor.tsx`, the shared document editor: a labelled
 textarea (monospace where the text is structured), a save button, inline

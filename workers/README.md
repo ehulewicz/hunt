@@ -55,7 +55,11 @@ key still wins until `os hunt facts delete KEY` removes that override, and
 
 The narrative library is the writing long-form answers are composed from,
 edited at /library or with `os hunt library get` (its entries as JSON) and
-`os hunt library put FILE` (one entry or a list). `os hunt library import FILE`
+`os hunt library put FILE` (one entry or a list; `put` drops the read-only
+`id`, timestamps and `human_percent` so a get, edit, put round trip works).
+`os hunt library list` shows each entry's word count and its GPTZero human
+share, banded green, yellow, red, with a checked/unchecked summary;
+`os hunt library score CODE PERCENT` records one. `os hunt library import FILE`
 loads the question-bank markdown once into an empty library (`--dry-run` parses
 and links without writing); `jobs/library.py` parses it and links each
 experience and project entry to its career entry by organization or title.
