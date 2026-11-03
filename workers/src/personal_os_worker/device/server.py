@@ -336,61 +336,15 @@ def create_app(agent: Agent, *, background: bool = True) -> Starlette:
         return JSONResponse({"run": agent.runs.snapshot()}, 202)
 
     async def session(websocket: WebSocket) -> None:
-        await websocket.accept()
-        try:
-            first = await asyncio.wait_for(websocket.receive_json(), AUTH_SECONDS)
-        except (TimeoutError, WebSocketDisconnect, ValueError, KeyError):
-            with contextlib.suppress(Exception):
-                await websocket.close(UNAUTHORIZED, "Send the access token first")
-            return
-        token = str(first.get("token") or "") if isinstance(first, dict) else ""
-        if first.get("type") != "auth" or not await agent.verifier.verify(token):
-            await websocket.close(UNAUTHORIZED, "The access token was not accepted")
-            return
-        viewer = Viewer(websocket)
-        await agent.attach(viewer, dict(first.get("view") or {}))
-        try:
-            while True:
-                message = await websocket.receive_json()
-                if isinstance(message, dict) and agent.viewer is viewer:
-                    with contextlib.suppress(Exception):
-                        await agent.on_message(message)
-        except (WebSocketDisconnect, ValueError, KeyError, RuntimeError):
-            pass
-        finally:
-            await agent.detach(viewer)
+        await _serve_session(agent, websocket)
 
     @contextlib.asynccontextmanager
     async def lifespan(_: Starlette) -> AsyncIterator[None]:
         if not background:
             yield
             return
-        path = socket_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.unlink(missing_ok=True)
-        server = await asyncio.start_unix_server(agent.runs.handle_link, str(path))
-        path.chmod(0o600)
-        package = Path(__file__).resolve().parents[1]
-        tasks = [
-            asyncio.create_task(heartbeats(agent)),
-            asyncio.create_task(
-                restart_when_changed(
-                    agent, lambda: source_fingerprint(package), restart=agent.restart
-                )
-            ),
-        ]
-        if agent.memory is not None:
-            tasks.append(
-                asyncio.create_task(watch_memory(agent, agent.memory, restart=agent.restart))
-            )
-        try:
+        async with _background(agent):
             yield
-        finally:
-            for task in tasks:
-                task.cancel()
-            server.close()
-            await agent.close_stream()
-            path.unlink(missing_ok=True)
 
     app = Starlette(
         routes=[
@@ -403,6 +357,64 @@ def create_app(agent: Agent, *, background: bool = True) -> Starlette:
     )
     app.add_middleware(PageOrigins, origins=agent.identity.page_origins)
     return app
+
+
+async def _serve_session(agent: Agent, websocket: WebSocket) -> None:
+    """The live session: the token first, then the viewer's messages until it leaves."""
+    await websocket.accept()
+    try:
+        first = await asyncio.wait_for(websocket.receive_json(), AUTH_SECONDS)
+    except (TimeoutError, WebSocketDisconnect, ValueError, KeyError):
+        with contextlib.suppress(Exception):
+            await websocket.close(UNAUTHORIZED, "Send the access token first")
+        return
+    token = str(first.get("token") or "") if isinstance(first, dict) else ""
+    if first.get("type") != "auth" or not await agent.verifier.verify(token):
+        await websocket.close(UNAUTHORIZED, "The access token was not accepted")
+        return
+    viewer = Viewer(websocket)
+    await agent.attach(viewer, dict(first.get("view") or {}))
+    try:
+        while True:
+            message = await websocket.receive_json()
+            if isinstance(message, dict) and agent.viewer is viewer:
+                with contextlib.suppress(Exception):
+                    await agent.on_message(message)
+    except (WebSocketDisconnect, ValueError, KeyError, RuntimeError):
+        pass
+    finally:
+        await agent.detach(viewer)
+
+
+@contextlib.asynccontextmanager
+async def _background(agent: Agent) -> AsyncIterator[None]:
+    """The run link's socket and the heartbeat, restart and memory tasks, while the app runs."""
+    path = socket_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.unlink(missing_ok=True)
+    server = await asyncio.start_unix_server(agent.runs.handle_link, str(path))
+    path.chmod(0o600)
+    package = Path(__file__).resolve().parents[1]
+    tasks = [
+        asyncio.create_task(heartbeats(agent)),
+        asyncio.create_task(
+            restart_when_changed(
+                agent, lambda: source_fingerprint(package), restart=agent.restart
+            )
+        ),
+    ]
+    if agent.memory is not None:
+        tasks.append(
+            asyncio.create_task(watch_memory(agent, agent.memory, restart=agent.restart))
+        )
+    try:
+        yield
+    finally:
+        for task in tasks:
+            task.cancel()
+        server.close()
+        await agent.close_stream()
+        path.unlink(missing_ok=True)
 
 
 async def heartbeats(agent: Agent) -> None:

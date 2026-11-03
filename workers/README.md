@@ -47,7 +47,7 @@ reason). The backend builds the one-page PDF on each save and serves it at
 determines — school, degree, graduation, GPA, coursework, the high school's
 name, city and graduation year (from a `high_school` education row), whole years
 of experience, the current employer, every organization, every skill — are
-derived from the record by `jobs/facts/derived.py`. Every stored entry counts,
+derived from the record by `jobs/facts/career.py`. Every stored entry counts,
 printed on the resume or not, and an activity never counts as employment. A
 stored fact with the same
 key still wins until `os hunt facts delete KEY` removes that override, and
@@ -135,8 +135,9 @@ distro; `os device status` says what it is doing.
   itself when its own source changes, between runs only; a run counts until its
   process is reaped, not just until it says it ended, so no run outlives the
   agent's restart as a zombie.
-- `stream.py` is the live view: a raw CDP connection to the browser endpoint,
-  separate from the run's Playwright. It attaches only to the tab being shown,
+- `stream.py` is the live view: a raw CDP connection (`cdp.py`) to the browser
+  endpoint, separate from the run's Playwright, with the layout, text fit and
+  input mapping in `pane.py`. It attaches only to the tab being shown,
   and lays it out at the viewer's panel (`Emulation.setDeviceMetricsOverride`):
   the panel's size, never narrower than 1024 CSS pixels, at the viewer's pixel
   density. Chrome sizes a tab in a minimized window as it likes (2560×1271 for
@@ -386,9 +387,10 @@ question's answer and the Inbox can bind it.
 
 ## The account wall
 
-`jobs/account_page.py` recognizes an ATS sign-in, create-account, forgot,
+`jobs/account_inspect.py` recognizes an ATS sign-in, create-account, forgot,
 new-password, code or check-your-email page — Workday's `data-automation-id`s
-first, wording elsewhere — and `page_state` reports it as `ACCOUNT` only when no
+first, wording elsewhere — and `jobs/account_page.py` clicks, fills and ticks
+it. `page_state` reports it as `ACCOUNT` only when no
 application form is on the page. `jobs/account.py` then runs a deterministic
 chain, each step at most once: Google (the `contact.email` tile in the
 automation profile; any challenge falls through), sign in, create (a refused
@@ -448,9 +450,9 @@ run's `Knowledge` — stored facts over career-derived ones, then the derived an
 posting facts: the derived ones in `jobs/facts/derived.py` include the LGBTQ+
 flag from transgender and orientation, the U.S.-person export statuses from
 citizenship, the degree level, program level, and highest completed degree from
-the degree type and enrollment, the full-time start year after graduating, and
-the whole years of full-time experience from the career record's
-non-internship entries. The resolver answers a field
+the degree type and enrollment, and the full-time start year after graduating.
+`jobs/facts/career.py` derives the whole years of full-time experience from the
+career record's non-internship entries. The resolver answers a field
 in a fixed order: the question's active binding, then active expression
 patterns (exactly one fact among those that match). Consent and "how did you
 hear" are patterns too (R68), each an active expression reading a fact the
@@ -466,7 +468,7 @@ the question just above it holds or is planned to hold the other answer. No
 value that declines to answer is ever chosen.
 
 **Posting facts.** Some facts belong to the posting, not to you, and are derived
-per run in `jobs/facts/derived.py`: its title, whether you worked at or applied
+per run in `jobs/facts/posting.py`: its title, whether you worked at or applied
 to its company before, its term ("Summer 2027" in the title), your earliest start
 (two weeks from accepting, your notice period, or the term's start if later:
 winter January 4, spring January 11, summer May 18, fall August 31) and a

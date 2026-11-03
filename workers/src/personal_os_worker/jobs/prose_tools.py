@@ -178,35 +178,7 @@ def run_prose_coverage(
     api: WorkerApi, *, scan: bool, max_calls: int | None
 ) -> int:
     if not scan:
-        gaps = api.prose_gaps(open_only=True)
-        families: dict[str, list[dict[str, Any]]] = {}
-        for gap in gaps:
-            families.setdefault(str(gap.get("family") or "other"), []).append(gap)
-
-        def rank(family_gaps: list[dict[str, Any]]) -> tuple[int, int]:
-            companies = {str(g.get("company_name") or "") or "no application"
-                         for g in family_gaps}
-            return (-len(companies), -len(family_gaps))
-
-        for family in sorted(families, key=lambda f: rank(families[f])):
-            group = families[family]
-            by_coverage: dict[str, int] = {}
-            companies = sorted({str(g.get("company_name") or "") or "no application"
-                                for g in group})
-            details = sorted({str(g.get("missing_detail") or "")
-                              for g in group if g.get("missing_detail")})
-            for gap in group:
-                coverage = str(gap.get("coverage") or "?")
-                by_coverage[coverage] = by_coverage.get(coverage, 0) + 1
-            counts = ", ".join(f"{key} {value}" for key, value in sorted(by_coverage.items()))
-            console.print(f"[bold]{family}[/bold] — {counts}")
-            console.print(f"  companies: {', '.join(companies)}")
-            for gap in group[:3]:
-                console.print(f"  - {gap.get('question')}")
-            if details:
-                console.print(f"  missing: {'; '.join(details)}")
-        if not families:
-            console.print("No open gaps.")
+        _print_open_gaps(api)
         return 0
 
     from personal_os_worker.jobs.autofill import is_factual_box, is_long_form_field
@@ -220,15 +192,7 @@ def run_prose_coverage(
         str(gap.get("question_id")): gap for gap in api.prose_gaps(open_only=True)
     }
     prose_rows = api.prose()
-    newest_company: dict[str, str] = {}
-    newest_title: dict[str, str] = {}
-    newest_application: dict[str, str] = {}
-    for row in prose_rows:
-        question_id = str(row.get("question_id"))
-        if question_id not in newest_company:
-            newest_company[question_id] = str(row.get("company_name") or "")
-            newest_title[question_id] = str(row.get("title") or "")
-            newest_application[question_id] = str(row.get("application_id") or "")
+    newest_company, newest_title, newest_application = _newest_applications(prose_rows)
 
     questions = [
         item for item in api.questions()
@@ -280,3 +244,52 @@ def run_prose_coverage(
         f"recorded {recorded}, resolved {resolved}, failed {failed}, not run {not_run}"
     )
     return 0
+
+
+def _print_open_gaps(api: WorkerApi) -> None:
+    """The open gaps by family, the families most companies share first."""
+    gaps = api.prose_gaps(open_only=True)
+    families: dict[str, list[dict[str, Any]]] = {}
+    for gap in gaps:
+        families.setdefault(str(gap.get("family") or "other"), []).append(gap)
+
+    def rank(family_gaps: list[dict[str, Any]]) -> tuple[int, int]:
+        companies = {str(g.get("company_name") or "") or "no application"
+                     for g in family_gaps}
+        return (-len(companies), -len(family_gaps))
+
+    for family in sorted(families, key=lambda f: rank(families[f])):
+        group = families[family]
+        by_coverage: dict[str, int] = {}
+        companies = sorted({str(g.get("company_name") or "") or "no application"
+                            for g in group})
+        details = sorted({str(g.get("missing_detail") or "")
+                          for g in group if g.get("missing_detail")})
+        for gap in group:
+            coverage = str(gap.get("coverage") or "?")
+            by_coverage[coverage] = by_coverage.get(coverage, 0) + 1
+        counts = ", ".join(f"{key} {value}" for key, value in sorted(by_coverage.items()))
+        console.print(f"[bold]{family}[/bold] — {counts}")
+        console.print(f"  companies: {', '.join(companies)}")
+        for gap in group[:3]:
+            console.print(f"  - {gap.get('question')}")
+        if details:
+            console.print(f"  missing: {'; '.join(details)}")
+    if not families:
+        console.print("No open gaps.")
+
+
+def _newest_applications(
+    prose_rows: list[dict[str, Any]],
+) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
+    """Each question's company, title and application id, from its first prose row."""
+    newest_company: dict[str, str] = {}
+    newest_title: dict[str, str] = {}
+    newest_application: dict[str, str] = {}
+    for row in prose_rows:
+        question_id = str(row.get("question_id"))
+        if question_id not in newest_company:
+            newest_company[question_id] = str(row.get("company_name") or "")
+            newest_title[question_id] = str(row.get("title") or "")
+            newest_application[question_id] = str(row.get("application_id") or "")
+    return newest_company, newest_title, newest_application
