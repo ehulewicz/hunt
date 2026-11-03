@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 
 from personal_os_worker.jobs.facts.career import (
     DAYS_PER_YEAR,
@@ -46,6 +46,7 @@ from personal_os_worker.jobs.sites import is_non_answer_option
 
 __all__ = [
     "CAREER_FACTS",
+    "COMPUTED_FACTS",
     "DAYS_PER_YEAR",
     "DERIVED_FACTS",
     "HOURS_PER_YEAR",
@@ -56,6 +57,7 @@ __all__ = [
     "SUBMITTED_STATUSES",
     "TERM",
     "TERM_STARTS",
+    "ComputedSource",
     "DerivedFact",
     "_date",
     "_long_date",
@@ -275,6 +277,24 @@ CAREER_FACTS = (
         ("career.experience",),
     ),
 )
+
+
+ComputedSource = Literal["career", "derived", "posting"]
+
+
+def _computed_facts() -> dict[str, tuple[ComputedSource, DerivedFact]]:
+    computed: dict[str, tuple[ComputedSource, DerivedFact]] = {}
+    for item in CAREER_FACTS:
+        computed[item.key] = ("career", item)
+    for item in DERIVED_FACTS:
+        computed[item.key] = ("derived", item)
+    for item in POSTING_FACTS:
+        computed[item.key] = ("posting", item)
+    return computed
+
+
+# A computed fact is never stored and never overridden by a stored row.
+COMPUTED_FACTS = _computed_facts()
 
 
 def graduation_term(graduation: date) -> str:

@@ -338,6 +338,7 @@ src/personal_os_backend/
   config.py         pydantic-settings Settings, PERSONAL_OS_API_* env vars, the psycopg
                     async pool, its readiness check, and StoreBase
   jobs_facts.py     /v1/jobs/facts: models, store, routes, per-type value validation
+  jobs_facts_computed.py  the worker's computed fact keys, kept equal to it by a workers test
   jobs_career.py    /v1/jobs/career routes; the record lives in the three modules below
   jobs_career_text.py  how the resume spells months, ranges, titles, locations, decimals, the header
   jobs_career_document.py  the document and row models, the writing rules, conversion both ways
