@@ -11,8 +11,6 @@ from test_autofill_session import browser_page as browser_page
 
 from personal_os_worker.jobs.autofill import build_autofill_plan
 from personal_os_worker.jobs.browser import (
-    OPERATIONS,
-    Attempt,
     apply_autofill,
     inspect_fields,
     inspect_unknown_controls,
@@ -20,7 +18,7 @@ from personal_os_worker.jobs.browser import (
 )
 from personal_os_worker.jobs.registry.kinds import classify, custom
 from personal_os_worker.jobs.registry.kinds.custom import CustomKind, register
-from personal_os_worker.jobs.registry.strategies import APPLIES, CANDIDATES
+from personal_os_worker.jobs.registry.strategies import APPLIES, CANDIDATES, OPERATIONS, Attempt
 from personal_os_worker.jobs.resolve import Knowledge, Resolver
 
 SLIDER_PAGE = """

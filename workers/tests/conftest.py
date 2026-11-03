@@ -110,22 +110,22 @@ class Api:
         pass
 
 
-def patch_session(monkeypatch: pytest.MonkeyPatch, name: str, value: Any) -> None:
-    """Set `name` on every personal_os_worker.jobs.session.* module that has it.
+def patch_package(
+    monkeypatch: pytest.MonkeyPatch, package: str, name: str, value: Any
+) -> None:
+    """Set `name` on every module of `package` that has it.
 
-    A name the old autofill_session module imported once now lives in several
-    session modules, so a patch has to land on each one that uses it. A dotted
-    target like `time.monotonic` patches an attribute of a module the session
-    modules import.
+    A name one big module imported once now lives in several package modules,
+    so a patch has to land on each one that uses it. A dotted target like
+    `time.monotonic` patches an attribute of a module the package imports.
     """
     import importlib
     import pkgutil
 
-    import personal_os_worker.jobs.session as session_pkg
-
+    pkg = importlib.import_module(package)
     head, _, attr = name.partition(".")
-    for item in pkgutil.iter_modules(session_pkg.__path__):
-        module = importlib.import_module(f"{session_pkg.__name__}.{item.name}")
+    for item in pkgutil.iter_modules(pkg.__path__):
+        module = importlib.import_module(f"{pkg.__name__}.{item.name}")
         target = getattr(module, head, None)
         if target is None:
             continue
@@ -133,3 +133,8 @@ def patch_session(monkeypatch: pytest.MonkeyPatch, name: str, value: Any) -> Non
             monkeypatch.setattr(target, attr, value)
         else:
             monkeypatch.setattr(module, head, value)
+
+
+def patch_session(monkeypatch: pytest.MonkeyPatch, name: str, value: Any) -> None:
+    """Set `name` on every personal_os_worker.jobs.session.* module that has it."""
+    patch_package(monkeypatch, "personal_os_worker.jobs.session", name, value)

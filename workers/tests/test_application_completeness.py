@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import patch_package
 from test_autofill_session import audit_session, binding
 from test_autofill_session import browser_page as browser_page
 
@@ -227,9 +228,9 @@ def test_unmatched_readonly_menu_never_commits_its_first_option(browser_page: An
 def test_radio_covered_by_its_label_is_checked_with_real_keyboard_events(
     browser_page: Any, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from personal_os_worker.jobs import browser
 
-    monkeypatch.setattr(browser, 'CONTROL_TIMEOUT_MS', 300)
+    patch_package(monkeypatch, "personal_os_worker.jobs.browser",
+                    "CONTROL_TIMEOUT_MS", 300)
     browser_page.set_content('''
         <fieldset><legend>Willing to relocate?</legend>
           <div style="position:relative;width:300px;height:58px">

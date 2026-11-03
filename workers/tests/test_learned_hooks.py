@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import patch_session
+from conftest import patch_package, patch_session
 from playwright.sync_api import Error, sync_playwright
 
 import personal_os_worker.jobs.registry as registry
@@ -26,11 +26,12 @@ def browser_page():  # type: ignore[no-untyped-def]
 @pytest.fixture()
 def learned_package(tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
     """A temporary learned package mounted over every category's `learned/`."""
-    for module in ("browser", "navigate"):
-        monkeypatch.setattr(
-            f"personal_os_worker.jobs.{module}.registrable_site",
-            lambda _url: "fixture.example",
-        )
+    monkeypatch.setattr(
+        "personal_os_worker.jobs.navigate.registrable_site",
+        lambda _url: "fixture.example",
+    )
+    patch_package(monkeypatch, "personal_os_worker.jobs.browser",
+                  "registrable_site", lambda _url: "fixture.example")
     patch_session(monkeypatch, "registrable_site", lambda _url: "fixture.example")
     registry.reload_learned()
     packages = {}

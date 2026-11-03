@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import patch_package
 from playwright.sync_api import Error, sync_playwright
 from standing_rules import standing
 
@@ -398,7 +399,8 @@ def test_snapshot_distinguishes_empty_controls_from_failed_reads(
             raise Error("Control detached during read")
         return original(page, field)
 
-    monkeypatch.setattr(browser_module, "fresh_control", read_control)
+    patch_package(monkeypatch, "personal_os_worker.jobs.browser",
+                        "fresh_control", read_control)
     entries = snapshot_entries(browser_page, fields)
     assert {entry["question"]: entry["answer_text"] for entry in entries} == {
         "Location": "", "School": "", "Remote": "",
