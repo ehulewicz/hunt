@@ -54,7 +54,7 @@ def test_python_3_14_fails_with_the_reinstall_command() -> None:
 
 def test_a_run_on_the_wrong_interpreter_never_starts(monkeypatch: pytest.MonkeyPatch) -> None:
     from personal_os_worker.core.doctor import DoctorCheck
-    from personal_os_worker.jobs import commands
+    from personal_os_worker.jobs import apply_run as commands
 
     def connected() -> Any:
         pytest.fail("nothing is connected to before the interpreter is checked")

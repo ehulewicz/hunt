@@ -50,9 +50,9 @@ and today they cannot:
 
 1. Decide (3). If the form answer should follow the attached resume, patch the
    profile per run; if not, keep the profile and only swap the PDF.
-2. Re-add the call in `apply_posting` after `body` is captured, guarded by
-   `--no-claude`, and pass `resume_pdf` / `resume_json` (and the profile patch)
-   into `SessionContext`.
+2. Re-add the call in `jobs/apply_run.py` after `_reach_the_posting` returns
+   `body`, guarded by `--no-claude`, and pass `resume_pdf` / `resume_json` (and
+   the profile patch) into `SessionContext`.
 3. Run live against one "class of 2028" posting with `--dry-run`, then for real.
 4. Move `grad_date/selection.py` from parked to fill-time in the AGENTS.md
    model-call list.

@@ -294,7 +294,7 @@ def test_reason_never_contains_the_password_the_site_echoes(context) -> None:  #
 
 
 def test_account_flow_needs_the_contact_email() -> None:
-    from personal_os_worker.jobs.commands import account_flow
+    from personal_os_worker.jobs.apply_run import account_flow
     from personal_os_worker.jobs.resolve import Knowledge
 
     assert account_flow(Knowledge(facts={}), "Acme") is None

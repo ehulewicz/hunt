@@ -6,6 +6,7 @@ from personal_os_worker.cli import build_parser, main
 from personal_os_worker.core import commands as services
 from personal_os_worker.core.auth import LoginError, Session
 from personal_os_worker.core.config import CliConfig
+from personal_os_worker.jobs import apply_commands
 from personal_os_worker.jobs import commands as hunt
 
 
@@ -289,10 +290,10 @@ def test_bare_apply_and_apply_today_use_the_first_row_on_any_or_the_chosen_ats(
         def close(self) -> None:
             calls.append(("close", None))
 
-    monkeypatch.setattr(hunt, "connected", lambda: ("config", "token"))
-    monkeypatch.setattr(hunt, "WorkerApi", FakeApi)
+    monkeypatch.setattr(apply_commands, "connected", lambda: ("config", "token"))
+    monkeypatch.setattr(apply_commands, "WorkerApi", FakeApi)
     monkeypatch.setattr(
-        hunt,
+        apply_commands,
         "apply_posting",
         lambda posting_id, *, dry_run, no_claude, repair, **_: calls.append(
             ("apply", (posting_id, dry_run, no_claude))
@@ -407,7 +408,7 @@ def test_pairing_is_gone() -> None:
 def test_clean_terminal_outcome_persists_before_closing_one_page(
     flags: dict[str, bool], lifecycle: tuple[str, str | None], expected: str
 ) -> None:
-    from personal_os_worker.jobs.commands import finalize_application_outcome
+    from personal_os_worker.jobs.apply_run import finalize_application_outcome
 
     calls: list[tuple[str, object]] = []
 
@@ -440,7 +441,7 @@ def test_clean_terminal_outcome_persists_before_closing_one_page(
 
 
 def test_persistence_failure_keeps_the_session_page_for_recovery() -> None:
-    from personal_os_worker.jobs.commands import finalize_application_outcome
+    from personal_os_worker.jobs.apply_run import finalize_application_outcome
 
     calls: list[str] = []
 
@@ -514,7 +515,7 @@ def test_repair_and_validate_are_commands_and_apply_repairs_by_default() -> None
     ],
 )
 def test_a_closed_posting_is_recognised_in_any_wording(body: str, closed: bool) -> None:
-    from personal_os_worker.jobs.commands import posting_closed
+    from personal_os_worker.jobs.posting_page import posting_closed
 
     assert posting_closed(body) is closed
 
@@ -543,13 +544,13 @@ def test_a_closed_posting_is_recognised_in_any_wording(body: str, closed: bool) 
 def test_a_posting_url_names_its_company_and_role(
     page_title: str, url: str, expected: tuple[str, str]
 ) -> None:
-    from personal_os_worker.jobs.commands import guess_identity
+    from personal_os_worker.jobs.apply_commands import guess_identity
 
     assert guess_identity(page_title=page_title, og_title="", site_name="", url=url) == expected
 
 
 def test_an_ats_name_is_never_the_company() -> None:
-    from personal_os_worker.jobs.commands import guess_identity
+    from personal_os_worker.jobs.apply_commands import guess_identity
 
     assert guess_identity(
         page_title="Careers", og_title="", site_name="Greenhouse",

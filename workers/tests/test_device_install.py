@@ -91,8 +91,8 @@ def test_remote_runs_take_no_step_and_no_done() -> None:
 
 def test_remote_is_passed_through_to_apply(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[dict[str, Any]] = []
-    monkeypatch.setattr(cli.hunt, "run_autofill", lambda ref, **kw: seen.append(kw) or 0)
-    monkeypatch.setattr(cli.hunt, "run_autofill_top", lambda **kw: seen.append(kw) or 0)
+    monkeypatch.setattr(cli.apply_commands, "run_autofill", lambda ref, **kw: seen.append(kw) or 0)
+    monkeypatch.setattr(cli.apply_commands, "run_autofill_top", lambda **kw: seen.append(kw) or 0)
     cli.main(["hunt", "apply", "3", "--remote"])
     cli.main(["hunt", "apply", "--remote"])
     assert [kw["remote"] for kw in seen] == [True, True]
@@ -101,7 +101,7 @@ def test_remote_is_passed_through_to_apply(monkeypatch: pytest.MonkeyPatch) -> N
 def test_a_remote_run_with_no_agent_fails_before_it_records_anything(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from personal_os_worker.jobs import commands as hunt
+    from personal_os_worker.jobs import apply_run as hunt
 
     monkeypatch.setattr(hunt, "socket_path", lambda: tmp_path / "device.sock")
     monkeypatch.setattr(
@@ -138,7 +138,7 @@ def test_install_is_identity_tailnet_task_then_doctor(
 def test_a_linked_run_that_fails_tells_the_page_why(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from personal_os_worker.jobs import commands as hunt
+    from personal_os_worker.jobs import apply_run as hunt
 
     sent: list[Any] = []
     stopped: list[str] = []

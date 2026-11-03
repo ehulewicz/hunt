@@ -300,7 +300,7 @@ def test_escalate_skips_a_problem_whose_row_is_unsolved() -> None:
 def test_retry_opens_an_unsolved_problem_and_resets_its_attempts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any,
 ) -> None:
-    import personal_os_worker.jobs.commands as commands
+    import personal_os_worker.jobs.apply_commands as commands
 
     issue = {"id": "abcdef-1234", "status": "unsolved", "ats": "generic",
              "category": "wall", "signature": "generic|wall|problem|x",
