@@ -14,18 +14,15 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
-from personal_os_worker.jobs.fix.keep import mark_proven, retire
+from personal_os_worker.jobs.fix import keep
 
 
 def _rel(path: Path) -> tuple[str, str]:
     """(learned_rel, fixture_rel) for a file under <category>/learned/."""
     category = path.parent.parent.name
-    learned_rel = (
-        f"workers/src/personal_os_worker/jobs/registry/{category}/"
-        f"learned/{path.name}"
+    return keep.learned_rel(category, path.stem), keep.fixture_rel(
+        category, path.stem
     )
-    fixture_rel = f"workers/tests/fixtures/learned/{category}/{path.stem}"
-    return learned_rel, fixture_rel
 
 
 class Trial:
@@ -38,8 +35,8 @@ class Trial:
         repo: Path,
         api: Any,
         run_id: str = "",
-        marker: Any = mark_proven,
-        retirer: Any = retire,
+        marker: Any = keep.mark_proven,
+        retirer: Any = keep.retire,
     ) -> None:
         self.repo = repo
         self.api = api
@@ -142,10 +139,7 @@ def revert_retired(api: Any, repo: Path) -> int:
         path = repo / learned_rel
         if not path.exists():
             continue
-        fixture_rel = (
-            f"workers/tests/fixtures/learned/"
-            f"{path.parent.parent.name}/{path.stem}"
-        )
+        fixture_rel = keep.fixture_rel(path.parent.parent.name, path.stem)
         if not _unchanged(repo, learned_rel, fixture_rel):
             continue  # local edits on those paths: leave them alone
         path.unlink(missing_ok=True)
@@ -169,29 +163,13 @@ def revert_retired(api: Any, repo: Path) -> int:
 
 
 def _commit_removal(repo: Path, learned_rel: str, fixture_rel: str) -> None:
-    """One commit on main, through keep.py's temporary index, removing the file
-    and its fixtures."""
-    import tempfile
-
-    from personal_os_worker.jobs.fix.keep import AUTHOR, _git
-
-    with tempfile.TemporaryDirectory(prefix="personal-os-revert-") as folder:
-        index = {"GIT_INDEX_FILE": str(Path(folder) / "index")}
-        parent = _git(repo, "rev-parse", "HEAD").stdout.strip()
-        _git(repo, "read-tree", parent, env=index)
-        _git(repo, "rm", "-q", "--cached", "--ignore-unmatch", "--",
-             learned_rel, env=index)
-        for file in sorted((repo / fixture_rel).glob("*")) if (
-            repo / fixture_rel
-        ).is_dir() else []:
-            _git(repo, "rm", "-q", "--cached", "--ignore-unmatch", "--",
-                 str(file.relative_to(repo)), env=index)
-        tree = _git(repo, "write-tree", env=index).stdout.strip()
-        commit = _git(
-            repo, "commit-tree", tree, "-p", parent, env=AUTHOR,
-            stdin=f"Revert {learned_rel}\n\nThe fix was retired in the Inbox.",
-        ).stdout.strip()
-        _git(repo, "update-ref", "refs/heads/main", commit)
+    """One commit on main, through keep.py's touched-paths commit, removing the
+    file and its fixtures."""
+    keep._commit_touched(
+        repo,
+        f"Revert {learned_rel}\n\nThe fix was retired in the Inbox.",
+        staged=[], removed=[learned_rel, fixture_rel], push=False,
+    )
 
 
 def _unchanged(repo: Path, learned_rel: str, fixture_rel: str) -> bool:

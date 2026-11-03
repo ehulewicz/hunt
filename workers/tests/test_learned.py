@@ -7,6 +7,8 @@ end to end and keep the fixer's prompt examples from rotting.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -56,8 +58,12 @@ def _repo_learned_files() -> list[tuple[str, Path]]:
 def test_a_repo_learned_file_passes_policy_and_examples(category: str, path: Path) -> None:
     assert policy.check_file(path, category=category) == []
     from personal_os_worker.jobs.fix import examples
+    from personal_os_worker.jobs.fix.keep import fixture_rel
 
-    assert examples.main([str(path), str(path.parent / path.stem)]) == 0
+    repo_root = Path(__file__).parent.parent.parent
+    assert examples.main(
+        [str(path), str(repo_root / fixture_rel(category, path.stem))]
+    ) == 0
 
 
 def _reference_files() -> list[tuple[str, Path]]:
@@ -76,6 +82,14 @@ def test_a_reference_example_passes_policy_and_its_examples(
     category: str, path: Path, browser_page
 ) -> None:
     assert policy.check_file(path, category=category) == []
+    # the CLI the fixer's checker actually runs; a subprocess so the module's
+    # playwright page does not block its own launch
+    completed = subprocess.run(
+        [sys.executable, "-m", "personal_os_worker.jobs.fix.examples",
+         str(path.resolve()), str((EXAMPLES / category).resolve())],
+        capture_output=True, text=True,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
     declarations = registry.load_file(path, category=category)
     assert declarations
     registry.reload_learned()

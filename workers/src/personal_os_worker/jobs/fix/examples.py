@@ -189,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
         if found:
             declarations = found
-            site = found[0].site
+            site = ", ".join(found[0].sites)
             break
     if not declarations:
         print(f"{file_path}: no declaration the policy accepts")

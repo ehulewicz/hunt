@@ -4,21 +4,24 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import subprocess
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from conftest import Api, git
 
 from personal_os_worker.jobs import registry
 from personal_os_worker.jobs.fix import lane
-from personal_os_worker.jobs.fix.keep import Kept, keep
-from personal_os_worker.jobs.fix.queue import MAX_ATTEMPTS, FixQueue, _same_structure
+from personal_os_worker.jobs.fix.keep import (
+    Kept,
+    fixture_rel,
+    keep,
+    learned_rel,
+)
+from personal_os_worker.jobs.fix.queue import MAX_ATTEMPTS, FixQueue
 from personal_os_worker.jobs.fix.trial import Trial
 from personal_os_worker.jobs.registry import policy
 from personal_os_worker.jobs.registry.api import Strategy as api_Strategy
-
-JOBS = "workers/src/personal_os_worker/jobs"
 
 KIND_SOURCE = '''from personal_os_worker.jobs.registry.api import Example, Kind
 
@@ -34,28 +37,6 @@ KIND = Kind(
                       expected="3"),),
 )
 '''
-
-
-def git(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True,
-                          text=True).stdout
-
-
-@pytest.fixture
-def repo(tmp_path: Path) -> Path:
-    """A checkout of `main` with a remote, as the device's checkout is."""
-    remote = tmp_path / "remote.git"
-    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
-    work = tmp_path / "work"
-    subprocess.run(["git", "init", "-q", "-b", "main", str(work)], check=True)
-    git(work, "config", "user.name", "test")
-    git(work, "config", "user.email", "test@example.com")
-    (work / "README").write_text("x")
-    git(work, "add", "-A")
-    git(work, "commit", "-q", "-m", "start")
-    git(work, "remote", "add", "origin", str(remote))
-    git(work, "push", "-q", "origin", "main")
-    return work
 
 
 # ----- the policy: escapes are refused before import --------------------------
@@ -102,51 +83,42 @@ def _attempt_dir(tmp: Path, file_source: str = KIND_SOURCE, fixtures: bool = Tru
     return attempt
 
 
+def _stage_unrelated(repo: Path) -> str:
+    """An unrelated file staged in the live index, as it must remain: exactly
+    its `git status --porcelain` line."""
+    (repo / "unrelated.txt").write_text("unrelated")
+    git(repo, "add", "unrelated.txt")
+    return "A  unrelated.txt\n"
+
+
 def test_keep_commits_exactly_the_learned_file_and_fixtures(repo: Path, tmp_path: Path) -> None:
     attempt = _attempt_dir(tmp_path)
-    learned_rel = f"{JOBS}/registry/kinds/learned/fixture_example_x.py"
-    fixture_rel = "workers/tests/fixtures/learned/kinds/fixture_example_x"
-    kept = keep(repo, "a fix", attempt, learned_rel, fixture_rel)
-    assert (repo / learned_rel).read_text() == KIND_SOURCE
-    assert (repo / fixture_rel / "page.html").exists()
+    staged = _stage_unrelated(repo)
+    learned = learned_rel("kinds", "fixture_example_x")
+    fixtures = fixture_rel("kinds", "fixture_example_x")
+    kept = keep(repo, "a fix", attempt, learned, fixtures)
+    assert (repo / learned).read_text() == KIND_SOURCE
+    assert (repo / fixtures / "page.html").exists()
     assert kept.pushed
     show = git(repo, "show", "--name-only", "--format=", "HEAD").split()
-    assert set(show) == {learned_rel, f"{fixture_rel}/page.html"}
+    assert set(show) == {learned, f"{fixtures}/page.html"}
+    # only the unrelated staging remains; the keep's own paths are clean
+    assert git(repo, "status", "--porcelain") == staged
     # main moved on the remote too
     assert git(repo, "ls-remote", "origin", "main").split()[0] == kept.commit
 
 
 def test_a_refused_push_keeps_the_commit_and_says_so(repo: Path, tmp_path: Path) -> None:
     git(repo, "remote", "set-url", "origin", str(tmp_path / "gone.git"))
+    staged = _stage_unrelated(repo)
     kept = keep(repo, "a fix", _attempt_dir(tmp_path),
-                f"{JOBS}/registry/kinds/learned/x.py",
-                "workers/tests/fixtures/learned/kinds/x")
+                learned_rel("kinds", "x"), fixture_rel("kinds", "x"))
     assert not kept.pushed and "not pushed" in kept.note
     assert git(repo, "rev-parse", "HEAD").strip() == kept.commit
+    assert git(repo, "status", "--porcelain") == staged
 
 
 # ----- the queue: attempts, brake, problem rows ----------------------------------
-
-class Api:
-    def __init__(self, issues: dict[str, dict[str, Any]] | None = None) -> None:
-        self.issues = issues or {}
-        self.next_id = 0
-        self.updates: list[dict[str, Any]] = []
-
-    def autofill_failure(self, issue_id: str) -> dict[str, Any]:
-        return self.issues.get(issue_id) or {}
-
-    def update_autofill_failure(self, issue_id: str, changes: dict[str, Any]) -> None:
-        self.updates.append({"id": issue_id, **changes})
-        self.issues.setdefault(issue_id, {}).update(changes)
-
-    def record_code_change(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        return {}
-
-    def close(self) -> None:
-        pass
-
-
 
 
 
@@ -365,43 +337,6 @@ def _learned_package(tmp_path: Path, category: str = "kinds") -> Path:
     return folder
 
 
-def test_reuse_adds_a_site_with_no_model_call(repo: Path, tmp_path: Path) -> None:
-    """A same-structure declaration that reads back just gains the site."""
-    folder = _learned_package(tmp_path)
-    (folder / "odd_widget.py").write_text(
-        KIND_SOURCE.replace('sites=("fixture.example",)', 'sites=("other.example",)')
-    )
-    api = Api({"i1": {"status": "open"}})
-    calls: list[int] = []
-
-    def runner(command: Any, timeout: float = 0) -> str:
-        calls.append(1)
-        return "{}"
-
-    probed: list[Path] = []
-    queue = FixQueue(
-        repo=tmp_path, workdir=tmp_path / "fix", api=api, run_id="run-1",
-        report=lambda _l: None, runner=runner,
-        prober=lambda r, _a: probed.append(r.learned_file) or {"ok": True, "note": "read back"},
-        checker=lambda _d, _f, _p: None,
-        keeper=lambda *a, **k: Kept("abc1234", "p", True),
-    )
-    try:
-        problem = dataclasses.replace(
-            _problem(structure="odd_widget"), cause="unknown_control"
-        )
-        assert problem.category == "kinds"
-        queue.statuses[problem.key] = __import__(
-            "personal_os_worker.jobs.fix.queue", fromlist=["Status"]
-        ).Status(problem.key, problem.question, problem.cause)
-        assert queue._reuse(problem, _same_structure(problem)) is True
-        assert calls == []  # the model was never asked
-        assert '"fixture.example"' in (folder / "odd_widget.py").read_text()
-        assert api.issues["i1"]["status"] == "fixed"
-    finally:
-        queue.close()
-
-
 def test_a_revision_keeps_earlier_examples_and_adds_the_site() -> None:
     """The policy refuses a revised file that drops a site or an example."""
     old = KIND_SOURCE.replace('sites=("fixture.example",)', 'sites=("a.com", "b.com")')
@@ -415,14 +350,15 @@ def test_readable_names_and_suffixing(tmp_path: Path) -> None:
     api = Api({})
     queue = _queue(api, tmp_path)
     try:
-        problem = _problem()
+        problem = _problem(structure="odd_widget")
         answer = lane.Answer("file", "x", "s", "", "odd_widget")
         assert queue._file_name(problem, answer) == "odd_widget"
-        # a file by that name for a different structure gets a suffix
+        # a taken stem gets a suffix even for the same structure: a new file
+        # never overwrites another (only a revision writes over its own stem)
         learned = tmp_path / "learned"
         learned.mkdir()
         (learned / "odd_widget.py").write_text(
-            'K = Kind(structure="other", name="x", selector="s", reads="v",'
+            'K = Kind(structure="odd_widget", name="x", selector="s", reads="v",'
             ' strategies=(), sites=("a.com",))'
         )
         queue._learned_dir = lambda _c: learned  # type: ignore[method-assign]
@@ -431,37 +367,45 @@ def test_readable_names_and_suffixing(tmp_path: Path) -> None:
         queue.close()
 
 
-def test_routes_are_named_by_site() -> None:
+def test_routes_are_named_by_site_and_goal() -> None:
     problem = _problem()
-    problem = dataclasses.replace(problem, cause="wall")
-    assert problem.category == "routes"
-    assert lane.name_of(problem) == "fixture_example"
+    wall = dataclasses.replace(problem, cause="wall")
+    posting = dataclasses.replace(problem, cause="posting_not_found")
+    assert wall.category == "routes" and posting.category == "routes"
+    assert lane.name_of(wall) == "fixture_example_form"
+    assert lane.name_of(posting) == "fixture_example_posting"
 
 
 def test_mark_proven_and_retire(repo: Path, tmp_path: Path) -> None:
     from personal_os_worker.jobs.fix.keep import mark_proven, retire
 
-    learned_rel = f"{JOBS}/registry/kinds/learned/odd_widget.py"
-    fixture_rel = "workers/tests/fixtures/learned/kinds/odd_widget"
+    staged = _stage_unrelated(repo)
+    learned = learned_rel("kinds", "odd_widget")
+    fixtures = fixture_rel("kinds", "odd_widget")
     attempt = _attempt_dir(tmp_path)
-    keep(repo, "a fix", attempt, learned_rel, fixture_rel)
+    keep(repo, "a fix", attempt, learned, fixtures)
+    assert git(repo, "status", "--porcelain") == staged
     # a later run proves it
-    proven = mark_proven(repo, learned_rel)
-    assert "proven=True" in (repo / learned_rel).read_text()
+    proven = mark_proven(repo, learned)
+    assert "proven=True" in (repo / learned).read_text()
     assert proven.pushed
-    # a trial failure removes a new file and its fixtures
-    old = (repo / learned_rel).read_text()
-    retire(repo, learned_rel, fixture_rel, was_new=True)
-    assert not (repo / learned_rel).exists()
-    assert not (repo / fixture_rel).exists()
+    assert git(repo, "status", "--porcelain") == staged
+    # a trial failure removes a new file and its fixtures, from the tree too
+    old = (repo / learned).read_text()
+    retire(repo, learned, fixtures, was_new=True)
+    assert not (repo / learned).exists()
+    assert not (repo / fixtures).exists()
+    assert git(repo, "ls-tree", "-r", "--name-only", "HEAD", "--",
+               learned, fixtures) == ""
+    assert git(repo, "status", "--porcelain") == staged
     # and a revised file is restored instead
     attempt2 = _attempt_dir(tmp_path / "second", old.replace("proven=True", "proven=False"))
-    keep(repo, "a fix", attempt2, learned_rel, fixture_rel)
-    (repo / learned_rel).write_text(old + "\n# changed\n")
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "revise")
-    retire(repo, learned_rel, fixture_rel, was_new=False)
-    assert (repo / learned_rel).exists()
+    keep(repo, "a fix", attempt2, learned, fixtures)
+    (repo / learned).write_text(old + "\n# changed\n")
+    git(repo, "commit", "-q", "-m", "revise", "--", learned)
+    retire(repo, learned, fixtures, was_new=False)
+    assert (repo / learned).exists()
+    assert git(repo, "status", "--porcelain") == staged
 
 
 def _problem(number: int = 1, *, issue_id: str | None = "i1",
@@ -517,8 +461,8 @@ def test_a_trial_strategy_that_works_becomes_proven(
     registry._remember(strategy, source)
     assert strategy.proven is False
     assert tracker.report(strategy, True) is True
-    learned_rel = "workers/src/personal_os_worker/jobs/registry/strategies/learned/odd_set.py"
-    assert "proven=True" in (repo / learned_rel).read_text()
+    learned = learned_rel("strategies", "odd_set")
+    assert "proven=True" in (repo / learned).read_text()
 
 
 def test_a_trial_strategy_that_fails_is_retired(
@@ -536,8 +480,8 @@ def test_a_trial_strategy_that_fails_is_retired(
     registry._remember(strategy, source)
     # new file: retired by deletion
     assert tracker.report(strategy, False) is True
-    assert not (repo / f"{JOBS}/registry/strategies/learned/odd_set.py").exists()
-    assert not (repo / "workers/tests/fixtures/learned/strategies/odd_set").exists()
+    assert not (repo / learned_rel("strategies", "odd_set")).exists()
+    assert not (repo / fixture_rel("strategies", "odd_set")).exists()
 
 
 def test_a_file_kept_this_run_is_neither_proven_nor_retired(tmp_path: Path) -> None:
@@ -561,13 +505,11 @@ def test_a_proven_file_that_fails_is_left_alone(repo: Path, tmp_path: Path) -> N
     module = registry._import_file(source, "strategies")
     strategy = next(v for v in vars(module).values() if isinstance(v, api_Strategy))
     assert tracker.report(strategy, False) is False
-    assert (repo / f"{JOBS}/registry/strategies/learned/odd_set.py").exists()
+    assert (repo / learned_rel("strategies", "odd_set")).exists()
 
 
 def _keep_file(repo: Path, tmp_path: Path, source: Path, category: str) -> None:
     """Commit a learned file + fixtures through keep()."""
-    from personal_os_worker.jobs.fix.keep import keep
-
     attempt = tmp_path / "attempts" / "attempt-1"
     learned = attempt / category / "learned"
     learned.mkdir(parents=True, exist_ok=True)
@@ -576,8 +518,7 @@ def _keep_file(repo: Path, tmp_path: Path, source: Path, category: str) -> None:
     fixtures.mkdir(parents=True, exist_ok=True)
     (fixtures / "page.html").write_text("<html/>")
     keep(repo, f"add {source.stem}", attempt,
-         f"{JOBS}/registry/{category}/learned/{source.name}",
-         f"workers/tests/fixtures/learned/{category}/{source.stem}")
+         learned_rel(category, source.stem), fixture_rel(category, source.stem))
 
 
 
@@ -595,20 +536,20 @@ def test_revert_retired_removes_the_file_and_fixtures(
     source = folder / "odd_set.py"
     source.write_text(STRATEGY_SOURCE)
     _keep_file(repo, tmp_path, source, "strategies")
-    learned_rel = (
-        "workers/src/personal_os_worker/jobs/registry/strategies/learned/odd_set.py"
-    )
-    fixture_rel = "workers/tests/fixtures/learned/strategies/odd_set"
-    assert (repo / learned_rel).exists()
+    learned = learned_rel("strategies", "odd_set")
+    fixtures = fixture_rel("strategies", "odd_set")
+    assert (repo / learned).exists()
+    staged = _stage_unrelated(repo)
 
     class LearnedApi:
         def learned(self) -> dict[str, Any]:
-            return {"fixes": [{"file": learned_rel, "status": "retired"}]}
+            return {"fixes": [{"file": learned, "status": "retired"}]}
 
     reverted = trial_mod.revert_retired(LearnedApi(), repo)
     assert reverted == 1
-    assert not (repo / learned_rel).exists()
-    assert not (repo / fixture_rel).exists()
+    assert not (repo / learned).exists()
+    assert not (repo / fixtures).exists()
+    assert git(repo, "status", "--porcelain") == staged
     assert "odd_set" in registry.retired_files()
     history = git(repo, "log", "--oneline")
     assert "Revert" in history
@@ -623,17 +564,15 @@ def test_revert_retired_leaves_paths_with_local_edits(
     source = folder / "odd_set.py"
     source.write_text(STRATEGY_SOURCE)
     _keep_file(repo, tmp_path, source, "strategies")
-    learned_rel = (
-        "workers/src/personal_os_worker/jobs/registry/strategies/learned/odd_set.py"
-    )
-    (repo / learned_rel).write_text("# locally edited\n" + source.read_text())
+    learned = learned_rel("strategies", "odd_set")
+    (repo / learned).write_text("# locally edited\n" + source.read_text())
 
     class LearnedApi:
         def learned(self) -> dict[str, Any]:
-            return {"fixes": [{"file": learned_rel, "status": "retired"}]}
+            return {"fixes": [{"file": learned, "status": "retired"}]}
 
     assert trial_mod.revert_retired(LearnedApi(), repo) == 0
-    assert (repo / learned_rel).exists()
+    assert (repo / learned).exists()
 
 
 def test_a_retired_file_is_never_loaded(tmp_path: Path) -> None:

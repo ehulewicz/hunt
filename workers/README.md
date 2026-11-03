@@ -311,13 +311,21 @@ an unreadable question, a wall, a posting the navigator cannot find — is one
 problem, one failure-issue row, handed to a background thread (`queue.py`).
 Each attempt is one tool-less model call (`lane.py`) that answers with one new
 file declaring one thing for the failing site under
-`jobs/registry/<category>/learned/`, written only against `registry/api.py`.
-The worker checks it against `registry/policy.py`, then ruff, mypy, and the
-file's embedded examples (`fix/examples.py`) — plus replay for formats and
+`jobs/registry/<category>/learned/`, written only against `registry/api.py`
+and named for what it declares — a readable snake_case stem
+(`aria_slider.py`), site and goal for a route (`acme_com_form.py`). When a
+file of the same structure for other sites already exists, the fixer first
+tries just adding this site to its `sites=` — checked, then probed at the
+safe point like any candidate, no model call — and asks the model to revise
+it only when that fails; a revision keeps every earlier site and example.
+The worker checks the file against `registry/policy.py`, then ruff, mypy, and
+the file's embedded examples (`fix/examples.py`) — plus replay for formats and
 question readers — in one subprocess, tries it on the live page (`probe.py`),
 and keeps it only on a readback: `keep.py` commits exactly that file and its
-sanitized fixtures (`fix/sanitize.py`) on `main`, pushes, records it with the
-failure it fixed, and `load_file` puts it into the running run — no reload.
+sanitized fixtures (`fix/sanitize.py` — the page's HTML and controls, each
+file prefixed with its site, never the screenshot) on `main`, pushes, records
+it with the failure it fixed, and `load_file` puts it into the running run —
+no reload.
 A fix you revert on the Hunt page is recorded as retired: from then on the
 registry never loads its file, and a device that is online removes the file and
 its fixtures in one commit on `main` and pushes (`fix/trial.py revert_retired`,
@@ -624,8 +632,10 @@ per-site posting routes. `api.py` is the only module a learned file may import:
 it declares what a fix can say (one frozen declaration per file) and the two
 handles it sees a page through, both of which refuse to submit or sign in.
 
-**Learned files.** A category's `learned/` package holds one site's own
-declarations, one file each. `registry/policy.py` checks a file before it is
+**Learned files.** A category's `learned/` package holds one file per
+declaration, named for what it declares and shared across every site in its
+`sites=` — `acme_com_form.py` for a route, `aria_slider.py` for a kind — kept
+on trial until a later run proves it. `registry/policy.py` checks a file before it is
 ever imported — only `re` and the API import, no private names, no escape
 builtins, exactly one declaration naming its site — and `learned(category,
 site)` returns a site's passing declarations in filename order, refused ones
@@ -637,7 +647,8 @@ once every built-in candidate has failed, learned formats render only when the
 built-ins return None for a fact they name, and learned routes reach a posting
 or form after the navigator and its routes give up. Every learned file carries
 `examples` proving itself on HTML fixtures
-(`workers/tests/fixtures/learned/<category>/<module>/`), run in the protected
+(`workers/tests/fixtures/learned/<category>/<module>/`, each file prefixed
+with the site it was captured from), run in the protected
 `jobs/fix/examples.py` and kept honest by `tests/test_learned.py`; the
 reference declarations the fixer's prompt shows live in
 `fixtures/learned_examples/` and are run through the same policy.

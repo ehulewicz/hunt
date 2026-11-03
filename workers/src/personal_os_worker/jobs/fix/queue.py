@@ -23,7 +23,13 @@ from pathlib import Path
 from typing import Any
 
 from personal_os_worker.jobs.fix import lane
-from personal_os_worker.jobs.fix.keep import KeepError, Kept, keep
+from personal_os_worker.jobs.fix.keep import (
+    KeepError,
+    Kept,
+    fixture_rel,
+    keep,
+    learned_rel,
+)
 from personal_os_worker.jobs.fix.scratch import interpreter
 from personal_os_worker.jobs.model_errors import ModelError
 from personal_os_worker.jobs.options import normalize_answer_question
@@ -59,6 +65,9 @@ class Ready:
     learned_file: Path
     answer: lane.Answer
     attempt: int
+    stem: str
+    reuse: bool = False
+    revised: bool = False
     done: threading.Event = field(default_factory=threading.Event)
     probe: dict[str, Any] | None = None
     kept: Kept | None = None
@@ -101,6 +110,24 @@ def run_probe(ready: Ready, args: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+_ROOT = Path(__file__).resolve().parents[3]  # the workspace uv runs from
+
+
+def _gate(command: list[str], name: str) -> str | None:
+    """Run one gate command under the workspace; its failure text or None."""
+    try:
+        process = subprocess.run(
+            command, cwd=_ROOT, capture_output=True, text=True,
+            timeout=CHECK_TIMEOUT_SECONDS,
+            env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        return f"{name} could not run: {error}"
+    if process.returncode != 0:
+        return f"{name} failed:\n{(process.stdout + process.stderr)[-3000:]}"
+    return None
+
+
 def check_candidate(attempt_dir: Path, learned_file: Path, problem: lane.Problem) -> str | None:
     """Every gate a candidate passes in one subprocess order; the first failure."""
     category, site = problem.category, problem.site
@@ -109,8 +136,6 @@ def check_candidate(attempt_dir: Path, learned_file: Path, problem: lane.Problem
         return "the policy refused it: " + "; ".join(violations)
     if "proven=True" in learned_file.read_text():
         return "a new or revised file stays on trial: proven must be False"
-    root = Path(__file__).resolve().parents[3]
-    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
     for name, command in (
         ("ruff", ["uv", "run", "ruff", "check", str(learned_file)]),
         ("mypy", ["uv", "run", "mypy", str(learned_file)]),
@@ -120,33 +145,23 @@ def check_candidate(attempt_dir: Path, learned_file: Path, problem: lane.Problem
              str(learned_file), str(attempt_dir / "fixtures")],
         ),
     ):
-        try:
-            process = subprocess.run(
-                command, cwd=root, capture_output=True, text=True,
-                timeout=CHECK_TIMEOUT_SECONDS, env=env,
-            )
-        except (OSError, subprocess.SubprocessError) as error:
-            return f"{name} could not run: {error}"
-        if process.returncode != 0:
-            return f"{name} failed:\n{(process.stdout + process.stderr)[-3000:]}"
+        failed = _gate(command, name)
+        if failed is not None:
+            return failed
     if category in {"formats", "questions"}:
-        try:
-            replay = subprocess.run(
-                ["uv", "run", "python", "-m", "personal_os_worker.jobs.replay",
-                 "--json", "--learned", str(learned_file)],
-                cwd=root, capture_output=True, text=True,
-                timeout=CHECK_TIMEOUT_SECONDS, env=env,
-            )
-        except (OSError, subprocess.SubprocessError) as error:
-            return f"replay could not run: {error}"
-        if replay.returncode != 0:
-            return f"replay failed:\n{replay.stdout[-3000:]}"
+        return _gate(
+            ["uv", "run", "python", "-m", "personal_os_worker.jobs.replay",
+             "--json", "--learned", str(learned_file)],
+            "replay",
+        )
     return None
 
 
 def _sites_arg(source: str, site: str) -> str | None:
-    """The file with `site` added to its declaration's `sites=` tuple, or None
-    when that tuple could not be edited safely."""
+    """The file with `site` added to its declaration's `sites=` tuple — one
+    site per line with a trailing comma, indented under the keyword, so a
+    growing tuple stays inside the line limit — or None when that tuple could
+    not be edited safely."""
     import ast
 
     tree = ast.parse(source)
@@ -157,18 +172,29 @@ def _sites_arg(source: str, site: str) -> str | None:
             if keyword.arg != "sites" or not isinstance(keyword.value, ast.Tuple):
                 continue
             value = keyword.value
-            if site.casefold() in {
-                str(getattr(item, "value", "")).casefold() for item in value.elts
-            }:
-                return source  # already named
-            lines = source.splitlines(keepends=True)
-            end_row = getattr(value, "end_lineno", None)
-            end_col = getattr(value, "end_col_offset", None)
-            if end_row is None or end_col is None:
+            if not all(
+                isinstance(item, ast.Constant) and isinstance(item.value, str)
+                for item in value.elts
+            ):
                 return None
-            row, col = end_row - 1, end_col
-            line = lines[row]
-            lines[row] = line[:col - 1] + f'"{site}", ' + line[col - 1:]
+            names = [
+                str(item.value) for item in value.elts
+                if isinstance(item, ast.Constant)
+            ]
+            if site.casefold() in {name.casefold() for name in names}:
+                return source  # already named
+            if value.end_lineno is None or value.end_col_offset is None:
+                return None
+            indent = " " * (keyword.col_offset + 4)
+            closing = " " * keyword.col_offset
+            listing = "".join(f'{indent}"{name}",\n' for name in [*names, site])
+            lines = source.splitlines(keepends=True)
+            start_row, end_row = value.lineno - 1, value.end_lineno - 1
+            lines[start_row:end_row + 1] = [
+                lines[start_row][:value.col_offset]
+                + f"(\n{listing}{closing})"
+                + lines[end_row][value.end_col_offset:]
+            ]
             return "".join(lines)
     return None
 
@@ -207,16 +233,72 @@ def add_site(source: str, site: str) -> str | None:
     return _sites_arg(source, site)
 
 
-def _repo_rel(path: Path) -> str:
-    """The learned file's repo-relative path under registry/<cat>/learned."""
-    parent = path.parent.parent.name
-    return (
-        f"workers/src/personal_os_worker/jobs/registry/{parent}/learned/{path.name}"
-    )
+def structure_of(source: str) -> str:
+    """The `structure=` literal a source's declaration carries, or ""."""
+    import ast
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return ""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            for keyword in node.keywords:
+                if keyword.arg == "structure" and isinstance(
+                    keyword.value, ast.Constant
+                ):
+                    return str(keyword.value.value)
+    return ""
 
 
-def _fixture_rel(path: Path, category: str) -> str:
-    return f"workers/tests/fixtures/learned/{category}/{path.stem}"
+def _declared_sites_and_fixtures(source: str) -> tuple[set[str], set[str]]:
+    """One file's `sites=` strings (casefolded) and `Example(fixture=...)`
+    strings, for comparing a revision with the file it revises."""
+    import ast
+
+    sites: set[str] = set()
+    fixtures: set[str] = set()
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return sites, fixtures
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        for keyword in node.keywords:
+            if keyword.arg == "sites" and isinstance(keyword.value, ast.Tuple):
+                sites |= {
+                    str(item.value).casefold()
+                    for item in keyword.value.elts
+                    if isinstance(item, ast.Constant)
+                    and isinstance(item.value, str)
+                }
+            if (
+                keyword.arg == "fixture"
+                and isinstance(keyword.value, ast.Constant)
+                and isinstance(keyword.value.value, str)
+            ):
+                fixtures.add(keyword.value.value)
+    return sites, fixtures
+
+
+def _revision_dropped(old: str, new: str) -> str | None:
+    """What a revision lost: an earlier site or an earlier example's fixture."""
+    old_sites, old_fixtures = _declared_sites_and_fixtures(old)
+    new_sites, new_fixtures = _declared_sites_and_fixtures(new)
+    missing_sites = old_sites - new_sites
+    if missing_sites:
+        return (
+            "a revision keeps every earlier site in sites=; yours dropped "
+            + ", ".join(sorted(missing_sites))
+        )
+    missing_fixtures = old_fixtures - new_fixtures
+    if missing_fixtures:
+        return (
+            "a revision keeps every earlier example; yours dropped the fixture "
+            + ", ".join(sorted(missing_fixtures))
+        )
+    return None
 
 
 class FixQueue:
@@ -422,6 +504,7 @@ class FixQueue:
         attempts = self._attempts_of(problem)
         feedback: str | None = None
         same = [] if problem.category == "routes" else _same_structure(problem)
+        revising = same[-1] if same else None
         if same and self._reuse(problem, same):
             return
         for attempt in range(attempts + 1, MAX_ATTEMPTS + 1):
@@ -434,8 +517,8 @@ class FixQueue:
             try:
                 answer = lane.write(
                     problem, feedback, runner=self.runner,
-                    revising=same[-1].read_text() if same else None,
-                    name=lane.name_of(problem),
+                    revising=revising.read_text() if revising else None,
+                    name=revising.stem if revising else "",
                 )
             except (ModelError, OSError, subprocess.TimeoutExpired) as error:
                 with self._lock:
@@ -453,57 +536,88 @@ class FixQueue:
                 self._finish(problem, "unsolved", f"no code fix: {answer.summary}")
                 return
             self._announce(problem.key, "testing", attempt=attempt, note=answer.summary)
+            stem = revising.stem if revising else self._file_name(problem, answer)
             attempt_dir = self._attempt_dir(problem, attempt)
             learned_dir = attempt_dir / problem.category / "learned"
             learned_dir.mkdir(parents=True, exist_ok=True)
-            learned_file = learned_dir / f"{self._file_name(problem, answer)}.py"
+            learned_file = learned_dir / f"{stem}.py"
             learned_file.write_text(answer.file)
-            (attempt_dir / "fixtures").mkdir(exist_ok=True)
-            self._write_fixtures(problem, attempt_dir / "fixtures")
+            fixtures_dir = attempt_dir / "fixtures"
+            if revising is not None:
+                self._committed_fixtures(problem.category, stem, fixtures_dir)
+            self._write_fixtures(problem, fixtures_dir)
+            if problem.category in {"kinds", "strategies", "questions"}:
+                declared = structure_of(answer.file)
+                if declared != problem.structure:
+                    feedback = (
+                        f"structure= must be exactly {problem.structure!r};"
+                        f" yours was {declared!r}"
+                    )
+                    continue
+            if revising is not None:
+                dropped = _revision_dropped(revising.read_text(), answer.file)
+                if dropped is not None:
+                    feedback = dropped
+                    continue
             feedback = self.checker(attempt_dir, learned_file, problem)
             if feedback is not None:
                 continue
-            ready = Ready(problem, attempt_dir, learned_file, answer, attempt)
-            with self._lock:
-                closed = self._closed
-                if not closed:
-                    self._ready = ready
-            if closed:
-                self._finish(problem, "unsolved", "the run closed during verification")
+            ready = Ready(
+                problem, attempt_dir, learned_file, answer, attempt,
+                stem=stem, revised=revising is not None,
+            )
+            verdict = self._hand_over(ready)
+            if verdict is None:
                 return
-            self._announce(problem.key, "waiting", attempt=attempt,
-                           note="tested; tried on the page at the next pause")
-            ready.done.wait()
-            if ready.kept is not None:
-                with self._lock:
-                    self._consecutive_unsolved = 0
+            if verdict == "closed":
+                self._finish(problem, "unsolved",
+                             "the run closed during verification")
                 return
-            with self._lock:
-                if self._closed:
-                    self._finish(problem, "unsolved", "the run closed before the fix was kept")
-                    return
             feedback = (
-                "It passed the checks but failed on the live page: "
-                + str((ready.probe or {}).get("note") or "no readback")
+                "It passed the checks but failed on the live page: " + verdict
             )
         self._finish(problem, "unsolved",
                      f"{MAX_ATTEMPTS} attempts failed; last: {(feedback or '')[:300]}")
 
+    def _hand_over(self, ready: Ready) -> str | None:
+        """Park a checked candidate for the run's next safe point and wait for
+        the verdict; None once it is kept, "closed" when the run ended, else
+        the probe's note."""
+        with self._lock:
+            closed = self._closed
+            if not closed:
+                self._ready = ready
+        if closed:
+            return "closed"
+        self._announce(ready.problem.key, "waiting", attempt=ready.attempt,
+                       note="tested; tried on the page at the next pause")
+        ready.done.wait()
+        if ready.kept is not None:
+            with self._lock:
+                self._consecutive_unsolved = 0
+            return None
+        with self._lock:
+            if self._closed:
+                return "closed"
+        return str((ready.probe or {}).get("note") or "no readback")
+
     def _file_name(self, problem: lane.Problem, answer: lane.Answer) -> str:
-        """The file's name: a route is its site; a name taken by a different
-        structure gets a numeric suffix."""
+        """The file's name: site and goal for a route, the answer's readable
+        name otherwise; a stem already taken gets a numeric suffix, so a new
+        file never overwrites another. Only a revision writes over its own
+        stem, and routes keep their site and goal."""
         base = lane.name_of(problem, answer)
         if problem.category == "routes":
             return base
-        taken: dict[str, str] = {}
         try:
-            for path in self._learned_dir(problem.category).glob("*.py"):
-                structure = self._structure_of(path)
-                taken[path.stem] = structure
+            taken = {
+                path.stem
+                for path in self._learned_dir(problem.category).glob("*.py")
+            }
         except Exception:
             return base
         name, index = base, 2
-        while name in taken and taken[name] != problem.structure:
+        while name in taken:
             name, index = f"{base}_{index}", index + 1
         return name
 
@@ -512,32 +626,32 @@ class FixQueue:
 
         return Path(registry._learned_package(category).__path__[0])
 
-    def _structure_of(self, path: Path) -> str:
-        import ast
-
-        try:
-            for node in ast.walk(ast.parse(path.read_text())):
-                if isinstance(node, ast.Call):
-                    for kw in node.keywords:
-                        if kw.arg == "structure" and isinstance(
-                            kw.value, ast.Constant
-                        ):
-                            return str(kw.value.value)
-        except Exception:
-            return ""
-        return ""
-
     def _write_fixtures(self, problem: lane.Problem, fixtures: Path) -> None:
+        """This problem's page files, site-named, .html/.json only: a
+        screenshot is a picture of the filled form, never a fixture."""
         from personal_os_worker.jobs.fix.sanitize import sanitize_evidence
 
+        fixtures.mkdir(parents=True, exist_ok=True)
         files = problem.page_files
         with suppress(Exception):
             # A finding may arrive with raw evidence; every fact text still
             # leaves before it becomes a committed fixture.
             files = sanitize_evidence(files, self._facts())
         for name, content in sorted(files.items()):
-            if name.endswith((".html", ".json", ".png")):
-                (fixtures / Path(name).name).write_bytes(content)
+            if name.endswith((".html", ".json")):
+                target = fixtures / lane.fixture_name(problem.site, name)
+                target.write_bytes(content)
+
+    def _committed_fixtures(self, category: str, stem: str, fixtures: Path) -> None:
+        """Every fixture the file being revised or reused already has, copied
+        into the attempt so its earlier examples still find theirs."""
+        committed = self.repo / fixture_rel(category, stem)
+        if not committed.is_dir():
+            return
+        fixtures.mkdir(parents=True, exist_ok=True)
+        for file in committed.iterdir():
+            if file.is_file():
+                (fixtures / file.name).write_bytes(file.read_bytes())
 
     def _facts(self) -> dict[str, Any]:
         try:
@@ -547,45 +661,61 @@ class FixQueue:
             return {}
 
     def _reuse(self, problem: lane.Problem, same: list[Path]) -> bool:
-        """Probe each same-structure file missing this site; the first that
-        reads back just gains the site — no model call. True when kept."""
+        """Each same-structure file missing this site gets the site added in a
+        reuse attempt of its own, checked (policy, ruff — the proven flag and
+        examples are already earned) and handed over like a model candidate:
+        probed at the next safe point, kept on a readback, never edited in the
+        live checkout. True once one is kept."""
         for path in same:
-            self._announce(problem.key, "probing", note=f"reuse {path.stem}")
-            probe = self.prober(
-                Ready(problem, path.parent, path,
-                      lane.Answer("file", "", "reused", "", path.stem), 0),
-                {},
+            stem = path.stem
+            attempt_dir = (
+                self.workdir / self.run_id / problem.slug / f"reuse-{stem}"
             )
-            if not probe.get("ok"):
+            try:
+                edited = _sites_arg(path.read_text(), problem.site)
+            except OSError:
                 continue
-            source = path.read_text()
-            edited = _sites_arg(source, problem.site)
             if edited is None:
                 continue
-            path.write_text(edited)
-            try:
-                kept = self.keeper(
-                    self.repo,
-                    f"Reuse {path.stem} for {problem.site}\n\n"
-                    f"{problem.question!r} reads back with the same declaration.",
-                    path.parent, _repo_rel(path),
-                    _fixture_rel(path, problem.category),
-                )
-            except KeepError as error:
-                self._report(f"reuse of {path.stem} could not be kept: {error}")
+            learned_dir = attempt_dir / problem.category / "learned"
+            learned_dir.mkdir(parents=True, exist_ok=True)
+            learned_file = learned_dir / f"{stem}.py"
+            learned_file.write_text(edited)
+            fixtures_dir = attempt_dir / "fixtures"
+            self._committed_fixtures(problem.category, stem, fixtures_dir)
+            self._write_fixtures(problem, fixtures_dir)
+            self._announce(problem.key, "testing", note=f"reuse {stem}")
+            refused = self._reuse_check(learned_file, problem)
+            if refused is not None:
+                self._report(f"reuse of {stem} failed its checks: {refused}")
                 continue
-            self._announce(problem.key, "kept",
-                           note=f"{kept.commit[:7]} reused {path.stem}")
-            with self._lock:
-                self._kept += 1
-                self._consecutive_unsolved = 0
-            if self.loader is not None:
-                with suppress(Exception):
-                    self.loader(path, problem.category)
-            self._issue(problem, {"status": "fixed", "fixed_commit": kept.commit,
-                                  "verification_notes": f"reused {path.stem}"})
-            return True
+            answer = lane.Answer(
+                "file", edited, f"reused {stem}", "", stem
+            )
+            ready = Ready(
+                problem, attempt_dir, learned_file, answer, 0,
+                stem=stem, reuse=True,
+            )
+            verdict = self._hand_over(ready)
+            if verdict is None:
+                return True
+            if verdict == "closed":
+                return False
+            self._report(f"reuse of {stem} failed on the page: {verdict}")
         return False
+
+    def _reuse_check(self, learned_file: Path, problem: lane.Problem) -> str | None:
+        """A reuse's whole gate: the policy for this site, then ruff. Only a
+        string literal changed, so no mypy or examples — and the file keeps
+        whatever proven flag it earned."""
+        violations = policy.check_file(
+            learned_file, category=problem.category, site=problem.site
+        )
+        if violations:
+            return "the policy refused it: " + "; ".join(violations)
+        return _gate(
+            ["uv", "run", "ruff", "check", str(learned_file)], "ruff"
+        )
 
 
     # ----- attempts, brake, keeping, recording ---------------------------------
@@ -609,20 +739,27 @@ class FixQueue:
 
     def _keep(self, ready: Ready) -> Kept | None:
         problem = ready.problem
+        learned = learned_rel(problem.category, ready.stem)
+        fixtures = fixture_rel(problem.category, ready.stem)
+        if ready.reuse:
+            subject = f"Reuse {ready.stem} for {problem.site}"
+            summary = f"{problem.question!r} reads back with the same declaration."
+        elif ready.revised:
+            subject = f"Revise {ready.stem} for {problem.site}"
+            summary = ready.answer.summary
+        else:
+            subject = (
+                f"Fix {problem.cause.replace('_', ' ')} for {problem.question!r}"
+            )
+            summary = ready.answer.summary
         message = (
-            f"Fix {problem.cause.replace('_', ' ')} for {problem.question!r}\n\n"
-            f"{ready.answer.summary}\n\n"
+            f"{subject}\n\n{summary}\n\n"
             f"Written and kept during run {problem.run_id or self.run_id}: checks and "
             f"the live control passed ({(ready.probe or {}).get('note')})."
         )
-        fixture_rel = f"workers/tests/fixtures/learned/{problem.category}/{lane.name_of(problem)}"
-        learned_rel = (
-            f"workers/src/personal_os_worker/jobs/registry/{problem.category}/"
-            f"learned/{lane.name_of(problem)}.py"
-        )
         try:
             kept = self.keeper(
-                self.repo, message, ready.attempt_dir, learned_rel, fixture_rel,
+                self.repo, message, ready.attempt_dir, learned, fixtures,
             )
         except KeepError as error:
             ready.probe = {"ok": False, "note": f"it could not be kept: {error}"}
@@ -630,16 +767,23 @@ class FixQueue:
         ready.kept = kept
         with self._lock:
             self._kept += 1
+        detail: dict[str, Any] = {
+            "cause": problem.cause, "question": problem.question,
+            "summary": ready.answer.summary, "attempts": ready.attempt,
+            "files": [learned], "probe": ready.probe,
+            "pushed": kept.pushed,
+        }
+        if ready.reuse:
+            detail["reused"] = True
+        if ready.revised:
+            detail["revised"] = True
         try:
             self.api.record_code_change(
                 kept.commit, origin="worker", parent=kept.parent,
                 failure={"run_id": problem.run_id or self.run_id,
                          "question_key": normalize_answer_question(problem.question) or None,
                          "issue_id": problem.issue_id},
-                detail={"cause": problem.cause, "question": problem.question,
-                        "summary": ready.answer.summary, "attempts": ready.attempt,
-                        "files": [learned_rel], "probe": ready.probe,
-                        "pushed": kept.pushed},
+                detail=detail,
             )
         except Exception as error:
             self._report(f"kept {kept.commit[:7]}, but recording it failed: {error}")
@@ -654,7 +798,7 @@ class FixQueue:
         # The kept file joins the running run: it is offered after the built-ins.
         if self.loader is not None:
             with suppress(Exception):
-                self.loader(ready.learned_file, problem.category)
+                self.loader(self.repo / learned, problem.category)
         return kept
 
     def _finish(self, problem: lane.Problem, state: str, note: str) -> None:

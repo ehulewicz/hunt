@@ -153,7 +153,25 @@ def prompt(
     goal = GOALS.get(problem.cause, "make the worker handle this failure")
     evidence = {k: v for k, v in problem.evidence.items() if k != "html"}
     markup = str(problem.evidence.get("html") or "")[:4000]
-    fixtures = ", ".join(sorted(problem.page_files)) or "(none were captured)"
+    fixtures = ", ".join(
+        fixture_name(problem.site, one)
+        for one in sorted(problem.page_files)
+        if one.endswith((".html", ".json"))
+    ) or "(none were captured)"
+    if revising is not None:
+        naming = f"- Its name stays {name!r}: answer that name."
+    elif problem.category == "routes":
+        naming = "- The worker names the file itself; still answer a valid `name`."
+    else:
+        naming = (
+            "- Answer `name` with a short readable snake_case name for what it"
+            " declares (matching [a-z][a-z0-9_]{2,40}, e.g. aria_slider,"
+            " salary_band); the file is saved under it."
+        )
+    structure = (
+        f"- `structure=` must be exactly {problem.structure!r}.\n"
+        if problem.category in {"kinds", "strategies", "questions"} else ""
+    )
     text = f"""
 You write ONE new file for the Personal OS job-application worker's registry,
 so that one failure from a live run stops happening. The run is waiting.
@@ -169,8 +187,9 @@ the live page, saved as fixture files (sanitized): {fixtures}
 
 RULES
 - The file declares exactly ONE declaration for the site {problem.site!r}
-  (sites= names it; category {problem.category!r}); its name is {name!r}.
-- It imports only `import re`, `from __future__ import annotations`, and
+  (sites= names it; category {problem.category!r}).
+{naming}
+{structure}- It imports only `import re`, `from __future__ import annotations`, and
   `from personal_os_worker.jobs.registry.api import ...`. At most {_MAX_LINES} lines.
 - A value never comes from you. The worker fills every field from a fact;
   your file only says how the site is read, operated, or reached.
@@ -238,11 +257,23 @@ def answer_of(output: str) -> Answer | None:
 Runner = Callable[..., str]
 
 
+def site_slug(site: str) -> str:
+    """A site's filesystem-safe slug, shared by route names and fixture names."""
+    return re.sub(r"[^a-z0-9]+", "_", site.casefold()).strip("_")
+
+
+def fixture_name(site: str, name: str) -> str:
+    """One page file's fixture name, prefixed with its site so two sites' files
+    never collide in a shared fixture folder."""
+    return f"{site_slug(site)}-{Path(name).name}"
+
+
 def name_of(problem: Problem, answer: Answer | None = None) -> str:
-    """The learned file's module name: the answer's readable name, the site for
-    a route; a name taken by a different structure gets a numeric suffix."""
+    """The learned file's module name: the answer's readable name, site and
+    goal for a route; a name taken by a different structure gets a numeric
+    suffix."""
     if problem.category == "routes":
-        return re.sub(r"[^a-z0-9]+", "_", problem.site.casefold()).strip("_")
+        return f"{site_slug(problem.site)}_{problem.goal}"
     name = (answer.name if answer else "") or problem.slug
     return name
 

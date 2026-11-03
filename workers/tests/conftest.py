@@ -55,3 +55,56 @@ def no_real_claude(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     model.end_run()
     if REACHED_CLAUDE:
         pytest.fail("a test reached the real claude CLI: stub its runner")
+
+
+# ----- a git checkout and a fake API, shared by the fixer's tests ---------------
+
+def git(repo: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True,
+                          text=True).stdout
+
+
+@pytest.fixture
+def repo(tmp_path: Path) -> Path:
+    """A checkout of `main` with a remote, as the device's checkout is."""
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+    work = tmp_path / "work"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(work)], check=True)
+    git(work, "config", "user.name", "test")
+    git(work, "config", "user.email", "test@example.com")
+    (work / "README").write_text("x")
+    (work / ".gitignore").write_text("__pycache__/\n")
+    git(work, "add", "-A")
+    git(work, "commit", "-q", "-m", "start")
+    git(work, "remote", "add", "origin", str(remote))
+    git(work, "push", "-q", "origin", "main")
+    return work
+
+
+class Api:
+    """The worker API the fixer needs: issue rows, facts, and code-change
+    recording, all in memory."""
+
+    def __init__(self, issues: dict[str, dict[str, Any]] | None = None) -> None:
+        self.issues = issues or {}
+        self.next_id = 0
+        self.updates: list[dict[str, Any]] = []
+        self.code_changes: list[dict[str, Any]] = []
+
+    def autofill_failure(self, issue_id: str) -> dict[str, Any]:
+        return self.issues.get(issue_id) or {}
+
+    def update_autofill_failure(self, issue_id: str, changes: dict[str, Any]) -> None:
+        self.updates.append({"id": issue_id, **changes})
+        self.issues.setdefault(issue_id, {}).update(changes)
+
+    def facts(self) -> list[dict[str, Any]]:
+        return []
+
+    def record_code_change(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        self.code_changes.append({"args": args, **kwargs})
+        return {}
+
+    def close(self) -> None:
+        pass
