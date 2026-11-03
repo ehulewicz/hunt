@@ -745,6 +745,41 @@ def test_a_follow_up_reads_an_answer_already_on_the_page() -> None:
     assert [(fill.index, fill.value) for fill in plan.fills] == [(2, "N/A")]
 
 
+def test_a_typed_signature_is_signed_with_the_legal_name() -> None:
+    fields = [
+        {"index": 0, "tag": "input", "type": "text", "label": "Electronic signature",
+         "required": True},
+    ]
+    legal = standing({"identity.legal_name": "Alex Example"})
+    plan = build_autofill_plan(fields, resolver=legal)
+    assert [(fill.index, fill.value) for fill in plan.fills] == [(0, "Alex Example")]
+    resolution = plan.fills[0].resolution
+    assert resolution is not None
+    assert (resolution.resolver_id, resolution.fact_key) == (
+        "engine:signature", "identity.legal_name"
+    )
+    assert plan.unanswered_required_questions == ()
+
+
+def test_a_signature_follow_up_is_signed_and_never_not_applicable() -> None:
+    question = "Do you have any relatives working at Acme?"
+    follow_up = "If yes, type your electronic signature."
+    fields = [
+        {"index": 0, "tag": "input", "type": "radio", "name": "r", "label": "Yes",
+         "group": question, "required": True, "filled": False},
+        {"index": 1, "tag": "input", "type": "radio", "name": "r", "label": "No",
+         "group": question, "required": True, "filled": True},
+        {"index": 2, "tag": "input", "type": "text", "label": follow_up, "required": True},
+    ]
+    legal = standing({"identity.legal_name": "Alex Example"})
+    signed = build_autofill_plan(fields, resolver=legal)
+    assert [(fill.index, fill.value) for fill in signed.fills] == [(2, "Alex Example")]
+    # Without the fact it stays an explicit gap for you.
+    unsigned = build_autofill_plan(fields, resolver=standing())
+    assert unsigned.fills == ()
+    assert unsigned.unanswered_required_questions == (follow_up,)
+
+
 def test_a_follow_up_is_judged_by_the_question_just_above_it() -> None:
     """A yes further up says nothing about a follow-up to the question in between."""
     authorized = "Are you authorized to work in the US?"

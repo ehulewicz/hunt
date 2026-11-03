@@ -19,6 +19,7 @@ from personal_os_worker.jobs.autofill_fields import (
     is_narrative_box,
     is_resume_field,
     is_sensitive_field,
+    is_signature_field,
     is_transcript_field,
     offered_options,
 )
@@ -37,6 +38,7 @@ __all__ = [
     "MULTI",
     "NARRATIVE_QUESTION",
     "NOT_APPLICABLE",
+    "SIGNATURE_FACT",
     "AnswerResolution",
     "AutofillPlan",
     "FormFill",
@@ -53,8 +55,10 @@ __all__ = [
     "is_narrative_box",
     "is_resume_field",
     "is_sensitive_field",
+    "is_signature_field",
     "normalize_question",
     "offered_options",
+    "signature_resolution",
 ]
 
 FILE_KINDS = frozenset({"resume", "transcript"})
@@ -108,6 +112,8 @@ class AutofillPlan:
 
 # What the engine writes into a follow-up the answer above rules out.
 NOT_APPLICABLE = AnswerResolution("N/A", "pattern", "engine:not_applicable")
+# The fact the engine signs a typed signature with.
+SIGNATURE_FACT = "identity.legal_name"
 
 
 def build_autofill_plan(
@@ -242,7 +248,8 @@ def _plan_field(
     condition = follow_up_condition(question_label)
     if (
         value is None and chooser is None and kind != BLANK_KIND and condition is not None
-        and is_follow_up_box(field) and len(above) == 1 and condition not in above
+        and is_follow_up_box(field) and not is_signature_field(field)
+        and len(above) == 1 and condition not in above
     ):
         # "If you answered No to the above, ..." after a Yes: it does not apply,
         # required or not.
@@ -280,9 +287,16 @@ def _plan_value(
     resolution: AnswerResolution | None = None
     kind = "text"
     # Consent is answered like any question, by the pattern that names
-    # `consent.agrees`; a signature or a password is yours.
-    if sensitive and (field_type == "file" or not is_consent_field(field)):
-        reasons[index] = "sensitive (a signature, a password): left for you"
+    # `consent.agrees`; a typed signature is signed with your legal name.
+    if is_signature_field(field):
+        resolution = signature_resolution(field, question_label, resolver)
+        value = resolution.value if resolution is not None else None
+        reasons[index] = (
+            f"engine: signed with {SIGNATURE_FACT}" if resolution is not None
+            else f"a signature, and no {SIGNATURE_FACT} to sign with: left for you"
+        )
+    elif sensitive and (field_type == "file" or not is_consent_field(field)):
+        reasons[index] = "sensitive (a signature to check, a consent upload): left for you"
     elif field_type == "file" and index in resume_candidates and len(resume_candidates) == 1:
         kind = "resume"
         reasons[index] = "engine: the one resume upload"
@@ -301,6 +315,22 @@ def _plan_value(
             group_options, blank_groups, reasons,
         )
     return kind, value, chooser, resolution
+
+
+def signature_resolution(
+    field: dict[str, Any], question: str, resolver: Resolves | None
+) -> AnswerResolution | None:
+    """Your legal name rendered for a typed signature box, or None without the fact."""
+    render_fact = getattr(resolver, "render_fact", None)
+    rendering = render_fact(SIGNATURE_FACT, field, question) if render_fact else None
+    if rendering is None or rendering.formatter == BLANK or rendering.formatter.startswith(
+        "none_as"
+    ):
+        return None
+    return AnswerResolution(
+        rendering.value, "pattern", "engine:signature",
+        fact_key=SIGNATURE_FACT, formatter=rendering.formatter,
+    )
 
 
 def _resolve_value(

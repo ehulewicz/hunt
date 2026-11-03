@@ -461,11 +461,13 @@ formatter knows: `consent.agrees` takes the one option that agrees, and
 Other (a referral first under `--referred`; a free-text box gets the fact's
 value, or "Employee referral" when referred). A typeahead nobody has opened is
 chosen against its live menu by the same rule. A consent box is never put to a
-model; a signature or password is yours. The engine answers two kinds of field
-itself (R68): the resume and transcript upload, and a typed follow-up — "If
-yes…", "If you answered No…", "If so…", required or optional — gets "N/A" when
-the question just above it holds or is planned to hold the other answer. No
-value that declines to answer is ever chosen.
+model, and a password is never captured. The engine answers three kinds of
+field itself (R68): the resume and transcript upload; a typed signature, signed
+with `identity.legal_name` through its formatter (without that fact it is a gap
+for you, never N/A); and a typed follow-up — "If yes…", "If you answered No…",
+"If so…", required or optional — gets "N/A" when the question just above it
+holds or is planned to hold the other answer. No value that declines to answer
+is ever chosen.
 
 **Posting facts.** Some facts belong to the posting, not to you, and are derived
 per run in `jobs/facts/posting.py`: its title, whether you worked at or applied
@@ -606,9 +608,9 @@ confidently filled and wrong. A wrong answer a pattern filled has its question
 bound to the fact the model named and is refilled through the pattern path,
 but only when that answer came from a pattern a model taught (never one you
 made) and the fact renders differently; one the engine chose, and one you
-typed, is reported and left alone. The audit never classifies a signature or a
-password from a pattern, and its pattern pass replays only pattern answers,
-never an upload or a consent click. Before and after each repair the audit squares every
+typed, is reported and left alone. The audit signs a typed signature the way
+the planner does and never from a pattern, and its pattern pass replays only
+answers from a fact, never an upload or a consent click. Before and after each repair the audit squares every
 follow-up with the answer just above it as the page holds it: an N/A the worker
 wrote is taken back once that answer no longer rules the follow-up out (it says
 otherwise, or its fill never landed), and an empty follow-up it rules out gets

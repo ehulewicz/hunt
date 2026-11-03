@@ -10,8 +10,8 @@ from personal_os_worker.jobs.registry.formats.choices import polarity
 
 # Consent, terms, and attestation controls are recognised here so they are never
 # drafted or put to a model; the pattern naming `consent.agrees` answers them
-# (R68), and only a signature is left to the user. Demographic questions are
-# ordinary saved answers for a single user and are not blocked.
+# (R68), and a typed signature is signed with your legal name. Demographic
+# questions are ordinary saved answers for a single user and are not blocked.
 CONSENT_WORDS = frozenset(
     {
         "agree",
@@ -97,6 +97,11 @@ def is_consent_field(field: dict[str, Any]) -> bool:
     """A consent or attestation control the worker answers affirmatively; not a signature."""
     context = _field_context(field)
     return _mentions(context, CONSENT_WORDS) and not _mentions(context, SIGNATURE_WORDS)
+
+
+def is_signature_field(field: dict[str, Any]) -> bool:
+    """A signature you type: a box that asks for a signature, signed with your legal name."""
+    return _mentions(_field_context(field), SIGNATURE_WORDS) and is_follow_up_box(field)
 
 
 # Greenhouse renders an essay prompt as the same single-line text input it uses

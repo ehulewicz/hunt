@@ -27,7 +27,9 @@ from personal_os_worker.jobs.autofill import (
     is_follow_up_box,
     is_long_form_field,
     is_sensitive_field,
+    is_signature_field,
     offered_options,
+    signature_resolution,
 )
 from personal_os_worker.jobs.browser import (
     audit_filled_form,
@@ -290,17 +292,23 @@ class AuditMixin(SessionBase):
         current: list[dict[str, Any]],
         open_questions: dict[str, list[str]],
     ) -> tuple[dict[str, AnswerResolution], dict[str, Miss]]:
-        """What a pattern answers among the open questions, and every miss on record."""
+        """What a pattern or the engine answers among the open questions, and every miss."""
         resolver = Resolver(self.ctx.knowledge)
         resolved: dict[str, AnswerResolution] = {}
         for question in open_questions["required_unfilled"] + open_questions["optional_unfilled"]:
             field = find_field(current, question)
-            # A signature or a password is yours: no lane may type into it.
-            if field is None or question in self.state.blanks or is_sensitive_field(field):
+            if field is None or question in self.state.blanks:
                 continue
-            resolution = resolver.resolve(
-                dict(field) | {"label": question, "options": self.options_for(current, field)}
-            )
+            # A typed signature is signed with your legal name, as the planner signs it;
+            # no other consent or attestation control is resolved here.
+            if is_signature_field(field):
+                resolution = signature_resolution(field, question, resolver)
+            elif is_sensitive_field(field):
+                continue
+            else:
+                resolution = resolver.resolve(
+                    dict(field) | {"label": question, "options": self.options_for(current, field)}
+                )
             if resolution is not None and resolution.formatter != BLANK:
                 resolved[normalize_answer_question(question)] = resolution
         misses = {**self.state.misses, **resolver.misses}
@@ -369,7 +377,7 @@ class AuditMixin(SessionBase):
         for item in current:
             question = _question_for(item)
             condition = follow_up_condition(question)
-            if condition is None or not is_follow_up_box(item) or is_sensitive_field(item):
+            if condition is None or not is_follow_up_box(item) or is_signature_field(item):
                 continue
             above = answer_above(current, item)
             ruled_out = above is not None and above != condition

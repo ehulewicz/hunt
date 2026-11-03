@@ -2443,25 +2443,19 @@ def test_a_fact_that_fits_none_of_the_options_is_never_learned(
     assert browser_page.input_value("#t") == ""
 
 
-def test_the_audit_leaves_a_signature_a_pattern_matches_to_you(
+def test_the_audit_signs_a_typed_signature_with_the_legal_name(
     browser_page,  # type: ignore[no-untyped-def]
 ) -> None:
     browser_page.set_content(
         '<label for="s">Electronic signature: your full legal name</label>'
         '<input id="s" required>'
     )
-    session = audit_session(
-        browser_page, facts={"identity.legal_name": "Alex Example"},
-        patterns=[{"id": "e1", "kind": "expression", "status": "active", "origin": "inbox",
-                   "expression": r"\bfull legal name\b", "fact_key": "identity.legal_name",
-                   "resolver_id": "expression:e1"}],
-    )
+    session = audit_session(browser_page, facts={"identity.legal_name": "Alex Example"})
     fields = inspect_fields(browser_page)
     session.audit_and_repair(fields, {"failures": []})
 
-    assert browser_page.input_value("#s") == ""
-    finding = session.audit(fields, [])[0]
-    assert finding.cause != "control_error"
+    assert browser_page.input_value("#s") == "Alex Example"
+    assert session.audit(fields, []) == []
 
 
 def test_the_audit_never_uploads_a_document_twice(
