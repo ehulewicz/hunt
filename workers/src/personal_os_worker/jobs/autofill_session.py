@@ -104,7 +104,7 @@ from personal_os_worker.jobs.cover_letter import (
 from personal_os_worker.jobs.drafts import similar_answers
 from personal_os_worker.jobs.explain import Explainer
 from personal_os_worker.jobs.fix.lane import Problem
-from personal_os_worker.jobs.fix.queue import FixQueue
+from personal_os_worker.jobs.fix.queue import FixQueue, State
 from personal_os_worker.jobs.gateway import (
     click_gateway,
     form_appeared,
@@ -2646,6 +2646,8 @@ class AutofillSession:
         site = registrable_site(self.page.url)
         if cause in {"wall", "posting_not_found"}:
             return f"{cause}|{site}"
+        if cause == "unknown_control":
+            return f"{cause}|{site}|{normalize_answer_question(question)}"
         structure = self._structure_for(cause, question)
         key = f"{cause}|{site}|{structure}"
         if cause == "format_error" and question:
@@ -2654,6 +2656,8 @@ class AutofillSession:
 
     def _structure_for(self, cause: str, question: str) -> str:
         """The widget's structural identity: identical widgets share a problem."""
+        if cause == "unknown_control":
+            return normalize_answer_question(question)
         from personal_os_worker.jobs.browser import fresh_control  # noqa: F401
         from personal_os_worker.jobs.registry.kinds import control_key
         from personal_os_worker.jobs.repair.repairer import find_field
@@ -2682,6 +2686,8 @@ class AutofillSession:
         for finding in findings:
             if finding.cause not in CODE_CAUSES:
                 continue
+            if (finding.evidence or {}).get("unlabelled"):
+                continue  # no learned file can give a widget a question
             key = self.problem_key(finding.cause, finding.question)
             if key in self.state.fix_keys:
                 continue
@@ -2735,10 +2741,14 @@ class AutofillSession:
             self.state.issue_ids[key] = str(issue_id)
         return str(issue.get("status") or "open")
 
-    def problem_persists(self, problem: Problem) -> bool:
-        """Whether this problem's cause still fails on the page as it is now —
-        re-running that cause's detection before another attempt is spent."""
-        from personal_os_worker.jobs.browser import looks_like_application_form
+    def problem_state(self, problem: Problem) -> State:
+        """This problem's cause re-checked on the page as it is now, on the run
+        thread: still failing ("persists"), a kept fix answers it ("answered"),
+        or it is no longer on the page ("gone")."""
+        from personal_os_worker.jobs.browser import (
+            inspect_unknown_controls,
+            looks_like_application_form,
+        )
         from personal_os_worker.jobs.navigate import is_posting
         from personal_os_worker.jobs.registry.kinds import learned_question
         from personal_os_worker.jobs.repair.repairer import find_field, repair_strategy
@@ -2747,15 +2757,36 @@ class AutofillSession:
         try:
             fields = inspect_fields(self.page)
         except Error:
-            return True
+            return "persists"
         if problem.target.get("kind") == "route":
             if problem.target.get("goal") == "form":
-                return not looks_like_application_form(fields)
-            return not is_posting(self.page, self.ctx.title)
+                return "gone" if looks_like_application_form(fields) else "persists"
+            return "gone" if is_posting(self.page, self.ctx.title) else "persists"
         field = find_field(fields, problem.question)
         if problem.cause == "unknown_control":
-            return field is None
+            if field is not None:
+                return "answered"
+            captured = {
+                normalize_answer_question(_question_for(item)) for item in fields
+            }
+            try:
+                for finding in classify_unknown(
+                    inspect_unknown_controls(self.page), captured
+                ):
+                    if normalize_answer_question(finding.question) == (
+                        normalize_answer_question(problem.question)
+                    ):
+                        return (
+                            "gone"
+                            if (finding.evidence or {}).get("unlabelled")
+                            else "persists"
+                        )
+            except Error:
+                return "persists"
+            return "gone"
         if problem.cause == "detection_error":
+            if field is not None:
+                return "persists"
             radios = self.page.locator('input[type="radio"]')
             for index in range(radios.count()):
                 with contextlib.suppress(Error):
@@ -2763,24 +2794,25 @@ class AutofillSession:
                         radios.nth(index), registrable_site(self.page.url)
                     )
                     if text:
-                        return False
-            return True
+                        return "answered"
+            return "gone"
         if field is None:
-            return True
+            return "gone"
         try:
             resolution = Resolver(self.ctx.knowledge).resolve(
                 dict(field) | {"label": problem.question,
                                "options": field.get("options") or []}
             )
         except Exception:
-            return True
+            return "persists"
         if resolution is None or resolution.value is None:
-            return True
+            return "persists"
         if problem.cause == "control_error":
             with contextlib.suppress(Exception):
-                return repair_strategy(self.page, field, str(resolution.value)) is None
-            return True
-        return False
+                if repair_strategy(self.page, field, str(resolution.value)) is not None:
+                    return "answered"
+            return "persists"
+        return "answered"
 
     def problem_for(self, finding: Finding, key: str) -> Problem | None:
         try:
@@ -2826,7 +2858,7 @@ class AutofillSession:
         """Between polls and after an audit: the queue tries a waiting fix here."""
         if self.ctx.fixes is None:
             return
-        self.ctx.fixes.at_safe_point(self.probe_args)
+        self.ctx.fixes.at_safe_point(self.probe_args, self.problem_state)
 
     def report_review(self) -> None:
         """List the long-form answers that came from a draft, once per step."""

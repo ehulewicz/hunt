@@ -270,20 +270,15 @@ def test_a_same_structure_file_gains_the_site_without_a_model_call(
 # ----- a revision keeps its stem, its earlier sites, its earlier examples -------
 
 
-def test_a_revision_keeps_every_earlier_site_and_example(
+def test_a_new_kind_when_no_reuse_reads_back(
     repo: Path, learned_kinds: Path, tmp_path: Path, chromium: None
 ) -> None:
+    """Kinds are never revised: reuse fails, one model call, a new file kept."""
     _seed_kind(repo, learned_kinds)
     api = Api({"i1": {"status": "open"}})
     frame = lane.fixture_name(SITE, "frame-0.html")
     answers = iter([
-        _kind_answer(  # drops other.example and its example: refused as feedback
-            name="odd_widget", sites=(SITE,), seen=((frame, "Yes"),)
-        ),
-        _kind_answer(
-            name="odd_widget", sites=(OTHER, SITE),
-            seen=(("other-page.html", "Yes"), (frame, "Yes")),
-        ),
+        _kind_answer(name="div_radio", sites=(SITE,), seen=((frame, "Yes"),))
     ])
     prompts: list[str] = []
 
@@ -306,23 +301,12 @@ def test_a_revision_keeps_every_earlier_site_and_example(
     finally:
         queue.close()
 
-    assert len(prompts) == 2
-    assert "dropped" in prompts[1] and "other.example" in prompts[1]
-    # the same stem, the only learned file; both sites and both fixtures
-    learned = learned_rel("kinds", "odd_widget")
-    assert sorted(p.name for p in learned_kinds.glob("*.py")) == [
-        "__init__.py", "odd_widget.py",
-    ]
+    assert len(prompts) == 1
+    learned = learned_rel("kinds", "div_radio")
     content = (repo / learned).read_text()
-    assert f'"{OTHER}"' in content and f'"{SITE}"' in content
-    fixtures = repo / fixture_rel("kinds", "odd_widget")
-    assert sorted(p.name for p in fixtures.iterdir()) == [
-        f"{SITE.replace('.', '_')}-controls.json",
-        f"{SITE.replace('.', '_')}-frame-0.html",
-        "other-page.html",
-    ]
+    assert f'"{SITE}"' in content
     subject = git(repo, "log", "-1", "--format=%s").strip()
-    assert subject == f"Revise odd_widget for {SITE}"
+    assert subject == "Fix unknown control for 'Employed?'"
 
 
 # ----- units --------------------------------------------------------------------
@@ -342,3 +326,232 @@ def test_a_route_file_is_named_for_its_site_and_goal() -> None:
     wall = dataclasses.replace(_problem(), cause="wall")
     posting = dataclasses.replace(_problem(), cause="posting_not_found")
     assert lane.name_of(wall) != lane.name_of(posting)
+
+
+# ----- recheck, reuse batches, and open rows ------------------------------------
+
+
+def test_one_probe_call_tries_every_reuse_candidate(
+    repo: Path, learned_kinds: Path, tmp_path: Path
+) -> None:
+    _seed_kind(repo, learned_kinds)
+    (learned_kinds / "second_kind.py").write_text(
+        json.loads(_kind_answer(
+            name="second_kind", sites=(OTHER,), seen=(("other-page.html", "Yes"),)
+        ))["file"].replace('"odd_widget"', '"second_kind"')
+    )
+    api = Api({"i1": {"status": "open"}})
+    probes: list[list[str]] = []
+    calls: list[list[str]] = []
+
+    def prober(ready: Any, _args: dict[str, Any]) -> dict[str, Any]:
+        probes.append([str(c.learned_file) for c in ready.candidates])
+        # the second candidate passes
+        return {"ok": True, "note": "read back",
+                "file": probes[0][1]}
+
+    queue = _queue(
+        api, repo, tmp_path,
+        runner=lambda c, timeout=0: calls.append(c) or "",
+        prober=prober,
+    )
+    try:
+        problem = _problem()
+        assert queue.submit(problem)
+        assert _drive(queue, problem.key).state == "kept"
+    finally:
+        queue.close()
+    assert calls == []  # reuse never asks the model
+    assert len(probes) == 1
+    assert len(probes[0]) == 2
+    # the passing candidate gained the site; the first file is untouched
+    assert '"fixture.example"' in (repo / learned_rel("kinds", "second_kind")).read_text()
+    assert '"fixture.example"' not in (
+        repo / learned_rel("kinds", "odd_widget")
+    ).read_text()
+
+
+def test_ten_identical_widgets_cost_one_fix(
+    repo: Path, learned_kinds: Path, tmp_path: Path, chromium: None
+) -> None:
+    api = Api({f"i{i}": {"status": "open"} for i in range(10)})
+    calls = iter([
+        _kind_answer(
+            name="div_radio", sites=(SITE,),
+            seen=((lane.fixture_name(SITE, "frame-0.html"), "Yes"),),
+        )
+    ])
+    queue = _queue(
+        api, repo, tmp_path,
+        runner=lambda _c, timeout=0: next(calls),
+        prober=lambda _r, _a: {"ok": True, "note": "read back"},
+    )
+    try:
+        problems = [
+            dataclasses.replace(
+                _problem(), key=f"unknown_control|{SITE}|w{i}",
+                question=f"Q{i}?", issue_id=f"i{i}",
+            )
+            for i in range(10)
+        ]
+        for problem in problems:
+            assert queue.submit(problem)
+        def recheck(_p: Any) -> str:
+            return "answered" if queue.has_kept() else "persists"
+
+        deadline = time.monotonic() + 240
+        while time.monotonic() < deadline:
+            for each in problems:
+                queue.at_safe_point(lambda: dict(ARGS), recheck)
+            states = {p.key: queue.statuses[p.key].state for p in problems}
+            if all(state == "kept" for state in states.values()):
+                break
+            time.sleep(0.02)
+        assert all(state == "kept" for state in states.values()), states
+    finally:
+        queue.close()
+    fixed = [u for u in api.updates if u.get("status") == "fixed"
+             and "already answers" in str(u.get("verification_notes") or "")]
+    assert len(fixed) == 9
+
+
+def test_a_gone_problem_keeps_its_row_open(tmp_path: Path) -> None:
+    api = Api({"i1": {"status": "open", "verification_notes": "attempts 1 of 3"}})
+    threads: list[threading.Thread] = []
+    queue = _queue(
+        api, tmp_path, tmp_path,
+        runner=lambda _c, timeout=0: pytest.fail("model called"),
+        prober=lambda _r, _a: {"ok": True},
+    )
+
+    def recheck(_p: Any) -> str:
+        threads.append(threading.current_thread())
+        return "gone"
+
+    try:
+        problem = _problem()
+        assert queue.submit(problem)
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            queue.at_safe_point(lambda: dict(ARGS), recheck)
+            if queue.statuses[problem.key].state == "later":
+                break
+            time.sleep(0.02)
+        assert queue.statuses[problem.key].state == "later"
+        assert api.issues["i1"]["status"] == "open"
+        assert "attempts 1 of 3" in api.issues["i1"]["verification_notes"]
+        assert threads and threads[0] == threading.current_thread()
+        assert queue._consecutive_unsolved == 0  # "later" leaves the brake
+    finally:
+        queue.close()
+
+
+# ----- the problem lifecycle: only three real attempts make unsolved -------------
+
+
+def _wait_for(queue: FixQueue, key: str, *states: str, timeout: float = 60) -> Status:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        status = queue.statuses[key]
+        if status.state in states:
+            return status
+        time.sleep(0.02)
+    raise AssertionError(f"{key} never reached {states}: {queue.statuses[key].item()}")
+
+
+def test_the_brake_leaves_a_queued_problem_open(tmp_path: Path) -> None:
+    api = Api({f"i{i}": {"status": "open"} for i in range(4)})
+    calls: list[list[str]] = []
+    queue = _queue(
+        api, tmp_path, tmp_path,
+        runner=lambda c, timeout=0: calls.append(c) or _kind_answer(
+            name="w", sites=(SITE,), seen=()
+        ),
+        prober=lambda _r, _a: {"ok": True},
+    )
+    queue.checker = lambda *_args: "refused every time"
+    try:
+        problems = [
+            dataclasses.replace(_problem(), key=f"unknown_control|{SITE}|w{i}",
+                                issue_id=f"i{i}")
+            for i in range(4)
+        ]
+        for problem in problems:
+            assert queue.submit(problem)
+        for problem in problems[:3]:
+            _wait_for(queue, problem.key, "unsolved")
+        status = _wait_for(queue, problems[3].key, "later")
+        assert status.state == "later"
+        assert api.issues["i3"]["status"] == "open"
+        # three attempts each for the first three, none for the fourth
+        assert len(calls) == 9
+    finally:
+        queue.close()
+
+
+def test_a_model_outage_leaves_the_row_open(tmp_path: Path) -> None:
+    from personal_os_worker.jobs.model_errors import ModelError
+
+    api = Api({"i1": {"status": "open"}})
+
+    def runner(_c: list[str], timeout: float = 0) -> str:
+        raise ModelError("the model is unavailable")
+
+    queue = _queue(api, tmp_path, tmp_path, runner=runner,
+                   prober=lambda _r, _a: {"ok": True})
+    try:
+        problem = _problem()
+        assert queue.submit(problem)
+        _wait_for(queue, problem.key, "later")
+        assert api.issues["i1"]["status"] == "open"
+        assert "attempts 1 of 3" in api.issues["i1"]["verification_notes"]
+    finally:
+        queue.close()
+
+
+def test_closing_before_the_first_attempt_leaves_the_row_open(tmp_path: Path) -> None:
+    api = Api({"i1": {"status": "open"}})
+    queue = _queue(
+        api, tmp_path, tmp_path,
+        runner=lambda _c, timeout=0: pytest.fail("model called"),
+        prober=lambda _r, _a: {"ok": True},
+    )
+    # a recheck-capable caller, so the fixer waits on its recheck request
+    queue.at_safe_point(lambda: dict(ARGS), lambda _p: "persists")
+    problem = _problem()
+    assert queue.submit(problem)
+    time.sleep(0.3)
+    queue.close()
+    assert _wait_for(queue, problem.key, "later").state == "later"
+    assert api.issues["i1"]["status"] == "open"
+
+
+def test_closing_mid_attempt_leaves_the_row_open(tmp_path: Path) -> None:
+    from personal_os_worker.jobs.model_errors import ModelError
+
+    api = Api({"i1": {"status": "open"}})
+    entered, release = threading.Event(), threading.Event()
+
+    def runner(_c: list[str], timeout: float = 0) -> str:
+        entered.set()
+        release.wait(timeout=30)
+        raise ModelError("the run ended")
+
+    queue = _queue(api, tmp_path, tmp_path, runner=runner,
+                   prober=lambda _r, _a: {"ok": True})
+    try:
+        problem = _problem()
+        assert queue.submit(problem)
+        assert entered.wait(timeout=30)
+        queue.close()
+        release.set()
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and queue._busy:
+            time.sleep(0.02)
+        assert api.issues["i1"]["status"] == "open"
+        assert api.issues["i1"]["verification_notes"] == (
+            "attempts 1 of 3; the run ended before its fix finished"
+        )
+    finally:
+        release.set()
+        queue.close()

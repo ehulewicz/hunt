@@ -384,7 +384,12 @@ def reach_posting(
     while True:
         page = browser.active_page(page)
         # The route the fixer keeps opens the posting itself; no reload is needed.
-        if fixes is not None and fixes.at_safe_point(partial(probe_args, page, cdp_url)):
+        if fixes is not None and fixes.at_safe_point(
+            partial(probe_args, page, cdp_url),
+            lambda _problem, _page=page: (
+                "gone" if is_posting(_page, target.title) else "persists"
+            ),
+        ):
             fixes.consume_kept()
         text = rendered_body_text(page, timeout_ms=2_000)
         if is_posting(page, target.title, text=text):

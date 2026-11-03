@@ -105,3 +105,29 @@ def test_without_its_kind_the_same_widget_is_an_unknown_control(browser_page: An
     assert not [field for field in inspect_fields(browser_page) if field.get("custom")]
     [unknown] = inspect_unknown_controls(browser_page)
     assert unknown["role"] == "slider"
+
+
+def test_learned_kinds_label_widgets_like_the_unknown_scan(browser_page: Any) -> None:
+    """Capture's label is the scan's question: label[for] and nearby text alike."""
+    from personal_os_worker.jobs.registry.api import Kind
+    from personal_os_worker.jobs.registry.kinds import _as_custom
+
+    browser_page.set_content(
+        '<label for="a">Rate Python</label>'
+        '<div id="a" role="slider" tabindex="0" aria-valuemin="0"'
+        ' aria-valuemax="5" aria-valuenow="0"></div>'
+        '<div><p>Rate Java</p>'
+        '<div id="b" role="slider" tabindex="0" aria-valuemin="0"'
+        ' aria-valuemax="5" aria-valuenow="0"></div></div>'
+    )
+    reported = {
+        control.get("question") for control in inspect_unknown_controls(browser_page)
+    }
+    for selector, question in (("#a", "Rate Python"), ("#b", "Rate Java")):
+        assert question in reported
+        kind = _as_custom(Kind(
+            name="s", selector=selector, reads="attribute:aria-valuenow",
+            strategies=(), sites=("x",), structure="x",
+        ))
+        found = custom.capture(browser_page.main_frame, kind)
+        assert [item["label"] for item in found] == [question]

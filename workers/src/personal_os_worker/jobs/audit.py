@@ -172,20 +172,26 @@ def classify_unknown(
         if control.get("filled") is True:
             continue
         role = str(control.get("role") or "control")
-        question = str(control.get("question") or "").strip() or f"An unlabelled {role}"
+        text = str(control.get("question") or "").strip()
+        question = text or f"An unlabelled {role}"
         key = normalize_answer_question(question)
         if key in captured or key in findings:
             continue
+        evidence = {
+            name: control.get(name)
+            for name in ("role", "tag", "selector", "options", "frame_index",
+                         "frame_url", "fingerprint", "html")
+        }
+        if not text:
+            # No learned file type can give a widget a question, so a kind kept
+            # for it could never fill it: reported, never submitted for a fix.
+            evidence["unlabelled"] = True
         findings[key] = Finding(
             question,
             "unknown_control",
             control.get("required") is True,
             f"a {role} that no control kind operates yet",
-            evidence={
-                name: control.get(name)
-                for name in ("role", "tag", "selector", "options", "frame_index",
-                             "frame_url", "fingerprint", "html")
-            },
+            evidence=evidence,
         )
     return list(findings.values())
 

@@ -79,22 +79,55 @@ def load() -> dict[str, CustomKind]:
     return KINDS
 
 
+# How a widget's question is found: its own attribute, a referenced or
+# explicit label, or nearby text — one logic shared by the custom-kind capture
+# below and the unknown-control scan (`browser.inspect_unknown_controls`), so a
+# widget is never reported unknown for a label capture would itself find.
+# `native` is the form-input selector questionOf needs for its nearby-text rule.
+QUESTION_OF = r"""
+const native = 'input, textarea, select';
+const questionOf = node => {
+  const labelledBy = node.getAttribute('aria-labelledby');
+  const referenced = labelledBy
+    ? labelledBy.split(/\s+/).map(id => document.getElementById(id)?.textContent || '')
+        .join(' ').trim()
+    : '';
+  const explicit = node.id
+    ? document.querySelector(`label[for="${CSS.escape(node.id)}"]`)?.textContent || '' : '';
+  let nearby = '';
+  let wrapper = node.parentElement;
+  for (let depth = 0; wrapper && !nearby && depth < 5; depth += 1) {
+    const heading = [...wrapper.children].find(child => (
+      ['LABEL', 'LEGEND', 'P', 'SPAN', 'DIV', 'H3', 'H4'].includes(child.tagName)
+      && !child.contains(node) && (child.textContent || '').trim()
+      && !child.querySelector(native + ', [role]')
+      && (child.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)
+    ));
+    nearby = heading ? heading.textContent : '';
+    wrapper = wrapper.parentElement;
+  }
+  return (node.getAttribute('aria-label') || referenced || explicit || nearby || '')
+    .replace(/\s+/g, ' ').trim().replace(/\s*\*\s*$/, '');
+};
+"""
+
+
 # The script that captures every widget of one custom kind in a frame. The
 # kind's `read` is composed into the expression Playwright sends over CDP, never
 # evaluated by the page, so a page's content security policy cannot refuse it.
-CAPTURE_SCRIPT = r"""
+CAPTURE_SCRIPT = (
+    r"""
 (elements, read, readArg) => {
+"""
+    + QUESTION_OF
+    + r"""
   return elements.map((element, position) => {
     if (!(element.offsetWidth || element.offsetHeight || element.getClientRects().length)) {
       return null;
     }
     let held = {};
     try { held = read(element, readArg) || {}; } catch (error) { held = {}; }
-    const labelledBy = element.getAttribute('aria-labelledby');
-    const referenced = labelledBy
-      ? labelledBy.split(/\s+/).map(id => document.getElementById(id)?.textContent || '')
-          .join(' ').trim() : '';
-    const label = String(held.label || element.getAttribute('aria-label') || referenced || '')
+    const label = String(held.label || questionOf(element) || '')
       .replace(/\s+/g, ' ').trim().replace(/\s*\*\s*$/, '');
     const value = held.value === undefined || held.value === null ? '' : String(held.value);
     return {
@@ -111,6 +144,7 @@ CAPTURE_SCRIPT = r"""
   }).filter(Boolean);
 }
 """
+)
 
 
 def capture(frame: Any, kind: CustomKind) -> list[dict[str, Any]]:

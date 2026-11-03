@@ -2709,3 +2709,28 @@ def test_a_wrong_answer_replaces_the_binding_a_model_taught(
     )
     created = api.created_with[-1]
     assert created["replaces"] == "pat-1" and created["status"] == "candidate"
+
+
+def test_escalate_never_submits_an_unlabelled_unknown_control() -> None:
+    from personal_os_worker.jobs.audit import classify_unknown
+
+    [finding] = classify_unknown(
+        [{"question": "", "role": "slider", "filled": False}], set()
+    )
+    assert (finding.evidence or {}).get("unlabelled") is True
+
+    class FakeFixes:
+        def __init__(self) -> None:
+            self.submitted: list[Any] = []
+
+        def submit(self, problem: Any) -> bool:
+            self.submitted.append(problem)
+            return True
+
+    fixes = FakeFixes()
+    context = SimpleNamespace(
+        fixes=fixes, dry_run=False,
+        page=SimpleNamespace(url="https://acme.example/j"),
+    )
+    AutofillSession(cast(Any, context)).escalate([finding])
+    assert fixes.submitted == []

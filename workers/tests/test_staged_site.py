@@ -113,3 +113,55 @@ def test_custom_widgets_work_with_keys_and_clicks_and_submit_is_inert(
     page.wait_for_timeout(100)
     assert requests == []
     assert page.url == f"{staged_site}/apply.html"
+
+
+def test_the_scan_skips_widgets_a_learned_kind_captures(
+    page: Any, staged_site: str, tmp_path: Path
+) -> None:
+    from personal_os_worker.jobs import registry
+    from personal_os_worker.jobs.browser import registrable_site
+
+    page.goto(f"{staged_site}/apply.html")
+    site = registrable_site(page.url)
+
+    def kind_source(name: str, selector: str) -> str:
+        return f'''from personal_os_worker.jobs.registry.api import Kind
+
+KIND = Kind(
+    name="{name}",
+    selector="{selector}",
+    reads="attribute:aria-valuenow",
+    strategies=("click_div",),
+    sites=("{site}",),
+    structure="x",
+    proven=False,
+    examples=(),
+)
+'''
+
+    good = tmp_path / "years_slider.py"
+    good.write_text(kind_source("years_slider", "#years"))
+    bad = tmp_path / "bad_kind.py"
+    bad.write_text(kind_source("bad_kind", "div["))
+    registry.reload_learned()
+    try:
+        registry.load_file(good, category="kinds")
+        registry.load_file(bad, category="kinds")
+        # the learned kind's slider is skipped; a bad selector is just no match
+        assert [c["question"] for c in inspect_unknown_controls(page)] == [
+            "Preferred team"
+        ]
+    finally:
+        registry.reload_learned()
+
+
+def test_a_route_probe_reports_gone_when_the_goal_is_met(
+    page: Any, staged_site: str
+) -> None:
+    from personal_os_worker.jobs.fix import probe
+
+    page.goto(f"{staged_site}/jobs/101.html")
+    result = probe.probe_route(
+        page, {"goal": "posting", "title": TITLE, "company": "Staged Robotics"}
+    )
+    assert result["ok"] is False and result["gone"] is True

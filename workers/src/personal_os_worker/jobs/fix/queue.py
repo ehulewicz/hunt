@@ -2,9 +2,12 @@
 
 The run hands a problem over (`submit`) and goes on. A background thread asks
 the model for one file, checks it (policy, ruff, mypy, its examples, replay),
-and waits. At its next safe point the run calls `at_safe_point`, which tries
-the file on the live tab (`probe.py`), commits exactly it and its sanitized
-fixtures (`keep.py`), and loads it into the running run — no reload.
+and waits. At its next safe point the run calls `at_safe_point`, which first
+serves any recheck the fixer asked for on the run thread (`Recheck`: still
+failing, answered, or gone from the page), then tries the waiting candidate on
+the live tab (`probe.py`), commits exactly it and its sanitized fixtures
+(`keep.py`), and loads it into the running run — no reload. Only three real
+attempts make a problem unsolved; anything else leaves its row open.
 """
 
 from __future__ import annotations
@@ -20,7 +23,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from personal_os_worker.jobs.fix import lane
 from personal_os_worker.jobs.fix.keep import (
@@ -56,26 +59,37 @@ class Status:
         return asdict(self)
 
 
-@dataclass
-class Ready:
-    """An attempt that passed its checks, waiting to be tried on the live tab."""
+@dataclass(frozen=True)
+class Candidate:
+    """One checked file the probe may try: its attempt folder, file, and stem."""
 
-    problem: lane.Problem
     attempt_dir: Path
     learned_file: Path
+    stem: str
+
+
+@dataclass
+class Ready:
+    """Attempts that passed their checks, waiting to be tried on the live tab."""
+
+    problem: lane.Problem
     answer: lane.Answer
     attempt: int
-    stem: str
+    candidates: list[Candidate]
     reuse: bool = False
     revised: bool = False
+    chosen: Candidate | None = None
     done: threading.Event = field(default_factory=threading.Event)
     probe: dict[str, Any] | None = None
     kept: Kept | None = None
 
 
+State = Literal["persists", "answered", "gone"]
+Recheck = Callable[[lane.Problem], State]
+
+
 Prober = Callable[[Ready, dict[str, Any]], dict[str, Any]]
 Checker = Callable[[Path, Path, lane.Problem], str | None]
-PersistCheck = Callable[[lane.Problem], bool]
 
 
 def run_probe(ready: Ready, args: dict[str, Any]) -> dict[str, Any]:
@@ -89,7 +103,8 @@ def run_probe(ready: Ready, args: dict[str, Any]) -> dict[str, Any]:
         process = subprocess.run(
             [
                 str(interpreter()), "-m", "personal_os_worker.jobs.fix.probe",
-                str(path), str(ready.learned_file), str(ready.problem.category),
+                str(path), ready.problem.category,
+                *[str(c.learned_file) for c in ready.candidates],
             ],
             capture_output=True, text=True,
             timeout=PROBE_TIMEOUT_SECONDS, env=environment,
@@ -228,6 +243,26 @@ def _same_structure(problem: lane.Problem) -> list[Path]:
     return found
 
 
+def _kind_candidates(problem: lane.Problem) -> list[Path]:
+    """Every learned kind file not naming this site: proven first, then by
+    name. For kinds the live probe — not the structure — decides reuse."""
+    from personal_os_worker.jobs import registry
+
+    found: list[tuple[bool, str, Path]] = []
+    for path in registry._learned_files("kinds"):
+        try:
+            module = registry._import_file(path, "kinds")
+        except Exception:
+            continue
+        for value in vars(module).values():
+            if not isinstance(value, registry._categories()["kinds"]):
+                continue
+            if problem.site.casefold() in registry._sites_of(value):
+                continue
+            found.append((not getattr(value, "proven", False), path.stem, path))
+    return [path for _proven, _stem, path in sorted(found)]
+
+
 def add_site(source: str, site: str) -> str | None:
     """Public spelling of the sites-edit for callers and tests."""
     return _sites_arg(source, site)
@@ -315,7 +350,6 @@ class FixQueue:
         prober: Prober = run_probe,
         keeper: Callable[..., Kept] = keep,
         checker: Checker = check_candidate,
-        problem_persists: PersistCheck | None = None,
         loader: Callable[[Path, str], list[Any]] | None = None,
     ) -> None:
         self.repo = repo
@@ -328,13 +362,15 @@ class FixQueue:
         self.prober = prober
         self.keeper = keeper
         self.checker = checker
-        self.problem_persists = problem_persists
         self.loader = loader
         self.statuses: dict[str, Status] = {}
         self._taken: dict[str, lane.Problem] = {}
         self._recorded: dict[str, str] = {}
         self._problems: queues.Queue[lane.Problem | None] = queues.Queue()
         self._ready: Ready | None = None
+        self._recheck_pending: tuple[lane.Problem, threading.Event] | None = None
+        self._recheck_result: State = "persists"
+        self._recheck_seen = False
         self._lock = threading.Lock()
         self._safe_lock = threading.Lock()
         self._busy = False
@@ -376,14 +412,43 @@ class FixQueue:
             self._problems.put(problem)
         return True
 
-    def at_safe_point(self, args: Callable[[], dict[str, Any]]) -> bool:
-        """Try a waiting candidate on the live tab; True once it was kept and loaded."""
+    def at_safe_point(
+        self,
+        args: Callable[[], dict[str, Any]],
+        recheck: Recheck | None = None,
+    ) -> bool:
+        """Serve a pending recheck on this thread, then try a waiting candidate
+        on the live tab; True once one was kept and loaded."""
         with self._safe_lock:
+            if recheck is not None:
+                with self._lock:
+                    self._recheck_seen = True
+            with self._lock:
+                pending, self._recheck_pending = self._recheck_pending, None
+            if pending is not None:
+                problem, asked = pending
+                result: State = "persists"
+                if recheck is not None:
+                    try:
+                        answer = recheck(problem)
+                        if answer in {"persists", "answered", "gone"}:
+                            result = answer
+                    except Exception:
+                        pass
+                with self._lock:
+                    self._recheck_result = result
+                asked.set()
             ready = self._take_ready()
             if ready is not None:
                 try:
                     self._announce(ready.problem.key, "probing", attempt=ready.attempt)
                     ready.probe = self.prober(ready, args())
+                    if "file" in ready.probe:
+                        ready.chosen = next(
+                            (c for c in ready.candidates
+                             if str(c.learned_file) == ready.probe["file"]),
+                            ready.candidates[0],
+                        )
                     with self._lock:
                         closed = self._closed
                     if ready.probe.get("ok") is True and not closed:
@@ -406,18 +471,25 @@ class FixQueue:
             self._kept = 0
 
     def close(self) -> None:
-        """Stop after the current step; a fix under way is recorded unsolved."""
+        """Stop after the current step; a fix under way goes back to open."""
         with self._lock:
             self._closed = True
             ready, self._ready = self._ready, None
+            pending, self._recheck_pending = self._recheck_pending, None
             self._problems.put(None)
             unfinished = [problem for key, problem in self._taken.items()
                           if self._recorded.get(key) == "fixing"]
         if ready is not None:
             ready.done.set()
+        if pending is not None:
+            pending[1].set()
         for problem in unfinished:
-            self._issue(problem, {"status": "unsolved",
-                                  "verification_notes": "the run ended before its fix finished"})
+            self._issue(problem, {
+                "status": "open",
+                "verification_notes": f"attempts {self._attempts_of(problem)}"
+                                      f" of {MAX_ATTEMPTS}; the run ended before"
+                                      " its fix finished",
+            })
 
     def _with_issue(self, problem: lane.Problem) -> lane.Problem | None:
         """The problem's failure-issue row; None when it is unsolved or fixed."""
@@ -482,11 +554,8 @@ class FixQueue:
                 self._settled.clear()
             try:
                 if closed:
-                    self._finish(problem, "unsolved",
-                                 "the fixer stopped before this problem")
-                elif self.problem_persists is not None and not self.problem_persists(problem):
-                    self._announce(problem.key, "kept",
-                                   note="a kept fix already answers it")
+                    self._leave_open(problem,
+                                     "the fixer stopped before this problem")
                 else:
                     self._fix(problem)
             except Exception as error:  # a fixer bug must never end the run
@@ -500,18 +569,79 @@ class FixQueue:
     def _attempt_dir(self, problem: lane.Problem, attempt: int) -> Path:
         return self.workdir / self.run_id / problem.slug / f"attempt-{attempt}"
 
+    def _ask_recheck(self, problem: lane.Problem) -> State | str:
+        """Ask the run thread to re-check this problem on the page; waits on its
+        event. Returns the state, or "closed" when the run ended first."""
+        with self._lock:
+            # No run ever asked for a recheck: the safe point cannot serve one.
+            if self._closed or not self._recheck_seen:
+                return "closed" if self._closed else "persists"
+        done = threading.Event()
+        with self._lock:
+            self._recheck_pending = (problem, done)
+        done.wait()
+        with self._lock:
+            if self._closed:
+                return "closed"
+            return self._recheck_result
+
+    def _answered(self, problem: lane.Problem) -> None:
+        self._issue(problem, {"status": "fixed",
+                              "verification_notes": "a kept fix already answers it"})
+        self._announce(problem.key, "kept",
+                       note="a kept fix already answers it")
+        with self._lock:
+            self._consecutive_unsolved = 0
+
+    def _gone(self, problem: lane.Problem) -> None:
+        self._issue(problem, {
+            "status": "open",
+            "verification_notes": f"attempts {self._attempts_of(problem)} of {MAX_ATTEMPTS}",
+        })
+        self._announce(problem.key, "later",
+                       note="no longer on the page; tried again when next seen")
+
+    def _leave_open(self, problem: lane.Problem, note: str) -> None:
+        """Never-attempted stays open: only three real attempts make unsolved."""
+        self._issue(problem, {"status": "open"})
+        self._announce(problem.key, "later", note=note)
+
+    def _recheck_or_done(self, problem: lane.Problem) -> bool:
+        """True when a recheck settled the problem (answered or gone)."""
+        state = self._ask_recheck(problem)
+        if state == "answered":
+            self._answered(problem)
+            return True
+        if state == "gone":
+            self._gone(problem)
+            return True
+        if state == "closed":
+            self._leave_open(problem, "the run closed during the fix")
+            return True
+        return False
+
     def _fix(self, problem: lane.Problem) -> None:
         attempts = self._attempts_of(problem)
         feedback: str | None = None
-        same = [] if problem.category == "routes" else _same_structure(problem)
-        revising = same[-1] if same else None
+        if problem.category == "kinds":
+            same: list[Path] = _kind_candidates(problem)
+            revising: Path | None = None
+        elif problem.category == "routes":
+            same, revising = [], None
+        else:
+            same = _same_structure(problem)
+            revising = same[-1] if same else None
+        if self._recheck_or_done(problem):
+            return
         if same and self._reuse(problem, same):
             return
         for attempt in range(attempts + 1, MAX_ATTEMPTS + 1):
             with self._lock:
                 if self._closed:
-                    self._finish(problem, "unsolved", "the run closed during the fix")
+                    self._leave_open(problem, "the run closed during the fix")
                     return
+            if attempt != attempts + 1 and self._recheck_or_done(problem):
+                return
             self._announce(problem.key, "writing", attempt=attempt)
             self._record_attempt(problem, attempt)
             try:
@@ -523,7 +653,7 @@ class FixQueue:
             except (ModelError, OSError, subprocess.TimeoutExpired) as error:
                 with self._lock:
                     self.model_error = str(error) or "the model is unavailable"
-                self._finish(problem, "unsolved", self.model_error)
+                self._leave_open(problem, self.model_error)
                 return
             if answer is None:
                 feedback = "Your answer was not the JSON asked for. Answer as instructed."
@@ -563,15 +693,18 @@ class FixQueue:
             if feedback is not None:
                 continue
             ready = Ready(
-                problem, attempt_dir, learned_file, answer, attempt,
-                stem=stem, revised=revising is not None,
+                problem, answer, attempt,
+                [Candidate(attempt_dir, learned_file, stem)],
+                revised=revising is not None,
             )
             verdict = self._hand_over(ready)
             if verdict is None:
                 return
             if verdict == "closed":
-                self._finish(problem, "unsolved",
-                             "the run closed during verification")
+                self._leave_open(problem, "the run closed during verification")
+                return
+            if verdict == "gone":
+                self._gone(problem)
                 return
             feedback = (
                 "It passed the checks but failed on the live page: " + verdict
@@ -596,6 +729,8 @@ class FixQueue:
             with self._lock:
                 self._consecutive_unsolved = 0
             return None
+        if (ready.probe or {}).get("gone") is True:
+            return "gone"
         with self._lock:
             if self._closed:
                 return "closed"
@@ -661,11 +796,12 @@ class FixQueue:
             return {}
 
     def _reuse(self, problem: lane.Problem, same: list[Path]) -> bool:
-        """Each same-structure file missing this site gets the site added in a
-        reuse attempt of its own, checked (policy, ruff — the proven flag and
-        examples are already earned) and handed over like a model candidate:
-        probed at the next safe point, kept on a readback, never edited in the
-        live checkout. True once one is kept."""
+        """Each candidate file missing this site gets the site added in a reuse
+        attempt of its own and gated (policy, ruff — the proven flag and
+        examples are already earned); the survivors go over as ONE Ready, so a
+        single safe point settles the whole reuse step. True when the problem
+        is settled — kept, gone, or the run closed."""
+        candidates: list[Candidate] = []
         for path in same:
             stem = path.stem
             attempt_dir = (
@@ -684,24 +820,27 @@ class FixQueue:
             fixtures_dir = attempt_dir / "fixtures"
             self._committed_fixtures(problem.category, stem, fixtures_dir)
             self._write_fixtures(problem, fixtures_dir)
-            self._announce(problem.key, "testing", note=f"reuse {stem}")
             refused = self._reuse_check(learned_file, problem)
             if refused is not None:
                 self._report(f"reuse of {stem} failed its checks: {refused}")
                 continue
-            answer = lane.Answer(
-                "file", edited, f"reused {stem}", "", stem
-            )
-            ready = Ready(
-                problem, attempt_dir, learned_file, answer, 0,
-                stem=stem, reuse=True,
-            )
-            verdict = self._hand_over(ready)
-            if verdict is None:
-                return True
-            if verdict == "closed":
-                return False
-            self._report(f"reuse of {stem} failed on the page: {verdict}")
+            candidates.append(Candidate(attempt_dir, learned_file, stem))
+        if not candidates:
+            return False
+        self._announce(problem.key, "testing",
+                       note=f"reuse {', '.join(c.stem for c in candidates)}")
+        answer = lane.Answer("file", "", "reused an existing file", "", "")
+        ready = Ready(problem, answer, 0, candidates, reuse=True)
+        verdict = self._hand_over(ready)
+        if verdict is None:
+            return True
+        if verdict == "gone":
+            self._gone(problem)
+            return True
+        if verdict == "closed":
+            self._leave_open(problem, "the run closed during reuse")
+            return True
+        self._report(f"reuse failed on the page: {verdict}")
         return False
 
     def _reuse_check(self, learned_file: Path, problem: lane.Problem) -> str | None:
@@ -739,13 +878,14 @@ class FixQueue:
 
     def _keep(self, ready: Ready) -> Kept | None:
         problem = ready.problem
-        learned = learned_rel(problem.category, ready.stem)
-        fixtures = fixture_rel(problem.category, ready.stem)
+        chosen = ready.chosen or ready.candidates[0]
+        learned = learned_rel(problem.category, chosen.stem)
+        fixtures = fixture_rel(problem.category, chosen.stem)
         if ready.reuse:
-            subject = f"Reuse {ready.stem} for {problem.site}"
+            subject = f"Reuse {chosen.stem} for {problem.site}"
             summary = f"{problem.question!r} reads back with the same declaration."
         elif ready.revised:
-            subject = f"Revise {ready.stem} for {problem.site}"
+            subject = f"Revise {chosen.stem} for {problem.site}"
             summary = ready.answer.summary
         else:
             subject = (
@@ -759,7 +899,7 @@ class FixQueue:
         )
         try:
             kept = self.keeper(
-                self.repo, message, ready.attempt_dir, learned, fixtures,
+                self.repo, message, chosen.attempt_dir, learned, fixtures,
             )
         except KeepError as error:
             ready.probe = {"ok": False, "note": f"it could not be kept: {error}"}

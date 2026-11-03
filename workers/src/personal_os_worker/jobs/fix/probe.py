@@ -85,16 +85,22 @@ def probe_route(page: Page, target: dict[str, Any]) -> dict[str, Any]:
         looks_like_application_form,
         reveal_application_form,
     )
-    from personal_os_worker.jobs.navigate import Target, find_posting
+    from personal_os_worker.jobs.navigate import Target, find_posting, is_posting
     from personal_os_worker.jobs.registry.routes import route_for
 
     goal = str(target.get("goal") or "posting")
     wanted = Target(str(target["title"]), str(target["company"]))
     route = route_for(page.url)
     if goal == "posting":
+        # Already there means the page moved on: never a route's success.
+        if is_posting(page, wanted.title):
+            return {"ok": False, "gone": True,
+                    "note": "the posting is already open"}
         found = find_posting(page, wanted, route=route)
         return {"ok": found, "note": "the posting is open" if found
                 else "neither the route nor the navigator reached the posting"}
+    if looks_like_application_form(inspect_fields(page)):
+        return {"ok": False, "gone": True, "note": "the form is already open"}
     if route is not None:
         route(page, wanted)
     if not looks_like_application_form(inspect_fields(page)):
@@ -107,6 +113,7 @@ def probe_candidate(
     page: Page, target: dict[str, Any], knowledge: Knowledge, declarations: list[Any],
 ) -> dict[str, Any]:
     """The candidate file's declarations, verified on the live page."""
+    from personal_os_worker.jobs.browser import fresh_control, inspect_fields
     from personal_os_worker.jobs.registry.api import (
         Format,
         Kind,
@@ -115,27 +122,33 @@ def probe_candidate(
         Strategy,
     )
     from personal_os_worker.jobs.registry.kinds import _as_custom
-    from personal_os_worker.jobs.registry.kinds.custom import capture, read
+    from personal_os_worker.jobs.registry.kinds.custom import read
+    from personal_os_worker.jobs.repair.repairer import find_field
 
     for declaration in declarations:
         if isinstance(declaration, Kind):
+            question = str(target.get("question") or "")
+            fields = inspect_fields(page)
+            field = find_field(fields, question)
+            if field is None:
+                return {"ok": False,
+                        "note": f"does not capture {question!r}"}
+            if field.get("custom") != declaration.name:
+                return {"ok": False,
+                        "note": f"{question!r} is captured as "
+                                f"{field.get('custom') or field.get('type')}"}
             custom = _as_custom(declaration)
-            for frame in page.frames:
-                found = capture(frame, custom)
-                if not found:
-                    continue
-                control = frame.locator(custom.selector).nth(
-                    int(found[0].get("custom_index") or 0)
-                )
-                held = read(control, custom)
-                return {"ok": True, "kind": declaration.name,
-                        "note": f"captured and read {held.get('value')!r}"}
-            return {"ok": False, "note": "the kind captured nothing on the page"}
+            try:
+                held = read(fresh_control(page, field), custom)
+            except Exception as error:
+                return {"ok": False,
+                        "note": f"captured {question!r} but cannot read it: {error}"}
+            return {"ok": True, "kind": declaration.name,
+                    "note": f"captured and read {held.get('value')!r}"}
         if isinstance(declaration, (Strategy, Format)):
             return probe_field(page, target, knowledge)
         if isinstance(declaration, QuestionReader):
-            fields = probe_question(page, declaration)
-            return fields
+            return probe_question(page, declaration)
         if isinstance(declaration, Route):
             return probe_route(page, target)
     return {"ok": False, "note": "no usable declaration in the file"}
@@ -190,7 +203,7 @@ def main(argv: list[str]) -> int:
         args = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
         from personal_os_worker.jobs import registry
 
-        declarations = registry.load_file(Path(argv[2]), category=argv[3])
+        files = argv[3:]
         with sync_playwright() as playwright:
             # Attached, never launched: leaving the block disconnects and Chrome runs on.
             browser = playwright.chromium.connect_over_cdp(str(args["cdp_url"]))
@@ -198,8 +211,18 @@ def main(argv: list[str]) -> int:
             if page is None:
                 result: dict[str, Any] = {"ok": False, "note": "the run's tab is gone"}
             else:
-                result = probe(page, dict(args["target"]),
-                               knowledge_of(args["knowledge"]), declarations)
+                result = {"ok": False, "note": "no candidate to try"}
+                for file in files:
+                    registry.reload_learned()
+                    declarations = registry.load_file(Path(file), category=argv[2])
+                    result = probe(page, dict(args["target"]),
+                                   knowledge_of(args["knowledge"]), declarations)
+                    result = dict(result) | {"file": file}
+                    if result.get("ok") is True or result.get("gone") is True:
+                        break
+                if not result.get("ok") and len(files) > 1:
+                    result["note"] = (f"{result.get('note')} "
+                                      f"(tried {len(files)} candidates)")
     except Exception as error:
         result = {"ok": False, "note": f"the probe crashed: {str(error)[:300]}"}
     print(json.dumps(result))

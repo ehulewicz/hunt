@@ -336,9 +336,12 @@ verification notes carry "attempts N of 3"); there is no cap on problems, but
 three fully-unsolved problems in a row brake the fixer for the rest of the
 run. An unsolved problem row stays unsolved until `os hunt fixes --retry`
 puts it back on the queue or a new fixer API version reopens them all
-(`registry.reopen_for_version`); the queue's `problem_persists` re-checks
-every queued problem after a keep, so a problem a kept fix already answered
-spends nothing. `os hunt fixes` lists the rows (problem rows marked, attempts
+(`registry.reopen_for_version`); before the reuse step and each later attempt
+the queue asks the run to re-check the problem on the live page at a safe
+point, on the run thread: answered becomes fixed, while gone — and anything
+the run ends before its three attempts finish — is marked "later" and waits
+for the next time it is seen. Only three real attempts make a problem
+unsolved. `os hunt fixes` lists the rows (problem rows marked, attempts
 shown); `os doctor` checks the fixer's readiness (`jobs/readiness.py`: ruff
 and mypy under the workspace interpreter, `git ls-remote` without a prompt,
 claude on PATH).

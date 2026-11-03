@@ -28,6 +28,7 @@ from personal_os_worker.jobs.autofill import (
 )
 from personal_os_worker.jobs.registry.events import fill_event, form_of
 from personal_os_worker.jobs.registry.kinds import classify, control_key, question_of
+from personal_os_worker.jobs.registry.kinds.custom import QUESTION_OF
 from personal_os_worker.jobs.registry.strategies import (
     CONTROL_TIMEOUT_MS,
     OPERATIONS,
@@ -1343,8 +1344,12 @@ def visible_actions(page: Page, *, limit: int = 40) -> list[str]:
 # Widgets `inspect_fields` cannot see: interactive by ARIA role or by being
 # editable, with no form input of their own. Site chrome (navigation, header,
 # footer), captchas, hidden elements, and a combobox's own popup are not.
-UNKNOWN_CONTROLS_SCRIPT = r"""
+UNKNOWN_CONTROLS_SCRIPT = (
+    r"""
 (customSelectors) => {
+"""
+    + QUESTION_OF
+    + r"""
   const roles = ['slider', 'spinbutton', 'radiogroup', 'listbox', 'textbox', 'switch',
                  'checkbox', 'radio', 'option'];
   const candidates = [...document.querySelectorAll(
@@ -1353,7 +1358,6 @@ UNKNOWN_CONTROLS_SCRIPT = r"""
   )];
   const chrome = 'nav, header, footer, [role="navigation"], [role="banner"], '
     + '[role="contentinfo"], [data-sitekey], .g-recaptcha, .h-captcha, .cf-turnstile';
-  const native = 'input, textarea, select';
   const visible = node => Boolean(node.offsetWidth || node.offsetHeight
     || node.getClientRects().length);
   // A popup a captured combobox or input names is that control's, never another.
@@ -1367,29 +1371,6 @@ UNKNOWN_CONTROLS_SCRIPT = r"""
       if (at.id && owned.has(at.id)) return true;
     }
     return false;
-  };
-  const questionOf = node => {
-    const labelledBy = node.getAttribute('aria-labelledby');
-    const referenced = labelledBy
-      ? labelledBy.split(/\s+/).map(id => document.getElementById(id)?.textContent || '')
-          .join(' ').trim()
-      : '';
-    const explicit = node.id
-      ? document.querySelector(`label[for="${CSS.escape(node.id)}"]`)?.textContent || '' : '';
-    let nearby = '';
-    let wrapper = node.parentElement;
-    for (let depth = 0; wrapper && !nearby && depth < 5; depth += 1) {
-      const heading = [...wrapper.children].find(child => (
-        ['LABEL', 'LEGEND', 'P', 'SPAN', 'DIV', 'H3', 'H4'].includes(child.tagName)
-        && !child.contains(node) && (child.textContent || '').trim()
-        && !child.querySelector(native + ', [role]')
-        && (child.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)
-      ));
-      nearby = heading ? heading.textContent : '';
-      wrapper = wrapper.parentElement;
-    }
-    return (node.getAttribute('aria-label') || referenced || explicit || nearby || '')
-      .replace(/\s+/g, ' ').trim().replace(/\s*\*\s*$/, '');
   };
   const filledOf = node => {
     const role = node.getAttribute('role');
@@ -1412,7 +1393,11 @@ UNKNOWN_CONTROLS_SCRIPT = r"""
     if (!visible(node) || node.closest(chrome) || node.closest('[aria-hidden="true"]')) continue;
     if (node.matches(native) || node.querySelector(native) || node.closest(native)) continue;
     if (node.closest('[role="combobox"]') || ownedPopup(node)) continue;
-    if (customSelectors.some(selector => node.matches(selector) || node.closest(selector))) {
+    if (customSelectors.some(selector => {
+      // A selector one learned file got wrong is no match, never a dead scan.
+      try { return node.matches(selector) || node.closest(selector); }
+      catch (error) { return false; }
+    })) {
       continue;
     }
     const role = node.getAttribute('role') || (node.isContentEditable ? 'textbox' : 'button');
@@ -1438,6 +1423,7 @@ UNKNOWN_CONTROLS_SCRIPT = r"""
   return found;
 }
 """
+)
 
 
 def inspect_unknown_controls(page: Page) -> list[dict[str, Any]]:
@@ -1447,9 +1433,13 @@ def inspect_unknown_controls(page: Page) -> list[dict[str, Any]]:
     operate it until code is written for it (`jobs/fix/`). A widget a custom
     kind captures is a control like any other.
     """
+    from personal_os_worker.jobs.registry.kinds import learned_kinds
     from personal_os_worker.jobs.registry.kinds.custom import load
 
     selectors = [kind.selector for kind in load().values()]
+    selectors += [
+        kind.selector for kind in learned_kinds(registrable_site(page.url))
+    ]
     results: list[dict[str, Any]] = []
     for frame_index, frame in enumerate(page.frames):
         try:
