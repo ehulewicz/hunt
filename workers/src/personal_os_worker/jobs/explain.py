@@ -40,15 +40,12 @@ from personal_os_worker.jobs.autofill import (
 )
 from personal_os_worker.jobs.browser import fresh_control
 from personal_os_worker.jobs.keys import read_key
+from personal_os_worker.jobs.page_scripts import load
 from personal_os_worker.jobs.registry.kinds import classify, control_attributes, question_of
 
 LABEL_WIDTH = 17
 OPTION_PREVIEW = 8
-OUTLINE = """(element, on) => {
-  const target = element.closest('fieldset, [role=radiogroup], [role=group]') || element;
-  target.style.outline = on ? '3px solid #d946ef' : '';
-  target.style.outlineOffset = on ? '2px' : '';
-}"""
+OUTLINE = load("toggle_outline")
 
 
 def _line(what: str, detail: str, style: str = "") -> None:

@@ -273,7 +273,8 @@ fill, on any site. `repairer.py` retries one failed field — every applicable
 strategy for a `strategy` failure, every other rendering of the fact for a
 `format` failure — and returns the first that reads back. `jobs/safety.py` holds
 everything that keeps the worker from submitting: the two independent guards, a
-page script that cancels submissions and submit-labelled clicks and a network
+page script (`page_scripts/submit_guard.js`, installed only from `safety.py`)
+that cancels submissions and submit-labelled clicks and a network
 route that aborts any non-GET request naming a submission, and the worker's own
 refusal to operate a control that reads as submitting. A repair or validation
 page is guarded from before it loads. Your own tab is guarded only while the
@@ -634,8 +635,7 @@ reports each fill to a `FillObserver` before and after operating it, which
 **The registry layout.** `jobs/registry/` is where built-ins and learned
 fixes share one layout, one package per category: `kinds/` classifies controls
 and `kinds/custom.py` holds kinds a site taught; `strategies/` holds the
-operations that operate each kind by family (native, combobox, buttons, upload,
-suggestions) beside the candidate tables and `OPERATIONS`; `formats/` renders a
+operations that operate each kind by family (native, combobox, upload) beside the candidate tables and `OPERATIONS`; `formats/` renders a
 fact per family (dates, money, phone, choices, places, text) behind
 `render`/`renderings`; `questions/` and `routes/` hold question readers and
 per-site posting routes. `api.py` is the only module a learned file may import:

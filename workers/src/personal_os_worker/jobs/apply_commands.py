@@ -16,6 +16,7 @@ from personal_os_worker.jobs.commands import (
     by_ats,
     today_listings,
 )
+from personal_os_worker.jobs.page_scripts import load
 
 POSTING_URL = re.compile(r"^https?://", re.IGNORECASE)
 SITE_SUFFIX = re.compile(r"\.(jobs|careers|com|io|co|net|org)$", re.IGNORECASE)
@@ -94,14 +95,7 @@ def read_posting_identity(url: str) -> tuple[str, str]:
     with VisibleBrowser(config.cdp_url) as browser:
         page, _reused = browser.application_page(url, console_errors=[], fresh=False)
         rendered_body_text(page, timeout_ms=15_000)
-        meta = page.evaluate(
-            """() => ({
-              page_title: document.title || '',
-              og_title: document.querySelector('meta[property="og:title"]')?.content || '',
-              site_name: document.querySelector('meta[property="og:site_name"]')?.content || '',
-              heading: document.querySelector('h1')?.innerText || '',
-            })"""
-        )
+        meta = page.evaluate(load("posting_identity"))
     return guess_identity(url=url, **{key: str(value) for key, value in meta.items()})
 
 

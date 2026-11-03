@@ -1,4 +1,7 @@
-"""Native-control strategies: selects, checkboxes, and plain value writes."""
+"""Native-control strategies: selects, checkboxes, and plain value writes.
+
+Button-group strategies: pressable aria buttons as a choice.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +10,7 @@ from typing import Any
 from playwright.sync_api import Error
 
 from personal_os_worker.jobs.autofill import MULTI
+from personal_os_worker.jobs.page_scripts import load
 from personal_os_worker.jobs.registry.strategies import (
     CONTROL_TIMEOUT_MS,
     Attempt,
@@ -43,6 +47,34 @@ def _select_multiple(attempt: Attempt) -> str | None:
         raise NoMatchingOption("no unambiguous select options")
     attempt.control.select_option(label=chosen, timeout=CONTROL_TIMEOUT_MS)
     return MULTI.join(chosen)
+
+
+# The nearest ancestor holding a group of aria-pressed buttons: the same
+# generic test the detector uses, so no site's class names are involved.
+BUTTON_GROUP_XPATH = "xpath=ancestor::*[count(.//button[@aria-pressed]) >= 2][1]"
+
+def button_choice(texts: list[str], value: str) -> str | None:
+    """The one pressable button that answers the value."""
+    chosen = option_match(texts, value)
+    if chosen is None and {text.casefold() for text in texts} == {"yes", "no"}:
+        wanted = "yes" if value.strip().casefold() == "yes" else "no"
+        chosen = next(text for text in texts if text.casefold() == wanted)
+    return chosen
+
+
+def _button_group(control: Any) -> tuple[Any, list[str]]:
+    buttons = control.locator(BUTTON_GROUP_XPATH).locator("button[aria-pressed]")
+    texts = [str(buttons.nth(index).inner_text()).strip() for index in range(buttons.count())]
+    return buttons, texts
+
+def _click_option_button(attempt: Attempt) -> str | None:
+    buttons, texts = _button_group(attempt.control)
+    chosen = button_choice(texts, str(attempt.fill.value))
+    if chosen is None:
+        raise NoMatchingOption("no unambiguous option button")
+    buttons.nth(texts.index(chosen)).click(timeout=CONTROL_TIMEOUT_MS)
+    return chosen
+
 
 def _check_control(attempt: Attempt) -> str | None:
     if captcha_challenge_present(attempt.page):
@@ -86,16 +118,7 @@ def set_registered_value(control: Any, value: str) -> None:
     control.focus(timeout=CONTROL_TIMEOUT_MS)
     control.evaluate(
         timeout=CONTROL_TIMEOUT_MS,
-        expression="""
-        (element, value) => {
-          const proto = element instanceof HTMLTextAreaElement
-            ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-          const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-          if (setter) setter.call(element, value); else element.value = value;
-          element.dispatchEvent(new Event('input', {bubbles: true}));
-          element.dispatchEvent(new Event('change', {bubbles: true}));
-        }
-        """,
+        expression=load("set_value"),
         arg=value,
     )
     control.click(timeout=CONTROL_TIMEOUT_MS)

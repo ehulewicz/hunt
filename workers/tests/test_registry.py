@@ -20,7 +20,7 @@ from personal_os_worker.jobs.registry.strategies import (
     candidates,
     captcha_challenge_present,
 )
-from personal_os_worker.jobs.registry.strategies.buttons import button_choice
+from personal_os_worker.jobs.registry.strategies.native import button_choice
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

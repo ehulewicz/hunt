@@ -12,6 +12,8 @@ import json
 import re
 from typing import Any
 
+from personal_os_worker.jobs import page_scripts
+
 CONTROL_KINDS = (
     "text_entry",
     "native_select",
@@ -112,11 +114,7 @@ def question_of(field: dict[str, Any]) -> str:
 _READ_SCRIPTS = {
     "text": "(element) => String(element.innerText || element.textContent || '').trim()",
     "value": "(element) => String(element.value || '')",
-    "selected": """element => (element.tagName === 'SELECT'
-  ? [...element.selectedOptions]
-  : [...element.querySelectorAll(
-      '[aria-selected="true"], [aria-pressed="true"], [aria-checked="true"]')])
-    .map(node => String(node.textContent || '').trim()).join(', ')""",
+    "selected": page_scripts.load("selected_texts"),
 }
 # A kind's read returns {value, label?, options?, required?, filled?}: the
 # compose below wraps the reads expression the same way custom kinds do.
@@ -193,13 +191,7 @@ def learned_question(control: Any, site: str) -> tuple[str, Any]:
             continue
         try:
             text = control.evaluate(
-                r"""(element, [group_selector, question_selector]) => {
-  const group = element.closest(group_selector);
-  return group
-    ? (group.querySelector(question_selector)?.textContent || '')
-        .replace(/\s+/g, ' ').trim()
-    : '';
-}""",
+                page_scripts.load("group_question"),
                 [reader.group_selector, reader.question_selector],
             )
         except Exception:

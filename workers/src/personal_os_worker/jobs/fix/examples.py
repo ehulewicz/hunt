@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from personal_os_worker.jobs import registry
+from personal_os_worker.jobs import page_scripts, registry
 from personal_os_worker.jobs.registry.api import (
     Format,
     Kind,
@@ -100,13 +100,7 @@ def _reader_failures(declaration: QuestionReader, fixture_dir: Path, page: Any =
             continue
         try:
             text = page.locator(example.selector).first.evaluate(
-                """(element, [group_selector, question_selector]) => {
-  const group = element.closest(group_selector);
-  return group
-    ? (group.querySelector(question_selector)?.textContent || '')
-        .replace(/\\s+/g, ' ').trim()
-    : '';
-}""",
+                page_scripts.load("group_question"),
                 [declaration.group_selector, declaration.question_selector],
             )
         except Exception as error:
@@ -139,11 +133,7 @@ def _read_back(page: Any, control: Any, reads: str = "") -> str:
     """What the control holds, the way verify_control would read the kind."""
     script = {
         "text": "element => String(element.innerText || element.textContent || '').trim()",
-        "selected": """element => (element.tagName === 'SELECT'
-  ? [...element.selectedOptions]
-  : [...element.querySelectorAll(
-      '[aria-selected="true"], [aria-pressed="true"], [aria-checked="true"]')])
-    .map(node => String(node.textContent || '').trim()).join(', ')""",
+        "selected": page_scripts.load("selected_texts"),
     }.get(reads or "value")
     if script is None and str(reads).startswith("attribute:"):
         name = str(reads)[len("attribute:"):]

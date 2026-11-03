@@ -33,6 +33,7 @@ from playwright.sync_api import Error, Page
 
 from personal_os_worker.core.tables import console
 from personal_os_worker.jobs.browser import registrable_site, rendered_body_text
+from personal_os_worker.jobs.page_scripts import load
 
 MAX_HOPS = 4
 RESULT_WAIT_MS = 2_500
@@ -108,11 +109,7 @@ def title_queries(title: str) -> list[str]:
     return queries[:6]
 
 
-HEADINGS_SCRIPT = r"""
-() => [document.title, ...[...document.querySelectorAll('h1, h2, [role="heading"]')]
-  .slice(0, 6).map(node => node.innerText || '')]
-  .map(text => text.replace(/\s+/g, ' ').trim()).filter(Boolean)
-"""
+HEADINGS_SCRIPT = load("page_headings")
 
 
 def headings(page: Page) -> list[str]:
@@ -165,16 +162,7 @@ def title_score(text: str, title: str) -> float:
     return score - min(extra, 10) * 0.02
 
 
-LINKS_SCRIPT = r"""
-() => [...document.querySelectorAll('a[href], [role="link"], [role="button"], button')]
-  .map((node, index) => ({
-    index,
-    text: (node.innerText || node.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim(),
-    href: node.href || '',
-    visible: Boolean(node.offsetWidth || node.offsetHeight || node.getClientRects().length),
-  }))
-  .filter(item => item.visible && item.text && item.text.length <= 160)
-"""
+LINKS_SCRIPT = load("page_links")
 SELECTOR = 'a[href], [role="link"], [role="button"], button'
 
 
@@ -233,21 +221,7 @@ def open_listing(page: Page, *, start: str) -> bool:
     return _click(page, int(found[0]["index"]))
 
 
-SEARCH_BOX_SCRIPT = r"""
-pattern => {
-  const matches = new RegExp(pattern, 'i');
-  const boxes = [...document.querySelectorAll(
-    'input[type="search"], [role="searchbox"], input[type="text"], input:not([type])'
-  )].filter(node => node.offsetWidth || node.offsetHeight || node.getClientRects().length);
-  const named = node => [node.getAttribute('placeholder'), node.getAttribute('aria-label'),
-    node.getAttribute('name'), node.id, node.getAttribute('type')].join(' ');
-  const index = boxes.findIndex(node => node.type === 'search'
-    || node.getAttribute('role') === 'searchbox' || matches.test(named(node)));
-  if (index < 0) return null;
-  const all = [...document.querySelectorAll('input, [role="searchbox"]')];
-  return all.indexOf(boxes[index]);
-}
-"""
+SEARCH_BOX_SCRIPT = load("search_box")
 
 
 def search_box(page: Page) -> Any | None:

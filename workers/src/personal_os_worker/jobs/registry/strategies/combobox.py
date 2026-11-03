@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import date
 from typing import Any
 
@@ -11,13 +12,18 @@ from playwright.sync_api import Error, Page
 
 from personal_os_worker.jobs.office import parse
 from personal_os_worker.jobs.options import choose_option, choose_synonym, normalize_question
+from personal_os_worker.jobs.page_scripts import load
 from personal_os_worker.jobs.registry.formats.choices import (
     affirmative_option,
     source_option,
     yes_no_option,
 )
 from personal_os_worker.jobs.registry.formats.dates import choose_date_range
-from personal_os_worker.jobs.registry.strategies import CONTROL_TIMEOUT_MS, Attempt
+from personal_os_worker.jobs.registry.strategies import (
+    CONTROL_TIMEOUT_MS,
+    Attempt,
+    NoMatchingOption,
+)
 
 
 def _combobox_choose_from_menu(attempt: Attempt) -> str | None:
@@ -80,18 +86,7 @@ def _menu_options(control: Any) -> Any:
 # An option's text, wherever its component renders it: its own text, else
 # what its <slot>s show, else its shadow host's light text (SmartRecruiters'
 # dropdown items keep the text outside the shadow root that holds role=option).
-OPTION_TEXT_SCRIPT = """
-element => {
-  const own = (element.innerText || '').trim();
-  if (own) return own;
-  const slotted = [...element.querySelectorAll('slot')]
-    .flatMap(slot => slot.assignedNodes({flatten: true}))
-    .map(node => node.textContent || '').join(' ').replace(/\\s+/g, ' ').trim();
-  if (slotted) return slotted;
-  const host = element.getRootNode().host;
-  return host ? (host.innerText || host.textContent || '').replace(/\\s+/g, ' ').trim() : '';
-}
-"""
+OPTION_TEXT_SCRIPT = load("option_text")
 
 
 def _visible_texts(options: Any) -> tuple[list[int], list[str]]:
@@ -219,21 +214,7 @@ def select_combobox_option(page: Page, control: Any, value: str) -> str:
     control.press("Escape", timeout=CONTROL_TIMEOUT_MS)
     raise RuntimeError("no unambiguous combobox option")
 
-COMBOBOX_VALUE_SCRIPT = """
-    element => {
-      const own = String(element.value || '').trim();
-      if (own) return own;
-      let shell = element.parentElement;
-      for (let depth = 0; shell && depth < 4; depth += 1) {
-        const chosen = shell.querySelector('[class*="single-value"], [class*="multi-value"]');
-        if (chosen && chosen.textContent.trim()) return chosen.textContent.trim();
-        const mirror = shell.querySelector('input[aria-hidden="true"]');
-        if (mirror && String(mirror.value || '').trim()) return String(mirror.value).trim();
-        shell = shell.parentElement;
-      }
-      return '';
-    }
-"""
+COMBOBOX_VALUE_SCRIPT = load("combobox_value")
 
 
 def combobox_value(control: Any) -> str:
@@ -261,3 +242,44 @@ def combobox_shows(control: Any, expected: str) -> bool:
             "element => !String(element.value || '').trim()", timeout=CONTROL_TIMEOUT_MS
         )
     )
+
+
+# The visible, childless texts inside a field's own container: what a
+# suggestion list without ARIA roles shows once something is typed.
+FIELD_TEXTS_SCRIPT = load("field_texts")
+
+
+def _type_and_pick_suggestion(attempt: Attempt) -> str | None:
+    """Type into a text box whose suggestions are plain elements, then click the match.
+
+    Some autocompletes (Lever's location) render suggestions with no ARIA
+    roles and clear the box on blur unless one is chosen. What appears in
+    the field's own container after typing is the suggestion list; the full
+    answer is typed first, then only its first part ("Atlanta"), since a
+    places search rarely knows "Atlanta, Georgia, United States".
+    """
+    control = attempt.control
+    value = str(attempt.fill.value)
+    before = set(control.evaluate(FIELD_TEXTS_SCRIPT, timeout=CONTROL_TIMEOUT_MS))
+    for typed in dict.fromkeys([value, value.split(",")[0].strip()]):
+        control.fill("", timeout=CONTROL_TIMEOUT_MS)
+        control.press_sequentially(typed, delay=30, timeout=CONTROL_TIMEOUT_MS)
+        deadline = time.monotonic() + SUGGESTION_TIMEOUT_S
+        while time.monotonic() < deadline:
+            attempt.page.wait_for_timeout(250)
+            texts = [
+                text
+                for text in control.evaluate(FIELD_TEXTS_SCRIPT, timeout=CONTROL_TIMEOUT_MS)
+                if text not in before
+            ]
+            chosen = _pick_suggestion(texts, value) if texts else None
+            if chosen is not None:
+                box = control.locator(
+                    "xpath=ancestor::*[self::li or self::fieldset or contains(@class,'question')"
+                    " or contains(@class,'field')][1]"
+                )
+                box.get_by_text(chosen, exact=True).first.click(timeout=CONTROL_TIMEOUT_MS)
+                attempt.page.wait_for_timeout(300)
+                shown = str(control.input_value(timeout=CONTROL_TIMEOUT_MS)).strip()
+                return shown or chosen
+    raise NoMatchingOption("no suggestion matched what was typed")

@@ -7,44 +7,19 @@ from typing import Any, cast
 
 from playwright.sync_api import Error, Page
 
+from personal_os_worker.jobs.page_scripts import load
 from personal_os_worker.jobs.registry.strategies import CONTROL_TIMEOUT_MS, Attempt
 
 # Whether a file control's upload is something you can see: its file is chosen,
 # and the control sits in a rendered part of the page (a styled-over input in a
 # visible dropzone counts) or the file's name shows. A file in a panel nobody
 # opened — JazzHR's "Attach resume" — is not shown to you, whatever the input holds.
-UPLOAD_SHOWN = """
-element => {
-  const files = [...(element.files || [])];
-  if (!files.length) return false;
-  if (element.parentElement && element.parentElement.getClientRects().length) return true;
-  const text = element.ownerDocument.body ? element.ownerDocument.body.innerText : '';
-  return files.some(file => text.includes(file.name));
-}
-"""
+UPLOAD_SHOWN = load("upload_shown")
 
 # The one control that opens a file input's closed panel: a visible link or
 # button saying attach or upload in the field around it, which holds no other
 # file input. Never one that navigates, submits, pastes, or reaches a cloud drive.
-UPLOAD_OPENER = """
-element => {
-  if (element.parentElement && element.parentElement.getClientRects().length) return null;
-  let block = element.parentElement;
-  while (block && !block.getClientRects().length) block = block.parentElement;
-  if (!block || block === document.body || block === document.documentElement) return null;
-  if (block.querySelectorAll('input[type="file"]').length !== 1) return null;
-  const openers = [...block.querySelectorAll('a, button, [role="button"]')].filter(node => {
-    if (!node.getClientRects().length) return false;
-    const text = (node.textContent || '').trim();
-    if (!/\\b(attach|upload|browse|choose|select)\\b/i.test(text)) return false;
-    if (/paste|remove|delete|linkedin|dropbox|drive|indeed|submit|apply/i.test(text)) return false;
-    if (node.tagName === 'BUTTON' && node.type === 'submit') return false;
-    const href = (node.getAttribute('href') || '').trim();
-    return !(node.tagName === 'A' && href && !/^(#|javascript:)/i.test(href));
-  });
-  return openers.length === 1 ? openers[0] : null;
-}
-"""
+UPLOAD_OPENER = load("upload_opener")
 FILE_CHOOSER_WAIT_MS = 1_000
 
 

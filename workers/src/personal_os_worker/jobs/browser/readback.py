@@ -17,14 +17,14 @@ from personal_os_worker.jobs.registry.kinds import question_of
 from personal_os_worker.jobs.registry.strategies import (
     CONTROL_TIMEOUT_MS,
 )
-from personal_os_worker.jobs.registry.strategies.buttons import (
-    BUTTON_GROUP_XPATH,
-    _button_group,
-    button_choice,
-)
 from personal_os_worker.jobs.registry.strategies.combobox import (
     combobox_shows,
     combobox_value,
+)
+from personal_os_worker.jobs.registry.strategies.native import (
+    BUTTON_GROUP_XPATH,
+    _button_group,
+    button_choice,
 )
 from personal_os_worker.jobs.registry.strategies.upload import _verify_upload
 from personal_os_worker.jobs.sites import option_match
