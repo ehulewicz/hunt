@@ -401,7 +401,7 @@ def test_ten_identical_widgets_cost_one_fix(
 
         deadline = time.monotonic() + 240
         while time.monotonic() < deadline:
-            for each in problems:
+            for _ in problems:
                 queue.at_safe_point(lambda: dict(ARGS), recheck)
             states = {p.key: queue.statuses[p.key].state for p in problems}
             if all(state == "kept" for state in states.values()):
