@@ -18,15 +18,14 @@ from personal_os_worker.cli_parser import build_parser, expand_shorthand
 from personal_os_worker.core import commands as services
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.auth import LoginError
-from personal_os_worker.core.config import load_cli_config
+from personal_os_worker.core.config import ReferenceError, console, load_cli_config
 from personal_os_worker.core.service import ApiUnavailable, ChromeUnavailable
-from personal_os_worker.core.tables import ReferenceError, console
 from personal_os_worker.core.tls import tls
 from personal_os_worker.device import commands as devices
-from personal_os_worker.documents import resume as resumes
 from personal_os_worker.jobs import apply_commands, history, inbox, knowledge
 from personal_os_worker.jobs import commands as hunt
 from personal_os_worker.jobs.commands import DEFAULT_TECHNICAL_FAMILIES
+from personal_os_worker.jobs.facts import career as resumes
 from personal_os_worker.jobs.facts import commands as facts
 from personal_os_worker.jobs.repair import commands as repairs
 

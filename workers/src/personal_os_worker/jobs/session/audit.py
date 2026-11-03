@@ -8,7 +8,7 @@ from typing import Any
 
 from playwright.sync_api import Error
 
-from personal_os_worker.core.tables import console
+from personal_os_worker.core.config import console
 from personal_os_worker.jobs.answer_check import FilledAnswer
 from personal_os_worker.jobs.audit import (
     REPAIRABLE_CAUSES,

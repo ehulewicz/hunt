@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from personal_os_worker.cli import expand_shorthand, run_resume
-from personal_os_worker.documents.resume import download_resume_pdf, rejection
+from personal_os_worker.jobs.facts.career import download_resume_pdf, rejection
 
 
 class FakeApi:

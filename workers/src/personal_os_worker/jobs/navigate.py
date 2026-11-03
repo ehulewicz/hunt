@@ -31,7 +31,7 @@ from urllib.parse import urlsplit
 
 from playwright.sync_api import Error, Page
 
-from personal_os_worker.core.tables import console
+from personal_os_worker.core.config import console
 from personal_os_worker.jobs.browser import registrable_site, rendered_body_text
 from personal_os_worker.jobs.page_scripts import load
 

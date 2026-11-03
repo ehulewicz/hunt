@@ -28,8 +28,8 @@ from playwright.sync_api import Error, Page
 
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
+from personal_os_worker.core.config import ReferenceError, console
 from personal_os_worker.core.service import ensure_chrome
-from personal_os_worker.core.tables import ReferenceError, console
 from personal_os_worker.jobs.autofill import FormFill
 from personal_os_worker.jobs.browser import (
     VisibleBrowser,

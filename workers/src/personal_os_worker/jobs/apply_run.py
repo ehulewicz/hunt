@@ -13,9 +13,9 @@ from playwright.sync_api import Error
 
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
+from personal_os_worker.core.config import console
 from personal_os_worker.core.doctor import python_check
 from personal_os_worker.core.service import ensure_chrome
-from personal_os_worker.core.tables import console
 from personal_os_worker.device.link import socket_path
 from personal_os_worker.jobs.account import AccountFlow
 from personal_os_worker.jobs.posting_page import _reach_the_posting
@@ -153,7 +153,7 @@ def _run_application(posting_id: str, options: _ApplyOptions) -> str:
 def _prepare(remote: bool) -> tuple[CliConfig, WorkerApi]:
     """Refuse a run that cannot start, then connect and settle what earlier runs left."""
     from personal_os_worker.core.service import state_dir
-    from personal_os_worker.jobs.fix.scratch import clear_stale
+    from personal_os_worker.jobs.fix.gates import clear_stale
     from personal_os_worker.jobs.knowledge import report_pending_facts, resolve_pending_facts
 
     if remote and not socket_path().exists():
@@ -182,7 +182,7 @@ def _create_run(
 ) -> tuple[dict[str, Any], dict[str, Any], Path, dict[str, Any]]:
     """Read the career record and the resume PDF, then create the run."""
     from personal_os_worker.core.service import state_dir
-    from personal_os_worker.documents.resume import download_resume_pdf
+    from personal_os_worker.jobs.facts.career import download_resume_pdf
     from personal_os_worker.jobs.sites import adapter_version
 
     career = api.career()
@@ -289,7 +289,7 @@ def _fill_application(
     options: _ApplyOptions,
 ) -> str:
     """Reach the posting, fill it in one session, and record how the run ended."""
-    from personal_os_worker.documents.resume import transcript_pdf_path
+    from personal_os_worker.jobs.facts.career import transcript_pdf_path
     from personal_os_worker.jobs.session import AutofillSession, SessionContext
 
     expected_company = str(run["company_name"])
@@ -368,8 +368,8 @@ def _announce(
 
 def _linked(link: RunLink | None, accept_letter: bool) -> dict[str, Any]:
     """The session's link, keys and letter editor, as this run is linked or not."""
+    from personal_os_worker.jobs.cover_letter import review_letter
     from personal_os_worker.jobs.keys import KeyWatcher
-    from personal_os_worker.jobs.letter_review import review_letter
     from personal_os_worker.jobs.remote import LinkedKeys
 
     linked: dict[str, Any] = {}

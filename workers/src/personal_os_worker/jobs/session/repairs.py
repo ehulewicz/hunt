@@ -11,7 +11,7 @@ import httpx
 from playwright.sync_api import Error
 from rich.markup import escape
 
-from personal_os_worker.core.tables import console
+from personal_os_worker.core.config import console
 from personal_os_worker.jobs.answer_check import WORKER_SOURCES
 from personal_os_worker.jobs.audit import (
     Finding,

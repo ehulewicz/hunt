@@ -24,7 +24,7 @@ from typing import IO, Any, cast
 
 from playwright.sync_api import Error, Page
 
-from personal_os_worker.core.tables import console
+from personal_os_worker.core.config import console
 from personal_os_worker.device.link import AGENT_RUN_ENV, LinkClient, ansi_spans, socket_path
 from personal_os_worker.jobs.audit import Finding
 from personal_os_worker.jobs.facts.catalog import entry

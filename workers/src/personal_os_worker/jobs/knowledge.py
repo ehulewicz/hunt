@@ -27,7 +27,7 @@ from rich.table import Table
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.auth import LoginError
 from personal_os_worker.core.commands import connected
-from personal_os_worker.core.tables import console, pick, short_id
+from personal_os_worker.core.config import console, pick, short_id
 from personal_os_worker.jobs import replay
 from personal_os_worker.jobs.archive.lookup import translate
 from personal_os_worker.jobs.archive.rules import RULES

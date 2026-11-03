@@ -8,8 +8,8 @@ from urllib.parse import urlsplit
 
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
+from personal_os_worker.core.config import console, pick
 from personal_os_worker.core.service import ensure_chrome
-from personal_os_worker.core.tables import console, pick
 from personal_os_worker.jobs.apply_run import apply_posting
 from personal_os_worker.jobs.commands import (
     DEFAULT_TECHNICAL_FAMILIES,
@@ -219,7 +219,7 @@ def run_autofill_failure_command(action: str | None, reference: str | None) -> i
     "problem|"); an unsolved one stays unsolved until `--retry` puts it back
     on the queue or a new fixer API version reopens them all.
     """
-    from personal_os_worker.core.tables import short_id
+    from personal_os_worker.core.config import short_id
 
     if action not in {"list", "show", "retry"}:
         raise RuntimeError(

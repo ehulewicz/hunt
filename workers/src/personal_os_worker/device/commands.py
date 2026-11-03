@@ -9,9 +9,8 @@ import httpx
 
 from personal_os_worker.core import service
 from personal_os_worker.core.commands import connected
-from personal_os_worker.core.config import load_cli_config
+from personal_os_worker.core.config import console, load_cli_config
 from personal_os_worker.core.service import state_dir
-from personal_os_worker.core.tables import console
 from personal_os_worker.core.tls import tls
 from personal_os_worker.device.heartbeat import Presence, doctor_checks, readiness
 from personal_os_worker.device.identity import (

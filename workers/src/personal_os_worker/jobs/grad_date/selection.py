@@ -1,4 +1,4 @@
-"""Whether a posting's stated graduation requirement calls for the later resume.
+"""The later-graduating resume variant, and whether a posting's stated requirement calls for it.
 
 Parked; see README.md in this package. Nothing in the apply path calls this.
 
@@ -21,10 +21,23 @@ import json
 import subprocess
 from collections.abc import Callable
 from functools import partial
+from typing import Any
 
 from personal_os_worker.jobs import model
-from personal_os_worker.jobs.grad_date.variants import CANONICAL_GRADUATION
 from personal_os_worker.jobs.model_errors import ModelError
+
+CANONICAL_GRADUATION = "December 2027"
+LATER_GRADUATION = "May 2028"
+
+
+def with_graduation(resume: dict[str, Any], graduation: str) -> dict[str, Any]:
+    """The v2 resume document with the primary school's graduation swapped."""
+    education = [
+        {**school, "graduation": graduation} if school.get("primary") else dict(school)
+        for school in resume.get("education") or []
+    ]
+    return {**resume, "education": education}
+
 
 SCHEMA = {
     "type": "object",

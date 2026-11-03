@@ -1,10 +1,17 @@
-"""Career-derived facts: what the career record determines, as of a date."""
+"""Career-derived facts as of a date, and the career record's resume fetched through the API."""
 
 from __future__ import annotations
 
+import os
 import re
 from datetime import date
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import httpx
+
+if TYPE_CHECKING:
+    from personal_os_worker.core.api import WorkerApi
 
 # A co-op rotation is complete once its boundary is reached: spring on May 1,
 # summer on August 1, fall on November 1 (decided 2026-10-08). Rotations are
@@ -233,3 +240,45 @@ def shadowed(stored: dict[str, Any], career: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value for key, value in career.items() if key in stored and stored[key] != value
     }
+
+
+def repository_root() -> Path:
+    configured = os.environ.get("PERSONAL_OS_REPOSITORY")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    # workers/src/personal_os_worker/jobs/facts/career.py -> repository root
+    return Path(__file__).resolve().parents[5]
+
+
+def transcript_pdf_path() -> Path | None:
+    """The tracked transcript beside the resume, when there is one."""
+    path = repository_root() / "artifacts" / "career" / "Transcript.pdf"
+    return path if path.exists() else None
+
+
+RESUME_PDF_NAME = "Alex_Example.pdf"
+
+
+def download_resume_pdf(api: WorkerApi, directory: Path) -> Path:
+    """The published resume PDF, written atomically as `directory/Alex_Example.pdf`."""
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / RESUME_PDF_NAME
+    temporary = directory / f".{RESUME_PDF_NAME}.tmp"
+    temporary.write_bytes(api.resume_pdf())
+    temporary.replace(target)
+    return target
+
+
+def rejection(error: httpx.HTTPStatusError) -> str:
+    """What the API said was wrong with a document, as one line."""
+    try:
+        detail = error.response.json().get("detail")
+    except ValueError:
+        return error.response.text.strip() or str(error)
+    if isinstance(detail, list):
+        return "; ".join(
+            f"{'.'.join(str(part) for part in item.get('loc', [])[1:])}: {item.get('msg')}"
+            for item in detail
+            if isinstance(item, dict)
+        )
+    return str(detail)

@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from personal_os_worker.core.tables import console
+from personal_os_worker.core.config import console
 from personal_os_worker.jobs import model
 from personal_os_worker.jobs.compose import LibraryText, Posting, compose
 from personal_os_worker.jobs.library import link_entries, parse_bank

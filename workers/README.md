@@ -250,18 +250,18 @@ what disagrees is printed, and a failed replay puts the fact in the Inbox as
 contradicted. `facts set`, `facts review`, the Inbox, and a fact given mid-run
 all replay what they set.
 
-**Prose attribution.** `jobs/provenance.py` marks matching stretches of a final
-long-form answer as `previous` or `model`; unmarked text is yours. Previous
-writing wins when both sources match, and matches shorter than 16 characters
-are ignored. Spans use character offsets in the final text, are ordered, and
-never overlap. Every run saves its prose for review, including runs not submitted:
-a long-form answer goes to the API the moment its text changes, a draft as it is
-written and your edits as you make them, so a killed run loses none of it.
-For a new question, the worker asks FastAPI for semantically similar questions
-with approved prose, caches that result for the run, and supplies up to five
-pieces to the existing drafting call. Exact approved questions reuse their prose
-directly. If semantic search is unavailable, it reports that and uses the
-existing wording comparison; no embedding key is kept on the device.
+**Prose attribution.** `spans` in `jobs/session/capture.py` marks matching
+stretches of a final long-form answer as `previous` or `model`; unmarked text is
+yours. Previous writing wins when both sources match, and matches shorter than
+16 characters are ignored. Spans use character offsets in the final text, are
+ordered, and never overlap. Every run saves its prose for review, including runs
+not submitted: a long-form answer goes to the API the moment its text changes, a
+draft as it is written and your edits as you make them, so a killed run loses
+none of it. For a new question, the worker asks FastAPI for semantically similar
+questions with approved prose, caches that result for the run, and supplies up
+to five pieces to the existing drafting call. Exact approved questions reuse
+their prose directly. If semantic search is unavailable, it reports that and
+uses the existing wording comparison; no embedding key is kept on the device.
 
 ## Repair
 

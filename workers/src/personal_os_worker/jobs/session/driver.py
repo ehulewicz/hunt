@@ -8,7 +8,7 @@ from typing import Any
 
 from playwright.sync_api import Error
 
-from personal_os_worker.core.tables import console
+from personal_os_worker.core.config import console
 from personal_os_worker.jobs import model
 from personal_os_worker.jobs.autofill_timing import AutofillTimings
 from personal_os_worker.jobs.browser import (

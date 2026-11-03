@@ -8,16 +8,15 @@ case attaches the canonical resume (December 2027) and answers every
 
 ## What exists and works (unit-tested, never run live end to end)
 
-- `variants.py` — `with_graduation(resume, date)` patches only
-  `education.graduation`; `later_graduation_resume_pdf()` compiles a May 2028
-  copy of `artifacts/career/main.json`, cached under
-  `state_dir()/resume-variants/later-graduation.pdf` and rebuilt when the
-  canonical source is newer. `CANONICAL_GRADUATION` / `LATER_GRADUATION` are the
-  only two dates the resume has ever carried.
-- `selection.py` — `requires_later_graduation(posting_text)`: one bounded
-  `claude -p` call with a JSON schema; true only at `high` confidence when the
-  posting explicitly requires graduating after December 2027 (minimum class
-  year, "must graduate after X", "class of 2028 or later").
+- `selection.py` — `with_graduation(resume, date)` patches only
+  `education.graduation`, and `CANONICAL_GRADUATION` / `LATER_GRADUATION` are
+  the only two dates the resume has ever carried. `requires_later_graduation(
+  posting_text)` is one bounded `claude -p` call with a JSON schema; true only
+  at `high` confidence when the posting explicitly requires graduating after
+  December 2027 (minimum class year, "must graduate after X", "class of 2028
+  or later"). The May 2028 PDF builder (`later_graduation_resume_pdf()`) no
+  longer exists: the backend now builds the one resume PDF from the career
+  record.
 
 Until 2026-09-14 `apply_posting` called both: on a `true` it attached the
 variant PDF and patched `resume_json` for the answer tiers. That wiring is

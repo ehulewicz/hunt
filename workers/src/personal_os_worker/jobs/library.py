@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from personal_os_worker.core.tables import console
-from personal_os_worker.documents.resume import rejection
+from personal_os_worker.core.config import console
+from personal_os_worker.jobs.facts.career import rejection
 
 if TYPE_CHECKING:
     from personal_os_worker.core.api import WorkerApi

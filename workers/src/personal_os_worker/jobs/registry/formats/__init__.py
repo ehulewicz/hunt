@@ -8,9 +8,9 @@ rendering one option actually matches. Every rendering names its formatter, so a
 value that fits no option is a `format` failure that can be attributed.
 
 The families hold the renderings: `dates`, `money`, `phone`, `choices` (yes/no,
-polarity, consent and source), `places` (states, countries, schools, a city
-with its state, the comparisons), and `text` (plain text, numbers, lists,
-notice-within). This module holds what they share and the dispatch.
+polarity, consent and source), and `places` (states, countries, schools, a city
+with its state, the comparisons). This module holds what they share, the text
+renderings (plain text, numbers, lists, notice-within), and the dispatch.
 """
 
 from __future__ import annotations
@@ -120,7 +120,30 @@ from personal_os_worker.jobs.registry.formats.places import (  # noqa: E402
     _comparison,
     _state_option,
 )
-from personal_os_worker.jobs.registry.formats.text import _notice_within  # noqa: E402
+
+WITHIN = re.compile(
+    r"\bwithin\s+(\d+|one|two|three|four|five|six|seven|eight)\s+(weeks?|days?)\b",
+    re.IGNORECASE,
+)
+SMALL_NUMBERS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+}
+
+
+def _notice_within(key: str, value: Any, question: str) -> bool | None:
+    """"Can you start within 3 weeks?" answered from the notice period in weeks."""
+    asked = WITHIN.search(question) if key == "availability.notice_period_weeks" else None
+    if asked is None:
+        return None
+    try:
+        weeks = float(value)
+    except (TypeError, ValueError):
+        return None
+    count = asked.group(1).casefold()
+    limit = float(SMALL_NUMBERS.get(count) or count)
+    if asked.group(2).casefold().startswith("day"):
+        limit /= 7
+    return weeks <= limit
 
 
 def _standing(

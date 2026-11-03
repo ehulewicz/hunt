@@ -1,4 +1,4 @@
-from personal_os_worker.jobs.provenance import spans
+from personal_os_worker.jobs.session.capture import spans
 
 
 def test_previous_writing_wins_over_a_model_that_copied_it() -> None:

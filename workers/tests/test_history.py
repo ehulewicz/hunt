@@ -3,7 +3,7 @@ from typing import Any, ClassVar
 import pytest
 
 from personal_os_worker.cli import build_parser, main
-from personal_os_worker.core.tables import console
+from personal_os_worker.core.config import console
 from personal_os_worker.jobs import history
 
 CODE_ID = "7a1b2c3d-0000-4000-8000-000000000001"

@@ -23,7 +23,7 @@ from rich.table import Table
 
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
-from personal_os_worker.core.tables import console, pick, short_id
+from personal_os_worker.core.config import console, pick, short_id
 
 CHANGE_SUBJECTS = ("pattern", "fact", "code", "prose", "question", "strategy")
 CHANGE_STATUSES = ("pending", "passed", "failed")

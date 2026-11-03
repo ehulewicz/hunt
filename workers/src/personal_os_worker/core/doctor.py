@@ -34,7 +34,7 @@ def run_doctor(
     """Core checks, plus whatever checks a vertical registers.
 
     Core knows sign-in, the API and Chrome. It must not know what a resume
-    needs to compile, so documents supplies those through `extra`.
+    needs to compile, so a vertical supplies those through `extra`.
     """
     checks = [DoctorCheck("Sign-in", True, "Google session loaded")]
     api = WorkerApi(config, access_token)

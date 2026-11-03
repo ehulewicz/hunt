@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from personal_os_worker.jobs.cover_letter import PLACEHOLDERS
-from personal_os_worker.jobs.letter_review import review_letter
+from personal_os_worker.jobs.cover_letter import PLACEHOLDERS, review_letter
 
 
 class FakeLink:

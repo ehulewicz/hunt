@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
+from personal_os_worker.core.config import console, pick
 from personal_os_worker.core.doctor import run_doctor
 from personal_os_worker.core.secrets import secrets_check
 from personal_os_worker.core.service import open_external_url
-from personal_os_worker.core.tables import console, pick
 from personal_os_worker.jobs.tables import render_applications, render_listings
 
 APPLICATION_STATUSES = (

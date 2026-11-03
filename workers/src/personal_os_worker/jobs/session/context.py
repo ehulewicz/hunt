@@ -12,7 +12,7 @@ from playwright.sync_api import Page
 from rich.markup import escape
 
 from personal_os_worker.core.api import WorkerApi
-from personal_os_worker.core.tables import console
+from personal_os_worker.core.config import console
 from personal_os_worker.jobs.account import AccountFlow
 from personal_os_worker.jobs.answer_check import (
     Judgement,
@@ -36,10 +36,10 @@ from personal_os_worker.jobs.cover_letter import (
     draft_slots,
     letter_pdf,
     load_template,
+    review_letter,
 )
 from personal_os_worker.jobs.fix.queue import FixQueue
 from personal_os_worker.jobs.keys import KeyWatcher, NoKeys
-from personal_os_worker.jobs.letter_review import review_letter
 from personal_os_worker.jobs.options import (
     choose_option,
     normalize_question,

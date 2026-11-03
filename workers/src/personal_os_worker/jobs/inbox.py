@@ -27,11 +27,10 @@ from typing import Any
 
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
-from personal_os_worker.core.tables import console
-from personal_os_worker.jobs.facts.catalog import CATALOG, entry
+from personal_os_worker.core.config import console
+from personal_os_worker.jobs.facts.catalog import CATALOG, entry, fact_values
 from personal_os_worker.jobs.facts.commands import VALUE_TYPES, display, parse_value
 from personal_os_worker.jobs.facts.derived import career_facts, derive
-from personal_os_worker.jobs.facts.values import fact_values
 
 Ask = Callable[[str], str]
 FACT_KEY = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")

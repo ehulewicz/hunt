@@ -17,9 +17,8 @@ from personal_os_worker.core.auth import (
     login,
     save_session,
 )
-from personal_os_worker.core.config import CliConfig, load_cli_config
+from personal_os_worker.core.config import CliConfig, console, load_cli_config
 from personal_os_worker.core.service import ensure_chrome
-from personal_os_worker.core.tables import console
 
 
 def _uptime(started_at: float) -> str:

@@ -1,4 +1,4 @@
-from personal_os_worker.jobs.grad_date import variants
+from personal_os_worker.jobs.grad_date import selection as variants
 
 
 def test_with_graduation_patches_the_primary_school_only() -> None:

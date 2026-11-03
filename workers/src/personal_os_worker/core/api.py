@@ -6,8 +6,7 @@ from typing import Any
 import httpx
 
 from personal_os_worker.core.auth import LoginError, SupabaseAuth, renewed_access_token
-from personal_os_worker.core.config import CliConfig
-from personal_os_worker.core.tables import ReferenceError
+from personal_os_worker.core.config import CliConfig, ReferenceError
 from personal_os_worker.core.tls import tls
 
 

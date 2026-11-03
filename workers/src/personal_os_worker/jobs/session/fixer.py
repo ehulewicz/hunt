@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 from playwright.sync_api import Error
 
-from personal_os_worker.core.tables import console
+from personal_os_worker.core.config import console
 from personal_os_worker.jobs.audit import (
     Finding,
     classify_unknown,

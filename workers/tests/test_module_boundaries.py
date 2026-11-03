@@ -1,7 +1,6 @@
 """The dependency direction between verticals, enforced.
 
-`jobs` may use `device` and `documents`, `device` may use `documents`, all may use
-`core`, and nothing points back up.
+`jobs` may use `device`, both may use `core`, and nothing points back up.
 Without this test the direction erodes one convenient import at a time: before
 it existed, `core.tables` reached into `jobs.adapters` for ATS detection and
 `core.doctor` reached into `documents.resume_pdf` for the LaTeX preamble.
@@ -19,8 +18,7 @@ PACKAGE = Path(__file__).resolve().parents[1] / "src" / "personal_os_worker"
 
 # layer -> layers it must never import
 FORBIDDEN = {
-    "core": ("jobs", "documents", "device"),
-    "documents": ("jobs", "device"),
+    "core": ("jobs", "device"),
     # The agent starts apply runs as processes; it never reaches into Jobs.
     "device": ("jobs",),
     "jobs": (),

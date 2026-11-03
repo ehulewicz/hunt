@@ -27,7 +27,7 @@ from typing import Any
 from playwright.sync_api import Error, Page
 from rich.markup import escape
 
-from personal_os_worker.core.tables import console
+from personal_os_worker.core.config import console
 from personal_os_worker.jobs.autofill import (
     BLANK_KIND,
     AutofillPlan,

@@ -1,15 +1,17 @@
-"""Manual completion, capture, and advance."""
+"""Manual completion, capture with each long-form answer's provenance, and advance."""
 
 from __future__ import annotations
 
 import contextlib
 import time
-from typing import Any
+from collections.abc import Sequence
+from difflib import SequenceMatcher
+from typing import Any, Literal
 
 import httpx
 from playwright.sync_api import Error
 
-from personal_os_worker.core.tables import console
+from personal_os_worker.core.config import console
 from personal_os_worker.jobs.autofill import (
     MULTI,
     NOT_APPLICABLE,
@@ -33,7 +35,6 @@ from personal_os_worker.jobs.page_state import (
     ApplicationPageState,
     classify_application_page,
 )
-from personal_os_worker.jobs.provenance import spans
 from personal_os_worker.jobs.registry.formats.choices import polarity
 from personal_os_worker.jobs.repair.repairer import find_field
 from personal_os_worker.jobs.resolve import Resolver
@@ -43,6 +44,34 @@ from personal_os_worker.jobs.session.context import (
     echo,
     page_signature,
 )
+
+Source = Literal["model", "previous"]
+# A shared stretch shorter than this is common words, not borrowed text.
+MIN_SPAN = 16
+
+
+def spans(final: str, *, draft: str = "", previous: Sequence[str] = ()) -> list[dict[str, object]]:
+    """Ordered, non-overlapping spans of `final`, each with where it came from."""
+    marks: list[Source | None] = [None] * len(final)
+    sources: list[tuple[Source, str]] = [("previous", text) for text in previous if text]
+    if draft:
+        sources.append(("model", draft))
+    for source, text in sources:
+        matcher = SequenceMatcher(None, final, text, autojunk=False)
+        for block in matcher.get_matching_blocks():
+            if block.size < MIN_SPAN:
+                continue
+            for index in range(block.a, block.a + block.size):
+                if marks[index] is None:
+                    marks[index] = source
+    found: list[dict[str, object]] = []
+    start = 0
+    for index in range(1, len(final) + 1):
+        if index == len(final) or marks[index] != marks[start]:
+            if marks[start] is not None:
+                found.append({"start": start, "end": index, "source": marks[start]})
+            start = index
+    return found
 
 
 class CaptureMixin(SessionBase):

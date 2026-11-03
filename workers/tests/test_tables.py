@@ -5,7 +5,7 @@ from io import StringIO
 import pytest
 from rich.console import Console
 
-from personal_os_worker.core.tables import ReferenceError, pick
+from personal_os_worker.core.config import ReferenceError, pick
 from personal_os_worker.jobs import tables as jobs_tables
 
 ITEMS = [

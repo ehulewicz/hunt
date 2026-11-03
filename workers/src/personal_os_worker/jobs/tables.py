@@ -1,7 +1,7 @@
 """Jobs row rendering.
 
 The listing, application and answer tables are Jobs-shaped: they know about
-ATS form types and posting age. `core.tables` keeps only the pieces every
+ATS form types and posting age. `core.config` keeps only the pieces every
 domain needs — the console, row references and short ids.
 """
 
@@ -13,7 +13,7 @@ from rich import box
 from rich.table import Table
 from rich.text import Text
 
-from personal_os_worker.core.tables import console, short_id
+from personal_os_worker.core.config import console, short_id
 from personal_os_worker.jobs.sites import detect_ats
 
 

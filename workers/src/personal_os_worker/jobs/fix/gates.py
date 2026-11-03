@@ -1,21 +1,49 @@
-"""The gates a candidate passes, each in a subprocess, and the probe that tries it live."""
+"""The gates a candidate passes, each in a subprocess, and the probe that tries it live.
+
+Also the fixer's workspace helpers: the interpreter and stale-workdir cleanup.
+"""
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from personal_os_worker.jobs.fix import lane
 from personal_os_worker.jobs.fix.base import Ready
-from personal_os_worker.jobs.fix.scratch import interpreter
 from personal_os_worker.jobs.registry import policy
 
 PROBE_TIMEOUT_SECONDS = 180
 CHECK_TIMEOUT_SECONDS = 600
+
+
+def interpreter(repo: Path | None = None) -> Path:
+    """The workspace interpreter, which has the worker's test and lint tools."""
+    candidates: list[Path] = [Path(sys.executable)]
+    if repo is not None:
+        candidates = [repo / ".venv/bin/python", repo / "workers/.venv/bin/python",
+                      *candidates]
+    for candidate in candidates:
+        if Path(candidate).exists():
+            return Path(candidate)
+    return Path(sys.executable)
+
+
+def clear_stale(root: Path) -> None:
+    """Remove every attempt folder a previous run's fixer left under `root`;
+    a missing root is fine."""
+    if not root.is_dir():
+        return
+    for entry in root.iterdir():
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry, ignore_errors=True)
+        else:
+            entry.unlink(missing_ok=True)
 
 
 def run_probe(ready: Ready, args: dict[str, Any]) -> dict[str, Any]:

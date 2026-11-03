@@ -23,9 +23,8 @@ from datetime import date
 from typing import Any, Literal
 
 from personal_os_worker.jobs.autofill import AnswerResolution, is_narrative_box
-from personal_os_worker.jobs.facts.catalog import CATALOG
+from personal_os_worker.jobs.facts.catalog import CATALOG, fact_values
 from personal_os_worker.jobs.facts.derived import career_facts, derive, posting_facts
-from personal_os_worker.jobs.facts.values import fact_values
 from personal_os_worker.jobs.options import (
     expression_matches,
     normalize_answer_question,

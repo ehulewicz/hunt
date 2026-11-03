@@ -18,8 +18,8 @@ from rich.table import Table
 
 from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
-from personal_os_worker.core.tables import console
-from personal_os_worker.jobs.facts.catalog import entry
+from personal_os_worker.core.config import console
+from personal_os_worker.jobs.facts.catalog import entry, fact_values
 from personal_os_worker.jobs.facts.derived import (
     CAREER_FACTS,
     DERIVED_FACTS,
@@ -28,7 +28,6 @@ from personal_os_worker.jobs.facts.derived import (
     derive,
     shadowed,
 )
-from personal_os_worker.jobs.facts.values import fact_values
 
 VALUE_TYPES = ("text", "boolean", "number", "date", "choice", "list", "object")
 

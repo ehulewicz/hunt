@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from personal_os_worker.core.doctor import DoctorCheck
-from personal_os_worker.documents.resume import repository_root
-from personal_os_worker.jobs.fix.scratch import interpreter
+from personal_os_worker.jobs.facts.career import repository_root
+from personal_os_worker.jobs.fix.gates import interpreter
 
 NAME = "Fixer"
 GATE_TOOLS = ("ruff", "mypy")
