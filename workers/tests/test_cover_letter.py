@@ -35,3 +35,14 @@ def test_letter_pdf_asks_the_api_and_names_the_file(tmp_path):
     assert api.calls[0]["text"] == "Dear team,\n\nHi."
     assert api.calls[0]["company"] == "Acme"
     assert api.calls[0]["date"]
+
+
+def test_letter_prompt_carries_the_style_rules():
+    from personal_os_worker.jobs.cover_letter import LetterTemplate, _prompt
+
+    prompt = _prompt(
+        LetterTemplate(letter="Dear X,", modules={"a": "mod"}),
+        posting={}, resume={},
+    )
+    assert "contractions are fine." in prompt
+    assert "No exclamation marks" in prompt

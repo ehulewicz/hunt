@@ -83,6 +83,26 @@ def test_compose_accepts_and_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "failed these checks" in calls[1]
 
 
+def test_compose_prompt_carries_the_style_rules() -> None:
+    calls: list[str] = []
+    compose(question="Why Acme?", max_length=None, posting=POSTING,
+            facts=[], career={}, library=[lib()],
+            runner=lambda argv: (calls.append(argv[-1]), reply(GOOD)[0])[1])
+    assert "<style>" in calls[0]
+    assert "contractions are fine." in calls[0]
+
+
+def test_compose_rejects_a_cliche_answer() -> None:
+    for word in ("pivotal", "showcasing"):
+        bad = {**GOOD, "answer": f"A {word} fit for Acme."}
+        outputs = iter(reply(bad) + reply(bad))
+        result = compose(question="Why Acme?", max_length=None, posting=POSTING,
+                         facts=[], career={}, library=[lib()],
+                         runner=lambda argv, outputs=outputs: next(outputs))
+        assert result.composition is None
+        assert "answer contains a cliche" in result.failures[0]
+
+
 def test_compose_retries_a_non_json_reply() -> None:
     calls: list[str] = []
     outputs = iter(["not json at all", *reply(GOOD)])

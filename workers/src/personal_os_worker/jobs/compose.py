@@ -16,7 +16,12 @@ from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from personal_os_worker.jobs import model
-from personal_os_worker.jobs.answers import CLICHES, TAG_LEAK, clean_answer_text
+from personal_os_worker.jobs.answers import (
+    CLICHES,
+    PROSE_STYLE,
+    TAG_LEAK,
+    clean_answer_text,
+)
 
 if TYPE_CHECKING:
     from personal_os_worker.jobs.resolve import Knowledge
@@ -200,6 +205,9 @@ own handwritten writing.
 <library>{library}</library>
 <career>{career}</career>
 <facts>{facts}</facts>
+<style>
+{style}
+</style>
 
 1. Name the question's family, one of: why_company, why_role, proudest_work,
    technical_deep_dive, hardest_problem, ownership, ai_tools, learning_goals,
@@ -225,8 +233,9 @@ own handwritten writing.
      does according to the posting. If none does, set interest to "none" and
      answer from technical fit and goals. Never invent enthusiasm.
    - Fit the limit. With none stated, write 80 to 150 words.
-   - First person, plain sentences. No semicolons, colons, em dashes or en
-     dashes. No lists, headings or markdown.
+   - Follow the rules in <style>. No lists, headings or markdown.
+   - When you choose which of his sentences to reuse, prefer the ones that
+     answer this question over ones that only add metrics.
 4. Reply with JSON only:
 {{"family": "...", "coverage": "full|composable|partial|missing",
  "sources": ["5.1.E2"], "interest": "1.1 or none",
@@ -336,6 +345,7 @@ def _prompt(*, question: str, limit: Limit, posting: Posting,
         library=_library_block(library), career=_career_block(career),
         facts=_facts_block(facts),
         classify_clause=", and unless this is classify-only" if classify_only else "",
+        style=PROSE_STYLE,
     )
 
 

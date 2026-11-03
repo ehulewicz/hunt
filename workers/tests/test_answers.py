@@ -35,6 +35,12 @@ def test_generated_answer_hygiene_removes_unicode_artifacts_and_blocks_new_numbe
         "I supported 50 customers.", base=None, fact_text="Supported 12 customers"
     )
     assert not valid_generated_answer("I delve into systems.", base=None, fact_text="")
+    assert not valid_generated_answer(
+        "This underscores my fit.", base=None, fact_text=""
+    )
+    assert valid_generated_answer(
+        "I built the sync layer.", base=None, fact_text=""
+    )
 
 
 def test_generated_answer_hygiene_rejects_leaked_tool_call_markup() -> None:
@@ -73,3 +79,4 @@ def test_draft_prompt_carries_the_whole_career_record(
     assert len(prompts) == 1
     assert "OFF RESUME CLUB" in prompts[0]
     assert "TAIL MARKER" in prompts[0]
+    assert "contractions are fine." in prompts[0]

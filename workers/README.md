@@ -67,7 +67,10 @@ experience and project entry to its career entry by organization or title.
 The composer (`jobs/compose.py`) writes one answer per question from the
 library's answered entries, with the career record, facts, and the posting as
 evidence, and names the question's family and the library's coverage (full,
-composable, partial, missing). Its guards refuse a reply that cites an entry it
+composable, partial, missing). The shared style rules the composer, the
+drafter and the cover-letter prompt all carry live in `answers.PROSE_STYLE`;
+the words the guards hard-reject are `answers.CLICHES`. Its guards refuse a
+reply that cites an entry it
 was not given, a non-interest entry as the interest, an answer when coverage is
 missing or none when it is not, a semicolon, colon or dash, a cliché, markup, a
 number in no cited source, or a reply over the question's stated limit. A
