@@ -110,6 +110,29 @@ export function deleteFact(accessToken: string, key: string): Promise<void> {
   return apiRequest<void>(`/v1/jobs/facts/${encodeURIComponent(key)}`, accessToken, { method: "DELETE" });
 }
 
+export type ComputedFact = {
+  key: string;
+  label: string;
+  source: "career" | "derived" | "posting";
+  reads: string[];
+};
+
+export function loadComputedFacts(accessToken: string): Promise<ComputedFact[]> {
+  return apiRequest<ComputedFact[]>("/v1/jobs/facts/computed", accessToken);
+}
+
+// The note shown wherever a computed fact appears: what it is computed from,
+// or how a per-application fact is set.
+export function computedNote(fact: ComputedFact): string {
+  if (fact.source === "career") return "Computed from the career record";
+  if (fact.source === "posting") {
+    return fact.reads.length
+      ? `Computed for each application from ${fact.reads.join(", ")}`
+      : "Set for one application with os hunt apply --referred";
+  }
+  return `Computed from ${fact.reads.join(", ")}`;
+}
+
 export type JobApplication = {
   id: string;
   posting_id: string;
@@ -246,35 +269,40 @@ export type Question = {
 export type HuntLibrary = {
   questions: Question[];
   facts: Fact[];
+  computed: ComputedFact[];
   prose: Prose[];
   patterns: Pattern[];
 };
 
 export async function loadHuntLibrary(accessToken: string): Promise<HuntLibrary> {
+  // The computed list is auxiliary: if only it fails, the page loads without it.
+  const computed = loadComputedFacts(accessToken).catch(() => [] as ComputedFact[]);
   const [questions, facts, prose, patterns] = await Promise.all([
     apiRequest<Question[]>("/v1/jobs/questions", accessToken),
     apiRequest<Fact[]>("/v1/jobs/facts", accessToken),
     apiRequest<Prose[]>("/v1/jobs/prose", accessToken),
     apiRequest<Pattern[]>("/v1/jobs/patterns?status=active&status=candidate&status=repaired&status=validated&status=rejected&status=retired", accessToken),
   ]);
-  return { questions, facts, prose, patterns };
+  return { questions, facts, prose, patterns, computed: await computed };
 }
 
 export type HuntOverview = {
   applications: JobApplication[];
   inbox: Inbox;
   facts: Fact[];
+  computed: ComputedFact[];
   available: number;
 };
 
 export async function loadHuntOverview(accessToken: string): Promise<HuntOverview> {
+  const computed = loadComputedFacts(accessToken).catch(() => [] as ComputedFact[]);
   const [applications, inbox, facts, listings] = await Promise.all([
     apiRequest<JobApplication[]>("/v1/jobs/applications", accessToken),
     apiRequest<Inbox>("/v1/jobs/inbox", accessToken),
     apiRequest<Fact[]>("/v1/jobs/facts", accessToken),
     apiRequest<{ total: number }>("/v1/jobs/listings?limit=1", accessToken),
   ]);
-  return { applications, inbox, facts, available: listings.total };
+  return { applications, inbox, facts, computed: await computed, available: listings.total };
 }
 
 // The address the worker signs into ATS accounts and reads their mail with.

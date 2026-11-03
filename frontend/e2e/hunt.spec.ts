@@ -90,6 +90,11 @@ async function setup(page: Page, busy = false) {
       { ...APPLICATION, id: "a4", posting_id: "p4", company_name: "Notion", title: "Software Engineer Intern", status: "interview", applied_at: "2026-10-10T12:00:00Z" },
       { ...APPLICATION, id: "a5", posting_id: "p5", company_name: "Linear", title: "Software Engineer Intern", status: "applied", applied_at: "2026-10-15T12:00:00Z" },
     ] });
+    if (url.endsWith("/jobs/facts/computed")) return route.fulfill({ json: [
+      { key: "education.gpa", label: "GPA", source: "career", reads: ["career.education"] },
+      { key: "education.graduation_term", label: "Graduation term", source: "derived", reads: ["education.graduation_date"] },
+      { key: "referral.referrer_name", label: "Referrer", source: "posting", reads: [] },
+    ] });
     if (url.endsWith("/jobs/facts")) return route.fulfill({ json: storedFacts });
     if (url.endsWith("/jobs/questions")) return route.fulfill({ json: [
       { id: "q2", sample_label: "Your email?", form: "short", disposition: "pattern", pattern_id: "pat2" },
@@ -327,7 +332,7 @@ test("Library exposes saved records, history and code changes and works on mobil
   expect(await page.getByRole("button", { name: "Review Career goals" }).count()).toBe(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await noHorizontalOverflow(page);
-  await page.getByRole("button", { name: /Facts 5/ }).click();
+  await page.getByRole("button", { name: /Facts 8/ }).click();
   await expect(page).toHaveScreenshot("hunt-library-mobile.png", { fullPage: true, animations: "disabled" });
   await page.getByRole("button", { name: "Review Phone extension" }).click();
   await expect(page.getByRole("textbox", { name: "Value", exact: true })).toHaveValue("");
@@ -347,7 +352,7 @@ test("Library fact deletion confirms and refreshes Library and Inbox", async ({ 
   const agent = await setup(page);
   await page.goto("/hunt");
   await page.getByRole("button", { name: "Library", exact: true }).click();
-  await page.getByRole("button", { name: "Facts 5", exact: true }).click();
+  await page.getByRole("button", { name: "Facts 8", exact: true }).click();
   await page.getByRole("button", { name: "Review Certifications", exact: true }).click();
   await page.getByRole("button", { name: "Delete fact", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Delete Certifications?" })).toBeVisible();
@@ -360,7 +365,7 @@ test("Library fact deletion confirms and refreshes Library and Inbox", async ({ 
   await expect(page).toHaveScreenshot("hunt-fact-delete.png", { animations: "disabled" });
   await page.getByRole("button", { name: "Confirm delete" }).click();
   await expect(page.getByText("Deleted.", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Facts 4", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Facts 7", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Review Certifications" })).toHaveCount(0);
   expect(agent.writes).toEqual([{ url: "https://api.test/v1/jobs/facts/education.certifications", body: null }]);
   await page.getByRole("button", { name: "Inbox", exact: true }).click();

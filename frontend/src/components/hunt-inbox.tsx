@@ -7,12 +7,12 @@ import { useState } from "react";
 import { ReplayResult } from "@/components/hunt-history";
 import { HuntLibraryPanel } from "@/components/hunt-library";
 import { factDisplayValue, ReviewForm, type Review } from "@/components/hunt-review";
-import { loadLearned, retryFailure, retireCodeChange, retirePattern, type Fact, type Inbox, type LearnedReport, type ProseGap, resolveProseGap } from "@/lib/api";
+import { computedNote, loadLearned, retryFailure, retireCodeChange, retirePattern, type ComputedFact, type Fact, type Inbox, type LearnedReport, type ProseGap, resolveProseGap } from "@/lib/api";
 import { freshAccessToken } from "@/lib/device";
 
 type Section = "Questions" | "Facts to verify" | "Writing" | "Pattern checks" | "Unsolved" | "Learned";
 
-export function HuntInbox({ inbox, facts, onRefresh }: { inbox: Inbox | null; facts: Fact[]; onRefresh: () => void }) {
+export function HuntInbox({ inbox, computed = [], facts, onRefresh }: { inbox: Inbox | null; computed?: ComputedFact[]; facts: Fact[]; onRefresh: () => void }) {
   const [view, setView] = useState<"Inbox" | "Library">("Inbox");
   const [section, setSection] = useState<Section>("Questions");
   const [review, setReview] = useState<Review | null>(null);
@@ -96,14 +96,17 @@ export function HuntInbox({ inbox, facts, onRefresh }: { inbox: Inbox | null; fa
         </div>
         <div className="panel-scroll attention-content">
           {notice && <p className="saved-notice" role="status"><Check aria-hidden="true" />{notice}</p>}
-          {review ? <ReviewForm origin="inbox" facts={facts} key={review.kind === "fact" ? review.item.key : review.kind === "question" ? review.item.question.id : review.item.id} onBack={() => setReview(null)} onDone={() => { setReview(null); setNotice("Saved."); onRefresh(); }} review={review} />
+          {review ? <ReviewForm computed={computed} origin="inbox" facts={facts} key={review.kind === "fact" || review.kind === "computed" ? review.item.key : review.kind === "question" ? review.item.question.id : review.item.id} onBack={() => setReview(null)} onDone={() => { setReview(null); setNotice("Saved."); onRefresh(); }} review={review} />
             : !inbox ? <div className="panel-empty"><FileText aria-hidden="true" /><h3>Your review inbox</h3><p>Questions, facts, writing, and pattern checks appear here when your overview loads.</p></div>
               : <>
                 {section === "Learned" && !learned ? <div className="panel-empty"><FileText aria-hidden="true" /><h3>Loading</h3><p>The run&rsquo;s learned fixes, branches, problems and model usage are loading.</p></div>
                 : counts?.[section] === 0 ? <div className="panel-empty"><CheckCheck aria-hidden="true" /><h3>{section === "Questions" ? "No questions to answer" : section === "Facts to verify" ? "No facts to verify" : section === "Writing" ? "No writing to review" : section === "Unsolved" ? "No unsolved issues" : "No pattern checks available"}</h3><p>{section === "Questions" ? "Questions needing your input will appear here." : section === "Facts to verify" ? "Facts needing verification, missing facts, and replay disagreements appear here." : section === "Writing" ? "Written answers and uncovered long-form questions appear here." : section === "Unsolved" ? "Issues the run could not fix will appear here." : "Learned changes and their verification results will appear here when available."}</p></div>
                   : <div className="review-list">
                     {section === "Questions" && inbox.questions.map((item) => <button aria-label={`Review ${item.question.sample_label}`} className="review-row" key={item.question.id} onClick={() => setReview({ kind: "question", item })} type="button"><span className="review-icon"><Link2 aria-hidden="true" /></span><span><strong>{item.question.sample_label}</strong><small>{item.answers.length > 0 ? `${item.answers.length} previous answers` : "No previous answers"}</small></span><ChevronRight aria-hidden="true" /></button>)}
-                    {section === "Facts to verify" && toVerify.map((item) => <button aria-label={`Review ${item.label ?? item.missing_fact ?? "Missing fact"}`} className="review-row" key={`${item.reason}:${item.issue_id ?? item.key}`} onClick={() => setReview({ kind: "fact", item })} type="button"><span className="review-icon"><Check aria-hidden="true" /></span><span><strong>{item.label ?? item.missing_fact ?? "Missing fact"}</strong><small>Cause: {item.reason}</small>{item.question && <small>Question: {item.question}</small>}{item.missing_fact && <small>Needed: {item.missing_fact}</small>}{item.reason !== "missing" && <small>{factDisplayValue(item.value)}</small>}<small><ReplayResult check={item.check} /></small></span><ChevronRight aria-hidden="true" /></button>)}
+                    {section === "Facts to verify" && toVerify.map((item) => {
+                      const computedItem = item.key ? computed.find((entry) => entry.key === item.key) : undefined;
+                      return <button aria-label={`Review ${item.label ?? item.missing_fact ?? "Missing fact"}`} className="review-row" key={`${item.reason}:${item.issue_id ?? item.key}`} onClick={() => setReview({ kind: "fact", item })} type="button"><span className="review-icon"><Check aria-hidden="true" /></span><span><strong>{item.label ?? item.missing_fact ?? computedItem?.label ?? "Missing fact"}</strong><small>Cause: {item.reason}</small>{item.question && <small>Question: {item.question}</small>}{item.missing_fact && <small>Needed: {item.missing_fact}</small>}{computedItem && <small>{computedNote(computedItem)}</small>}{item.reason !== "missing" && <small>{factDisplayValue(item.value)}</small>}<small><ReplayResult check={item.check} /></small></span><ChevronRight aria-hidden="true" /></button>;
+                    })}
                     {section === "Writing" && (inbox.gaps ?? []).map((gap) => <div className="review-row review-row-static" key={gap.id}>
                       <span className="review-icon"><FileText aria-hidden="true" /></span>
                       <span><strong>{gap.question ?? "Long-form question"}</strong>

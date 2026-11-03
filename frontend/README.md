@@ -106,10 +106,14 @@ audit, draft). Writing also lists open
 prose gaps — a long-form question the library covers only partly or not at all —
 with a link into the Library page and a Resolve action. Facts to verify comes from
 `/v1/jobs/inbox`: unverified facts, missing facts with the question that needed them,
-and contradicted facts with replay counts. Unsolved shows failures the run could
+and contradicted facts with replay counts. Computed facts come from
+`/v1/jobs/facts/computed` and are never saved: a missing card for one shows
+what it is computed from and links to the resume editor for career facts.
+Unsolved shows failures the run could
 not fix, including their notes and occurrence counts. Cause tags use recorded
 origins, fact reasons, replay disagreements, or failure categories where known.
-Unbound questions can be linked to an existing fact or a new typed fact. Empty
+Unbound questions can be linked to a stored or computed fact or a new typed
+fact, and a pattern whose fact is computed shows its note and can be accepted. Empty
 text is saved unchanged; lists use JSON, including `[]`, and both display as None.
 The Inbox Writing section holds prose gaps only; each resolves from its row.
 Failed pattern checks come before suggestions and show how many accepted answers
@@ -127,9 +131,10 @@ patterns. Facts use the same editor as the Inbox; questions and patterns expose
 their stored details. A stored
 fact's Delete action asks for confirmation, then refreshes Library and Inbox.
 Deleting a stored row under a computed key removes a copy the worker already
-ignores. The facts API lists stored rows only, so computed-only facts have no
-Delete action: change career-derived facts in
-[the resume editor](/resume/edit), and other derived facts in code.
+ignores. The facts API lists stored rows only; computed facts from
+`/v1/jobs/facts/computed` appear under Facts read-only, each with what it is
+computed from — career facts change in
+[the resume editor](/resume/edit), the rest through the facts they read.
 Each item's
 history loads from `/v1/jobs/changes`,
 showing when, who, action, before and after, and replay verification. Code lists

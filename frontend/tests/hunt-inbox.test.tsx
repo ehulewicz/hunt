@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 
 import { HuntInbox } from "@/components/hunt-inbox";
-import type { Fact, Inbox } from "@/lib/api";
+import type { ComputedFact, Fact, Inbox } from "@/lib/api";
 
 vi.mock("@/lib/device", () => ({ freshAccessToken: vi.fn(async () => "token") }));
 
@@ -11,23 +11,32 @@ const FACTS: Fact[] = [
   { key: "education.certifications", label: "Certifications", value: [], value_type: "list", verified_at: null, updated_at: "2026-10-20" },
   { key: "contact.email", label: "Email", value: "me@example.com", value_type: "text", verified_at: "2026-10-20", updated_at: "2026-10-20" },
 ];
+const COMPUTED: ComputedFact[] = [
+  { key: "education.graduation_date", label: "Graduation date", source: "career", reads: ["career.education"] },
+  { key: "education.graduation_term", label: "Graduation term", source: "derived", reads: ["education.graduation_date"] },
+  { key: "education.gpa", label: "GPA", source: "career", reads: ["career.education"] },
+];
+
 const INBOX: Inbox = {
   questions: [{ question: { id: "q1", sample_label: "Your extension?" }, answers: [] }],
   candidates: [], checks: [], unsolved: [],
   facts: FACTS.slice(0, 2).map((fact) => ({ ...fact, reason: "unverified", question: null, missing_fact: null, issue_id: null, check: null })),
 };
 
+async function stubFetch(input: string) {
+  if (input.endsWith("/prose")) return Response.json([{ id: "pr2", question_id: null, question_label: "Career goals", application_id: null, company_name: "Acme", text: "I build useful tools.", approved: true, origin: "manual", submitted: true, created_at: "2026-10-01", updated_at: "2026-10-01" }]);
+  if (input.endsWith("/questions")) return Response.json([{ id: "q2", sample_label: "Your email?", disposition: "pattern", form: "short", pattern_id: "pat1" }]);
+  if (input.endsWith("/facts")) return Response.json(FACTS);
+  if (input.endsWith("/facts/computed")) return Response.json(COMPUTED);
+  if (input.includes("/changes?")) return Response.json([]);
+  if (input.includes("/patterns?")) return Response.json([{ id: "pat1", question_id: "q2", question_label: "Your email?", expression: null, fact_key: "contact.email", formatter: null, status: "retired" }]);
+  return Response.json({});
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
-  vi.stubGlobal("fetch", vi.fn(async (input: string) => {
-    if (input.endsWith("/prose")) return Response.json([{ id: "pr2", question_id: null, question_label: "Career goals", application_id: null, company_name: "Acme", text: "I build useful tools.", approved: true, origin: "manual", submitted: true, created_at: "2026-10-01", updated_at: "2026-10-01" }]);
-    if (input.endsWith("/questions")) return Response.json([{ id: "q2", sample_label: "Your email?", disposition: "pattern", form: "short", pattern_id: "pat1" }]);
-    if (input.endsWith("/facts")) return Response.json(FACTS);
-    if (input.includes("/changes?")) return Response.json([]);
-    if (input.includes("/patterns?")) return Response.json([{ id: "pat1", question_id: "q2", question_label: "Your email?", expression: null, fact_key: "contact.email", formatter: null, status: "retired" }]);
-    return Response.json({});
-  }));
+  vi.stubGlobal("fetch", vi.fn(stubFetch));
 });
 
 test("Inbox separates questions from server-selected facts and preserves None values", async () => {
@@ -65,7 +74,10 @@ test("Library reads saved records beyond the Inbox and shows empty history expli
 });
 
 test("a failed Library load offers retry instead of empty records", async () => {
-  vi.mocked(fetch).mockResolvedValueOnce(Response.json({ detail: "Library unavailable" }, { status: 503 }));
+  let failed = false;
+  vi.mocked(fetch).mockImplementation(async (input) => !failed && String(input).endsWith("/questions")
+    ? (failed = true, Response.json({ detail: "Library unavailable" }, { status: 503 }))
+    : stubFetch(String(input)));
   render(<HuntInbox facts={FACTS} inbox={INBOX} onRefresh={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "Library" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("Library unavailable");
@@ -159,4 +171,48 @@ test("question disposition sends Inbox origin", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Review Your extension?" }));
   fireEvent.click(await screen.findByRole("button", { name: "Answer only on the form" }));
   await waitFor(() => expect(fetch).toHaveBeenCalledWith("https://api.test/v1/jobs/questions/q1", expect.objectContaining({ body: JSON.stringify({ disposition: "one_off", origin: "inbox" }) })));
+});
+
+test("A missing card for a computed fact shows its note and is read-only", async () => {
+  const inbox: Inbox = { ...INBOX, facts: [{ reason: "missing", key: "education.graduation_date", label: null, value: null, value_type: null, question: "Graduation?", missing_fact: "Graduation date", issue_id: "i1", check: null }] };
+  render(<HuntInbox computed={COMPUTED} facts={FACTS} inbox={inbox} onRefresh={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Facts to verify 1" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review Graduation date" }));
+  expect(screen.getByText("Computed from the career record")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Edit the career record" })).toHaveAttribute("href", "/resume/edit");
+  expect(screen.queryByLabelText("Value")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Save verified fact" })).not.toBeInTheDocument();
+});
+
+test("A pattern for a computed fact can be accepted without a stored row", async () => {
+  const pattern = { id: "pat9", question_id: null, question_label: "Graduation term?", expression: null, fact_key: "education.graduation_term", origin: "model", formatter: null, status: "candidate" };
+  const inbox: Inbox = { ...INBOX, candidates: [{ pattern, answers: [], check: null }] };
+  render(<HuntInbox computed={COMPUTED} facts={FACTS} inbox={inbox} onRefresh={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Pattern checks 1" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Review Graduation term?" }));
+  expect(screen.getByText(/Computed from education.graduation_date/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Accept pattern" }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith("https://api.test/v1/jobs/patterns/pat9", expect.objectContaining({ method: "PATCH" })));
+});
+
+test("Linking a computed fact posts the binding without saving a fact", async () => {
+  render(<HuntInbox computed={COMPUTED} facts={FACTS} inbox={INBOX} onRefresh={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Review Your extension?" }));
+  const select = screen.getByLabelText("Fact");
+  expect(select.querySelector('optgroup[label="Computed facts"]')).not.toBeNull();
+  expect(select.querySelector('option[value="education.gpa"]')).not.toBeNull();
+  fireEvent.change(select, { target: { value: "education.gpa" } });
+  expect(screen.getByText("Computed from the career record")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Link fact" }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith("https://api.test/v1/jobs/patterns", expect.objectContaining({ method: "POST", body: expect.stringContaining('"fact_key":"education.gpa"') })));
+  expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url).includes("/v1/jobs/facts/") && (init as RequestInit | undefined)?.method === "PUT")).toBe(false);
+});
+
+test("A typed computed key under Add a new fact blocks the save", async () => {
+  render(<HuntInbox computed={COMPUTED} facts={FACTS} inbox={INBOX} onRefresh={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Review Your extension?" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add a new fact" }));
+  fireEvent.change(screen.getByLabelText("Fact key"), { target: { value: "education.gpa" } });
+  expect(screen.getByText("education.gpa is computed; choose it from the list")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Save fact and link" })).toBeDisabled();
 });

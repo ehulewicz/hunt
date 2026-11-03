@@ -3,11 +3,14 @@ import { beforeEach, expect, test, vi } from "vitest";
 
 import { HuntLibraryPanel } from "@/components/hunt-library";
 import { ReviewForm } from "@/components/hunt-review";
-import type { Fact } from "@/lib/api";
+import type { ComputedFact, Fact } from "@/lib/api";
 
 vi.mock("@/lib/device", () => ({ freshAccessToken: vi.fn(async () => "token") }));
 
 const FACT: Fact = { key: "education.gpa", label: "GPA override", value: 3.78, value_type: "number", verified_at: "2026-10-22", updated_at: "2026-10-22" };
+const COMPUTED: ComputedFact[] = [
+  { key: "education.graduation_term", label: "Graduation term", source: "derived", reads: ["education.graduation_date"] },
+];
 let facts: Fact[];
 let deletes: string[];
 let failDelete: boolean;
@@ -25,6 +28,7 @@ beforeEach(() => {
       facts = [];
       return new Response(null, { status: 204 });
     }
+    if (input.endsWith("/facts/computed")) return Response.json(COMPUTED);
     return Response.json(input.endsWith("/facts") ? facts : []);
   }));
 });
@@ -50,7 +54,7 @@ test("Library confirms deletion, can cancel, and refreshes its rows and the Inbo
   expect(deletes).toEqual(["https://api.test/v1/jobs/facts/education.gpa"]);
   expect(fetch).toHaveBeenCalledWith(deletes[0], expect.objectContaining({ method: "DELETE", headers: { Authorization: "Bearer token" } }));
   expect(await screen.findByText("Deleted.")).toBeInTheDocument();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Facts 0" })).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Facts 1" })).toBeInTheDocument());
   expect(screen.queryByRole("button", { name: "Review GPA override" })).not.toBeInTheDocument();
 });
 
@@ -73,5 +77,13 @@ test("facts without a stored row never offer Delete", () => {
   render(<ReviewForm allowDelete facts={[]} onBack={vi.fn()} onDone={vi.fn()} review={{ kind: "fact", item: { ...FACT, key: "education.school_name", label: "School" } }} />);
   expect(screen.queryByRole("button", { name: "Delete fact" })).not.toBeInTheDocument();
   expect(screen.getByRole("link", { name: "the resume editor" })).toHaveAttribute("href", "/resume/edit");
-  expect(screen.getByText(/code/)).toBeInTheDocument();
+  expect(screen.getByText(/facts they read/)).toBeInTheDocument();
+});
+
+test("Library lists computed facts and opens them read-only", async () => {
+  render(<HuntLibraryPanel onRefresh={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: /^Facts/ }));
+  fireEvent.click(await screen.findByRole("button", { name: "Review Graduation term" }));
+  expect(await screen.findByText("Computed from education.graduation_date")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Save/ })).not.toBeInTheDocument();
 });
