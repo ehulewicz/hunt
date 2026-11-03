@@ -16,6 +16,7 @@ from personal_os_backend.jobs_facts import (
     get_fact_store,
     validate_fact_value,
 )
+from personal_os_backend.jobs_facts_computed import COMPUTED_FACTS, computed_refusal
 from personal_os_backend.main import create_app
 
 USER_ID = UUID("c3c8d239-162d-4e5e-a2a1-4ac0d1b3695f")
@@ -195,17 +196,18 @@ async def test_a_value_of_the_wrong_type_is_rejected(
     client: httpx.AsyncClient, store: FakeFactStore
 ) -> None:
     await client.put(
-        "/v1/jobs/facts/education.graduation_date",
-        json={"value": "2027-12-15", "label": "Graduation date", "value_type": "date"},
+        "/v1/jobs/facts/education.start_date",
+        json={"value": "2024-08-19", "label": "When you started your degree",
+              "value_type": "date"},
         headers=HEADERS,
     )
     response = await client.put(
-        "/v1/jobs/facts/education.graduation_date",
+        "/v1/jobs/facts/education.start_date",
         json={"value": "May 2028"},
         headers=HEADERS,
     )
     assert response.status_code == 422
-    assert store.rows["education.graduation_date"]["value"] == "2027-12-15"
+    assert store.rows["education.start_date"]["value"] == "2024-08-19"
 
 
 @pytest.mark.parametrize("key", ["Education.gpa", "gpa", "education..gpa", "education.gpa-2"])
@@ -238,3 +240,92 @@ async def test_verify_and_delete(client: httpx.AsyncClient, store: FakeFactStore
                                 headers=HEADERS)).status_code == 204
     assert (await client.delete("/v1/jobs/facts/eeo.veteran_status",
                                 headers=HEADERS)).status_code == 404
+
+
+COMPUTED_REFUSALS = {
+    "education.gpa": "education.gpa is computed from the career record; "
+    "edit the record at /resume/edit or with os hunt resume put",
+    "education.graduation_term": "education.graduation_term is computed from "
+    "education.graduation_date; edit education.graduation_date in the career "
+    "record at /resume/edit",
+    "identity.first_name": "identity.first_name is computed from "
+    "identity.legal_name; set identity.legal_name",
+    "education.highest_completed": "education.highest_completed is computed from "
+    "education.degree_level, education.currently_enrolled; edit "
+    "education.degree_type, education.graduation_date in the career record "
+    "at /resume/edit",
+    "availability.conflicts_with_school": "availability.conflicts_with_school is "
+    "computed from availability.internship_dates, education.graduation_date; "
+    "edit education.graduation_date in the career record at /resume/edit; "
+    "set availability.notice_period_weeks",
+    "availability.term": "availability.term is computed from the posting's title; "
+    "it is decided for each application",
+    "referral.referrer_name": "referral.referrer_name is set for one application "
+    "with os hunt apply --referred NAME",
+}
+
+
+@pytest.mark.parametrize(("key", "expected"), list(COMPUTED_REFUSALS.items()))
+def test_computed_refusal_names_what_to_change(key: str, expected: str) -> None:
+    assert computed_refusal(key) == expected
+
+
+@pytest.mark.parametrize("key", ["contact.phone", "custom.anything"])
+def test_computed_refusal_leaves_keys_it_does_not_own(key: str) -> None:
+    assert computed_refusal(key) is None
+
+
+async def test_a_computed_fact_cannot_be_set(
+    client: httpx.AsyncClient, store: FakeFactStore
+) -> None:
+    response = await client.put(
+        "/v1/jobs/facts/education.gpa",
+        json={"value": 3.78, "label": "GPA", "value_type": "number"},
+        headers=HEADERS,
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == COMPUTED_REFUSALS["education.gpa"]
+    assert store.rows == {}
+
+    response = await client.put(
+        "/v1/jobs/facts/identity.first_name",
+        json={"value": "Eah", "label": "First name", "value_type": "text"},
+        headers=HEADERS,
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == COMPUTED_REFUSALS["identity.first_name"]
+    assert store.rows == {}
+
+
+async def test_a_computed_fact_cannot_be_verified_but_a_leftover_row_can_be_deleted(
+    client: httpx.AsyncClient, store: FakeFactStore
+) -> None:
+    now = datetime.now(UTC)
+    store.rows["education.gpa"] = {
+        "key": "education.gpa",
+        "label": "GPA",
+        "value": 3.9,
+        "value_type": "number",
+        "verified_at": None,
+        "updated_at": now,
+    }
+    response = await client.post("/v1/jobs/facts/education.gpa/verify", headers=HEADERS)
+    assert response.status_code == 422
+    assert response.json()["detail"] == COMPUTED_REFUSALS["education.gpa"]
+
+    assert (await client.delete("/v1/jobs/facts/education.gpa",
+                                headers=HEADERS)).status_code == 204
+    assert store.rows == {}
+
+
+async def test_computed_facts_are_listed_read_only(client: httpx.AsyncClient) -> None:
+    response = await client.get("/v1/jobs/facts/computed", headers=HEADERS)
+    assert response.status_code == 200
+    items = response.json()
+    assert len(items) == len(COMPUTED_FACTS)
+    assert {
+        "key": "education.gpa",
+        "label": "GPA",
+        "source": "career",
+        "reads": ["career.education"],
+    } in items

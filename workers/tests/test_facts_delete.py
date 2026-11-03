@@ -42,9 +42,9 @@ def test_delete_asks_before_removing_a_stored_override(reply: str, expected: boo
 
 
 @pytest.mark.parametrize("key, explanation", [
-    ("education.school_name", "os hunt resume edit"),
-    ("identity.first_name", "code"),
-    ("availability.earliest_start_date", "code"),
+    ("education.school_name", "os hunt resume put"),
+    ("identity.first_name", "set identity.legal_name"),
+    ("availability.earliest_start_date", "set availability.notice_period_weeks"),
     ("unknown.fact", "No stored fact"),
 ])
 def test_nonstored_keys_are_refused_even_with_yes(key: str, explanation: str) -> None:
@@ -68,6 +68,6 @@ def test_delete_closes_the_api_when_refused(monkeypatch: pytest.MonkeyPatch) -> 
     api = Api()
     monkeypatch.setattr(commands, "connected", lambda: (None, None))
     monkeypatch.setattr(commands, "WorkerApi", lambda *args: api)
-    with pytest.raises(RuntimeError, match="os hunt resume edit"):
+    with pytest.raises(RuntimeError, match="os hunt resume put"):
         commands.run_facts_delete("education.school_name", yes=True)
     assert api.closed and not api.deleted

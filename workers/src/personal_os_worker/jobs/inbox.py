@@ -28,7 +28,7 @@ from personal_os_worker.core.commands import connected
 from personal_os_worker.core.config import console
 from personal_os_worker.jobs.facts.catalog import CATALOG, entry, fact_values
 from personal_os_worker.jobs.facts.commands import VALUE_TYPES, display, parse_value
-from personal_os_worker.jobs.facts.derived import career_facts, derive
+from personal_os_worker.jobs.facts.derived import career_facts, computed_refusal, derive
 
 Ask = Callable[[str], str]
 FACT_KEY = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
@@ -124,10 +124,11 @@ def new_fact(
     api: WorkerApi, key: str, *, last_answer: str | None, ask: Ask
 ) -> bool:
     """Create the fact a binding needs, from the catalog where it can; False if abandoned."""
-    known = entry(key)
-    if known is not None and known.source != "stored":
-        console.print(f"  {key} is {known.source} and cannot be set here", style="yellow")
+    refusal = computed_refusal(key)
+    if refusal is not None:
+        console.print(f"  {refusal}", style="yellow")
         return False
+    known = entry(key)
     label = known.label if known else ask("  label for this fact: ").strip()
     value_type = known.value_type if known else ask(f"  type ({', '.join(VALUE_TYPES)}): ").strip()
     if not label or value_type not in VALUE_TYPES:
@@ -235,7 +236,7 @@ def review_question(
             console.print("  a fact key is dotted lowercase words", style="yellow")
             counts["skipped"] += 1
             return
-        if key not in values and not new_fact(
+        if key not in values and computed_refusal(key) is None and not new_fact(
             api, key, last_answer=answers[0]["answer_text"] if answers else None, ask=ask
         ):
             counts["skipped"] += 1
@@ -266,8 +267,11 @@ def print_waiting_facts(facts: list[dict[str, Any]]) -> None:
     contradicted = [item for item in facts if item.get("reason") == "contradicted"]
     for item in missing:
         name = item.get("key") or item.get("missing_fact") or "a fact"
-        console.print(f"missing fact: {name} (asked by {item.get('question') or 'a question'!r});"
-                      " 'os hunt facts set' gives it")
+        refusal = computed_refusal(str(name))
+        hint = refusal if refusal is not None else "'os hunt facts set' gives it"
+        console.print(
+            f"missing fact: {name} (asked by {item.get('question') or 'a question'!r}); {hint}"
+        )
     for item in contradicted:
         check = item.get("check") or {}
         console.print(f"contradicted fact: {item.get('key')}: {check.get('failed')} of "

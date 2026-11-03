@@ -40,7 +40,6 @@ from personal_os_worker.jobs.session.context import (
     PERSISTED_CAUSES,
     REPAIR_COST,
     _question_for,
-    derived_refusal,
     echo,
     member_control,
 )
@@ -157,6 +156,7 @@ class RepairsMixin(SessionBase):
         """Ask at the terminal for the fact this question needs, then fill it in."""
         from personal_os_worker.jobs.facts.catalog import entry
         from personal_os_worker.jobs.facts.commands import VALUE_TYPES
+        from personal_os_worker.jobs.facts.derived import computed_refusal
 
         key = str(finding.fact_key or "")
         console.print()
@@ -166,7 +166,7 @@ class RepairsMixin(SessionBase):
             key = self.ctx.prompt("  fact key (blank to skip): ").strip()
             if not key:
                 return False
-        refusal = derived_refusal(key)
+        refusal = computed_refusal(key)
         if refusal is not None:
             console.print(f"  {refusal}", style="dim")
             return False
@@ -232,10 +232,11 @@ class RepairsMixin(SessionBase):
         """
         from personal_os_worker.jobs.facts.catalog import entry
         from personal_os_worker.jobs.facts.commands import VALUE_TYPES, parse_value
+        from personal_os_worker.jobs.facts.derived import computed_refusal
 
         if not FACT_KEY.fullmatch(key):
             return False, f"{key!r} is not a fact key; use dotted lowercase words"
-        refusal = derived_refusal(key)
+        refusal = computed_refusal(key)
         if refusal is not None:
             return False, refusal
         known = entry(key)

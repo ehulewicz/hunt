@@ -85,6 +85,11 @@ are limited to 200 characters, matching the change history.
 An empty text or list is a fact too: the answer is none, and the worker leaves
 that field blank on purpose. A choice is never empty.
 Unknown or optional EEO values are not inferred.
+A computed key — the career, derived, and posting facts in
+`jobs_facts_computed.py`, kept equal to the worker's declarations — is refused
+on a set and on a verify with a 422 naming what to change; a delete still
+removes a leftover stored row. `GET /v1/jobs/facts/computed` lists each
+computed key's label, source, and reads.
 
 ### Jobs endpoints
 
@@ -323,7 +328,7 @@ uses it. All three must pass:
 cd backend && uv run ruff check . && uv run mypy src/ && uv run pytest -q
 ```
 
-Currently 262 tests. `mypy` is scoped to `src/` because the test suite is not
+Currently 270 tests. `mypy` is scoped to `src/` because the test suite is not
 annotated; `pyproject.toml` already pins `packages = ["personal_os_backend"]`, so bare
 `uv run mypy` — the form CI uses — checks the same files.
 

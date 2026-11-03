@@ -6,7 +6,13 @@ from collections.abc import Iterator
 from datetime import date
 from typing import Any
 
-from personal_os_worker.jobs.inbox import propose_expression, walk_inbox
+import pytest
+
+from personal_os_worker.jobs.inbox import (
+    print_waiting_facts,
+    propose_expression,
+    walk_inbox,
+)
 
 TODAY = date(2026, 10, 14)
 
@@ -130,6 +136,16 @@ def test_binding_to_an_existing_fact_does_not_touch_it() -> None:
     assert api.calls[0][1]["origin"] == "inbox"
 
 
+def test_binding_to_a_computed_key_creates_no_fact() -> None:
+    api = FakeApi({"candidates": [], "questions": [question("What is your GPA?")], "prose": []})
+    walk_inbox(  # type: ignore[arg-type]
+        api, ask=answers("b", "education.gpa", ""), today=TODAY
+    )
+    assert [call[0] for call in api.calls] == ["create"]
+    created = api.calls[0][1]
+    assert created["kind"] == "binding" and created["fact_key"] == "education.gpa"
+
+
 def test_one_off_long_form_and_skip_are_dispositions() -> None:
     api = FakeApi({
         "candidates": [],
@@ -192,3 +208,16 @@ def test_a_proposal_is_taken_with_y_and_a_broken_regex_is_refused() -> None:
     )
     assert [call[0] for call in broken.calls] == ["create"]
     assert counts["widened"] == 0
+
+
+def test_a_missing_computed_fact_names_what_to_change(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    print_waiting_facts([
+        {"reason": "missing", "key": "education.gpa", "question": "GPA?"},
+        {"reason": "missing", "key": "contact.phone", "question": "Phone?"},
+    ])
+    out = capsys.readouterr().out
+    assert "missing fact: education.gpa (asked by 'GPA?'); education.gpa is computed " in out
+    assert "os hunt resume put" in out
+    assert "missing fact: contact.phone (asked by 'Phone?'); 'os hunt facts set' gives it" in out

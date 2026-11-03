@@ -327,12 +327,6 @@ def entry(key: str) -> CatalogEntry | None:
     return CATALOG.get(key)
 
 
-def settable(key: str) -> bool:
-    """Whether a value for this key is stored by you rather than derived."""
-    known = CATALOG.get(key)
-    return known is None or known.source == "stored"
-
-
 def fact_values(facts: list[dict[str, Any]]) -> dict[str, Any]:
     """Fact rows as `{key: value}`."""
     return {str(fact["key"]): fact.get("value") for fact in facts if fact.get("key")}

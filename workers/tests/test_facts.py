@@ -6,11 +6,13 @@ from typing import Any
 import pytest
 
 from personal_os_worker.cli import build_parser, expand_shorthand
+from personal_os_worker.jobs.facts import commands
 from personal_os_worker.jobs.facts.commands import (
     library_conflicts,
     none_value,
     parse_value,
     review_facts,
+    run_facts_set,
 )
 from personal_os_worker.jobs.facts.derived import (
     career_facts,
@@ -310,6 +312,35 @@ def test_review_walks_unverified_facts_and_records_each_decision() -> None:
 def test_review_quits_early() -> None:
     api = FakeApi([{"key": "a.one", "value": "x", "value_type": "text", "verified_at": None}])
     assert review_facts(api, ask=lambda _: "q") == (0, 1)  # type: ignore[arg-type]
+
+
+def test_review_offers_only_delete_for_a_computed_fact(capsys: pytest.CaptureFixture[str]) -> None:
+    api = FakeApi([
+        {"key": "education.gpa", "value": 3.9, "value_type": "number", "verified_at": None}
+    ])
+    prompts: list[str] = []
+    replies = iter(["a", "d"])
+
+    def ask(prompt: str) -> str:
+        prompts.append(prompt)
+        return next(replies)
+
+    # "a" is not offered, so it is asked again; "d" removes the leftover row.
+    decided, remaining = review_facts(api, ask=ask)  # type: ignore[arg-type]
+    assert (decided, remaining) == (1, 0)
+    assert api.calls == [("delete", "education.gpa")]
+    assert prompts == ["  [d]elete  [s]kip  [q]uit: "] * 2
+    assert "computed from the career record" in capsys.readouterr().out
+
+
+def test_facts_set_refuses_a_computed_key_before_connecting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        commands, "connected", lambda: pytest.fail("set must refuse before connecting")
+    )
+    with pytest.raises(RuntimeError, match="computed from the career record"):
+        run_facts_set("education.gpa", "3.78", value_type=None, label=None)
 
 
 def test_facts_shorthand_and_parser() -> None:

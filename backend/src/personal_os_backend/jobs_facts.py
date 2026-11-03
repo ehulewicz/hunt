@@ -9,6 +9,9 @@ Every set, verification, and deletion is recorded in `jobs_changes` in the same
 transaction, keyed by the fact's key. A set that arrives without the worker's
 replay (the web Library, the CLI) is recorded pending, and the next run replays
 it; a verification or a deletion changes no answer and is never pending.
+The computed keys in `jobs_facts_computed` are refused on a set and on a
+verify with a 422 naming what to change instead; a delete still removes a
+leftover stored row.
 """
 
 from __future__ import annotations
@@ -32,6 +35,11 @@ from personal_os_backend.jobs_changes import (
     Origin,
     Verification,
     record_change,
+)
+from personal_os_backend.jobs_facts_computed import (
+    COMPUTED_FACTS,
+    Source,
+    computed_refusal,
 )
 
 FactType = Literal["text", "boolean", "number", "date", "choice", "list", "object"]
@@ -83,6 +91,13 @@ class Fact(BaseModel):
     value_type: FactType
     verified_at: datetime | None
     updated_at: datetime
+
+
+class ComputedFact(BaseModel):
+    key: str
+    label: str
+    source: Source
+    reads: list[str]
 
 
 class FactWrite(BaseModel):
@@ -268,17 +283,35 @@ async def list_facts(principal: CurrentPrincipal, store: Store) -> list[Fact]:
     return await store.list_facts(principal.user_id)
 
 
+@router.get("/computed", response_model=list[ComputedFact])
+async def list_computed_facts(principal: CurrentPrincipal) -> list[ComputedFact]:
+    return [
+        ComputedFact(key=key, label=label, source=source, reads=list(reads))
+        for key, (source, label, reads) in COMPUTED_FACTS.items()
+    ]
+
+
+def _computed_check(key: str) -> None:
+    refusal = computed_refusal(key)
+    if refusal is not None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, refusal)
+
+
 @router.put("/{key}", response_model=Fact)
 async def set_fact(key: str, item: FactWrite, principal: CurrentPrincipal, store: Store) -> Fact:
+    checked = _checked_key(key)
+    _computed_check(checked)
     try:
-        return await store.set_fact(principal.user_id, _checked_key(key), item)
+        return await store.set_fact(principal.user_id, checked, item)
     except ValueError as error:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
 
 
 @router.post("/{key}/verify", response_model=Fact)
 async def verify_fact(key: str, principal: CurrentPrincipal, store: Store) -> Fact:
-    fact = await store.verify_fact(principal.user_id, _checked_key(key))
+    checked = _checked_key(key)
+    _computed_check(checked)
+    fact = await store.verify_fact(principal.user_id, checked)
     if fact is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Fact not found")
     return fact

@@ -65,6 +65,7 @@ __all__ = [
     "annual_minimum",
     "career_facts",
     "completed_rotations",
+    "computed_refusal",
     "derive",
     "graduation_term",
     "internship_window",
@@ -295,6 +296,53 @@ def _computed_facts() -> dict[str, tuple[ComputedSource, DerivedFact]]:
 
 # A computed fact is never stored and never overridden by a stored row.
 COMPUTED_FACTS = _computed_facts()
+
+_FACT_KEY = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
+
+
+def computed_refusal(key: str) -> str | None:
+    """Why a computed fact is never stored or asked for: the career record,
+    other facts, or the posting decides it, and storing it would freeze it. A
+    referrer named once would follow every application after. None for a key no
+    declaration here computes.
+    """
+    found = COMPUTED_FACTS.get(key)
+    if found is None:
+        return None
+    source, item = found
+    if source == "career":
+        return (
+            f"{key} is computed from the career record; edit the record "
+            "at /resume/edit or with os hunt resume put"
+        )
+    if key.startswith("referral."):
+        return f"{key} is set for one application with os hunt apply --referred NAME"
+    career: list[str] = []
+    stored: list[str] = []
+    seen = {key}
+    queue = list(item.reads)
+    position = 0
+    while position < len(queue):
+        read = queue[position]
+        position += 1
+        if read in seen:
+            continue
+        seen.add(read)
+        known = COMPUTED_FACTS.get(read)
+        if known is None:
+            if _FACT_KEY.fullmatch(read):
+                stored.append(read)
+        elif known[0] == "career":
+            career.append(read)
+        else:
+            queue.extend(known[1].reads)
+    steps: list[str] = []
+    if career:
+        steps.append(f"edit {', '.join(career)} in the career record at /resume/edit")
+    if stored:
+        steps.append(f"set {', '.join(stored)}")
+    tail = "; ".join(steps) if steps else "it is decided for each application"
+    return f"{key} is computed from {', '.join(item.reads)}; {tail}"
 
 
 def graduation_term(graduation: date) -> str:

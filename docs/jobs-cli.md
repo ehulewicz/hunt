@@ -31,11 +31,11 @@ os hunt archive prose --markdown ~/archived-answers.md
 os hunt facts        # = os hunt facts list; every stored and derived fact
 os hunt facts list --show
 os hunt facts review # accept, edit, or delete each unverified fact
-os hunt facts set education.gpa 3.78
+os hunt facts set availability.notice_period_weeks 2
 os hunt facts set identity.middle_name Alexander   # the catalog gives a known key its type and label
 os hunt facts set address.line_2 --none            # the answer is none: free text gets N/A
 os hunt facts set work_auth.security_clearance no --type boolean --label "Holds a security clearance"
-os hunt facts delete education.gpa       # confirm deleting a stored override
+os hunt facts delete identity.middle_name  # asks before deleting
 os hunt facts delete address.line_2 --yes # skip confirmation
 
 os hunt resume get        # print the record's resume document as JSON
@@ -281,7 +281,9 @@ expiration stays manual without a date.
 Facts are the single source the apply run fills from. `os hunt facts review`
 shows each unverified fact beside what the archived answers said to similar
 questions, so a contradiction such as a second graduation date is settled once,
-on the fact.
+on the fact. `os hunt facts set` refuses a computed key — one the career
+record, other facts, or the posting decides — before connecting, and names what
+to change instead.
 
 ## From the Hunt page
 

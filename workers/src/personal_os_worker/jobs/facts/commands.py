@@ -23,8 +23,8 @@ from personal_os_worker.jobs.facts.catalog import entry, fact_values
 from personal_os_worker.jobs.facts.derived import (
     CAREER_FACTS,
     DERIVED_FACTS,
-    POSTING_FACTS,
     career_facts,
+    computed_refusal,
     derive,
     shadowed,
 )
@@ -210,12 +210,9 @@ def delete_fact(
     """Delete a stored row only, including an override of a career-derived value."""
     stored = next((fact for fact in api.facts() if fact["key"] == key), None)
     if stored is None:
-        if any(item.key == key for item in CAREER_FACTS):
-            raise RuntimeError(
-                f"{key} comes from the career record; change it with os hunt resume edit"
-            )
-        if any(item.key == key for item in (*DERIVED_FACTS, *POSTING_FACTS)):
-            raise RuntimeError(f"{key} is derived; change its inputs or calculation in code")
+        refusal = computed_refusal(key)
+        if refusal is not None:
+            raise RuntimeError(refusal)
         raise RuntimeError(f"No stored fact named {key}")
     console.print(f"{key} = {display(stored.get('value'))}", markup=False)
     if not yes and ask(f"Delete stored fact {key}? [y/N] ").strip().casefold() not in {"y", "yes"}:
@@ -255,13 +252,20 @@ def review_facts(
             console.print("  archived answers to similar questions:", style="dim")
             for question, answer in conflicts[:8]:
                 console.print(f"    {answer!r:<40}  ← {question[:70]}", markup=False)
+        refusal = computed_refusal(key)
+        if refusal is not None:
+            console.print(f"  {refusal}", style="dim")
         while True:
-            choice = ask("  [a]ccept  [e]dit  [d]elete  [s]kip  [q]uit: ").strip().casefold()
-            if choice in {"a", "accept"}:
+            choice = ask(
+                "  [d]elete  [s]kip  [q]uit: "
+                if refusal is not None
+                else "  [a]ccept  [e]dit  [d]elete  [s]kip  [q]uit: "
+            ).strip().casefold()
+            if choice in {"a", "accept"} and refusal is None:
                 api.verify_fact(key)
                 decided += 1
                 break
-            if choice in {"e", "edit"}:
+            if choice in {"e", "edit"} and refusal is None:
                 raw = ask(f"  new value ({fact.get('value_type')}): ")
                 try:
                     value = parse_value(str(fact.get("value_type")), raw)
@@ -307,6 +311,9 @@ def run_facts_set(
 ) -> int:
     """Set one fact; `raw` None stores the type's none value. The catalog names a new
     fact's type and label unless they are given."""
+    refusal = computed_refusal(key)
+    if refusal is not None:
+        raise RuntimeError(refusal)
     config, token = connected()
     api = WorkerApi(config, token)
     known = entry(key)

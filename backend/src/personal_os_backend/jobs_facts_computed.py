@@ -3,9 +3,11 @@
 A computed fact comes from the career record, from other facts or the date, or
 from the posting being applied to; a value written for one goes stale the
 moment it is saved, so the API must not store or verify one. A workers test
-keeps this list equal to the worker's declarations.
+loads this module by path and keeps its declarations and `computed_refusal`
+equal to the worker's, so it stays standard-library only.
 """
 
+import re
 from typing import Literal
 
 Source = Literal["career", "derived", "posting"]
@@ -205,3 +207,50 @@ COMPUTED_FACTS: dict[str, tuple[Source, str, tuple[str, ...]]] = {
     "referral.referred": ("posting", "Referred for this application (apply --referred)", ()),
     "referral.referrer_name": ("posting", "Who referred you (apply --referred NAME)", ()),
 }
+
+_FACT_KEY = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
+
+
+def computed_refusal(key: str) -> str | None:
+    """Why a computed fact is never stored: the career record, other facts, or
+    the posting decides it, and storing it would freeze it. A referrer named
+    once would follow every application after. None for a key no declaration
+    here computes.
+    """
+    found = COMPUTED_FACTS.get(key)
+    if found is None:
+        return None
+    source, _label, reads = found
+    if source == "career":
+        return (
+            f"{key} is computed from the career record; edit the record "
+            "at /resume/edit or with os hunt resume put"
+        )
+    if key.startswith("referral."):
+        return f"{key} is set for one application with os hunt apply --referred NAME"
+    career: list[str] = []
+    stored: list[str] = []
+    seen = {key}
+    queue = list(reads)
+    position = 0
+    while position < len(queue):
+        read = queue[position]
+        position += 1
+        if read in seen:
+            continue
+        seen.add(read)
+        known = COMPUTED_FACTS.get(read)
+        if known is None:
+            if _FACT_KEY.fullmatch(read):
+                stored.append(read)
+        elif known[0] == "career":
+            career.append(read)
+        else:
+            queue.extend(known[2])
+    steps: list[str] = []
+    if career:
+        steps.append(f"edit {', '.join(career)} in the career record at /resume/edit")
+    if stored:
+        steps.append(f"set {', '.join(stored)}")
+    tail = "; ".join(steps) if steps else "it is decided for each application"
+    return f"{key} is computed from {', '.join(reads)}; {tail}"

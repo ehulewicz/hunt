@@ -28,6 +28,7 @@ from personal_os_worker.core.config import console
 from personal_os_worker.device.link import AGENT_RUN_ENV, LinkClient, ansi_spans, socket_path
 from personal_os_worker.jobs.audit import Finding
 from personal_os_worker.jobs.facts.catalog import entry
+from personal_os_worker.jobs.facts.derived import computed_refusal
 from personal_os_worker.jobs.keys import KeyWatcher, NoKeys
 
 FACT_KEY = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
@@ -80,7 +81,7 @@ def gap_items(findings: list[Finding]) -> list[dict[str, Any]]:
         if key is None and finding.missing_fact and FACT_KEY.fullmatch(finding.missing_fact):
             key = finding.missing_fact
         known = entry(key) if key else None
-        derived = known is not None and known.source != "stored"
+        refusal = computed_refusal(key) if key else None
         item: dict[str, Any] = {
             "question": finding.question,
             "cause": finding.cause,
@@ -90,10 +91,10 @@ def gap_items(findings: list[Finding]) -> list[dict[str, Any]]:
             "missing_fact": finding.missing_fact,
             "label": known.label if known else None,
             "value_type": known.value_type if known else None,
-            "settable": finding.cause == "fact_gap" and not derived,
+            "settable": finding.cause == "fact_gap" and refusal is None,
         }
-        if derived and key is not None and key.startswith("referral."):
-            item["hint"] = "apply --referred NAME"
+        if refusal is not None:
+            item["hint"] = refusal
         items.append(item)
     return items
 

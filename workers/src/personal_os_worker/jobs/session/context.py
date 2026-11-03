@@ -360,21 +360,6 @@ def _claude_questions(fields: list[dict[str, Any]]) -> list[ShortQuestion]:
     return list(questions.values())
 
 
-def derived_refusal(key: str) -> str | None:
-    """Why a fact is not asked for: the career record or the posting decides it.
-
-    Storing it would freeze it, and a referrer named here would follow every
-    application after.
-    """
-    from personal_os_worker.jobs.facts.catalog import entry
-
-    known = entry(key)
-    if known is None or known.source == "stored":
-        return None
-    hint = " (apply --referred NAME)" if key.startswith("referral.") else ""
-    return f"{key} is derived, not asked for{hint}"
-
-
 def content_type_for(name: str) -> str:
     if name.endswith(".png"):
         return "image/png"

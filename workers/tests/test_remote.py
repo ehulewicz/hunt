@@ -148,13 +148,22 @@ def test_gaps_say_what_the_page_can_ask_for() -> None:
     assert birth["settable"] and birth["fact_key"] == "identity.birth_date"
     assert birth["label"] == "Date of birth" and birth["value_type"] == "date"
     # The career record decides the GPA; it is edited there, not answered here.
-    assert not by_question["GPA"]["settable"]
+    gpa = by_question["GPA"]
+    assert not gpa["settable"]
+    assert gpa["hint"] == (
+        "education.gpa is computed from the career record; edit the record "
+        "at /resume/edit or with os hunt resume put"
+    )
     unnamed = by_question["Clearance?"]
     assert unnamed["settable"] and unnamed["fact_key"] is None
     assert unnamed["missing_fact"] == "security clearance status"
     assert by_question["Clearance level"]["fact_key"] == "work_auth.clearance_level"
     referral = by_question["Who referred you?"]
-    assert not referral["settable"] and referral["hint"] == "apply --referred NAME"
+    assert not referral["settable"]
+    assert referral["hint"] == (
+        "referral.referrer_name is set for one application "
+        "with os hunt apply --referred NAME"
+    )
     assert not by_question["Pronouns"]["settable"]
 
 
