@@ -5,7 +5,12 @@ export default defineConfig({
   fullyParallel: true,
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",
-  use: { baseURL: "http://localhost:3000", trace: "retain-on-failure" },
+  use: {
+    baseURL: "http://localhost:3000",
+    locale: "en-US",
+    timezoneId: "UTC",
+    trace: "retain-on-failure",
+  },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: [
     {
