@@ -32,17 +32,12 @@ def words(text: str) -> str:
     return " " + re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip() + " "
 
 
-def has_code(option: str, code: str) -> bool:
-    """A postal code, in capitals only: "IN" is a state, "in" is a word."""
-    return re.search(rf"\b{code}\b", option) is not None
-
-
 def names_part(option: str, part: str) -> bool:
     """Whether the option names this one part of the fact, in any of its spellings."""
     if words(part).strip() in US_NAMES:
         return US_OPTION.search(option) is not None
     code = STATES.get(words(part).strip())
-    if code is not None and has_code(option, code):
+    if code is not None and re.search(rf"\b{code}\b", option):
         return True
     return words(part) in words(option)
 
@@ -53,7 +48,7 @@ def names_other_state(option: str, parts: list[str]) -> bool:
     for state, code in STATES.items():
         if words(state) in mine or code in [part.strip() for part in parts]:
             continue
-        if words(state) in words(option) or has_code(option, code):
+        if words(state) in words(option) or re.search(rf"\b{code}\b", option):
             return True
     return False
 
