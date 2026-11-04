@@ -6,7 +6,6 @@ import re
 
 from personal_os_worker.jobs.registry.api import Format, FormatInput
 
-# Lever hosts every employer under one site, so the wording is the gate.
 LOCATION_QUESTION = re.compile(r"\blocat(?:ion|ed)\b", re.IGNORECASE)
 EXCLUDES = re.compile(r"\b(?:outside|not|non|except|excluding|other than)\b", re.IGNORECASE)
 US_NAMES = {"united states", "united states of america", "usa", "us", "u s", "u s a"}
@@ -59,6 +58,12 @@ def names_other_state(option: str, parts: list[str]) -> bool:
     return False
 
 
+def only_a_part(option: str, parts: list[str]) -> bool:
+    """Whether the option is one part of the fact and nothing else."""
+    name, said = words(option).strip(), [words(part).strip() for part in parts]
+    return name in said or (name in US_NAMES and any(part in US_NAMES for part in said))
+
+
 def location_option(render_input: FormatInput) -> str | None:
     """The one option naming the most specific part of "city, state, country"; no guess."""
     if not isinstance(render_input.value, str) or not render_input.options:
@@ -80,6 +85,8 @@ def location_option(render_input: FormatInput) -> str | None:
             best, top = [option], score
         elif score == top and score > 0:
             best.append(option)
+    if len(best) > 1:
+        best = [option for option in best if only_a_part(option, parts)] or best
     return best[0] if len(best) == 1 else None
 
 
@@ -100,19 +107,18 @@ FORMAT = Format(
     sites=("lever.co",),
     proven=False,
     examples=(
-        # The country, in the spellings a menu uses, and never its negation.
         (asked(("United States", "Canada", "Other")), "United States"),
         (asked(("US", "Canada")), "US"),
         (asked(("Outside the U.S.", "In the U.S.")), "In the U.S."),
         (asked(("Colorado", "United States")), "Colorado"),
         (asked(("Based in CO", "Based in the West")), "Based in CO"),
-        # Namesakes: the city in the fact's state, and a longer state that holds the name.
         (asked(("Denver, CO", "Denver, PA", "Remote")), "Denver, CO"),
         (asked(("Denver, PA", "Remote")), None),
         (asked(("West Virginia", "Virginia"), "Richmond, Virginia, United States"), "Virginia"),
-        # Nothing fits, or two fit equally: a gap, not a guess.
         (asked(("San Mateo, CA", "New York, NY", "Other")), None),
         (asked(("USA", "United States")), None),
+        (asked(("United States", "United States Minor Outlying Islands", "Virgin Islands, U.S."),
+               "Atlanta, GA, USA"), "United States"),
         (asked(("United States",), question="Which office do you prefer?"), None),
         (asked(()), None),
     ),

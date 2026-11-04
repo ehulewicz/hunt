@@ -567,3 +567,22 @@ def test_docs_name_the_one_exception() -> None:
     assert "--submit" in (safety.__doc__ or "")
     readme = (Path(__file__).parents[1] / "README.md").read_text()
     assert "--submit" in readme
+
+
+def test_a_choice_in_a_section_nothing_shows_is_not_a_question_yet(page: Any) -> None:
+    from personal_os_worker.jobs.browser import inspect_fields
+
+    page.set_content("""
+      <form>
+        <div id="survey" style="display:none"><ul><li><label>
+          <input type="radio" name="sex" value="m">Male</label></li></ul>
+          <select name="later"><option>A</option><option>B</option></select>
+        </div>
+        <div class="styled"><input type="radio" name="kept" id="k" style="display:none">
+          <label for="k">Styled over its hidden input</label></div>
+        <div style="display:none"><input type="file" name="resume"></div>
+      </form>""")
+    names = {str(item.get("name")) for item in inspect_fields(page)}
+    assert names == {"kept", "resume"}
+    page.evaluate("document.getElementById('survey').style.display='block'")
+    assert {"sex", "later"} <= {str(item.get("name")) for item in inspect_fields(page)}

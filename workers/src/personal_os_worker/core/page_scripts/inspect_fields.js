@@ -32,6 +32,15 @@
               || element.getClientRects().length)) {
             return false;
           }
+          // A choice inside a section nothing shows (Lever's survey, until a country
+          // opens it) is no question yet. An input styled over stays: only its own
+          // display is none. An upload stays too: a drop zone hides its wrapper.
+          const shown = node => getComputedStyle(node).display !== 'none';
+          if (type !== 'file' && !element.getClientRects().length) {
+            for (let at = element.parentElement; at; at = at.parentElement) {
+              if (!shown(at)) return false;
+            }
+          }
           // A collapsed popup's own search box (a phone field's country picker)
           // belongs to that control, never to the form.
           const popup = element.closest('[role="dialog"], [role="listbox"], [role="menu"]');
