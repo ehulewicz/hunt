@@ -1890,6 +1890,38 @@ def test_a_fact_the_page_sends_is_set_and_filled_in(
     assert link.sent[-1][:3] == ("fact_result", question, True)
 
 
+def test_a_fact_the_page_sends_names_the_gap_issue_of_its_own_question(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    """Gaps on identical widgets share a problem key, so an issue is found by its question."""
+    browser_page.set_content(AUDIT_FORM)
+    question = "Do you hold a security clearance?"
+    other = "What is your county of residence?"
+    failures_seen: list[Any] = []
+
+    class Api(FakeApi):
+        def set_fact(self, key: str, value: Any, **rest: Any) -> dict[str, Any]:
+            failures_seen.append(rest.get("failure"))
+            return super().set_fact(key, value, **rest)
+
+    link = FakeLink([
+        {"type": "fact", "question": question, "key": "work_auth.clearance",
+         "label": "Security clearance", "value_type": "text", "value": "Active Secret"},
+    ])
+    session = audit_session(browser_page, facts={}, api=Api(), link=link)
+    session.remember_issues(
+        [{"signature": "wanted", "category": "fact_gap", "question": question},
+         {"signature": "other", "category": "fact_gap", "question": other}],
+        [{"signature": "wanted", "id": "issue-wanted"},
+         {"signature": "other", "id": "issue-other"}],
+        lambda failure: (failure["category"], failure["question"]),
+    )
+
+    session.answer_remote_facts(inspect_fields(browser_page))
+
+    assert [failure["issue_id"] for failure in failures_seen] == ["issue-wanted"]
+
+
 def test_a_fact_the_page_cannot_set_is_refused_with_the_reason(
     browser_page,  # type: ignore[no-untyped-def]
 ) -> None:

@@ -179,6 +179,9 @@ class SessionState:
     persisted_gaps: set[tuple[str, str]] = field(default_factory=set)
     # A problem's key -> the failure issue it was stored as, for the fixer.
     issue_ids: dict[str, str] = field(default_factory=dict)
+    # A missing fact's question -> its issue, which the fact given for it closes.
+    # Not `issue_ids`: gaps on identical widgets share one problem key there.
+    gap_issues: dict[str, str] = field(default_factory=dict)
     # Problems handed to the fixer this run, kept or not: never handed over twice.
     fix_keys: set[str] = field(default_factory=set)
     # The accepted answers a learned change is replayed against, read once a run;

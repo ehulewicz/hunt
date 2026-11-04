@@ -253,9 +253,11 @@ class RepairsMixin(SessionBase):
             replay_fact(sightings, self.ctx.knowledge, key, value, value_type=value_type)
             if sightings is not None else None
         )
+        gap = self.state.gap_issues.get(question)
         try:
             self.ctx.api.set_fact(
-                key, value, label=label, value_type=value_type, failure=self.failure(question),
+                key, value, label=label, value_type=value_type,
+                failure=self.failure(question) | ({"issue_id": gap} if gap else {}),
                 verification=check.verification() if check is not None else None,
             )
         except httpx.HTTPStatusError as error:
@@ -496,6 +498,8 @@ class RepairsMixin(SessionBase):
             issue_id = by_signature.get(str(failure.get("signature")))
             if issue_id:
                 self.state.issue_ids[self.problem_key(*problem(failure))] = issue_id
+                if failure.get("category") == "fact_gap":
+                    self.state.gap_issues[str(failure.get("question"))] = issue_id
 
     def report_wall(self, category: str, message: str) -> Finding:
         """A wall between the run and its form is a finding, like an empty field.

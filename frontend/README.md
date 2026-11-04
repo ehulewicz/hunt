@@ -106,7 +106,8 @@ audit, draft). Writing also lists open
 prose gaps — a long-form question the library covers only partly or not at all —
 with a link into the Library page and a Resolve action. Facts to verify comes from
 `/v1/jobs/inbox`: unverified facts, missing facts with the question that needed them,
-and contradicted facts with replay counts. Computed facts come from
+and contradicted facts with replay counts. Saving a missing card names its issue, so
+the card closes. Computed facts come from
 `/v1/jobs/facts/computed` and are never saved: a missing card for one shows
 what it is computed from and links to the resume editor for career facts.
 Unsolved shows failures the run could

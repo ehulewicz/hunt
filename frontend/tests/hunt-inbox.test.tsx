@@ -152,7 +152,7 @@ test("a missing card for an existing typed fact preserves its stored metadata", 
   expect(screen.getByLabelText("Value")).toHaveValue("false");
   expect(screen.queryByLabelText("Type")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Save verified fact" }));
-  await waitFor(() => expect(fetch).toHaveBeenCalledWith("https://api.test/v1/jobs/facts/work_auth.sponsorship", expect.objectContaining({ body: JSON.stringify({ value: false, verified: true, origin: "inbox" }) })));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith("https://api.test/v1/jobs/facts/work_auth.sponsorship", expect.objectContaining({ body: JSON.stringify({ value: false, verified: true, origin: "inbox", failure: { issue_id: "issue1" } }) })));
 });
 
 test("an unknown missing fact stays editable and saves typed metadata with Inbox origin", async () => {
@@ -163,7 +163,7 @@ test("an unknown missing fact stays editable and saves typed metadata with Inbox
   fireEvent.change(screen.getByLabelText("Type"), { target: { value: "date" } });
   fireEvent.change(screen.getByLabelText("Value"), { target: { value: "2027-05-24" } });
   fireEvent.click(screen.getByRole("button", { name: "Save verified fact" }));
-  await waitFor(() => expect(fetch).toHaveBeenCalledWith("https://api.test/v1/jobs/facts/availability.start", expect.objectContaining({ body: JSON.stringify({ value: "2027-05-24", verified: true, origin: "inbox", label: "Start date", value_type: "date" }) })));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith("https://api.test/v1/jobs/facts/availability.start", expect.objectContaining({ body: JSON.stringify({ value: "2027-05-24", verified: true, origin: "inbox", label: "Start date", value_type: "date", failure: { issue_id: "issue1" } }) })));
 });
 
 test("question disposition sends Inbox origin", async () => {

@@ -588,7 +588,7 @@ lane each cause names: a `format_error` tries the fact's other renderings, a
 `control_error` the control's other strategies, a `pattern_gap` goes back to the
 model with the options in front of it (which again only teaches a pattern), and a
 `fact_gap` is asked for at the terminal under `--ask-facts`, where the fact you
-give also binds the question to it. A computed fact is never asked for; the
+give also binds the question to it and closes its issue. A computed fact is never asked for; the
 refusal names what to change instead. Before any model call the audit runs the
 pattern pass over every open question, so a value a pattern filled that the page
 then lost comes back from the pattern; a question the current resolver answers

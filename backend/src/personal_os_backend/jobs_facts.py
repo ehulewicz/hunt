@@ -9,6 +9,8 @@ Every set, verification, and deletion is recorded in `jobs_changes` in the same
 transaction, keyed by the fact's key. A set that arrives without the worker's
 replay (the web Library, the CLI) is recorded pending, and the next run replays
 it; a verification or a deletion changes no answer and is never pending.
+Every set also settles the `fact_gap` issues it answers, unchanged value or not,
+so the Inbox stops asking; a run that hits the same gap again reopens the issue.
 The computed keys in `jobs_facts_computed` are refused on a set and on a
 verify with a 422 naming what to change instead; a delete still removes a
 leftover stored row.
@@ -169,6 +171,32 @@ async def _record_fact(
     )
 
 
+async def _settle_fact_gaps(
+    connection: AsyncConnection[Any], user_id: UUID, key: str, failure: Failure | None
+) -> None:
+    """Close the gaps this fact answers: the one the write names, and any naming its key.
+
+    A gap's name is often the model's words rather than a key, so only the
+    write can say which fact answers it. `fixed` means a commit, and `archived`
+    is the closed state a recurrence reopens in `record_step_failures`.
+    """
+    await connection.execute(
+        """
+        update app.jobs_autofill_failure_issues issue set status = 'archived'
+        where issue.user_id = %s and issue.category = 'fact_gap'
+          and issue.status in ('open', 'unsolved')
+          and (issue.id = %s or %s = (
+            select coalesce(occurrence.dom_signals ->> 'fact_key',
+                            occurrence.dom_signals ->> 'missing_fact')
+            from app.jobs_autofill_failure_occurrences occurrence
+            where occurrence.issue_id = issue.id
+            order by occurrence.created_at desc limit 1
+          ))
+        """,
+        (user_id, failure.issue_id if failure is not None else None, key),
+    )
+
+
 class PostgresFactStore:
     def __init__(self, pool: AsyncConnectionPool[Any], timeout: float) -> None:
         self._pool = pool
@@ -206,6 +234,7 @@ class PostgresFactStore:
             if not label or not value_type:
                 raise ValueError("A new fact needs a label and a value_type")
             value = validate_fact_value(value_type, item.value)
+            await _settle_fact_gaps(connection, user_id, key, item.failure)
             if existing is not None and (
                 existing["label"] == label and existing["value_type"] == value_type
                 and existing["value"] == value

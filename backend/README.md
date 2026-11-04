@@ -153,7 +153,9 @@ those whose replay failed, apart from plain `candidates`), unbound short
 questions you answered, `facts` waiting on you (never
 verified, named missing by a run's `fact_gap` issue, or contradicted by the
 replay of their latest change), and `unsolved` failure issues the fixer gave up
-on. An unbound question that active expressions already decide
+on. `PUT /v1/jobs/facts/{key}` settles the `fact_gap` issues it answers, the one
+in `failure.issue_id` and any naming the key, even when the value is unchanged;
+a run that hits the gap again reopens it. An unbound question that active expressions already decide
 (they match it and name one fact, as the worker's resolver requires) is left
 out, and so is one recorded before the rule above that asks nothing. Accepting a binding (`PATCH /patterns/{id}` to `active`)
 retires the question's previous binding and marks the question `pattern`, and

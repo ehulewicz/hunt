@@ -69,8 +69,9 @@ export function ReviewForm({ review: initialReview, computed = [], facts, onDone
       if (review.kind === "fact") {
         const type = valueType;
         const value = ["boolean", "number", "list", "object"].includes(type) ? JSON.parse(text) : text;
+        const answers = "issue_id" in review.item && review.item.issue_id ? { failure: { issue_id: review.item.issue_id } } : {};
         return apiRequest(`/v1/jobs/facts/${encodeURIComponent(factKey)}`, token, {
-          method: "PUT", body: JSON.stringify({ value, verified: true, origin, ...(!review.item.key || !review.item.value_type ? { label, value_type: valueType } : {}) }),
+          method: "PUT", body: JSON.stringify({ value, verified: true, origin, ...(!review.item.key || !review.item.value_type ? { label, value_type: valueType } : {}), ...answers }),
         });
       }
       if (review.kind === "pattern") return apiRequest(`/v1/jobs/patterns/${review.item.id}`, token, {

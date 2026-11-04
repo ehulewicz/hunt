@@ -16,9 +16,11 @@ from personal_os_backend.jobs_career import (
     get_resume_rebuilder,
 )
 from personal_os_backend.jobs_career_pdf import PdfError
+from personal_os_backend.jobs_changes import Failure
 from personal_os_backend.jobs_facts import (
     Fact,
     FactWrite,
+    PostgresFactStore,
     get_fact_store,
     validate_fact_value,
 )
@@ -604,3 +606,81 @@ async def test_the_rebuilder_raises_when_the_record_changed(
 async def test_the_rebuilder_returns_none_without_a_record() -> None:
     rebuilder = PostgresResumeRebuilder(FakeCareerStore(None), FakeCompiler(), FakeStorage())
     assert await rebuilder.prepare(USER_ID, {}) is None
+
+
+class _GapConnection:
+    """Records each statement; the select finds `existing`, the upsert returns `saved`."""
+
+    def __init__(self, existing: dict[str, Any] | None, saved: dict[str, Any]) -> None:
+        self.existing = existing
+        self.saved = saved
+        self.statements: list[tuple[str, Any]] = []
+        self._row: dict[str, Any] | None = None
+
+    async def execute(self, query: str, params: Any = None) -> "_GapConnection":
+        self.statements.append((query, params))
+        self._row = self.existing if query.lstrip().startswith("select") else self.saved
+        return self
+
+    async def fetchone(self) -> dict[str, Any] | None:
+        return self._row
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[None]:
+        yield
+
+    def gap_updates(self) -> list[Any]:
+        return [params for query, params in self.statements
+                if "update app.jobs_autofill_failure_issues" in query]
+
+
+class _GapPool:
+    def __init__(self, connection: _GapConnection) -> None:
+        self._connection = connection
+
+    @asynccontextmanager
+    async def connection(self, timeout: float) -> AsyncIterator[_GapConnection]:
+        yield self._connection
+
+
+@pytest.mark.parametrize("stored", ["Fulton", "Cobb", None], ids=["unchanged", "changed", "new"])
+async def test_saving_a_fact_settles_the_gap_it_answers(
+    monkeypatch: pytest.MonkeyPatch, stored: str | None
+) -> None:
+    """A re-save of the same value settles it too: that write returns early."""
+
+    async def no_change(*args: Any, **kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr("personal_os_backend.jobs_facts._record_fact", no_change)
+    issue_id = UUID("7d1f7f1e-2f0b-4d57-9a53-0f6c1d3f8a11")
+    saved = _row("address.county", "Fulton")
+    existing = None if stored is None else _row("address.county", stored)
+    connection = _GapConnection(existing, saved)
+    store = PostgresFactStore(_GapPool(connection), 5)  # type: ignore[arg-type]
+
+    await store.set_fact(
+        USER_ID, "address.county",
+        FactWrite(value="Fulton", label=saved["label"], value_type="text",
+                  failure=Failure(issue_id=issue_id)),
+    )
+
+    assert connection.gap_updates() == [(USER_ID, issue_id, "address.county")]
+
+
+async def test_a_fact_saved_with_no_failure_still_settles_gaps_naming_its_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def no_change(*args: Any, **kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr("personal_os_backend.jobs_facts._record_fact", no_change)
+    saved = _row("address.county", "Fulton")
+    connection = _GapConnection(None, saved)
+    store = PostgresFactStore(_GapPool(connection), 5)  # type: ignore[arg-type]
+
+    await store.set_fact(
+        USER_ID, "address.county", FactWrite(value="Fulton", label="County", value_type="text")
+    )
+
+    assert connection.gap_updates() == [(USER_ID, None, "address.county")]
