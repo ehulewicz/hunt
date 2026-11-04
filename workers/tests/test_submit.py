@@ -762,3 +762,29 @@ def test_two_spellings_of_one_address_are_one_destination() -> None:
     assert one_destination(["https://a.co/jobs/#top", "https://a.co/jobs"]) is True
     assert one_destination(["/jobs", "/careers"]) is False
     assert one_destination(["/jobs?team=1", "/jobs?team=2"]) is False
+
+
+def page_error() -> Finding:
+    return Finding("City", "format_error", True, "the page says 'Required'",
+                   evidence={"page_error": "Required"})
+
+
+def test_a_page_error_reaches_the_fixer_only_after_a_press() -> None:
+    context = SimpleNamespace(
+        page=SimpleNamespace(url="https://a.co"), browser=None, link=None, submit=True,
+        fixes=SimpleNamespace(), dry_run=False,
+    )
+    session = AutofillSession(cast(Any, context))
+    keys: list[str] = []
+
+    def problem_key(cause: str, _question: str) -> str:
+        keys.append(cause)
+        raise StopIteration
+
+    session.problem_key = problem_key  # type: ignore[method-assign]
+    session.escalate([page_error()])
+    assert keys == []
+    session.state.pressed_step = session.state.step
+    with pytest.raises(StopIteration):
+        session.escalate([page_error()])
+    assert keys == ["format_error"]

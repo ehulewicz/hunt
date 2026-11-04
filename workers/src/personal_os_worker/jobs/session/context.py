@@ -196,6 +196,8 @@ class SessionState:
     # Model calls by purpose made by the processes this run reloaded from.
     # A press that may have sent the application: a run that ends now is unconfirmed.
     submit_pressed: bool = False
+    pressed_step: int | None = None  # the last step a `--submit` run pressed forward on
+    # Model calls by purpose made by the processes this run reloaded from.
 
 
 # Open causes stored as failure issues by the audit itself.

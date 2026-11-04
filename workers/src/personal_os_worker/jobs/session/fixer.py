@@ -84,6 +84,11 @@ class FixerMixin(SessionBase):
                 continue
             if (finding.evidence or {}).get("unlabelled"):
                 continue  # no learned file can give a widget a question
+            if (
+                (finding.evidence or {}).get("page_error") and self.ctx.submit
+                and self.state.pressed_step != self.state.step
+            ):
+                continue  # an error from before any press may be stale, and the press is cheap
             key = self.problem_key(finding.cause, finding.question)
             if key in self.state.fix_keys:
                 continue

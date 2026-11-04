@@ -214,6 +214,7 @@ class SubmitMixin(_Base):
             since = datetime.now(UTC)
             kind = self._press()
             presses += 1
+            self.state.pressed_step = self.state.step
             answer = self._read_press(before, kind)
             answer = self._through_mailed_codes(answer, since)
             if isinstance(answer, ApplicationPageState):
