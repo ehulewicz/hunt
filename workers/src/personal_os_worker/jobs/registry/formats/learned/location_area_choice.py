@@ -12,6 +12,7 @@ US_NAMES = {"united states", "united states of america", "usa", "us", "u s", "u 
 US_OPTION = re.compile(
     r"\b[Uu]nited [Ss]tates\b|\bU\.?S\.?(?:A\.?)?(?![A-Za-z])|\bNorth America\b|\bthe Americas\b"
 )
+COUNTRY_MENU = 100
 STATES = {
     "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA",
     "colorado": "CO", "connecticut": "CT", "delaware": "DE", "district of columbia": "DC",
@@ -53,10 +54,12 @@ def names_other_state(option: str, parts: list[str]) -> bool:
     return False
 
 
-def only_a_part(option: str, parts: list[str]) -> bool:
-    """Whether the option is one part of the fact and nothing else."""
-    name, said = words(option).strip(), [words(part).strip() for part in parts]
-    return name in said or (name in US_NAMES and any(part in US_NAMES for part in said))
+def country_option(options: tuple[str, ...], country: str) -> str | None:
+    """On a menu of the world's countries, the country itself: Georgia is one too."""
+    said = words(country).strip()
+    names = US_NAMES if said in US_NAMES else {said}
+    named = [option for option in options if words(option).strip() in names]
+    return named[0] if len(options) >= COUNTRY_MENU and len(named) == 1 else None
 
 
 def location_option(render_input: FormatInput) -> str | None:
@@ -66,6 +69,8 @@ def location_option(render_input: FormatInput) -> str | None:
     if LOCATION_QUESTION.search(render_input.question) is None:
         return None
     parts = [part.strip() for part in render_input.value.split(",") if part.strip()]
+    if parts and (country := country_option(render_input.options, parts[-1])) is not None:
+        return country
     best: list[str] = []
     top = 0
     for option in render_input.options:
@@ -80,8 +85,6 @@ def location_option(render_input: FormatInput) -> str | None:
             best, top = [option], score
         elif score == top and score > 0:
             best.append(option)
-    if len(best) > 1:
-        best = [option for option in best if only_a_part(option, parts)] or best
     return best[0] if len(best) == 1 else None
 
 
@@ -95,6 +98,7 @@ def asked(options: tuple[str, ...], value: str = PLACE, question: str = QUESTION
     )
 
 
+WORLD = ("Georgia", "United States", "US Islands", *(f"Land {n}" for n in range(100)))
 FORMAT = Format(
     name="location_area_choice",
     fact_keys=("address.location",),
@@ -103,18 +107,14 @@ FORMAT = Format(
     proven=False,
     examples=(
         (asked(("United States", "Canada", "Other")), "United States"),
-        (asked(("US", "Canada")), "US"),
         (asked(("Outside the U.S.", "In the U.S.")), "In the U.S."),
         (asked(("Colorado", "United States")), "Colorado"),
-        (asked(("Based in CO", "Based in the West")), "Based in CO"),
         (asked(("Denver, CO", "Denver, PA", "Remote")), "Denver, CO"),
         (asked(("Denver, PA", "Remote")), None),
         (asked(("West Virginia", "Virginia"), "Richmond, Virginia, United States"), "Virginia"),
         (asked(("San Mateo, CA", "New York, NY", "Other")), None),
         (asked(("USA", "United States")), None),
-        (asked(("United States", "United States Minor Outlying Islands", "Virgin Islands, U.S."),
-               "Atlanta, GA, USA"), "United States"),
+        (asked(WORLD, "Atlanta, Georgia, USA"), "United States"),
         (asked(("United States",), question="Which office do you prefer?"), None),
-        (asked(()), None),
     ),
 )

@@ -178,5 +178,11 @@ def check_answers(
 
     with ThreadPoolExecutor(max_workers=min(len(answers), MAX_CONCURRENT_CALLS)) as pool:
         outputs = list(pool.map(ask, answers))
-    items = [item for output in outputs for item in _judgements_in(output)]
+    # One call asks about one answer, so its reply is about that answer however
+    # the model repeats a long question back.
+    items = [
+        {**item, "question": answer.question} if isinstance(item, dict) else item
+        for answer, output in zip(answers, outputs, strict=True)
+        for item in _judgements_in(output)
+    ]
     return judgements_from(items, answers, {str(fact["key"]) for fact in facts})

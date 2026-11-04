@@ -586,3 +586,20 @@ def test_a_choice_in_a_section_nothing_shows_is_not_a_question_yet(page: Any) ->
     assert names == {"kept", "resume"}
     page.evaluate("document.getElementById('survey').style.display='block'")
     assert {"sex", "later"} <= {str(item.get("name")) for item in inspect_fields(page)}
+
+
+def test_a_long_question_the_model_rewords_still_gets_its_judgement() -> None:
+    import json
+
+    from personal_os_worker.jobs.answer_check import FilledAnswer, check_answers
+
+    asked = "Voluntary Self-Identification\n\nFor government reporting purposes, we ask you."
+    reply = {"judgements": [{
+        "question": "Voluntary Self-Identification For government reporting purposes",
+        "verdict": "right", "fact_key": "", "note": "",
+    }]}
+    judged = check_answers(
+        [FilledAnswer(asked, "Male")], posting={}, facts=[],
+        runner=lambda _argv: json.dumps(reply),
+    )
+    assert judged[asked].kind == "right"
