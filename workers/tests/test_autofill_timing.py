@@ -92,16 +92,6 @@ def test_claude_usage_outside_a_measured_phase_is_dropped() -> None:
     claude_usage.record(json.dumps(ENVELOPE))  # no observer installed; must not raise
 
 
-def test_codex_usage_is_identified_without_inventing_a_cost() -> None:
-    messages: list[str] = []
-    timings = AutofillTimings(report=messages.append)
-    timings.record_usage("short_drafts", 0, {
-        "model": "codex", "input_tokens": 80, "output_tokens": 7,
-        "cache_read_input_tokens": 20, "cost_usd": None,
-    })
-    assert messages == ["Codex step 1: short_drafts 80 in / 7 out (20 cached)"]
-
-
 def test_claude_usage_ignores_output_that_carries_no_usage() -> None:
     assert claude_usage.usage_sample("not json") is None
     assert claude_usage.usage_sample(json.dumps({"result": "ok"})) is None

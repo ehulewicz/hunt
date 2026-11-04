@@ -14,24 +14,14 @@ class ModelError(RuntimeError):
     """The model did not perform the requested work."""
 
 
-class UsageLimit(ModelError):
-    """Claude explicitly reported a usage or rate limit; another provider may try."""
-
-
 def checked_output(output: str, returncode: int) -> str:
     try:
         payload = json.loads(output)
     except (json.JSONDecodeError, TypeError):
         payload = None
     envelope = payload if isinstance(payload, dict) else {}
-    limited = envelope.get("api_error") in ("usage_limit_reached", "rate_limit_error")
-    if returncode or envelope.get("is_error"):
-        limited |= envelope.get("api_error_status") == 429
-        result = envelope.get("result")
-        if isinstance(result, str):
-            limited |= result.startswith(("You've hit your limit", "You\u2019ve hit your limit"))
-    if limited:
-        raise UsageLimit("Claude usage limit reached; drafting and answer checks unavailable")
+    if envelope.get("api_error") == "usage_limit_reached":
+        raise ModelError("Claude usage limit reached; drafting and answer checks unavailable")
     if returncode or envelope.get("is_error"):
         raise ModelError(
             f"Claude call failed ({failure_reason(payload, returncode)}); "

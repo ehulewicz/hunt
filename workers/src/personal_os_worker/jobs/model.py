@@ -1,9 +1,10 @@
-"""The worker's model runner: Claude first, Codex while Claude is rate limited.
+"""The one way the worker runs `claude -p`, on the maintainer's subscription.
 
 Every call site builds its argv here and runs it through `run`, so each one is
 metered (`claude_usage`), and a usage limit or failed envelope raises
 `ModelError` instead of passing for an empty answer. Fill-time calls get no
-tools. Every call answers text only; Codex uses a disposable directory.
+tools. No lane passes tools: every call answers text only
+scratch clone of the repository, never the live checkout.
 
 Each call names its lane and is counted under it, process-wide. Learning —
 `pattern` (`short_answers.py`) and `code` (`fix/`) — is what a site should
@@ -18,19 +19,15 @@ from __future__ import annotations
 import json
 import subprocess
 import threading
-import time
 from collections import Counter
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
-from personal_os_worker.core.config import console
-from personal_os_worker.jobs import claude_usage, model_codex
-from personal_os_worker.jobs.model_errors import ModelError, UsageLimit, checked_output
+from personal_os_worker.jobs import claude_usage
+from personal_os_worker.jobs.model_errors import checked_output
 
 TIMEOUT_SECONDS = 300
-CLAUDE_COOLDOWN_SECONDS = 300
-_claude_retry_at = 0.0
 
 Purpose = Literal["pattern", "audit", "draft", "code"]
 PURPOSES: tuple[Purpose, ...] = ("pattern", "audit", "draft", "code")
@@ -152,12 +149,7 @@ def run(
     timeout: float = TIMEOUT_SECONDS,
     purpose: Purpose = "draft",
 ) -> str:
-    """Run Claude, retrying only usage limits with Codex for a short cooldown."""
-    global _claude_retry_at
-    with _calls_lock:
-        use_codex = time.monotonic() < _claude_retry_at
-    if use_codex:
-        return _run_codex(command, timeout=timeout, purpose=purpose)
+    """Run one call; its envelope, or `ModelError` when the model did not do the work."""
     _reserve(purpose)
     try:
         process = subprocess.run(
@@ -177,29 +169,7 @@ def run(
         raise
     _sum_tokens(purpose, process.stdout)
     claude_usage.record(process.stdout)
-    try:
-        return checked_output(process.stdout, process.returncode)
-    except UsageLimit:
-        with _calls_lock:
-            announce = time.monotonic() >= _claude_retry_at
-            _claude_retry_at = time.monotonic() + CLAUDE_COOLDOWN_SECONDS
-        if announce:
-            console.print("Claude usage limit reached; using Codex for 5 minutes.")
-        return _run_codex(command, timeout=timeout, purpose=purpose)
-
-
-def _run_codex(command: list[str], *, timeout: float, purpose: Purpose) -> str:
-    _reserve(purpose)
-    try:
-        output = model_codex.run(command, timeout=timeout)
-    except OSError as error:
-        _release(purpose)
-        raise ModelError("Codex fallback could not start; Claude usage limit reached") from error
-    except subprocess.TimeoutExpired as error:
-        raise ModelError("Codex fallback timed out; Claude usage limit reached") from error
-    _sum_tokens(purpose, output)
-    claude_usage.record(output)
-    return output
+    return checked_output(process.stdout, process.returncode)
 
 
 def calls(*purposes: Purpose) -> int:
