@@ -19,7 +19,7 @@ from personal_os_worker.core.service import ensure_chrome
 from personal_os_worker.device.link import socket_path
 from personal_os_worker.jobs.account import AccountFlow
 from personal_os_worker.jobs.compose import LibraryText, library_texts
-from personal_os_worker.jobs.posting_page import _reach_the_posting
+from personal_os_worker.jobs.posting_page import PostingClosed, _reach_the_posting
 from personal_os_worker.jobs.resolve import Knowledge
 
 if TYPE_CHECKING:
@@ -121,12 +121,15 @@ def _run_application(posting_id: str, options: _ApplyOptions) -> str:
                 link.tab(page)
             if not options.no_claude and not options.dry_run:
                 fixes = _fix_queue(api, run_id, link)
-            result = _fill_application(
-                api, browser, page, console_errors, reused=reused, run=run, run_id=run_id,
-                ats=ats, knowledge=knowledge, career=career, resume_json=resume_json,
-                resume_pdf=resume_pdf, library=library, fixes=fixes, link=link,
-                cdp_url=config.cdp_url, options=options,
-            )
+            try:
+                result = _fill_application(
+                    api, browser, page, console_errors, reused=reused, run=run, run_id=run_id,
+                    ats=ats, knowledge=knowledge, career=career, resume_json=resume_json,
+                    resume_pdf=resume_pdf, library=library, fixes=fixes, link=link,
+                    cdp_url=config.cdp_url, options=options,
+                )
+            except PostingClosed as closed:
+                result = _leave_closed(api, run=run, run_id=run_id, closed=closed, options=options)
             return result
     except KeyboardInterrupt:
         result = "stopped"
@@ -258,7 +261,7 @@ def _fix_queue(api: WorkerApi, run_id: str, link: RunLink | None) -> FixQueue:
             f"  [dim]reopened {reopened} unsolved fix problem(s) "
             "for the new fixer[/dim]"
         )
-    return FixQueue(
+    queue = FixQueue(
         repo=Path(__file__).resolve().parents[4],
         workdir=state_dir() / "fix",
         api=api,
@@ -268,6 +271,29 @@ def _fix_queue(api: WorkerApi, run_id: str, link: RunLink | None) -> FixQueue:
         loader=lambda path, category: registry.load_file(
             path, category=category
         ),
+    )
+    if link is not None:
+        link.on_guide(queue.guide)
+    return queue
+
+
+def _leave_closed(
+    api: WorkerApi,
+    *,
+    run: dict[str, Any],
+    run_id: str,
+    closed: PostingClosed,
+    options: _ApplyOptions,
+) -> str:
+    """A posting that is gone leaves the board as a skipped row: a sync cannot bring it
+    back, and 'os hunt skipped restore' undoes it if the site was wrong."""
+    console.print(f"[yellow]Posting closed:[/yellow] {closed.reason}; nothing was filled.")
+    outcome: dict[str, Any] = (
+        {"dry_run": True} if options.dry_run
+        else {"skipped": True, "answers": [], "final_url": closed.page.url}
+    )
+    return finalize_application_outcome(
+        api, run=run, run_id=run_id, outcome=outcome, page=closed.page
     )
 
 

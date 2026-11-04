@@ -153,6 +153,17 @@ class ReportingMixin(SessionBase):
             raise SubmittedByUser
         if "skip" in pressed:
             raise SkippedByUser
+        if "guide" in pressed:
+            self.take_direction()
+
+    def take_direction(self) -> None:
+        """Ask at the terminal for a direction to the fixer, and say where it went."""
+        if self.ctx.fixes is None:
+            console.print("  [dim]the fixer is off in this run[/dim]")
+            return
+        text = self.ctx.keys.read_line("Direction for the fixer: ")
+        if text.strip():
+            console.print(f"  [dim]{self.ctx.fixes.guide(text)}[/dim]")
 
     def form_is_gone(self) -> bool:
         """The page has left the form for a confirmation, so nothing on it is ours."""

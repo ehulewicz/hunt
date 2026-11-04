@@ -7,7 +7,9 @@ serves any recheck the fixer asked for on the run thread (`Recheck`: still
 failing, answered, or gone from the page), then tries the waiting candidate on
 the live tab (`probe.py`), commits exactly it and its sanitized fixtures
 (`keep.py`), and loads it into the running run — no reload. Only three real
-attempts make a problem unsolved; anything else leaves its row open.
+attempts make a problem unsolved; anything else leaves its row open. A direction
+you send (`guide`) joins the prompt and gives the problem three more, solved or
+not, and past the brake.
 """
 
 from __future__ import annotations
@@ -80,6 +82,9 @@ __all__ = [
 ]
 
 
+_SETTLED_EARLIER = "an earlier run settled this without a fix that held; a direction tries again"
+
+
 class FixQueue(BackgroundMixin, RecordingMixin, FixBase):
     def __init__(
         self,
@@ -109,6 +114,12 @@ class FixQueue(BackgroundMixin, RecordingMixin, FixBase):
         self.loader = loader
         self.statuses: dict[str, Status] = {}
         self._taken: dict[str, lane.Problem] = {}
+        self._latest: str | None = None
+        self._queued: set[str] = set()
+        self._working: str | None = None
+        self._directions: dict[str, list[str]] = {}
+        self._consumed: dict[str, int] = {}
+        self._closed_quotes: dict[str, str] = {}
         self._recorded: dict[str, str] = {}
         self._problems: queues.Queue[lane.Problem | None] = queues.Queue()
         self._ready: Ready | None = None
@@ -138,9 +149,13 @@ class FixQueue(BackgroundMixin, RecordingMixin, FixBase):
         fixed row is never handed over again.
         """
         with self._lock:
-            if (self._closed or self._braked or self.model_error is not None
+            if (self._closed or self.model_error is not None
                     or problem.key in self.statuses):
                 return False
+            braked = self._braked
+        if braked:
+            self.remember(problem, "the fixer is paused; a direction still reaches it")
+            return False
         taken = self._with_issue(problem)
         if taken is None:
             return False
@@ -148,13 +163,54 @@ class FixQueue(BackgroundMixin, RecordingMixin, FixBase):
         with self._lock:
             self.statuses[problem.key] = Status(problem.key, problem.question, problem.cause)
             self._taken[problem.key] = problem
+            self._latest = problem.key
         self._announce(problem.key, "queued", note=problem.note)
         with self._lock:
             if self._closed:
                 return False
             self._pending += 1
+            self._queued.add(problem.key)
             self._problems.put(problem)
         return True
+
+    def remember(self, problem: lane.Problem, note: str) -> None:
+        """A problem this run will not try by itself, listed so a direction can reach it."""
+        with self._lock:
+            if problem.key in self.statuses:
+                return
+            self.statuses[problem.key] = Status(problem.key, problem.question, problem.cause)
+            self._taken[problem.key] = problem
+            self._latest = problem.key
+        self._announce(problem.key, "unsolved", note=note)
+
+    def guide(self, text: str, key: str | None = None) -> str:
+        """Your direction for a problem (the latest, unless named), for its next
+        attempts; what became of it, in one line. Any thread may call this."""
+        direction = " ".join(text.split())[:2000]
+        if not direction:
+            return "An empty direction was not sent."
+        with self._lock:
+            if self._closed:
+                return "The run is ending, so the direction was not sent."
+            if self.model_error is not None:
+                return f"The direction was not sent: {self.model_error}"
+            chosen = key or self._latest
+            problem = self._taken.get(chosen) if chosen is not None else None
+            if chosen is None or problem is None:
+                return "The fixer has no problem to direct yet."
+            self._directions.setdefault(chosen, []).append(direction)
+            if chosen == self._working or chosen in self._queued:
+                return f"Direction sent: it joins the next attempt at {problem.question!r}."
+            self._queued.add(chosen)
+            self._pending += 1
+            self._problems.put(problem)
+        self._announce(chosen, "queued", note=f"your direction: {direction[:200]}")
+        return f"Direction sent: trying {problem.question!r} again."
+
+    def closed_quote(self, key: str) -> str | None:
+        """The words on the page that settled this posting as gone, once they have."""
+        with self._lock:
+            return self._closed_quotes.get(key)
 
     def at_safe_point(
         self,
@@ -244,7 +300,10 @@ class FixQueue(BackgroundMixin, RecordingMixin, FixBase):
                 issue = self.api.autofill_failure(problem.issue_id) or {}
             except Exception:
                 issue = {}
-            return None if str(issue.get("status")) in {"unsolved", "fixed"} else problem
+            if str(issue.get("status")) in {"unsolved", "fixed"}:
+                self.remember(problem, _SETTLED_EARLIER)
+                return None
+            return problem
         signature = failure_signature(
             "generic", problem.cause, "problem|" + problem.key
         )
@@ -269,10 +328,10 @@ class FixQueue(BackgroundMixin, RecordingMixin, FixBase):
              if str(row.get("signature") or "") == signature),
             issues[0] if issues else {},
         )
-        if str(issue.get("status")) in {"unsolved", "fixed"}:
-            return None
         issue_id = issue.get("id")
-        return (
-            dataclasses.replace(problem, issue_id=str(issue_id))
-            if issue_id is not None else problem
-        )
+        if issue_id is not None:
+            problem = dataclasses.replace(problem, issue_id=str(issue_id))
+        if str(issue.get("status")) in {"unsolved", "fixed"}:
+            self.remember(problem, _SETTLED_EARLIER)
+            return None
+        return problem

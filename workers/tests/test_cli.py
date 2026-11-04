@@ -522,12 +522,52 @@ def test_done_records_a_posting_url_with_the_company_and_title_given(
     assert seen == [(url, {"company": "Acme", "title": "Intern"})]
 
 
+def test_a_closed_posting_leaves_the_board_as_a_skipped_row() -> None:
+    from personal_os_worker.jobs import apply_run
+    from personal_os_worker.jobs.posting_page import PostingClosed
+
+    calls: list[dict[str, object]] = []
+
+    class Api:
+        def complete_autofill_run(self, run_id: str, **payload: object) -> None:
+            calls.append({"run_id": run_id, **payload})
+
+    class Page:
+        url = "https://boards.example.com/acme?error=true"
+        closed = False
+
+        def is_closed(self) -> bool:
+            return self.closed
+
+        def close(self) -> None:
+            self.closed = True
+
+    page = Page()
+    result = apply_run._leave_closed(
+        Api(), run={"company_name": "Acme"}, run_id="r1",  # type: ignore[arg-type]
+        closed=PostingClosed("the site says so", page),  # type: ignore[arg-type]
+        options=apply_run._ApplyOptions(
+            dry_run=False, no_claude=False, repair=True, fresh=False, explain=False, step=False,
+            ask_facts=False, referred=None, remote=False, accept_letter=False,
+        ),
+    )
+    assert result == "skipped" and page.closed
+    assert calls == [{
+        "run_id": "r1", "final_url": page.url, "answers": [], "submitted": False,
+        "application_status": "skipped",
+    }]
+
+
 @pytest.mark.parametrize(
     ("body", "closed"),
     [
         ("Job not found\n\nThe job you requested was not found.", True),
         ("This position is no longer available.", True),
         ("We are no longer accepting applications for this role.", True),
+        # A board's toast after a redirect (KnowBe4 on Greenhouse, 2026-11-03).
+        ("The job you are looking for is no longer open.", True),
+        ("The role you requested is no longer available.", True),
+        ("Our team is no longer small.", False),
         # Workday, for a requisition it has taken down (Carrier, 2026-10-19).
         ("Search for Jobs\nThe page you are looking for doesn't exist.\nSearch for Jobs", True),
         ("Read about the page you are looking for in our docs.", False),

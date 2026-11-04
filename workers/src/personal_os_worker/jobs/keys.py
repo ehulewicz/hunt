@@ -1,7 +1,8 @@
 """Single-key controls for the autofill poll loop.
 
 Ctrl+S saves what has been picked up so far. Ctrl+A says the application went
-in: save, mark it applied, and end. The terminal normally swallows
+in: save, mark it applied, and end. G asks for a line, a direction for the
+fixer. The terminal normally swallows
 Ctrl+S as XOFF flow control, so the watcher turns that off while it runs and
 restores the terminal on exit. Ctrl+C is left to the kernel as SIGINT so the
 session's KeyboardInterrupt path handles it.
@@ -21,6 +22,7 @@ from typing import Any
 SAVE_KEYS = frozenset({"\x13", "s", "S"})
 DONE_KEYS = frozenset({"\x01", "a", "A"})
 SKIP_KEYS = frozenset({"\x04", "d", "D"})
+GUIDE_KEYS = frozenset({"g", "G"})
 
 
 class KeyWatcher:
@@ -47,6 +49,19 @@ class KeyWatcher:
         if self._fd is not None and self._saved is not None:
             termios.tcsetattr(self._fd, termios.TCSADRAIN, self._saved)
 
+    def read_line(self, prompt: str) -> str:
+        """One typed line in the terminal's ordinary mode, then back to single keys."""
+        if self._fd is None or self._saved is None:
+            return ""
+        keys = termios.tcgetattr(self._fd)
+        termios.tcsetattr(self._fd, termios.TCSADRAIN, self._saved)
+        try:
+            return input(prompt)
+        except EOFError:
+            return ""
+        finally:
+            termios.tcsetattr(self._fd, termios.TCSADRAIN, keys)
+
     def wait(self, seconds: float) -> set[str]:
         """Sleep for up to `seconds`, returning the control names pressed meanwhile."""
         if self._fd is None:
@@ -68,6 +83,8 @@ class KeyWatcher:
                     pressed.add("done")
                 if char in SKIP_KEYS:
                     pressed.add("skip")
+                if char in GUIDE_KEYS:
+                    pressed.add("guide")
 
 
 class NoKeys:
@@ -79,9 +96,21 @@ class NoKeys:
     def __exit__(self, *_: object) -> None:
         return None
 
+    def read_line(self, _prompt: str) -> str:
+        return ""
+
     def wait(self, seconds: float) -> set[str]:
         time.sleep(seconds)
         return set()
+
+
+def typed_line() -> str:
+    """A line typed at the terminal and ended with Enter, if one waits; it never blocks."""
+    if not sys.stdin.isatty():
+        return ""
+    fd = sys.stdin.fileno()
+    ready, _, _ = select.select([fd], [], [], 0)
+    return os.read(fd, 4096).decode(errors="ignore").strip() if ready else ""
 
 
 def read_key(prompt: str) -> str:

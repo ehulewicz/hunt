@@ -191,8 +191,8 @@ Code; close the tab to fill or upload it. In the
 terminal, Ctrl+S records what has been picked up so
 far for review, Ctrl+A records answers and marks the application applied when you have submitted
 it yourself, Ctrl+D skips the listing (it leaves the board as `skipped`, a
-resync cannot bring it back, and `os hunt skipped restore <n>` can), and
-Ctrl+C stops and records the application state. A field fills from a fact,
+resync cannot bring it back, and `os hunt skipped restore <n>` can), `g` asks for
+a direction for the fixer, and Ctrl+C stops and records the application state. A field fills from a fact,
 through an active pattern (tagged `pattern`). A short or choice question no
 pattern decides goes to one bounded local Claude pass per page step, which only
 names the fact that answers it and may propose an expression for every wording;

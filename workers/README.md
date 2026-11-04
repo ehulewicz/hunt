@@ -322,6 +322,15 @@ What it cannot find is reported as `posting_not_found` with what the page
 offered, and the run watches the browser until you open the posting, so a run
 never ends because its URL was a careers home.
 
+A posting that is gone ends the run instead (`PostingClosed`). That takes the
+site's word: a closed notice on the page, read as the page first loads so a toast
+that fades still counts and again while watching, or a search that proves it,
+meaning every title query went in and stayed in the box, and the whole title's
+search made the page say it found nothing where it had not before. A search that
+failed, a box that dropped the query, or a board that already said "0 jobs" proves
+nothing, and the row stays. A gone posting fills nothing and leaves the board as
+`skipped`, so a resync cannot bring it back and `os hunt skipped restore` undoes it.
+
 ## How the run fixes itself
 
 `jobs/fix/` is the fixer. A failure the lanes without code cannot settle — a
@@ -353,10 +362,25 @@ registry never loads its file, and a device that is online removes the file and
 its fixtures in one commit on `main` and pushes (`fix/trial.py revert_retired`,
 at the start of each run), skipping paths you have edited.
 
-A problem spends at most three attempts in total across runs (the row's
-verification notes carry "attempts N of 3"); there is no cap on problems, but
-three fully-unsolved problems in a row brake the fixer for the rest of the
-run. An unsolved problem row stays unsolved until `os hunt fixes --retry`
+You can point it at a fix during the run. A direction (Send direction on a Live
+fixes row, `g` at the terminal during the fill, or a typed line and Enter while the
+run watches for a posting) goes to `FixQueue.guide`, which adds it to that problem's
+prompt, marked as coming from you rather than the page, and gives the problem three
+more attempts. It reaches a problem under way, one left unsolved by this or an
+earlier run, and one past the brake; `g` and a typed line go to the latest problem.
+The prompt carries the page's text on arrival and now, and its trimmed markup,
+because the call has no tools and cannot open the fixture files it is told about.
+
+For a posting it cannot find, the model may answer `closed` with the page's exact
+words. The worker checks they are on the page, and takes the row off the board only
+if they are a closed notice or you sent a direction; its own reading of "0 jobs" is
+never enough. The problem row is archived, and one row covers a site and company,
+so one board's closed posting does not settle another's on the same host.
+
+A problem spends at most three attempts in total across runs, plus three per
+direction (the row's verification notes carry "attempts N of 3"); there is no cap
+on problems, but three fully-unsolved problems in a row brake the fixer for the
+rest of the run. An unsolved problem row stays unsolved until `os hunt fixes --retry`
 puts it back on the queue or a new fixer API version reopens them all
 (`registry.reopen_for_version`); before the reuse step and each later attempt
 the queue asks the run to re-check the problem on the live page at a safe

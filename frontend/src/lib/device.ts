@@ -27,7 +27,7 @@ export type Fix = {
   key: string;
   question: string;
   cause: string;
-  state: "queued" | "writing" | "testing" | "waiting" | "probing" | "kept" | "unsolved" | "missing_fact" | "later" | "paused";
+  state: "queued" | "writing" | "testing" | "waiting" | "probing" | "kept" | "unsolved" | "missing_fact" | "later" | "paused" | "closed";
   attempt: number;
   note: string | null;
 };

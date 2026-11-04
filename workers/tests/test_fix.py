@@ -269,15 +269,19 @@ def test_reopen_for_version_reopens_unsolved_problems_once(tmp_path: Path) -> No
 
 # ----- escalate skips what a row already decided --------------------------------
 
-def test_escalate_skips_a_problem_whose_row_is_unsolved() -> None:
+def test_escalate_lists_but_never_submits_a_problem_whose_row_is_unsolved() -> None:
     from personal_os_worker.jobs.session import AutofillSession
 
 
     api = Api()
     queue_items: list[lane.Problem] = []
+    remembered: list[str] = []
     session = AutofillSession.__new__(AutofillSession)
     session.ctx = cast(Any, type("C", (), {
-        "fixes": type("F", (), {"submit": staticmethod(queue_items.append)}),
+        "fixes": type("F", (), {
+            "submit": staticmethod(queue_items.append),
+            "remember": staticmethod(lambda problem, _note: remembered.append(problem)),
+        }),
         "dry_run": False, "api": api, "ats": "generic", "run_id": "r",
         "console_errors": [], "knowledge": type("K", (), {"facts": {}})(),
         "title": "t",
@@ -287,12 +291,15 @@ def test_escalate_skips_a_problem_whose_row_is_unsolved() -> None:
         "fix_keys": set(), "issue_ids": {}, "step": 0, "persisted_gaps": set(),
     })())
     session._problem_issue = lambda _f, _k: "unsolved"  # type: ignore[attr-defined]
+    session.problem_for = lambda _f, _k: "the problem"  # type: ignore[method-assign, assignment, return-value]
+    session._structure_for = lambda _c, _q: "w"  # type: ignore[method-assign]
     finding = cast(Any, type("F", (), {
         "cause": "control_error", "question": "Widget?", "note": "no",
         "evidence": {}, "fact_key": None, "missing_fact": "", "required": False,
     })())
     session.escalate([finding])
     assert queue_items == []
+    assert remembered == ["the problem"]
 
 
 # ----- os hunt fixes --retry -----------------------------------------------------

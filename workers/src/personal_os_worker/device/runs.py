@@ -5,7 +5,7 @@ checkout is brought current. A run started in a terminal finds the agent's
 socket and registers, so the page sees it and its controls work there too. Both
 report over the same socket: console lines as styled spans, the tab they are on,
 a drafted cover letter, and the gaps the audit left. The page answers with
-controls, the edited letter, and facts.
+controls, the edited letter, facts, and directions for the fixer.
 
 Until a page-started run says hello on the socket, its own output is the log, so
 an early failure (a bad reference, a closed posting) still reaches the page.
@@ -365,6 +365,11 @@ class RunManager:
         if await self._send({"type": "letter", "text": text}):
             self.current.letter = None
             await self._publish_run()
+
+    async def guide(self, key: str, text: str) -> None:
+        """A direction from the page for the fixer, which the run answers on its log."""
+        if text.strip():
+            await self._send({"type": "guide", "key": key, "text": text[:2000]})
 
     async def fact(self, answer: dict[str, Any]) -> None:
         fields = ("question", "key", "label", "value_type", "value")

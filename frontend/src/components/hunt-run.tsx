@@ -66,6 +66,25 @@ function phaseLabel(run: RunSnapshot): string {
   return run.outcome ? `Ended: ${run.outcome}` : "Ended";
 }
 
+// A direction joins the fixer's next attempts at this problem; what happens next shows on the row and the log.
+function FixDirection({ fix, onGuide }: { fix: Fix; onGuide: (key: string, text: string) => void }) {
+  const [text, setText] = useState("");
+  const [sent, setSent] = useState<string | null>(null);
+  return (
+    <form className="gap-form" onSubmit={(event) => {
+      event.preventDefault();
+      if (!text.trim()) return;
+      onGuide(fix.key, text.trim());
+      setSent(text.trim());
+      setText("");
+    }}>
+      <label>Direction for the fixer<textarea onChange={(event) => setText(event.target.value)} rows={2} value={text} /></label>
+      <button className="button" disabled={!text.trim()} type="submit">Send direction</button>
+      {sent && <p className="muted" role="status">Sent: {sent}</p>}
+    </form>
+  );
+}
+
 function GapForm({ gap, result, onFact, draft, onDraft }: {
   gap: Gap; result?: { ok: boolean; message: string }; onFact: (answer: FactAnswer) => void;
   draft?: GapDraft; onDraft?: (draft: GapDraft) => void;
@@ -133,6 +152,7 @@ export const HuntRun = memo(function HuntRun({
   onControl,
   onLetter,
   onFact,
+  onGuide,
   workspace = false,
   draft,
   onDraft,
@@ -153,6 +173,7 @@ export const HuntRun = memo(function HuntRun({
   onControl: (action: string) => void;
   onLetter: (text: string) => void;
   onFact: (answer: FactAnswer) => void;
+  onGuide?: (key: string, text: string) => void;
   workspace?: boolean;
   draft?: LetterDraft | null;
   onDraft?: (value: LetterDraft) => void;
@@ -259,9 +280,10 @@ export const HuntRun = memo(function HuntRun({
       {fixes.length > 0 && <section aria-label="Live fixes" className="gap-list" aria-live="polite">
         <h2>Live fixes</h2>
         {fixes.map((fix) => <div className="gap-row" key={fix.key}>
-          <div className="gap-question"><strong>{fix.question}</strong><span className={fix.state === "kept" ? "status-pill" : "status-pill status-pill-muted"}>{fix.state.replace(/_/g, " ")}</span></div>
-          <p className="muted">{fix.cause.replace(/_/g, " ")} · <span>Attempt {fix.attempt}/3</span></p>
+          <div className="gap-question"><strong>{fix.question}</strong><span className={fix.state === "kept" || fix.state === "closed" ? "status-pill" : "status-pill status-pill-muted"}>{fix.state.replace(/_/g, " ")}</span></div>
+          <p className="muted">{fix.cause.replace(/_/g, " ")} · <span>Attempt {fix.attempt > 3 ? fix.attempt : `${fix.attempt}/3`}</span></p>
           {fix.note && <p className="fix-note">{fix.note}</p>}
+          {linked && connected && onGuide && fix.key !== "fixer" && fix.state !== "kept" && fix.state !== "closed" && <FixDirection fix={fix} onGuide={onGuide} />}
         </div>)}
       </section>}
       {gaps.length > 0 && (

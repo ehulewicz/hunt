@@ -298,6 +298,8 @@ class Agent:
             await self.runs.letter(str(message.get("text") or ""))
         elif kind == "fact":
             await self.runs.fact(message)
+        elif kind == "guide":
+            await self.runs.guide(str(message.get("key") or ""), str(message.get("text") or ""))
 
 
 def bearer(request: Request) -> str:

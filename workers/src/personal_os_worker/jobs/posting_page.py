@@ -16,11 +16,22 @@ if TYPE_CHECKING:
 
 CLOSED_POSTING = re.compile(
     r"job is closed|no longer accepting|position has been filled|job (you requested )?(was )?"
-    r"not found|(job|position|posting) is no longer (available|open|active)"
+    r"not found|(job|position|posting|role|opening)"
+    r"( (that )?you(['\u2019]re| are)? (looking for|requested|searched for))?"
+    r" is no longer (available|open|active)"
     r"|this job (has )?expired|no longer (available|open) for applications"
     r"|page you are looking for (doesn['\u2019]t|does not) exist",
     re.IGNORECASE,
 )
+
+
+class PostingClosed(RuntimeError):
+    """The posting is gone: the site says so, or its search shows it, or you said so."""
+
+    def __init__(self, reason: str, page: Page) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.page = page
 
 
 def _reach_the_posting(
@@ -56,9 +67,11 @@ def _reach_the_posting(
     )
     # The posting's own text, waited for: it both identifies the page and
     # is the context the cover letter and long-form drafts are written from.
+    # A closed notice ends the wait too: a board may say it in a toast that is
+    # gone once the text has settled.
     body = rendered_body_text(
         page,
-        accept=lambda text: identifies_posting(
+        accept=lambda text: posting_closed(text) or identifies_posting(
             text, company=expected_company, title=expected_title
         ),
     )
@@ -66,7 +79,7 @@ def _reach_the_posting(
     # before "does not match".
     if posting_closed(body):
         report_page_failure("closed_posting", "The live posting appears closed")
-        raise RuntimeError("The live posting appears closed; nothing was filled")
+        raise PostingClosed("the site says the posting is no longer open", page)
     # A careers home names the company everywhere; only the role says
     # this is the posting. A form already open with the company on it is.
     on_form = looks_like_application_form(inspect_fields(page))
@@ -75,7 +88,7 @@ def _reach_the_posting(
     ):
         page = reach_posting(
             browser, page, Target(expected_title, expected_company),
-            report_page_failure=report_page_failure,
+            report_page_failure=report_page_failure, arrival_text=body,
             fixes=fixes, run_id=run_id, cdp_url=cdp_url,
         )
         if link is not None:

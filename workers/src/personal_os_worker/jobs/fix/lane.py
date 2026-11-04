@@ -5,7 +5,8 @@ makes ONE tool-less model call per attempt: the model answers with the whole
 source of ONE new file for the failing site — a declaration written only
 against `registry/api.py` — and the worker does the rest itself: checks the
 file, tries it on the live control, keeps it, loads it. The model writes
-nothing and reaches nothing.
+nothing and reaches nothing. Directions you send during the run join the prompt
+of this problem's next attempts (`FixQueue.guide`).
 """
 
 from __future__ import annotations
@@ -27,13 +28,14 @@ SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "kind": {"type": "string", "enum": ["file", "missing_fact", "impossible"]},
+        "kind": {"type": "string", "enum": ["file", "missing_fact", "impossible", "closed"]},
         "file": {"type": "string"},
         "name": {"type": "string"},
         "missing_fact": {"type": "string"},
         "summary": {"type": "string"},
+        "quote": {"type": "string"},
     },
-    "required": ["kind", "file", "name", "missing_fact", "summary"],
+    "required": ["kind", "file", "name", "missing_fact", "summary", "quote"],
 }
 
 # Which registry category each cause asks for.
@@ -108,11 +110,12 @@ class Problem:
 class Answer:
     """What the model says it did."""
 
-    kind: Literal["file", "missing_fact", "impossible"]
+    kind: Literal["file", "missing_fact", "impossible", "closed"]
     file: str
     summary: str
     missing_fact: str = ""
     name: str = ""
+    quote: str = ""
 
 
 def api_reference(category: str) -> str:
@@ -148,12 +151,80 @@ def _naming(problem: Problem, revising: str | None, name: str) -> str:
     )
 
 
+# The page's visible text and markup, each trimmed: a tool-less model reads only the prompt.
+PAGE_TEXT_LIMIT = 6_000
+EXCERPT_LIMIT = 12_000
+_NOT_MARKUP = re.compile(r"<(script|style|svg|noscript)\b.*?</\1>|<!--.*?-->", re.I | re.S)
+
+
+def page_excerpt(problem: Problem) -> str:
+    """The captured page's markup without what no selector needs, for the prompt."""
+    found = [
+        problem.page_files[name].decode(errors="replace")
+        for name in sorted(problem.page_files)
+        if name.endswith(".html")
+    ]
+    return " ".join(_NOT_MARKUP.sub(" ", "\n".join(found)).split())[:EXCERPT_LIMIT]
+
+
+def _page_text(problem: Problem) -> str:
+    """What the page said on arrival and says now, when the problem carries them."""
+    parts = [
+        f"{label}:\n{str(problem.evidence[key])[:PAGE_TEXT_LIMIT]}\n"
+        for key, label in (
+            ("arrival_text", "the page's text when the run arrived"),
+            ("page_text", "the page's text now, after the search"),
+        )
+        if problem.evidence.get(key)
+    ]
+    return ("\n" + "\n".join(parts)) if parts else ""
+
+
+def _closed_rule(problem: Problem) -> str:
+    """The verdict only a posting that cannot be found may get."""
+    if problem.cause != "posting_not_found":
+        return "Leave `quote` empty."
+    return (
+        'kind "closed" when this posting no longer exists, with `quote` set to the'
+        " exact words on the page that show it; the worker checks them against the"
+        " page and takes the row off the board, so never answer it for a search that"
+        " may only have failed. Otherwise leave `quote` empty."
+    )
+
+
+def _addenda(
+    revising: str | None, feedback: str | None, directions: tuple[str, ...]
+) -> str:
+    """What follows the instruction: the file to revise, your directions, the last failure."""
+    text = ""
+    if revising is not None:
+        text += (
+            "\n\nA declaration for this same widget already exists for other"
+            " sites and is shown below. REVISE it: keep every earlier example"
+            " (and every earlier site in `sites=` — add this one) and add one"
+            " example proving it on this site's fixture. Do not write a"
+            f" second declaration.\n\n{revising}"
+        )
+    if directions:
+        said = "\n".join(f"- {direction}" for direction in directions)
+        text += (
+            "\n\nTHE APPLICANT, WATCHING THIS RUN, SAYS\n"
+            "This comes from the person, not the page. They can see what you cannot,"
+            " so follow it over your own reading, within the rules above; it never"
+            f" supplies a value.\n{said}"
+        )
+    if feedback:
+        text += "\n\nYOUR LAST ATTEMPT FAILED. Correct it.\n" + feedback[-6000:]
+    return text
+
+
 def prompt(
     problem: Problem,
     feedback: str | None,
     *,
     revising: str | None = None,
     name: str = "",
+    directions: tuple[str, ...] = (),
 ) -> str:
     """The whole instruction: rules, the category's API and reference, the failure."""
     from personal_os_worker.jobs.registry.policy import _MAX_LINES
@@ -164,8 +235,11 @@ def prompt(
         if example_file.is_file() else "(no reference example)"
     )
     goal = GOALS.get(problem.cause, "make the worker handle this failure")
-    evidence = {k: v for k, v in problem.evidence.items() if k != "html"}
-    markup = str(problem.evidence.get("html") or "")[:4000]
+    evidence = {
+        k: v for k, v in problem.evidence.items()
+        if k not in {"html", "arrival_text", "page_text"}
+    }
+    markup = str(problem.evidence.get("html") or "")[:4000] or page_excerpt(problem)
     fixtures = ", ".join(
         fixture_name(problem.site, one)
         for one in sorted(problem.page_files)
@@ -176,7 +250,7 @@ def prompt(
         f"- `structure=` must be exactly {problem.structure!r}.\n"
         if problem.category in {"kinds", "strategies", "questions"} else ""
     )
-    text = f"""
+    return f"""
 You write ONE new file for the Personal OS job-application worker's registry,
 so that one failure from a live run stops happening. The run is waiting.
 
@@ -186,9 +260,9 @@ question: {problem.question!r}
 what the worker saw: {problem.note}
 what already ran and did not solve it: {"; ".join(problem.tried) or "nothing"}
 evidence: {json.dumps(evidence, default=str)[:4000]}
-the control's markup: {markup or "(see the page files)"}
+the control's markup: {markup or "(none was captured)"}
 the live page, saved as fixture files (sanitized): {fixtures}
-
+{_page_text(problem)}
 RULES
 - The file declares exactly ONE declaration for the site {problem.site!r}
   (sites= names it; category {problem.category!r}).
@@ -211,19 +285,8 @@ REFERENCE EXAMPLE (one real file in this category)
 Answer with JSON: kind "file" when you wrote the file (the WHOLE source in
 `file`, its name in `name`), "missing_fact" when the real gap is a fact about
 the applicant (name it in missing_fact), "impossible" when no declaration can
-solve it (say why in summary); summary in one sentence.
-    """.strip()
-    if revising is not None:
-        text += (
-            "\n\nA declaration for this same widget already exists for other"
-            " sites and is shown below. REVISE it: keep every earlier example"
-            " (and every earlier site in `sites=` — add this one) and add one"
-            " example proving it on this site's fixture. Do not write a"
-            f" second declaration.\n\n{revising}"
-        )
-    if feedback:
-        text += "\n\nYOUR LAST ATTEMPT FAILED. Correct it.\n" + feedback[-6000:]
-    return text
+solve it (say why in summary); summary in one sentence. {_closed_rule(problem)}
+    """.strip() + _addenda(revising, feedback, directions)
 
 
 def api_version() -> int:
@@ -235,14 +298,14 @@ def api_version() -> int:
 def answer_of(output: str) -> Answer | None:
     try:
         structured = model.structured(output)
-        if not isinstance(structured, dict) or set(structured) != {
+        if not isinstance(structured, dict) or set(structured) - {"quote"} != {
             "kind", "file", "name", "missing_fact", "summary",
         }:
             return None
         if not all(isinstance(value, str) for value in structured.values()):
             return None
         kind = structured["kind"]
-        if kind not in {"file", "missing_fact", "impossible"}:
+        if kind not in {"file", "missing_fact", "impossible", "closed"}:
             return None
         name = str(structured.get("name") or "").strip()
         if kind == "file" and re.fullmatch(r"[a-z][a-z0-9_]{2,40}", name) is None:
@@ -253,6 +316,7 @@ def answer_of(output: str) -> Answer | None:
             " ".join(str(structured.get("summary") or "").split())[:300],
             " ".join(str(structured.get("missing_fact") or "").split())[:120],
             name,
+            " ".join(str(structured.get("quote") or "").split())[:300],
         )
     except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
         return None
@@ -289,9 +353,11 @@ def write(
     runner: Runner = run_claude,
     revising: str | None = None,
     name: str = "",
+    directions: tuple[str, ...] = (),
 ) -> Answer | None:
     """One model session; None when it gave no usable answer."""
     command = model.argv(
-        prompt(problem, feedback, revising=revising, name=name), schema=SCHEMA
+        prompt(problem, feedback, revising=revising, name=name, directions=directions),
+        schema=SCHEMA,
     )
     return answer_of(runner(command, timeout=WRITE_TIMEOUT_SECONDS))

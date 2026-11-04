@@ -65,7 +65,7 @@ test("no devices explains how to add one", () => {
 });
 
 function renderRun(overrides: Partial<Parameters<typeof HuntRun>[0]> = {}) {
-  const handlers = { onStart: vi.fn(), onControl: vi.fn(), onLetter: vi.fn(), onFact: vi.fn() };
+  const handlers = { onStart: vi.fn(), onControl: vi.fn(), onLetter: vi.fn(), onFact: vi.fn(), onGuide: vi.fn() };
   render(
     <HuntRun
       connected
@@ -283,6 +283,21 @@ test("a session starts on a ready online device", () => {
   expect(defaultDevice([device({ id: "a", online: false })])).toBeNull();
 });
 
+
+test("a direction goes to the fix it was written under, and not to one that is settled", () => {
+  const open = { key: "fix1", question: "Portfolio", cause: "posting_not_found", state: "unsolved" as const, attempt: 4, note: "no code fix" };
+  const settled = { key: "fix2", question: "Salary", cause: "format_error", state: "kept" as const, attempt: 1, note: "abc1234" };
+  const { onGuide } = renderRun({ run: RUN, fixes: [open, settled], gaps: [] });
+  expect(screen.getByText("Attempt 4")).toBeInTheDocument();
+  expect(screen.getAllByRole("textbox", { name: "Direction for the fixer" })).toHaveLength(1);
+  const send = screen.getByRole("button", { name: "Send direction" });
+  expect(send).toBeDisabled();
+  fireEvent.change(screen.getByRole("textbox", { name: "Direction for the fixer" }), { target: { value: "the banner said it closed" } });
+  fireEvent.click(send);
+  expect(onGuide).toHaveBeenCalledWith("fix1", "the banner said it closed");
+  expect(screen.getByRole("status")).toHaveTextContent("Sent: the banner said it closed");
+  expect(screen.getByRole("textbox", { name: "Direction for the fixer" })).toHaveValue("");
+});
 
 test("live fixes restore from a snapshot, update, and clear with a new run", () => {
   const fix = { key: "fix1", question: "Portfolio", cause: "widget", state: "testing" as const, attempt: 2, note: "Running checks" };

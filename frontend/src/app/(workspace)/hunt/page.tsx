@@ -25,6 +25,7 @@ function HuntSession({ device, balanced, draft, onDraft, gapDrafts, onGapDraft, 
   const connected = state.status === "open";
   const onControl = useCallback((action: string) => send({ type: "control", action }), [send]);
   const onFact = useCallback((answer: FactAnswer) => send({ type: "fact", ...answer }), [send]);
+  const onGuide = useCallback((key: string, text: string) => send({ type: "guide", key, text }), [send]);
   const onLetter = useCallback((text: string) => send({ type: "letter", text }), [send]);
 
   useEffect(() => {
@@ -47,6 +48,7 @@ function HuntSession({ device, balanced, draft, onDraft, gapDrafts, onGapDraft, 
           onControl={onControl}
           onDraft={onDraft}
           onFact={onFact}
+          onGuide={onGuide}
           onGapDraft={onGapDraft}
           onLetter={onLetter}
           results={state.results}

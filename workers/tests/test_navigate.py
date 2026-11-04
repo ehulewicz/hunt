@@ -9,6 +9,8 @@ import pytest
 from playwright.sync_api import Error, Route, sync_playwright
 
 from personal_os_worker.jobs.navigate import (
+    ZERO_RESULTS,
+    Searched,
     Target,
     find_posting,
     is_posting,
@@ -17,6 +19,7 @@ from personal_os_worker.jobs.navigate import (
     title_queries,
     title_score,
 )
+from personal_os_worker.jobs.posting_page import PostingClosed
 from personal_os_worker.jobs.registry import routes
 
 TITLE = "Software Engineering Intern (Summer 2027) - Redmond"
@@ -163,3 +166,134 @@ def test_a_posting_nothing_finds_is_reported_and_watched_for(page: Any) -> None:
     )
     assert found is page and page.url == f"{SITE}/jobs/123"
     assert [category for category, _ in reported] == ["posting_not_found"]
+
+
+# ----- a posting that is gone leaves; one that may still exist stays ---------------
+
+BOARD = "https://job-boards.example.com/knowbe4"
+GONE_TITLE = "Software Engineer Summer Internship"
+
+
+def board(query: str, *, said_before: bool = False, keeps_query: bool = True) -> str:
+    """A company board: the whole title finds nothing, a shorter part finds another role."""
+    if not query:
+        results = "<p>0 jobs</p>" if said_before else "<p>7 jobs</p>"
+    elif "summer" in query.casefold():
+        results = "<p>0 jobs</p>"
+    else:
+        results = f'<p>1 job</p><a href="{BOARD}/1">Staff Software Engineer</a>'
+    shown = query if keeps_query else ""
+    return f"""<html><head><title>Current openings at KnowBe4</title></head><body>
+<h1>Current openings at KnowBe4</h1>
+<form action="{BOARD}" method="get">
+  <input type="search" name="q" placeholder="Search" value="{shown}">
+</form>{results}</body></html>"""
+
+
+def board_page(browser: Any, **kwargs: Any) -> Any:
+    context = browser.new_context()
+
+    def respond(route: Route) -> None:
+        query = parse_qs(urlsplit(route.request.url).query).get("q", [""])[0]
+        route.fulfill(content_type="text/html", body=board(query, **kwargs))
+
+    context.route(f"{BOARD}**", respond)
+    page = context.new_page()
+    page.goto(BOARD)
+    return page
+
+
+class StopWatching(Exception):
+    pass
+
+
+def reach(page: Any, reported: list[str]) -> Any:
+    class Browser:
+        def active_page(self, current: Any) -> Any:
+            return current
+
+    def stop(_seconds: float) -> None:
+        raise StopWatching
+
+    return reach_posting(
+        Browser(), page, Target(GONE_TITLE, "KnowBe4"),
+        report_page_failure=lambda category, _message, **_kw: reported.append(category),
+        sleep=stop,
+    )
+
+
+def test_a_search_that_went_in_and_found_nothing_means_the_posting_is_gone(browser: Any) -> None:
+    page = board_page(browser)
+    reported: list[str] = []
+    try:
+        with pytest.raises(PostingClosed, match="went in and found nothing"):
+            reach(page, reported)
+        assert reported == ["closed_posting"]
+    finally:
+        page.context.close()
+
+
+@pytest.mark.parametrize(
+    "board_says",
+    [
+        pytest.param({"keeps_query": False}, id="the box did not hold the query"),
+        pytest.param({"said_before": True}, id="the page said none before the search"),
+    ],
+)
+def test_a_search_that_proves_nothing_keeps_the_row(
+    browser: Any, board_says: dict[str, Any]
+) -> None:
+    page = board_page(browser, **board_says)
+    reported: list[str] = []
+    try:
+        with pytest.raises(StopWatching):
+            reach(page, reported)
+        assert reported == ["posting_not_found"]
+    finally:
+        page.context.close()
+
+
+def test_a_notice_the_page_shows_during_the_watch_settles_it(page: Any) -> None:
+    page.goto(f"{SITE}/about")
+    reported: list[str] = []
+
+    class Browser:
+        def active_page(self, current: Any) -> Any:
+            return current
+
+    def the_site_says_so(_seconds: float) -> None:
+        page.set_content("<p>The job you are looking for is no longer open.</p>")
+
+    with pytest.raises(PostingClosed, match="no longer open"):
+        reach_posting(
+            Browser(), page, Target(TITLE, "Example"),
+            report_page_failure=lambda category, _message, **_kw: reported.append(category),
+            sleep=the_site_says_so,
+        )
+    assert reported == ["posting_not_found", "closed_posting"]
+
+
+def test_a_search_needs_every_query_and_the_whole_title_to_prove_a_posting_gone() -> None:
+    queries = title_queries(GONE_TITLE)
+    assert len(queries) > 1
+    assert Searched(set(queries), {queries[0]}).proves_gone(GONE_TITLE)
+    assert not Searched(set(queries), {queries[-1]}).proves_gone(GONE_TITLE)
+    assert not Searched({queries[0]}, {queries[0]}).proves_gone(GONE_TITLE)
+
+
+@pytest.mark.parametrize(
+    ("text", "zero"),
+    [
+        ("0 jobs", True),
+        ("Showing 0 results", True),
+        ("No results.", True),
+        ("No jobs found", True),
+        ("No open positions available", True),
+        ("Your search did not match any jobs", True),
+        ("10 jobs", False),
+        ("No job alerts yet", False),
+        ("Search jobs", False),
+    ],
+)
+def test_what_counts_as_a_search_finding_nothing(text: str, zero: bool) -> None:
+    assert (ZERO_RESULTS.search(text) is not None) is zero

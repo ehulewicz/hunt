@@ -153,7 +153,9 @@ application's Save, Submitted, Skip, and Stop controls, "To finish" questions,
 a cover letter tab, and a collapsible run log. Live fixes appear alongside
 "Left for you", restoring from the run snapshot and updating from device socket
 messages. Each shows the question, cause, state,
-attempt out of three, and note, including the commit note for a kept fix.
+attempt out of three, and note, including the commit note for a kept fix. A row
+that is not settled takes a direction for the fixer, sent over the device socket;
+the row and the run log show what became of it.
 Fact gaps accept a value inline, which the run stores and fills. The cover letter
 is edited here and "Use this letter" sends it back; a terminal run's letter comes to the page too. Unsent letter
 edits and unsent fact inputs survive a trip to the overview during the page's

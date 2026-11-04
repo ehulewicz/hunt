@@ -111,6 +111,7 @@ class RunLink:
         self._letters: queue.Queue[str] = queue.Queue()
         self._tab: str | None = None
         self._targets: dict[Any, str] = {}
+        self._guide: Callable[[str, str | None], str] | None = None
         client.start(self._receive)
 
     @classmethod
@@ -147,6 +148,16 @@ class RunLink:
         elif kind == "fact":
             with self._lock:
                 self._facts.append(message)
+        elif kind == "guide":
+            answer = "The fixer is off in this run, so the direction was not sent."
+            if self._guide is not None:
+                key = str(message.get("key") or "") or None
+                answer = self._guide(str(message.get("text") or ""), key)
+            console.print(f"  [dim]{answer}[/dim]")
+
+    def on_guide(self, guide: Callable[[str, str | None], str]) -> None:
+        """Where the page's directions for the fixer go."""
+        self._guide = guide
 
     @property
     def closed(self) -> bool:
@@ -244,6 +255,9 @@ class LinkedKeys:
         tb: TracebackType | None,
     ) -> None:
         self.terminal.__exit__(exc_type, exc, tb)
+
+    def read_line(self, prompt: str) -> str:
+        return self.terminal.read_line(prompt)
 
     def wait(self, seconds: float) -> set[str]:
         return self.terminal.wait(seconds) | self.link.controls()

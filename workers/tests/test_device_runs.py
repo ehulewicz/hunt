@@ -218,3 +218,21 @@ async def test_a_page_run_that_dies_before_the_socket_is_still_reported(tmp_path
         await agent.until(lambda: not agent.manager.busy())
     assert state.outcome == "failed"
     assert "Nothing listed on the board." in agent.text()
+
+
+async def test_a_direction_goes_to_the_run_and_an_empty_one_does_not(tmp_path: Path) -> None:
+    manager = RunManager(publish=_no_publish, update=lambda: "", log_dir=tmp_path)
+    sent: list[dict[str, Any]] = []
+
+    async def send(message: dict[str, Any]) -> bool:
+        sent.append(message)
+        return True
+
+    manager._send = send  # type: ignore[method-assign]
+    await manager.guide("k", "   ")
+    await manager.guide("k", "x" * 3000)
+    assert sent == [{"type": "guide", "key": "k", "text": "x" * 2000}]
+
+
+async def _no_publish(_message: dict[str, Any]) -> None:
+    return None

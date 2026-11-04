@@ -45,7 +45,10 @@ class BackgroundMixin(FixBase):
             if problem is None:
                 return
             with self._lock:
-                closed = (self._closed or self._braked
+                self._queued.discard(problem.key)
+                self._working = problem.key
+                directed = bool(self._directions.get(problem.key))
+                closed = (self._closed or (self._braked and not directed)
                           or self.model_error is not None)
                 self._busy = True
                 self._settled.clear()
@@ -60,7 +63,15 @@ class BackgroundMixin(FixBase):
             finally:
                 with self._lock:
                     self._busy = False
+                    self._working = None
                     self._pending -= 1
+                    # A direction that came too late for the last call still gets one.
+                    said = len(self._directions.get(problem.key, ()))
+                    if (said > self._consumed.get(problem.key, 0) and not self._closed
+                            and self.model_error is None):
+                        self._queued.add(problem.key)
+                        self._pending += 1
+                        self._problems.put(problem)
                 self._settled.set()
 
     def _attempt_dir(self, problem: lane.Problem, attempt: int) -> Path:
@@ -117,8 +128,12 @@ class BackgroundMixin(FixBase):
             return True
         return False
 
+    def _said(self, key: str) -> tuple[str, ...]:
+        with self._lock:
+            return tuple(self._directions.get(key, ()))
+
     def _fix(self, problem: lane.Problem) -> None:
-        attempts = self._attempts_of(problem)
+        attempt = self._attempts_of(problem)
         feedback: str | None = None
         if problem.category == "kinds":
             same: list[Path] = _kind_candidates(problem)
@@ -130,64 +145,115 @@ class BackgroundMixin(FixBase):
             revising = same[-1] if same else None
         if self._recheck_or_done(problem):
             return
-        if same and self._reuse(problem, same):
+        # A direction is why this run is here again: it wants a new file, not a reuse.
+        if same and not self._said(problem.key) and self._reuse(problem, same):
             return
-        for attempt in range(attempts + 1, MAX_ATTEMPTS + 1):
+        limit, seen, first = MAX_ATTEMPTS, 0, True
+        while True:
             with self._lock:
                 if self._closed:
                     self._leave_open(problem, "the run closed during the fix")
                     return
-            if attempt != attempts + 1 and self._recheck_or_done(problem):
+            said = len(self._said(problem.key))
+            if said > seen:  # each direction gives the problem three more attempts
+                limit, seen = attempt + MAX_ATTEMPTS, said
+            if attempt >= limit:
+                break
+            if not first and self._recheck_or_done(problem):
                 return
-            self._announce(problem.key, "writing", attempt=attempt)
-            self._record_attempt(problem, attempt)
-            try:
-                answer = lane.write(
-                    problem, feedback, runner=self.runner,
-                    revising=revising.read_text() if revising else None,
-                    name=revising.stem if revising else "",
-                )
-            except (ModelError, OSError, subprocess.TimeoutExpired) as error:
-                with self._lock:
-                    self.model_error = str(error) or "the model is unavailable"
-                self._leave_open(problem, self.model_error)
+            first = False
+            attempt += 1
+            settled, feedback = self._attempt(problem, attempt, feedback, revising)
+            if settled:
                 return
-            if answer is None:
-                feedback = "Your answer was not the JSON asked for. Answer as instructed."
-                continue
-            if answer.kind == "missing_fact":
-                self._finish(problem, "missing_fact",
-                             f"needs a fact: {answer.missing_fact or answer.summary}")
-                return
-            if answer.kind == "impossible":
-                self._finish(problem, "unsolved", f"no code fix: {answer.summary}")
-                return
-            self._announce(problem.key, "testing", attempt=attempt, note=answer.summary)
-            attempt_dir, learned_file, stem = self._write_attempt(
-                problem, attempt, answer, revising
-            )
-            feedback = self._check_attempt(problem, answer, revising, attempt_dir, learned_file)
-            if feedback is not None:
-                continue
-            ready = Ready(
-                problem, answer, attempt,
-                [Candidate(attempt_dir, learned_file, stem)],
-                revised=revising is not None,
-            )
-            verdict = self._hand_over(ready)
-            if verdict is None:
-                return
-            if verdict == "closed":
-                self._leave_open(problem, "the run closed during verification")
-                return
-            if verdict == "gone":
-                self._gone(problem)
-                return
-            feedback = (
-                "It passed the checks but failed on the live page: " + verdict
-            )
         self._finish(problem, "unsolved",
-                     f"{MAX_ATTEMPTS} attempts failed; last: {(feedback or '')[:300]}")
+                     f"{limit} attempts failed; last: {(feedback or '')[:300]}")
+
+    def _attempt(
+        self, problem: lane.Problem, attempt: int, feedback: str | None, revising: Path | None
+    ) -> tuple[bool, str | None]:
+        """One model call and what follows it: whether that settled the problem, and
+        the feedback for the next attempt."""
+        directions = self._said(problem.key)
+        with self._lock:
+            self._consumed[problem.key] = len(directions)
+        self._announce(problem.key, "writing", attempt=attempt)
+        self._record_attempt(problem, attempt)
+        try:
+            answer = lane.write(
+                problem, feedback, runner=self.runner,
+                revising=revising.read_text() if revising else None,
+                name=revising.stem if revising else "",
+                directions=directions,
+            )
+        except (ModelError, OSError, subprocess.TimeoutExpired) as error:
+            with self._lock:
+                self.model_error = str(error) or "the model is unavailable"
+            self._leave_open(problem, self.model_error)
+            return True, None
+        if answer is None:
+            return False, "Your answer was not the JSON asked for. Answer as instructed."
+        if answer.kind != "file" and len(self._said(problem.key)) > len(directions):
+            return False, f"You answered {answer.kind}: {answer.summary} A new direction has come."
+        if answer.kind == "missing_fact":
+            self._finish(problem, "missing_fact",
+                         f"needs a fact: {answer.missing_fact or answer.summary}")
+            return True, None
+        if answer.kind == "closed" and problem.cause == "posting_not_found":
+            return self._closed_answer(problem, answer, directions)
+        if answer.kind != "file":
+            self._finish(problem, "unsolved", f"no code fix: {answer.summary}")
+            return True, None
+        self._announce(problem.key, "testing", attempt=attempt, note=answer.summary)
+        attempt_dir, learned_file, stem = self._write_attempt(problem, attempt, answer, revising)
+        refused = self._check_attempt(problem, answer, revising, attempt_dir, learned_file)
+        if refused is not None:
+            return False, refused
+        ready = Ready(
+            problem, answer, attempt,
+            [Candidate(attempt_dir, learned_file, stem)],
+            revised=revising is not None,
+        )
+        verdict = self._hand_over(ready)
+        if verdict is None:
+            return True, None
+        if verdict == "closed":
+            self._leave_open(problem, "the run closed during verification")
+            return True, None
+        if verdict == "gone":
+            self._gone(problem)
+            return True, None
+        return False, "It passed the checks but failed on the live page: " + verdict
+
+    def _closed_answer(
+        self, problem: lane.Problem, answer: lane.Answer, directions: tuple[str, ...]
+    ) -> tuple[bool, str | None]:
+        """A posting the model calls gone, on the page's words and your word or the
+        site's own: the words must be on the page, and must be a closed notice unless
+        you directed this. A row never leaves the board on the model's reading alone."""
+        from personal_os_worker.jobs.posting_page import posting_closed
+
+        def plain(text: str) -> str:
+            return " ".join(text.split()).casefold()
+
+        page = plain(f"{problem.evidence.get('arrival_text') or ''}\n"
+                     f"{problem.evidence.get('page_text') or ''}")
+        if not answer.quote or plain(answer.quote) not in page:
+            return False, f"Your quote {answer.quote!r} is not on the page; quote it exactly."
+        if not directions and not posting_closed(answer.quote):
+            self._finish(problem, "unsolved",
+                         f"reads as closed ({answer.summary}), but the page says only "
+                         f"{answer.quote!r}; a direction from you can settle it")
+            return True, None
+        # No commit fixed this, and a row only reaches archived through unsolved.
+        notes = f"the posting is gone: {answer.quote}"
+        self._issue(problem, {"status": "unsolved", "verification_notes": notes})
+        self._issue(problem, {"status": "archived", "verification_notes": notes})
+        with self._lock:
+            self._closed_quotes[problem.key] = answer.quote
+            self._consecutive_unsolved = 0
+        self._announce(problem.key, "closed", note=answer.summary)
+        return True, None
 
     def _write_attempt(
         self, problem: lane.Problem, attempt: int, answer: lane.Answer, revising: Path | None

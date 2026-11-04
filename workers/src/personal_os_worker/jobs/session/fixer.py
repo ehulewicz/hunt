@@ -86,10 +86,14 @@ class FixerMixin(SessionBase):
             if key in self.state.fix_keys:
                 continue
             status = self._problem_issue(finding, key)
-            if status in {"unsolved", "fixed"}:
-                continue
             problem = self.problem_for(finding, key)
-            if problem is not None and self.ctx.fixes.submit(problem):
+            if problem is None:
+                continue
+            if status in {"unsolved", "fixed"}:
+                # It waits for Retry, but a direction from you can still reach it.
+                self.ctx.fixes.remember(problem, "left by an earlier run; a direction tries again")
+                self.state.fix_keys.add(key)
+            elif self.ctx.fixes.submit(problem):
                 self.state.fix_keys.add(key)
 
     def _problem_issue(self, finding: Finding, key: str) -> str | None:

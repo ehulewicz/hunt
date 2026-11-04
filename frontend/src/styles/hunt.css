@@ -176,7 +176,7 @@ input::placeholder, textarea::placeholder { color: var(--ui-faint); opacity: 1; 
 .gap-fields { min-width: 0; margin: 0; border: 0; padding: 0; }
 .hunt-layout .gap-form { grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .hunt-layout .gap-form .button { min-height: 32px; border-color: var(--ui-border-strong); color: var(--ui-accent); background: transparent; font-size: 11px; }
-.hunt-layout .gap-form input, .hunt-layout .gap-form select { background: var(--ui-bg); font-size: 12px; }
+.hunt-layout .gap-form input, .hunt-layout .gap-form select, .hunt-layout .gap-form textarea { background: var(--ui-bg); font-size: 12px; }
 .hunt-layout .letter-editor textarea { background: var(--ui-bg); font-family: inherit; font-size: 13px; line-height: 1.75; }
 .hunt-layout .letter-editor label { display: grid; gap: 5px; font-size: 12px; }
 .hunt-layout .letter-editor label .muted { font-size: 11px; }

@@ -16,15 +16,23 @@ The posting is found when the page holds the whole title or a heading is the
 title (`is_posting`), never on the company alone: a careers home names the
 company everywhere, and a list of results names many roles. Nothing here submits
 or signs in, and it never follows a link off the site it started on.
+
+A posting nothing finds is either a gap in what the worker knows or a posting
+that is gone. It is gone (`PostingClosed`) only on the site's word: a notice that
+says so, or every title query going in, read back from the box, with the full
+title's search changing the page to say it found nothing. A search that failed, a
+box that did not hold the query, or a page that said so before the search proves
+nothing, and the row stays.
 """
 
 from __future__ import annotations
 
 import re
+import sys
 import time
 from collections.abc import Callable
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from typing import Any, cast
 from urllib.parse import urlsplit
@@ -34,6 +42,8 @@ from playwright.sync_api import Error, Page
 from personal_os_worker.core.config import console
 from personal_os_worker.core.page_scripts import load
 from personal_os_worker.jobs.browser import registrable_site, rendered_body_text
+from personal_os_worker.jobs.keys import typed_line
+from personal_os_worker.jobs.posting_page import PostingClosed, posting_closed
 
 MAX_HOPS = 4
 RESULT_WAIT_MS = 2_500
@@ -49,6 +59,14 @@ LISTING_TRANSITION = re.compile(
     re.IGNORECASE,
 )
 SEARCH_BOX = re.compile(r"search|keyword|job\s*title|find\s+jobs|what", re.IGNORECASE)
+_RESULT_NOUNS = r"(?:jobs?|results?|positions?|openings?|roles?|matches|opportunities)"
+ZERO_RESULTS = re.compile(
+    rf"\b0\s+(?:open\s+|matching\s+)?{_RESULT_NOUNS}\b"
+    rf"|\bno\s+(?:open\s+|current\s+|matching\s+)?{_RESULT_NOUNS}\b"
+    r"(?:\s+(?:were|was|are|could\s+be))?\s*(?:found|available|match|\.|$)"
+    r"|did(?:\s+not|n['\u2019]t)\s+match\s+any",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +75,19 @@ class Target:
 
     title: str
     company: str
+
+
+@dataclass(slots=True)
+class Searched:
+    """What the site's search did, read back: the only search evidence of a gone posting."""
+
+    went_in: set[str] = field(default_factory=set)
+    said_none: set[str] = field(default_factory=set)
+
+    def proves_gone(self, title: str) -> bool:
+        """Every query went in, and the search for the whole title found nothing."""
+        queries = title_queries(title)
+        return bool(queries) and queries[0] in self.said_none and self.went_in.issuperset(queries)
 
 
 # One spelling for each kind of role, so "Internship" finds "Intern".
@@ -235,12 +266,33 @@ def search_box(page: Page) -> Any | None:
     return page.locator('input, [role="searchbox"]').nth(int(index))
 
 
-def search_for(page: Page, target: Target, *, start: str) -> bool:
+def _note_search(page: Page, query: str, before: str, searched: Searched) -> None:
+    """Record a query the box still holds, and whether the search made the page say none."""
+    box = search_box(page)
+    if box is None:
+        return
+    try:
+        held = " ".join(str(box.input_value(timeout=2_000)).split())
+    except Error:
+        return
+    if held.casefold() != " ".join(query.split()).casefold():
+        return
+    searched.went_in.add(query)
+    if not ZERO_RESULTS.search(before) and ZERO_RESULTS.search(
+        rendered_body_text(page, timeout_ms=10_000)
+    ):
+        searched.said_none.add(query)
+
+
+def search_for(
+    page: Page, target: Target, *, start: str, searched: Searched | None = None
+) -> bool:
     """Search the site by the full title, then shorter parts, and open the result."""
     for query in title_queries(target.title):
         box = search_box(page)
         if box is None:
             return False
+        before = rendered_body_text(page, timeout_ms=1_000) if searched is not None else ""
         try:
             box.fill(query, timeout=5_000)
             box.press("Enter", timeout=5_000)
@@ -249,6 +301,8 @@ def search_for(page: Page, target: Target, *, start: str) -> bool:
             continue
         if open_posting_link(page, target, start=start):
             return True
+        if searched is not None:
+            _note_search(page, query, before, searched)
     return False
 
 
@@ -261,6 +315,7 @@ def find_posting(
     *,
     route: Route | None = None,
     report: Callable[[str], None] = lambda _line: None,
+    searched: Searched | None = None,
 ) -> bool:
     """Reach the posting from wherever the page is; True once the page names the role."""
     start = page.url
@@ -283,7 +338,7 @@ def find_posting(
             if found():
                 return True
             continue
-        if search_for(page, target, start=start):
+        if search_for(page, target, start=start, searched=searched):
             report("searched the site for the role")
             if found():
                 return True
@@ -320,6 +375,7 @@ def reach_posting(
     target: Target,
     *,
     report_page_failure: Callable[..., Any],
+    arrival_text: str = "",
     sleep: Callable[[float], None] = time.sleep,
     fixes: Any | None = None,
     run_id: str = "",
@@ -331,30 +387,74 @@ def reach_posting(
     what the page offered, and the run watches the browser until the posting is
     in front, so a run never ends because a URL landed on a careers home. With a
     fixer, the failure goes to it while you look: a route it writes and keeps is
-    tried on this tab, and opens the posting for you.
+    tried on this tab, and opens the posting for you. A line typed at the terminal
+    meanwhile is a direction for that fixer. A posting that is gone raises
+    `PostingClosed`, and the row leaves the board.
     """
     from personal_os_worker.jobs.browser import visible_actions
     from personal_os_worker.jobs.registry.routes import route_for
 
     console.print("  [dim]this page is not the posting; looking for it on the site[/dim]")
+    arrived_at = page.url
+    searched = Searched()
     if find_posting(
         page, target, route=route_for(page.url),
         report=lambda line: console.print(f"  [dim]{line}[/dim]"),
+        searched=searched,
     ):
         return page
+    text_now = rendered_body_text(page, timeout_ms=2_000)
+    reason = None
+    if posting_closed(text_now):
+        reason = "the site says the posting is no longer open"
+    elif searched.proves_gone(target.title):
+        reason = f"the site's search for {target.title!r} went in and found nothing"
+    if reason is not None:
+        report_page_failure("closed_posting", f"The posting is gone: {reason}")
+        raise PostingClosed(reason, page)
     offered: list[str] = []
     with suppress(Error):
         offered = visible_actions(page)
     message = f"Neither a link, the site's search, nor its open roles led to {target.title!r}"
     report_page_failure("posting_not_found", message, offered=offered)
+    key = problem_key(page, target)
     if fixes is not None:
         # The page failure stays for history; the fixer keeps its own problem row.
-        hand_to_fixer(page, target, fixes, message=message, offered=offered, run_id=run_id,
-                      issue_id=None)
+        hand_to_fixer(page, target, fixes, key=key, message=message, offered=offered,
+                      run_id=run_id, issue_id=None, arrived_at=arrived_at,
+                      arrival_text=arrival_text, text_now=text_now)
     console.print(
         f"[yellow]Posting not found:[/yellow] open {target.title!r} in the browser; "
         "I am watching the page."
     )
+    if fixes is not None and sys.stdin.isatty():
+        console.print("  [dim]type a direction for the fixer and press Enter[/dim]")
+    return _watch_for_posting(
+        browser, page, target, fixes=fixes, key=key, cdp_url=cdp_url,
+        report_page_failure=report_page_failure, sleep=sleep,
+    )
+
+
+def problem_key(page: Page, target: Target) -> str:
+    """One problem per site and company: a board's closed posting is no verdict on
+    another company's board on the same host."""
+    from personal_os_worker.jobs.fix.lane import site_slug
+
+    return f"posting_not_found|{registrable_site(page.url)}|{site_slug(target.company)}"
+
+
+def _watch_for_posting(
+    browser: Any,
+    page: Page,
+    target: Target,
+    *,
+    fixes: Any | None,
+    key: str,
+    cdp_url: str,
+    report_page_failure: Callable[..., Any],
+    sleep: Callable[[float], None],
+) -> Page:
+    """Wait for the posting in front, for a verdict that it is gone, and for your directions."""
     while True:
         page = browser.active_page(page)
         # The route the fixer keeps opens the posting itself; no reload is needed.
@@ -369,6 +469,18 @@ def reach_posting(
         if is_posting(page, target.title, text=text):
             console.print("  [dim]the posting is open[/dim]")
             return page
+        quote = fixes.closed_quote(key) if fixes is not None else None
+        reason = (
+            f"the fixer read {quote!r} on the page" if quote
+            else "the site says the posting is no longer open" if posting_closed(text)
+            else None
+        )
+        if reason is not None:
+            report_page_failure("closed_posting", f"The posting is gone: {reason}")
+            raise PostingClosed(reason, page)
+        direction = typed_line()
+        if direction and fixes is not None:
+            console.print(f"  [dim]{fixes.guide(direction, key)}[/dim]")
         sleep(WATCH_SECONDS)
 
 
@@ -384,10 +496,14 @@ def hand_to_fixer(
     target: Target,
     fixes: Any,
     *,
+    key: str,
     message: str,
     offered: list[str],
     run_id: str,
     issue_id: str | None,
+    arrived_at: str = "",
+    arrival_text: str = "",
+    text_now: str = "",
 ) -> None:
     """A posting the navigator cannot find is a route the fixer can write."""
     from personal_os_worker.jobs.browser import inspect_fields, page_evidence
@@ -397,14 +513,15 @@ def hand_to_fixer(
     with suppress(Error):
         files = page_evidence(page, inspect_fields(page))
     fixes.submit(Problem(
-        key=f"posting_not_found|{registrable_site(page.url)}",
+        key=key,
         cause="posting_not_found",
         question=target.title,
         note=message,
         target={"kind": "route", "goal": "posting", "title": target.title,
                 "company": target.company},
         site=registrable_site(page.url),
-        evidence={"url": page.url, "offered": offered},
+        evidence={"url": page.url, "arrived_at": arrived_at, "offered": offered,
+                  "arrival_text": arrival_text, "page_text": text_now},
         tried=("a link naming the role, the site's search by the full and shorter titles, "
                "and its open roles",),
         issue_id=issue_id,

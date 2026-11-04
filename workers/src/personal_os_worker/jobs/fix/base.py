@@ -23,7 +23,7 @@ class Status:
     key: str
     question: str
     cause: str
-    state: str = "queued"  # writing, testing, probing, kept, unsolved, missing_fact
+    state: str = "queued"  # writing, testing, probing, kept, unsolved, missing_fact, closed
     attempt: int = 0
     note: str = ""
 
@@ -78,6 +78,14 @@ class FixBase:
     loader: Callable[[Path, str], list[Any]] | None
     statuses: dict[str, Status]
     _taken: dict[str, lane.Problem]
+    _latest: str | None
+    _queued: set[str]
+    _working: str | None
+    # What you said about each problem, how much of it a call has seen, and the
+    # words that settled a posting as gone.
+    _directions: dict[str, list[str]]
+    _consumed: dict[str, int]
+    _closed_quotes: dict[str, str]
     _recorded: dict[str, str]
     _problems: queues.Queue[lane.Problem | None]
     _ready: Ready | None
