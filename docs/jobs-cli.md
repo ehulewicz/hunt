@@ -53,7 +53,7 @@ os hunt queue add 3 7
 os hunt queue empty
 os hunt apps
 os hunt apps 1 oa
-os hunt skipped               # listings passed over with Ctrl+D
+os hunt skipped               # listings you skipped
 os hunt skipped restore 2     # back on the board
 
 os hunt apply 1 --dry-run
@@ -188,11 +188,12 @@ why (no fact yet, a fact that fits no option, a fact the model said is
 missing), and the same controls are outlined on the page. A cover-letter control opens the
 letter (from `artifacts/career/cover_letter.md`, slots drafted by Claude) in VS
 Code; close the tab to fill or upload it. In the
-terminal, Ctrl+S records what has been picked up so
-far for review, Ctrl+A records answers and marks the application applied when you have submitted
-it yourself, Ctrl+D skips the listing (it leaves the board as `skipped`, a
-resync cannot bring it back, and `os hunt skipped restore <n>` can), `g` asks for
-a direction for the fixer, and Ctrl+C stops and records the application state. A field fills from a fact,
+terminal, a line you type and end with Enter is a direction for the fixer, and
+Ctrl+C stops and records the application state; nothing else typed there does
+anything. Save, Submitted, and Skip are on the Hunt page: Skip takes the listing off
+the board as `skipped`, a resync cannot bring it back, and
+`os hunt skipped restore <n>` can. Without the page, `os hunt apply <row> --done`
+records an application you sent yourself. A field fills from a fact,
 through an active pattern (tagged `pattern`). A short or choice question no
 pattern decides goes to one bounded local Claude pass per page step, which only
 names the fact that answers it and may propose an expression for every wording;
@@ -260,7 +261,7 @@ signs in. The one-time setup is in `../workers/README.md`.
 
 Ashby's Overview tab is a recognized standby state. Return to Application and
 the same step continues without refilling or another Claude pass. A submitted
-success panel ends automatically. On detected submission, Ctrl+A, Ctrl+D, or
+success panel ends automatically. On detected submission, Submitted, Skip, or
 Ctrl+C, persistence finishes before the command closes only the application tab
 it opened. `--dry-run` and unexpected worker errors leave that tab open.
 
@@ -292,8 +293,8 @@ number, an id prefix, or a posting URL, or press "Next on board". The agent brin
 the checkout current first (a clean checkout of `main` fast-forwards; one with
 local changes runs as it is, and the page says so), then runs `os hunt apply <ref>
 --remote`. Its Chrome tab is beside the run, live and clickable: you sign in, solve
-a captcha, and press Submit there, then press Submitted. Save, Submitted, Skip, and
-Stop on the page are Ctrl+S, Ctrl+A, Ctrl+D, and Ctrl+C. The cover letter is reviewed on
+a captcha, and press Submit there, then press Submitted. Stop on the page is
+Ctrl+C. The cover letter is reviewed on
 the page, and a "Left for you" fact gap takes its value on the
 page: the run stores the fact and fills the field, exactly as `--ask-facts` would.
 

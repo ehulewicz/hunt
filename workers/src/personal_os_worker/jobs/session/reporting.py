@@ -15,6 +15,7 @@ from personal_os_worker.jobs.browser import (
     inspect_fields,
     page_evidence,
 )
+from personal_os_worker.jobs.keys import typed_line
 from personal_os_worker.jobs.model_errors import ModelError
 from personal_os_worker.jobs.page_state import (
     ApplicationPageState,
@@ -153,17 +154,16 @@ class ReportingMixin(SessionBase):
             raise SubmittedByUser
         if "skip" in pressed:
             raise SkippedByUser
-        if "guide" in pressed:
-            self.take_direction()
+        direction = typed_line()
+        if direction:
+            self.take_direction(direction)
 
-    def take_direction(self) -> None:
-        """Ask at the terminal for a direction to the fixer, and say where it went."""
-        if self.ctx.fixes is None:
-            console.print("  [dim]the fixer is off in this run[/dim]")
-            return
-        text = self.ctx.keys.read_line("Direction for the fixer: ")
-        if text.strip():
-            console.print(f"  [dim]{self.ctx.fixes.guide(text)}[/dim]")
+    def take_direction(self, text: str) -> None:
+        """A line typed at the terminal goes to the fixer; say where it went."""
+        answer = "the fixer is off in this run, so that went nowhere"
+        if self.ctx.fixes is not None:
+            answer = self.ctx.fixes.guide(text)
+        console.print(f"  [dim]{answer}[/dim]")
 
     def form_is_gone(self) -> bool:
         """The page has left the form for a confirmation, so nothing on it is ours."""

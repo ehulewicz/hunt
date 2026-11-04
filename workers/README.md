@@ -196,7 +196,7 @@ distro; `os device status` says what it is doing.
 On the apply side, `jobs/remote.py` registers `os hunt apply` with the agent when
 one is listening, in any terminal: its console is teed to the page line by line,
 it reports its tab's CDP target id, the audit's gaps go out as structured items,
-the page's Save, Submitted, and Skip join the terminal keys, and Stop is the same
+the page's Save, Submitted, and Skip reach the run, and Stop is the same
 KeyboardInterrupt as Ctrl+C. `--remote` is the agent's own run: the page edits its
 cover letter reviewed on the page, and its fact gaps are answered there;
 `AutofillSession.set_fact_and_fill` is the one body behind both that and
@@ -363,11 +363,12 @@ its fixtures in one commit on `main` and pushes (`fix/trial.py revert_retired`,
 at the start of each run), skipping paths you have edited.
 
 You can point it at a fix during the run. A direction (Send direction on a Live
-fixes row, `g` at the terminal during the fill, or a typed line and Enter while the
-run watches for a posting) goes to `FixQueue.guide`, which adds it to that problem's
+fixes row, or a line typed at the terminal and ended with Enter, at any point in the
+run) goes to `FixQueue.guide`, which adds it to that problem's
 prompt, marked as coming from you rather than the page, and gives the problem three
 more attempts. It reaches a problem under way, one left unsolved by this or an
-earlier run, and one past the brake; `g` and a typed line go to the latest problem.
+earlier run, and one past the brake; a typed line goes to the latest problem. Typing
+is all the terminal takes besides Ctrl+C, so no keystroke can mark or skip a run.
 The prompt carries the page's text on arrival and now, and its trimmed markup,
 because the call has no tools and cannot open the fixture files it is told about.
 

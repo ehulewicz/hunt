@@ -40,7 +40,7 @@ from personal_os_worker.jobs.cover_letter import (
     review_letter,
 )
 from personal_os_worker.jobs.fix.queue import FixQueue
-from personal_os_worker.jobs.keys import KeyWatcher, NoKeys
+from personal_os_worker.jobs.keys import NoKeys, Terminal
 from personal_os_worker.jobs.options import (
     choose_option,
     normalize_question,
@@ -54,12 +54,12 @@ from personal_os_worker.jobs.short_answers import ShortQuestion, Verdict, draft_
 
 
 class SubmittedByUser(Exception):
-    """Ctrl+A: the user says the application went in."""
+    """The page's Submitted: the user says the application went in."""
 
 
 
 class SkippedByUser(Exception):
-    """Ctrl+D: the user passes on this listing; it leaves the board without an application."""
+    """The page's Skip: the user passes on this listing; it leaves the board unapplied."""
 
 
 Drafter = Callable[..., str | None]
@@ -122,7 +122,7 @@ class SessionContext:
     # Signs in past an ATS account wall; None without a contact.email fact.
     account: AccountFlow | None = None
     poll_seconds: float = 1.0
-    keys: KeyWatcher | NoKeys | LinkedKeys = field(default_factory=KeyWatcher)
+    keys: Terminal | NoKeys | LinkedKeys = field(default_factory=Terminal)
     prompt: Callable[[str], str] = input
     # This device's agent, when one is listening: the Hunt page sees and drives the run.
     link: RunLink | None = None

@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import json
+import os
+import pty
+import sys
 import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
+
+import pytest
 
 from personal_os_worker.jobs.fix import lane
 from personal_os_worker.jobs.fix.queue import FixQueue
+from personal_os_worker.jobs.keys import NoKeys, Terminal, typed_line
 from personal_os_worker.jobs.remote import RunLink
 
 
@@ -278,3 +285,42 @@ def test_the_pages_direction_reaches_the_fixer_through_the_link() -> None:
     client.deliver({"type": "guide", "key": "k", "text": "look at the toast"})
     client.deliver({"type": "guide", "key": "", "text": "the latest"})
     assert seen == [("look at the toast", "k"), ("the latest", None)]
+
+
+def test_letters_typed_at_the_terminal_are_a_direction_and_never_a_control(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    master, follower = pty.openpty()
+    with os.fdopen(os.dup(follower)) as stdin:
+        monkeypatch.setattr(sys, "stdin", stdin)
+        with Terminal() as terminal:
+            os.write(master, b"a s d g: \x01\x13 the apply button is in the iframe\n")
+            assert terminal.wait(0) == set()
+            line = typed_line()
+            assert line.startswith("a s d g:") and line.endswith("in the iframe")
+            assert typed_line() == ""
+    os.close(master)
+    os.close(follower)
+
+
+def test_a_typed_line_goes_to_the_fixer_and_never_ends_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from personal_os_worker.jobs.session import AutofillSession, reporting
+
+    guided: list[str] = []
+
+    class Fixes:
+        def at_safe_point(self, *_: Any) -> bool:
+            return False
+
+        def guide(self, text: str) -> str:
+            guided.append(text)
+            return "sent"
+
+    session = AutofillSession.__new__(AutofillSession)
+    session.ctx = cast(Any, SimpleNamespace(
+        link=None, fixes=Fixes(), keys=NoKeys(), poll_seconds=0))
+    monkeypatch.setattr(reporting, "typed_line", lambda: "add an applicant named a")
+    session.sleep()
+    assert guided == ["add an applicant named a"]

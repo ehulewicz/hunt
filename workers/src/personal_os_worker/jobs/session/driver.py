@@ -74,8 +74,8 @@ class AutofillSession(
 
     def run(self) -> dict[str, Any]:
         console.print(
-            "[dim]Ctrl+S records answers for review · Ctrl+A marks submitted and ends · "
-            "Ctrl+D skips this listing · g directs the fixer · Ctrl+C stops and records[/dim]"
+            "[dim]Type a direction for the fixer and press Enter · Ctrl+C stops and records · "
+            "Save, Submitted and Skip are on the Hunt page[/dim]"
         )
         with self.ctx.keys:
             outcome = self._run()

@@ -56,19 +56,14 @@ def test_a_rich_console_on_the_tee_mirrors_its_styles() -> None:
     assert lines == [[{"text": "Warning:", "style": ["yellow"]}, {"text": " left for you"}]]
 
 
-def test_remote_controls_join_the_terminal_keys() -> None:
+def test_only_the_pages_controls_reach_the_run() -> None:
     link, client, interrupts = linked()
-
-    class Terminal(NoKeys):
-        def wait(self, seconds: float) -> set[str]:
-            return {"save"}
-
-    keys = LinkedKeys(link, Terminal())
+    keys = LinkedKeys(link, NoKeys())
     client.deliver({"type": "control", "action": "done"})
     client.deliver({"type": "control", "action": "rm -rf"})
     with keys:
-        assert keys.wait(0) == {"save", "done"}
-        assert keys.wait(0) == {"save"}
+        assert keys.wait(0) == {"done"}
+        assert keys.wait(0) == set()
     assert interrupts == []
 
 

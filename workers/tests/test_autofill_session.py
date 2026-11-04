@@ -926,7 +926,7 @@ def test_session_seeds_long_form_records_every_answer_and_ends_on_submit(
     assert "long-form  Why this team?" in printed and "(claude draft)" in printed
     assert "Review before submitting" in printed
     assert "picked up  Country" in printed and "-> Canada" in printed
-    # Ctrl+S keeps the current values in the run without approving reuse.
+    # Save keeps the current values in the run without approving reuse.
     assert api.saved_library == {}
     assert "answer observation(s) for review" in printed
     assert printed.count("picked up  Country") == 1

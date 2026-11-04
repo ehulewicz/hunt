@@ -149,7 +149,7 @@ def _add_listing_commands(
     )
 
     skipped = jobs_commands.add_parser(
-        "skipped", help="Listings passed over with Ctrl+D; 'restore <n>' returns one to the board"
+        "skipped", help="Listings you skipped; 'restore <n>' returns one to the board"
     )
     skipped.add_argument("action", nargs="?", choices=["restore"])
     skipped.add_argument("ref", nargs="?", help="Row number from the skipped table or id prefix")

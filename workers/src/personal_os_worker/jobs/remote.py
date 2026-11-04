@@ -3,7 +3,7 @@
 When an agent is listening, `os hunt apply` registers with it: its console is
 mirrored line by line as styled spans, it reports the tab it is on, and the
 audit's gaps go to the page as structured items. The page's Save, Submitted,
-Skip, and Stop join the terminal's keys; Stop is Ctrl+C. A run the page started
+and Skip are the only way to press them, and Stop is Ctrl+C. A run the page started
 (`--remote`) also sends its drafted cover letter to the page and waits for the
 edited text; a terminal run keeps VS Code for that.
 """
@@ -29,7 +29,7 @@ from personal_os_worker.device.link import AGENT_RUN_ENV, LinkClient, ansi_spans
 from personal_os_worker.jobs.audit import Finding
 from personal_os_worker.jobs.facts.catalog import entry
 from personal_os_worker.jobs.facts.derived import read_only_refusal
-from personal_os_worker.jobs.keys import KeyWatcher, NoKeys
+from personal_os_worker.jobs.keys import NoKeys, Terminal
 
 FACT_KEY = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
 PAGE_CONTROLS = frozenset({"save", "done", "skip"})
@@ -238,9 +238,9 @@ class RunLink:
 
 
 class LinkedKeys:
-    """The terminal's keys, if there is a terminal, and the page's buttons."""
+    """The terminal held for the run, if there is one, and the page's buttons."""
 
-    def __init__(self, link: RunLink, terminal: KeyWatcher | NoKeys) -> None:
+    def __init__(self, link: RunLink, terminal: Terminal | NoKeys) -> None:
         self.link = link
         self.terminal = terminal
 
@@ -255,9 +255,6 @@ class LinkedKeys:
         tb: TracebackType | None,
     ) -> None:
         self.terminal.__exit__(exc_type, exc, tb)
-
-    def read_line(self, prompt: str) -> str:
-        return self.terminal.read_line(prompt)
 
     def wait(self, seconds: float) -> set[str]:
         return self.terminal.wait(seconds) | self.link.controls()

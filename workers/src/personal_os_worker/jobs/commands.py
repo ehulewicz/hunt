@@ -160,7 +160,7 @@ HIDDEN = frozenset({"skipped"})
 
 
 def run_skipped(restore: str | None = None) -> int:
-    """Listings passed over with Ctrl+D; `restore <n>` puts one back on the board."""
+    """Listings you skipped; `restore <n>` puts one back on the board."""
     config, token = connected()
     api = WorkerApi(config, token)
     try:
@@ -177,7 +177,7 @@ def run_skipped(restore: str | None = None) -> int:
     finally:
         api.close()
     if not skipped:
-        console.print("Nothing skipped. Ctrl+D during 'os hunt apply' skips a listing.")
+        console.print("Nothing skipped. Skip on the Hunt page skips a listing during a run.")
         return 0
     render_applications(skipped, title="Skipped")
     return 0

@@ -1,11 +1,10 @@
-"""Single-key controls for the autofill poll loop.
+"""The terminal during an apply run: a typed line is a direction for the fixer.
 
-Ctrl+S saves what has been picked up so far. Ctrl+A says the application went
-in: save, mark it applied, and end. G asks for a line, a direction for the
-fixer. The terminal normally swallows
-Ctrl+S as XOFF flow control, so the watcher turns that off while it runs and
-restores the terminal on exit. Ctrl+C is left to the kernel as SIGINT so the
-session's KeyboardInterrupt path handles it.
+Nothing typed here can mark, skip, or save a run, because a letter typed for
+something else once recorded an application as submitted. Save, Submitted, and Skip
+are the Hunt page's; `os hunt apply <row> --done` records an application you sent
+yourself. Ctrl+C is left to the kernel as SIGINT, so the session's KeyboardInterrupt
+path stops and records the run.
 """
 
 from __future__ import annotations
@@ -19,25 +18,21 @@ import tty
 from types import TracebackType
 from typing import Any
 
-SAVE_KEYS = frozenset({"\x13", "s", "S"})
-DONE_KEYS = frozenset({"\x01", "a", "A"})
-SKIP_KEYS = frozenset({"\x04", "d", "D"})
-GUIDE_KEYS = frozenset({"g", "G"})
 
+class Terminal:
+    """Holds the terminal for a run: a stray Ctrl+S must not freeze the run's output."""
 
-class KeyWatcher:
     def __init__(self) -> None:
         self._fd: int | None = None
         self._saved: Any = None
 
-    def __enter__(self) -> KeyWatcher:
+    def __enter__(self) -> Terminal:
         if sys.stdin.isatty():
             self._fd = sys.stdin.fileno()
             self._saved = termios.tcgetattr(self._fd)
             mode = termios.tcgetattr(self._fd)
             mode[0] &= ~termios.IXON
             termios.tcsetattr(self._fd, termios.TCSADRAIN, mode)
-            tty.setcbreak(self._fd, termios.TCSADRAIN)
         return self
 
     def __exit__(
@@ -49,42 +44,10 @@ class KeyWatcher:
         if self._fd is not None and self._saved is not None:
             termios.tcsetattr(self._fd, termios.TCSADRAIN, self._saved)
 
-    def read_line(self, prompt: str) -> str:
-        """One typed line in the terminal's ordinary mode, then back to single keys."""
-        if self._fd is None or self._saved is None:
-            return ""
-        keys = termios.tcgetattr(self._fd)
-        termios.tcsetattr(self._fd, termios.TCSADRAIN, self._saved)
-        try:
-            return input(prompt)
-        except EOFError:
-            return ""
-        finally:
-            termios.tcsetattr(self._fd, termios.TCSADRAIN, keys)
-
     def wait(self, seconds: float) -> set[str]:
-        """Sleep for up to `seconds`, returning the control names pressed meanwhile."""
-        if self._fd is None:
-            time.sleep(seconds)
-            return set()
-        pressed: set[str] = set()
-        deadline = time.monotonic() + seconds
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return pressed
-            ready, _, _ = select.select([self._fd], [], [], remaining)
-            if not ready:
-                return pressed
-            for char in os.read(self._fd, 64).decode(errors="ignore"):
-                if char in SAVE_KEYS:
-                    pressed.add("save")
-                if char in DONE_KEYS:
-                    pressed.add("done")
-                if char in SKIP_KEYS:
-                    pressed.add("skip")
-                if char in GUIDE_KEYS:
-                    pressed.add("guide")
+        """Sleep; a terminal presses no controls, so there are none to return."""
+        time.sleep(seconds)
+        return set()
 
 
 class NoKeys:
@@ -95,9 +58,6 @@ class NoKeys:
 
     def __exit__(self, *_: object) -> None:
         return None
-
-    def read_line(self, _prompt: str) -> str:
-        return ""
 
     def wait(self, seconds: float) -> set[str]:
         time.sleep(seconds)

@@ -399,12 +399,12 @@ def _announce(
 def _linked(link: RunLink | None, accept_letter: bool) -> dict[str, Any]:
     """The session's link, keys and letter editor, as this run is linked or not."""
     from personal_os_worker.jobs.cover_letter import review_letter
-    from personal_os_worker.jobs.keys import KeyWatcher
+    from personal_os_worker.jobs.keys import Terminal
     from personal_os_worker.jobs.remote import LinkedKeys
 
     linked: dict[str, Any] = {}
     if link is not None:
-        linked = {"link": link, "keys": LinkedKeys(link, KeyWatcher())}
+        linked = {"link": link, "keys": LinkedKeys(link, Terminal())}
     # The letter review goes to the Hunt page when a run is linked, and
     # leaves the letter for the page otherwise.
     linked["editor"] = partial(review_letter, link=link, accept=accept_letter)
