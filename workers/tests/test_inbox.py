@@ -137,7 +137,7 @@ def test_binding_to_an_existing_fact_does_not_touch_it() -> None:
     assert api.calls[0][1]["origin"] == "inbox"
 
 
-def test_binding_to_a_computed_key_creates_no_fact() -> None:
+def test_binding_to_a_read_only_key_creates_no_fact() -> None:
     api = FakeApi({"candidates": [], "questions": [question("What is your GPA?")], "prose": []})
     walk_inbox(  # type: ignore[arg-type]
         api, ask=answers("b", "education.gpa", ""), today=TODAY
@@ -211,20 +211,24 @@ def test_a_proposal_is_taken_with_y_and_a_broken_regex_is_refused() -> None:
     assert counts["widened"] == 0
 
 
-def test_a_missing_computed_fact_names_what_to_change(
+def test_a_missing_read_only_fact_names_what_to_change(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     print_waiting_facts([
         {"reason": "missing", "key": "education.gpa", "question": "GPA?"},
         {"reason": "missing", "key": "contact.phone", "question": "Phone?"},
     ])
-    out = capsys.readouterr().out
-    assert "missing fact: education.gpa (asked by 'GPA?'); education.gpa is computed " in out
+    # The console may wrap long hints, so compare with whitespace flattened.
+    out = " ".join(capsys.readouterr().out.split())
+    assert (
+        "missing fact: education.gpa (asked by 'GPA?'); "
+        "education.gpa comes from the career record" in out
+    )
     assert "os hunt resume put" in out
     assert "missing fact: contact.phone (asked by 'Phone?'); 'os hunt facts set' gives it" in out
 
 
-def test_fact_view_ignores_a_row_under_a_computed_key() -> None:
+def test_fact_view_ignores_a_row_under_a_read_only_key() -> None:
     values = fact_view(
         [
             {"key": "identity.first_name", "value": "Nobody"},

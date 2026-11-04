@@ -68,7 +68,7 @@ export function HuntDashboard({ overview, devices, device, starting, startError,
         </div>
         <footer className="panel-footnote"><Circle aria-hidden="true" />{overview ? `${pending.length} pending ${pending.length === 1 ? "application" : "applications"}` : "Waiting for application history"}<span><Laptop aria-hidden="true" />{devices.filter((item) => item.online).length} online</span></footer>
       </section>
-      <HuntInbox computed={overview?.computed ?? []} facts={overview?.facts ?? []} inbox={overview?.inbox ?? null} onRefresh={onRefresh} />
+      <HuntInbox readOnly={overview?.readOnly ?? []} facts={overview?.facts ?? []} inbox={overview?.inbox ?? null} onRefresh={onRefresh} />
     </div>
   );
 }

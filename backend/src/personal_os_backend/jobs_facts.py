@@ -3,17 +3,18 @@
 One row per fact, keyed by a stable dotted name. Values are JSON typed by
 `value_type`; FastAPI validates a value against its type on every write, and a
 database check enforces the same shape. No fact is hidden: Jobs is single-user
-and full visibility is what makes a fill readable. Derived facts (completed co-op
-rotations, graduation term) are computed by the worker and never stored.
+and full visibility is what makes a fill readable. Record facts (the GPA, the
+school) come from the career record and computed facts (completed co-op
+rotations, graduation term) are calculated by the worker; neither is stored.
 Every set, verification, and deletion is recorded in `jobs_changes` in the same
 transaction, keyed by the fact's key. A set that arrives without the worker's
 replay (the web Library, the CLI) is recorded pending, and the next run replays
 it; a verification or a deletion changes no answer and is never pending.
 Every set also settles the `fact_gap` issues it answers, unchanged value or not,
 so the Inbox stops asking; a run that hits the same gap again reopens the issue.
-The computed keys in `jobs_facts_computed` are refused on a set and on a
-verify with a 422 naming what to change instead; a delete still removes a
-leftover stored row.
+The read-only keys in `jobs_facts_read_only`, record and computed facts alike,
+are refused on a set and on a verify with a 422 naming what to change instead;
+a delete still removes a leftover stored row.
 """
 
 from __future__ import annotations
@@ -47,10 +48,11 @@ from personal_os_backend.jobs_changes import (
     Verification,
     record_change,
 )
-from personal_os_backend.jobs_facts_computed import (
-    COMPUTED_FACTS,
+from personal_os_backend.jobs_facts_read_only import (
+    READ_ONLY_FACTS,
+    Kind,
     Source,
-    computed_refusal,
+    read_only_refusal,
 )
 
 FactType = Literal["text", "boolean", "number", "date", "choice", "list", "object"]
@@ -104,10 +106,11 @@ class Fact(BaseModel):
     updated_at: datetime
 
 
-class ComputedFact(BaseModel):
+class ReadOnlyFact(BaseModel):
     key: str
     label: str
     source: Source
+    kind: Kind
     reads: list[str]
 
 
@@ -343,16 +346,16 @@ async def list_facts(principal: CurrentPrincipal, store: Store) -> list[Fact]:
     return await store.list_facts(principal.user_id)
 
 
-@router.get("/computed", response_model=list[ComputedFact])
-async def list_computed_facts(principal: CurrentPrincipal) -> list[ComputedFact]:
+@router.get("/read-only", response_model=list[ReadOnlyFact])
+async def list_read_only_facts(principal: CurrentPrincipal) -> list[ReadOnlyFact]:
     return [
-        ComputedFact(key=key, label=label, source=source, reads=list(reads))
-        for key, (source, label, reads) in COMPUTED_FACTS.items()
+        ReadOnlyFact(key=key, label=label, source=source, kind=kind, reads=list(reads))
+        for key, (source, kind, label, reads) in READ_ONLY_FACTS.items()
     ]
 
 
-def _computed_check(key: str) -> None:
-    refusal = computed_refusal(key)
+def _read_only_check(key: str) -> None:
+    refusal = read_only_refusal(key)
     if refusal is not None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, refusal)
 
@@ -395,7 +398,7 @@ async def set_fact(
     rebuilder: Rebuilder,
 ) -> Fact:
     checked = _checked_key(key)
-    _computed_check(checked)
+    _read_only_check(checked)
     after = None
     if checked in HEADER_FACTS:
         after = await _header_after(principal.user_id, checked, item, store, rebuilder)
@@ -415,7 +418,7 @@ async def set_fact(
 @router.post("/{key}/verify", response_model=Fact)
 async def verify_fact(key: str, principal: CurrentPrincipal, store: Store) -> Fact:
     checked = _checked_key(key)
-    _computed_check(checked)
+    _read_only_check(checked)
     fact = await store.verify_fact(principal.user_id, checked)
     if fact is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Fact not found")

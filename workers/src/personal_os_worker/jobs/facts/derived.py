@@ -1,14 +1,20 @@
-"""Derived facts: computed from base facts, the career record, and today's date.
+"""Record facts and computed facts: the read-only facts, never stored as fact rows.
 
-A derived fact goes stale the moment it is written down, so nothing here is
-persisted. Each one is a pure function of the base facts (keyed by their dotted
-names), the career record's rows, and the date it is asked on.
+A fact is static, a value as stated (the GPA, the legal name), or computed,
+calculated from other values (years of experience, the first name, a posting's
+term). A static fact lives in the facts store (a stored fact) or, when the
+resume prints it, in the career record (a record fact). Record facts and
+computed facts are read-only (READ_ONLY_FACTS): never stored, and a stored row
+under one of their keys is ignored.
 
-Career-derived facts follow the resume: education from its primary row, tenure
-from the union of experience spans, co-op rotations and prior internships from
-its co-op and internship entries, the current employer, and every skill. Every
-fact declared here is computed (COMPUTED_FACTS): never stored, and a stored row
-under its key is ignored.
+Career facts follow the resume. The school, degree, GPA and the rest of its
+primary education row, the high school, the current job, every organization,
+and every skill are record facts; tenure from the union of experience spans,
+co-op rotations and prior internships from its co-op and internship entries,
+and the robotics teams from its activities are computed. Derived facts are
+computed from other facts and the date they are asked on, posting facts from
+the application being filled. A computed fact goes stale the moment it is
+written down, so nothing here is persisted.
 """
 
 from __future__ import annotations
@@ -46,25 +52,24 @@ from personal_os_worker.jobs.sites import is_non_answer_option
 
 __all__ = [
     "CAREER_FACTS",
-    "COMPUTED_FACTS",
     "DERIVED_FACTS",
     "HOURS_PER_YEAR",
     "INTERNSHIP_TYPES",
     "INTERNSHIP_WEEKS",
     "POSTING_FACTS",
+    "READ_ONLY_FACTS",
     "ROTATION_BOUNDARIES",
     "SUBMITTED_STATUSES",
     "TERM",
     "TERM_STARTS",
-    "ComputedSource",
     "DerivedFact",
+    "FactSource",
     "_date",
     "_long_date",
     "_next_month",
     "annual_minimum",
     "career_facts",
     "completed_rotations",
-    "computed_refusal",
     "derive",
     "graduation_term",
     "half_years",
@@ -73,6 +78,7 @@ __all__ = [
     "overlaps_final_term",
     "posting_facts",
     "prior_internship",
+    "read_only_refusal",
     "robotics_competitions",
     "stored_values",
     "worked_for",
@@ -86,6 +92,7 @@ class DerivedFact:
     key: str
     label: str
     reads: tuple[str, ...]
+    kind: Literal["static", "computed"] = "computed"
 
 
 DERIVED_FACTS = (
@@ -231,18 +238,27 @@ POSTING_FACTS = (
 
 
 CAREER_FACTS = (
-    DerivedFact("education.school_name", "School", ("career.education",)),
-    DerivedFact("education.degree_type", "Degree type", ("career.education",)),
-    DerivedFact("education.field_of_study", "Field of study", ("career.education",)),
-    DerivedFact("education.graduation_date", "Graduation date", ("career.education",)),
-    DerivedFact("education.gpa", "GPA", ("career.education",)),
-    DerivedFact("education.coursework", "Coursework", ("career.education",)),
-    DerivedFact("education.high_school_name", "High school", ("career.education",)),
-    DerivedFact("education.high_school_city", "High school city", ("career.education",)),
+    DerivedFact("education.school_name", "School", ("career.education",), kind="static"),
+    DerivedFact("education.degree_type", "Degree type", ("career.education",), kind="static"),
+    DerivedFact(
+        "education.field_of_study", "Field of study", ("career.education",), kind="static"
+    ),
+    DerivedFact(
+        "education.graduation_date", "Graduation date", ("career.education",), kind="static"
+    ),
+    DerivedFact("education.gpa", "GPA", ("career.education",), kind="static"),
+    DerivedFact("education.coursework", "Coursework", ("career.education",), kind="static"),
+    DerivedFact(
+        "education.high_school_name", "High school", ("career.education",), kind="static"
+    ),
+    DerivedFact(
+        "education.high_school_city", "High school city", ("career.education",), kind="static"
+    ),
     DerivedFact(
         "education.high_school_graduation_year",
         "High school graduation year",
         ("career.education",),
+        kind="static",
     ),
     DerivedFact(
         "experience.years_professional",
@@ -261,19 +277,30 @@ CAREER_FACTS = (
         "Has completed an internship or co-op (an ended one, or a completed rotation)",
         ("career.experience", "career.education"),
     ),
-    DerivedFact("employment.current_employer", "Current employer", ("career.experience",)),
     DerivedFact(
-        "employment.current_title", "Job title at the current employer", ("career.experience",)
+        "employment.current_employer", "Current employer", ("career.experience",), kind="static"
     ),
     DerivedFact(
-        "employment.current_start_date", "When the current job started", ("career.experience",)
+        "employment.current_title",
+        "Job title at the current employer",
+        ("career.experience",),
+        kind="static",
+    ),
+    DerivedFact(
+        "employment.current_start_date",
+        "When the current job started",
+        ("career.experience",),
+        kind="static",
     ),
     DerivedFact(
         "employment.organizations",
         "Every organization you worked or researched at, labs included",
         ("career.experience", "career.research"),
+        kind="static",
     ),
-    DerivedFact("skills.all", "Every skill on the resume, in order", ("career.skills",)),
+    DerivedFact(
+        "skills.all", "Every skill on the resume, in order", ("career.skills",), kind="static"
+    ),
     DerivedFact(
         "experience.robotics_competitions",
         "Competition robotics teams, years and roles",
@@ -282,39 +309,41 @@ CAREER_FACTS = (
 )
 
 
-ComputedSource = Literal["career", "derived", "posting"]
+FactSource = Literal["career", "derived", "posting"]
 
 
-def _computed_facts() -> dict[str, tuple[ComputedSource, DerivedFact]]:
-    computed: dict[str, tuple[ComputedSource, DerivedFact]] = {}
+def _read_only_facts() -> dict[str, tuple[FactSource, DerivedFact]]:
+    facts: dict[str, tuple[FactSource, DerivedFact]] = {}
     for item in CAREER_FACTS:
-        computed[item.key] = ("career", item)
+        facts[item.key] = ("career", item)
     for item in DERIVED_FACTS:
-        computed[item.key] = ("derived", item)
+        facts[item.key] = ("derived", item)
     for item in POSTING_FACTS:
-        computed[item.key] = ("posting", item)
-    return computed
+        facts[item.key] = ("posting", item)
+    return facts
 
 
-# A computed fact is never stored and never overridden by a stored row.
-COMPUTED_FACTS = _computed_facts()
+# A read-only fact is never stored and never overridden by a stored row.
+READ_ONLY_FACTS = _read_only_facts()
 
 _FACT_KEY = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
 
 
-def computed_refusal(key: str) -> str | None:
-    """Why a computed fact is never stored or asked for: the career record,
-    other facts, or the posting decides it, and storing it would freeze it. A
-    referrer named once would follow every application after. None for a key no
-    declaration here computes.
+def read_only_refusal(key: str) -> str | None:
+    """Why a read-only fact is never stored or asked for: a record fact is
+    edited in the career record, and a computed one is decided by the career
+    record, other facts, or the posting, so storing it would freeze it. A
+    referrer named once would follow every application after. None for a key
+    no declaration here owns.
     """
-    found = COMPUTED_FACTS.get(key)
+    found = READ_ONLY_FACTS.get(key)
     if found is None:
         return None
     source, item = found
     if source == "career":
+        how = "comes from" if item.kind == "static" else "is computed from"
         return (
-            f"{key} is computed from the career record; edit the record "
+            f"{key} {how} the career record; edit the record "
             "at /resume/edit or with os hunt resume put"
         )
     if key.startswith("referral."):
@@ -330,7 +359,7 @@ def computed_refusal(key: str) -> str | None:
         if read in seen:
             continue
         seen.add(read)
-        known = COMPUTED_FACTS.get(read)
+        known = READ_ONLY_FACTS.get(read)
         if known is None:
             if _FACT_KEY.fullmatch(read):
                 stored.append(read)
@@ -348,12 +377,12 @@ def computed_refusal(key: str) -> str | None:
 
 
 def stored_values(facts: list[dict[str, Any]]) -> dict[str, Any]:
-    """Fact rows as `{key: value}`; a stored row under a computed key is a
+    """Fact rows as `{key: value}`; a stored row under a read-only key is a
     leftover and is ignored."""
     return {
         str(fact["key"]): fact.get("value")
         for fact in facts
-        if fact.get("key") and str(fact["key"]) not in COMPUTED_FACTS
+        if fact.get("key") and str(fact["key"]) not in READ_ONLY_FACTS
     }
 
 

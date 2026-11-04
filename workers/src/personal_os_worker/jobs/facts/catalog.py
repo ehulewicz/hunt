@@ -1,8 +1,9 @@
 """The fact catalog: every fact key the system knows how to use (design §7.2).
 
 A key is `stored` (a row in `jobs_facts` that you set and verify), `career`
-(derived from the career record), or `derived` (computed from other facts, the
-date, or the posting). The archive's translations, the Inbox, and the facts
+(from the career record: a record fact, or computed from its entries), or
+`derived` (computed from other facts, the date, or the posting). The archive's
+translations, the Inbox, and the facts
 session all name facts by these keys, so a fact proposed from an old answer
 arrives with the right label and type.
 """

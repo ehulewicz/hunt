@@ -47,15 +47,18 @@ reason). The backend builds the one-page PDF on each save — and when a header 
 determines — school, degree, graduation, GPA, coursework, the high school's
 name, city and graduation year (from a `high_school` education row), years of
 experience, the competition robotics teams, the current employer, every
-organization, every skill — are
-derived from the record by `jobs/facts/career.py`. Every stored entry counts,
+organization, every skill — are read
+from the record by `jobs/facts/career.py`. Most are static, a value as the
+record states it, like the GPA; years of experience, completed co-op rotations,
+a completed internship, and the robotics teams are computed from its entries.
+Every stored entry counts,
 printed on the resume or not, and an activity never counts as employment. The
 totals count experience and research months, overlaps once, in half years —
 two months past a half year rounds up — and the same total answers
 full-time, work and industry experience questions. A single entry's duration
 is never rounded: it is answered with its
 dates or its months. These
-facts are computed and never stored: a stored row under one of their keys is
+facts are never stored: a stored row under one of their keys is
 ignored, `os hunt facts` marks it, and `os hunt facts delete KEY` removes it.
 
 The narrative library is the writing long-form answers are composed from,
@@ -197,8 +200,8 @@ the page's Save, Submitted, and Skip join the terminal keys, and Stop is the sam
 KeyboardInterrupt as Ctrl+C. `--remote` is the agent's own run: the page edits its
 cover letter reviewed on the page, and its fact gaps are answered there;
 `AutofillSession.set_fact_and_fill` is the one body behind both that and
-`--ask-facts`. A computed fact — one the career record, other facts, or the
-posting decides — is never asked for on either path; the gap names what to
+`--ask-facts`. A record or computed fact — one the career record, other facts,
+or the posting decides — is never asked for on either path; the gap names what to
 change instead. With no agent listening a run behaves exactly as it always has.
 
 ## What it learns, and the archive
@@ -462,8 +465,8 @@ them; missing facts never imply No.
 An unanswered field remains an outlined, actionable gap even when optional.
 
 **Which value.** Every value comes from a fact. `jobs/resolve.py` builds the
-run's `Knowledge` — the career, derived, and posting facts are computed and
-always win, while a stored row under one of their keys is ignored and stored
+run's `Knowledge` — the record facts and the computed career, derived, and
+posting facts always win, while a stored row under one of their keys is ignored and stored
 facts answer every other key: the derived ones in `jobs/facts/derived.py`
 include the LGBTQ+
 flag from transgender and orientation, the U.S.-person export statuses from
@@ -588,8 +591,8 @@ lane each cause names: a `format_error` tries the fact's other renderings, a
 `control_error` the control's other strategies, a `pattern_gap` goes back to the
 model with the options in front of it (which again only teaches a pattern), and a
 `fact_gap` is asked for at the terminal under `--ask-facts`, where the fact you
-give also binds the question to it and closes its issue. A computed fact is never asked for; the
-refusal names what to change instead. Before any model call the audit runs the
+give also binds the question to it and closes its issue. A record or computed
+fact is never asked for; the refusal names what to change instead. Before any model call the audit runs the
 pattern pass over every open question, so a value a pattern filled that the page
 then lost comes back from the pattern; a question the current resolver answers
 that is still empty is a `control_error`, never a `pattern_gap`.

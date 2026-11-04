@@ -90,10 +90,10 @@ async function setup(page: Page, busy = false) {
       { ...APPLICATION, id: "a4", posting_id: "p4", company_name: "Notion", title: "Software Engineer Intern", status: "interview", applied_at: "2026-10-10T12:00:00Z" },
       { ...APPLICATION, id: "a5", posting_id: "p5", company_name: "Linear", title: "Software Engineer Intern", status: "applied", applied_at: "2026-10-15T12:00:00Z" },
     ] });
-    if (url.endsWith("/jobs/facts/computed")) return route.fulfill({ json: [
-      { key: "education.gpa", label: "GPA", source: "career", reads: ["career.education"] },
-      { key: "education.graduation_term", label: "Graduation term", source: "derived", reads: ["education.graduation_date"] },
-      { key: "referral.referrer_name", label: "Referrer", source: "posting", reads: [] },
+    if (url.endsWith("/jobs/facts/read-only")) return route.fulfill({ json: [
+      { key: "education.gpa", label: "GPA", source: "career", kind: "static", reads: ["career.education"] },
+      { key: "education.graduation_term", label: "Graduation term", source: "derived", kind: "computed", reads: ["education.graduation_date"] },
+      { key: "referral.referrer_name", label: "Referrer", source: "posting", kind: "computed", reads: [] },
     ] });
     if (url.endsWith("/jobs/facts")) return route.fulfill({ json: storedFacts });
     if (url.endsWith("/jobs/questions")) return route.fulfill({ json: [

@@ -25,7 +25,7 @@ from typing import Any, Literal
 from personal_os_worker.jobs.autofill import AnswerResolution, is_narrative_box
 from personal_os_worker.jobs.facts.catalog import CATALOG
 from personal_os_worker.jobs.facts.derived import (
-    COMPUTED_FACTS,
+    READ_ONLY_FACTS,
     career_facts,
     derive,
     posting_facts,
@@ -94,7 +94,8 @@ class Knowledge:
         referral: dict[str, Any] | None = None,
         site: str = "",
     ) -> Knowledge:
-        """Career, derived, and posting facts are computed and always win.
+        """Read-only facts always win: the record facts, and the computed career,
+        derived, and posting facts.
 
         A stored row under one of their keys is ignored; stored facts answer
         every other key.
@@ -122,7 +123,7 @@ class Knowledge:
             str(row["key"]): str(row.get("value_type"))
             for row in facts
             if row.get("key") and row.get("value_type")
-            and str(row["key"]) not in COMPUTED_FACTS
+            and str(row["key"]) not in READ_ONLY_FACTS
         }
         for key, value in values.items():
             types.setdefault(key, _type_of(value))
@@ -130,7 +131,7 @@ class Knowledge:
         labels |= {
             str(row["key"]): str(row.get("label"))
             for row in facts
-            if row.get("label") and str(row["key"]) not in COMPUTED_FACTS
+            if row.get("label") and str(row["key"]) not in READ_ONLY_FACTS
         }
         return cls(
             facts=values,

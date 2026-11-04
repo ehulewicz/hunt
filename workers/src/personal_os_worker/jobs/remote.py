@@ -28,7 +28,7 @@ from personal_os_worker.core.config import console
 from personal_os_worker.device.link import AGENT_RUN_ENV, LinkClient, ansi_spans, socket_path
 from personal_os_worker.jobs.audit import Finding
 from personal_os_worker.jobs.facts.catalog import entry
-from personal_os_worker.jobs.facts.derived import computed_refusal
+from personal_os_worker.jobs.facts.derived import read_only_refusal
 from personal_os_worker.jobs.keys import KeyWatcher, NoKeys
 
 FACT_KEY = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
@@ -70,8 +70,8 @@ def gap_items(findings: list[Finding]) -> list[dict[str, Any]]:
     """The audit's empty questions for the page; a fact gap it can fill has an input.
 
     A gap is settable the way `--ask-facts` would set it: a stored fact, named
-    or not yet named. A fact the career record or the posting decides is never
-    asked for here.
+    or not yet named. A read-only fact (a record fact or a computed one) is
+    never asked for here.
     """
     items: list[dict[str, Any]] = []
     for finding in findings:
@@ -81,7 +81,7 @@ def gap_items(findings: list[Finding]) -> list[dict[str, Any]]:
         if key is None and finding.missing_fact and FACT_KEY.fullmatch(finding.missing_fact):
             key = finding.missing_fact
         known = entry(key) if key else None
-        refusal = computed_refusal(key) if key else None
+        refusal = read_only_refusal(key) if key else None
         item: dict[str, Any] = {
             "question": finding.question,
             "cause": finding.cause,

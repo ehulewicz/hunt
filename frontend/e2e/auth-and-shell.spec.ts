@@ -57,7 +57,7 @@ test("authenticated shell has no Jobs navigation and logs out", async ({ page })
     avatar_url: null,
   };
   await page.route("https://api.test/v1/**", (route) => route.fulfill({ json: account }));
-  await page.route("https://api.test/v1/jobs/facts/computed", (route) => route.fulfill({ json: [] }));
+  await page.route("https://api.test/v1/jobs/facts/read-only", (route) => route.fulfill({ json: [] }));
   await page.route("https://api.test/v1/jobs/facts", (route) => route.fulfill({
     json: [{ key: "contact.email", value: "alex.example@example.com" }],
   }));

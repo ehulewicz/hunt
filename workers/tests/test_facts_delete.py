@@ -1,4 +1,4 @@
-"""Deleting a stored fact is explicit; computed facts have a different owner."""
+"""Deleting a stored fact is explicit; record and computed facts have a different owner."""
 
 from __future__ import annotations
 

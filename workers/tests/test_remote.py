@@ -151,7 +151,7 @@ def test_gaps_say_what_the_page_can_ask_for() -> None:
     gpa = by_question["GPA"]
     assert not gpa["settable"]
     assert gpa["hint"] == (
-        "education.gpa is computed from the career record; edit the record "
+        "education.gpa comes from the career record; edit the record "
         "at /resume/edit or with os hunt resume put"
     )
     unnamed = by_question["Clearance?"]

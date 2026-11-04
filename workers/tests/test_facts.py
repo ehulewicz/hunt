@@ -314,7 +314,7 @@ def test_review_quits_early() -> None:
     assert review_facts(api, ask=lambda _: "q") == (0, 1)  # type: ignore[arg-type]
 
 
-def test_review_offers_only_delete_for_a_computed_fact(capsys: pytest.CaptureFixture[str]) -> None:
+def test_review_offers_only_delete_for_a_read_only_fact(capsys: pytest.CaptureFixture[str]) -> None:
     api = FakeApi([
         {"key": "education.gpa", "value": 3.9, "value_type": "number", "verified_at": None}
     ])
@@ -330,16 +330,16 @@ def test_review_offers_only_delete_for_a_computed_fact(capsys: pytest.CaptureFix
     assert (decided, remaining) == (1, 0)
     assert api.calls == [("delete", "education.gpa")]
     assert prompts == ["  [d]elete  [s]kip  [q]uit: "] * 2
-    assert "computed from the career record" in capsys.readouterr().out
+    assert "comes from the career record" in capsys.readouterr().out
 
 
-def test_facts_set_refuses_a_computed_key_before_connecting(
+def test_facts_set_refuses_a_read_only_key_before_connecting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
         commands, "connected", lambda: pytest.fail("set must refuse before connecting")
     )
-    with pytest.raises(RuntimeError, match="computed from the career record"):
+    with pytest.raises(RuntimeError, match="comes from the career record"):
         run_facts_set("education.gpa", "3.78", value_type=None, label=None)
 
 
@@ -508,7 +508,7 @@ def test_robotics_competitions_names_each_activity_team() -> None:
     ] == expected
 
 
-def test_a_stored_row_under_a_computed_key_is_ignored() -> None:
+def test_a_stored_row_under_a_read_only_key_is_ignored() -> None:
     from personal_os_worker.jobs.facts.derived import stored_values
     from personal_os_worker.jobs.resolve import Knowledge
 
@@ -526,7 +526,7 @@ def test_a_stored_row_under_a_computed_key_is_ignored() -> None:
         company="Acme",
         title="Software Engineering Intern - Summer 2027",
     )
-    # A career key, a derived key, and a posting key alike: the computed value
+    # A record key, a derived key, and a posting key alike: the read-only value
     # wins, and the leftover row's label and type do not leak through either.
     assert knowledge.facts["education.gpa"] == 3.78
     assert knowledge.labels["education.gpa"] == "GPA"
@@ -535,7 +535,7 @@ def test_a_stored_row_under_a_computed_key_is_ignored() -> None:
     assert knowledge.facts["availability.term"] == "Summer 2027"
 
 
-def test_facts_list_marks_a_row_under_a_computed_key_ignored(
+def test_facts_list_marks_a_row_under_a_read_only_key_ignored(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from personal_os_worker.jobs.facts.commands import render_facts
@@ -543,14 +543,19 @@ def test_facts_list_marks_a_row_under_a_computed_key_ignored(
     monkeypatch.setenv("COLUMNS", "200")  # wide enough for the whole state column
     render_facts(
         [{"key": "education.gpa", "value": 2.0, "value_type": "number",
+          "verified_at": "earlier"},
+         {"key": "identity.first_name", "value": "Nobody", "value_type": "text",
+          "verified_at": "earlier"},
+         {"key": "identity.legal_name", "value": "Eah Tree", "value_type": "text",
           "verified_at": "earlier"}],
         today=date(2026, 10, 14),
         career=CAREER,
     )
     out = capsys.readouterr().out
-    assert out.count("education.gpa") == 2  # the leftover row and the computed one
-    assert "ignored, computed: 3.78" in out
-    assert "1 stored row(s) sit under computed keys and are ignored" in out
+    assert out.count("education.gpa") == 2  # the leftover row and the record's
+    assert "ignored, from the career record: 3.78" in out
+    assert "ignored, computed: Eah" in out
+    assert "2 stored row(s) sit under record or computed keys and are ignored" in out
 
 
 @pytest.mark.parametrize(

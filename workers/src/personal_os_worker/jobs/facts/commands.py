@@ -22,11 +22,11 @@ from personal_os_worker.core.config import console
 from personal_os_worker.jobs.facts.catalog import entry
 from personal_os_worker.jobs.facts.derived import (
     CAREER_FACTS,
-    COMPUTED_FACTS,
     DERIVED_FACTS,
+    READ_ONLY_FACTS,
     career_facts,
-    computed_refusal,
     derive,
+    read_only_refusal,
     stored_values,
 )
 
@@ -141,7 +141,7 @@ def render_facts(
     stored = stored_values(facts)
     from_career = career_facts(career, today)
     derived = derive({**from_career, **stored}, today)
-    computed = {**from_career, **derived}
+    read_only = {**from_career, **derived}
     table = Table(
         title=(
             f"Facts ({len(facts)} stored, {len(DERIVED_FACTS)} derived, "
@@ -159,12 +159,17 @@ def render_facts(
     for fact in facts:
         key = str(fact["key"])
         state = "verified" if fact.get("verified_at") else "[yellow]unverified[/yellow]"
-        if key in COMPUTED_FACTS:
-            computed_value = computed.get(key)
+        found = READ_ONLY_FACTS.get(key)
+        if found is not None:
+            static = found[1].kind == "static"
+            value = read_only.get(key)
+            shown = (
+                escape(display(value)) if value is not None
+                else "not in the record" if static else "missing inputs"
+            )
             state += (
-                " · [magenta]ignored, computed: "
-                f"{escape(display(computed_value)) if computed_value is not None
-                   else 'missing inputs'}[/magenta]"
+                f" · [magenta]ignored, {'from the career record' if static else 'computed'}: "
+                f"{shown}[/magenta]"
             )
         table.add_row(
             key,
@@ -187,10 +192,10 @@ def render_facts(
             "",
         )
     console.print(table)
-    ignored = sum(1 for fact in facts if str(fact["key"]) in COMPUTED_FACTS)
+    ignored = sum(1 for fact in facts if str(fact["key"]) in READ_ONLY_FACTS)
     if ignored:
         console.print(
-            f"{ignored} stored row(s) sit under computed keys and are ignored; "
+            f"{ignored} stored row(s) sit under record or computed keys and are ignored; "
             "os hunt facts delete KEY removes one.",
             style="dim",
         )
@@ -214,10 +219,10 @@ def run_facts_list() -> int:
 def delete_fact(
     api: WorkerApi, key: str, *, yes: bool = False, ask: Callable[[str], str] = input,
 ) -> bool:
-    """Delete a stored row; a row under a computed key is a leftover the worker ignores."""
+    """Delete a stored row; a row under a read-only key is a leftover the worker ignores."""
     stored = next((fact for fact in api.facts() if fact["key"] == key), None)
     if stored is None:
-        refusal = computed_refusal(key)
+        refusal = read_only_refusal(key)
         if refusal is not None:
             raise RuntimeError(refusal)
         raise RuntimeError(f"No stored fact named {key}")
@@ -259,7 +264,7 @@ def review_facts(
             console.print("  archived answers to similar questions:", style="dim")
             for question, answer in conflicts[:8]:
                 console.print(f"    {answer!r:<40}  ← {question[:70]}", markup=False)
-        refusal = computed_refusal(key)
+        refusal = read_only_refusal(key)
         if refusal is not None:
             console.print(f"  {refusal}", style="dim")
         while True:
@@ -318,7 +323,7 @@ def run_facts_set(
 ) -> int:
     """Set one fact; `raw` None stores the type's none value. The catalog names a new
     fact's type and label unless they are given."""
-    refusal = computed_refusal(key)
+    refusal = read_only_refusal(key)
     if refusal is not None:
         raise RuntimeError(refusal)
     config, token = connected()

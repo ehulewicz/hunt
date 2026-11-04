@@ -24,7 +24,7 @@ from personal_os_backend.jobs_facts import (
     get_fact_store,
     validate_fact_value,
 )
-from personal_os_backend.jobs_facts_computed import COMPUTED_FACTS, computed_refusal
+from personal_os_backend.jobs_facts_read_only import READ_ONLY_FACTS, read_only_refusal
 from personal_os_backend.main import create_app
 
 USER_ID = UUID("c3c8d239-162d-4e5e-a2a1-4ac0d1b3695f")
@@ -301,9 +301,12 @@ async def test_verify_and_delete(client: httpx.AsyncClient, store: FakeFactStore
                                 headers=HEADERS)).status_code == 404
 
 
-COMPUTED_REFUSALS = {
-    "education.gpa": "education.gpa is computed from the career record; "
+READ_ONLY_REFUSALS = {
+    "education.gpa": "education.gpa comes from the career record; "
     "edit the record at /resume/edit or with os hunt resume put",
+    "experience.years_professional": "experience.years_professional is computed "
+    "from the career record; edit the record at /resume/edit or with "
+    "os hunt resume put",
     "education.graduation_term": "education.graduation_term is computed from "
     "education.graduation_date; edit education.graduation_date in the career "
     "record at /resume/edit",
@@ -324,17 +327,17 @@ COMPUTED_REFUSALS = {
 }
 
 
-@pytest.mark.parametrize(("key", "expected"), list(COMPUTED_REFUSALS.items()))
-def test_computed_refusal_names_what_to_change(key: str, expected: str) -> None:
-    assert computed_refusal(key) == expected
+@pytest.mark.parametrize(("key", "expected"), list(READ_ONLY_REFUSALS.items()))
+def test_read_only_refusal_names_what_to_change(key: str, expected: str) -> None:
+    assert read_only_refusal(key) == expected
 
 
 @pytest.mark.parametrize("key", ["contact.phone", "custom.anything"])
-def test_computed_refusal_leaves_keys_it_does_not_own(key: str) -> None:
-    assert computed_refusal(key) is None
+def test_read_only_refusal_leaves_keys_it_does_not_own(key: str) -> None:
+    assert read_only_refusal(key) is None
 
 
-async def test_a_computed_fact_cannot_be_set(
+async def test_a_read_only_fact_cannot_be_set(
     client: httpx.AsyncClient, store: FakeFactStore
 ) -> None:
     response = await client.put(
@@ -343,7 +346,7 @@ async def test_a_computed_fact_cannot_be_set(
         headers=HEADERS,
     )
     assert response.status_code == 422
-    assert response.json()["detail"] == COMPUTED_REFUSALS["education.gpa"]
+    assert response.json()["detail"] == READ_ONLY_REFUSALS["education.gpa"]
     assert store.rows == {}
 
     response = await client.put(
@@ -352,11 +355,11 @@ async def test_a_computed_fact_cannot_be_set(
         headers=HEADERS,
     )
     assert response.status_code == 422
-    assert response.json()["detail"] == COMPUTED_REFUSALS["identity.first_name"]
+    assert response.json()["detail"] == READ_ONLY_REFUSALS["identity.first_name"]
     assert store.rows == {}
 
 
-async def test_a_computed_fact_cannot_be_verified_but_a_leftover_row_can_be_deleted(
+async def test_a_read_only_fact_cannot_be_verified_but_a_leftover_row_can_be_deleted(
     client: httpx.AsyncClient, store: FakeFactStore
 ) -> None:
     now = datetime.now(UTC)
@@ -370,24 +373,33 @@ async def test_a_computed_fact_cannot_be_verified_but_a_leftover_row_can_be_dele
     }
     response = await client.post("/v1/jobs/facts/education.gpa/verify", headers=HEADERS)
     assert response.status_code == 422
-    assert response.json()["detail"] == COMPUTED_REFUSALS["education.gpa"]
+    assert response.json()["detail"] == READ_ONLY_REFUSALS["education.gpa"]
 
     assert (await client.delete("/v1/jobs/facts/education.gpa",
                                 headers=HEADERS)).status_code == 204
     assert store.rows == {}
 
 
-async def test_computed_facts_are_listed_read_only(client: httpx.AsyncClient) -> None:
-    response = await client.get("/v1/jobs/facts/computed", headers=HEADERS)
+async def test_read_only_facts_are_listed(client: httpx.AsyncClient) -> None:
+    response = await client.get("/v1/jobs/facts/read-only", headers=HEADERS)
     assert response.status_code == 200
     items = response.json()
-    assert len(items) == len(COMPUTED_FACTS)
+    assert len(items) == len(READ_ONLY_FACTS) == 53
     assert {
         "key": "education.gpa",
         "label": "GPA",
         "source": "career",
+        "kind": "static",
         "reads": ["career.education"],
     } in items
+    assert {
+        "key": "education.graduation_term",
+        "label": "Graduation term",
+        "source": "derived",
+        "kind": "computed",
+        "reads": ["education.graduation_date"],
+    } in items
+    assert sum(item["kind"] == "static" for item in items) == 14
 
 
 def _row(key: str, value: Any, value_type: str = "text") -> dict[str, Any]:

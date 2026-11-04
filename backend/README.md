@@ -90,11 +90,13 @@ are limited to 200 characters, matching the change history.
 An empty text or list is a fact too: the answer is none, and the worker leaves
 that field blank on purpose. A choice is never empty.
 Unknown or optional EEO values are not inferred.
-A computed key — the career, derived, and posting facts in
-`jobs_facts_computed.py`, kept equal to the worker's declarations — is refused
-on a set and on a verify with a 422 naming what to change; a delete still
-removes a leftover stored row. `GET /v1/jobs/facts/computed` lists each
-computed key's label, source, and reads.
+A read-only key — a record fact or a computed career, derived, or posting fact
+in `jobs_facts_read_only.py`, kept equal to the worker's declarations — is
+refused on a set and on a verify with a 422 naming what to change: a record
+fact is edited in the career record, a computed one through its inputs. A
+delete still removes a leftover stored row. `GET /v1/jobs/facts/read-only`
+lists each read-only key's label, source, kind (`static` for a record fact,
+`computed`), and reads.
 
 ### Jobs endpoints
 
@@ -337,7 +339,7 @@ uses it. All three must pass:
 cd backend && uv run ruff check . && uv run mypy src/ && uv run pytest -q
 ```
 
-Currently 283 tests. `mypy` is scoped to `src/` because the test suite is not
+Currently 293 tests. `mypy` is scoped to `src/` because the test suite is not
 annotated; `pyproject.toml` already pins `packages = ["personal_os_backend"]`, so bare
 `uv run mypy` — the form CI uses — checks the same files.
 
@@ -355,7 +357,7 @@ src/personal_os_backend/
   config.py         pydantic-settings Settings, PERSONAL_OS_API_* env vars, the psycopg
                     async pool, its readiness check, and StoreBase
   jobs_facts.py     /v1/jobs/facts: models, store, routes, per-type value validation
-  jobs_facts_computed.py  the worker's computed fact keys, kept equal to it by a workers test
+  jobs_facts_read_only.py  the worker's record and computed fact keys, kept equal to it by a workers test
   jobs_career.py    /v1/jobs/career routes; the record lives in the three modules below
   jobs_career_text.py  how the resume spells months, ranges, titles, locations, decimals, the header
   jobs_career_document.py  the document and row models, the writing rules, conversion both ways

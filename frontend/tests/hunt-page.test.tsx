@@ -37,7 +37,7 @@ beforeEach(() => {
     ]);
     if (input.endsWith("/inbox")) return Response.json({ candidates: [], questions: [] });
     if (input.endsWith("/facts")) return Response.json([]);
-    if (input.endsWith("/facts/computed")) return Response.json([]);
+    if (input.endsWith("/facts/read-only")) return Response.json([]);
     return Response.json({ items: [], total: 42, limit: 1, offset: 0 });
   }));
 });

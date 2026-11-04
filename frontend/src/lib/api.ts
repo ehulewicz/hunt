@@ -110,20 +110,23 @@ export function deleteFact(accessToken: string, key: string): Promise<void> {
   return apiRequest<void>(`/v1/jobs/facts/${encodeURIComponent(key)}`, accessToken, { method: "DELETE" });
 }
 
-export type ComputedFact = {
+export type ReadOnlyFact = {
   key: string;
   label: string;
   source: "career" | "derived" | "posting";
+  kind: "static" | "computed";
   reads: string[];
 };
 
-export function loadComputedFacts(accessToken: string): Promise<ComputedFact[]> {
-  return apiRequest<ComputedFact[]>("/v1/jobs/facts/computed", accessToken);
+export function loadReadOnlyFacts(accessToken: string): Promise<ReadOnlyFact[]> {
+  return apiRequest<ReadOnlyFact[]>("/v1/jobs/facts/read-only", accessToken);
 }
 
-// The note shown wherever a computed fact appears: what it is computed from,
-// or how a per-application fact is set.
-export function computedNote(fact: ComputedFact): string {
+// The note shown wherever a read-only fact appears: that a record fact comes
+// from the career record, what a computed fact is computed from, or how a
+// per-application fact is set.
+export function readOnlyNote(fact: ReadOnlyFact): string {
+  if (fact.kind === "static") return "From the career record";
   if (fact.source === "career") return "Computed from the career record";
   if (fact.source === "posting") {
     return fact.reads.length
@@ -269,40 +272,40 @@ export type Question = {
 export type HuntLibrary = {
   questions: Question[];
   facts: Fact[];
-  computed: ComputedFact[];
+  readOnly: ReadOnlyFact[];
   prose: Prose[];
   patterns: Pattern[];
 };
 
 export async function loadHuntLibrary(accessToken: string): Promise<HuntLibrary> {
-  // The computed list is auxiliary: if only it fails, the page loads without it.
-  const computed = loadComputedFacts(accessToken).catch(() => [] as ComputedFact[]);
+  // The read-only list is auxiliary: if only it fails, the page loads without it.
+  const readOnly = loadReadOnlyFacts(accessToken).catch(() => [] as ReadOnlyFact[]);
   const [questions, facts, prose, patterns] = await Promise.all([
     apiRequest<Question[]>("/v1/jobs/questions", accessToken),
     apiRequest<Fact[]>("/v1/jobs/facts", accessToken),
     apiRequest<Prose[]>("/v1/jobs/prose", accessToken),
     apiRequest<Pattern[]>("/v1/jobs/patterns?status=active&status=candidate&status=repaired&status=validated&status=rejected&status=retired", accessToken),
   ]);
-  return { questions, facts, prose, patterns, computed: await computed };
+  return { questions, facts, prose, patterns, readOnly: await readOnly };
 }
 
 export type HuntOverview = {
   applications: JobApplication[];
   inbox: Inbox;
   facts: Fact[];
-  computed: ComputedFact[];
+  readOnly: ReadOnlyFact[];
   available: number;
 };
 
 export async function loadHuntOverview(accessToken: string): Promise<HuntOverview> {
-  const computed = loadComputedFacts(accessToken).catch(() => [] as ComputedFact[]);
+  const readOnly = loadReadOnlyFacts(accessToken).catch(() => [] as ReadOnlyFact[]);
   const [applications, inbox, facts, listings] = await Promise.all([
     apiRequest<JobApplication[]>("/v1/jobs/applications", accessToken),
     apiRequest<Inbox>("/v1/jobs/inbox", accessToken),
     apiRequest<Fact[]>("/v1/jobs/facts", accessToken),
     apiRequest<{ total: number }>("/v1/jobs/listings?limit=1", accessToken),
   ]);
-  return { applications, inbox, facts, computed: await computed, available: listings.total };
+  return { applications, inbox, facts, readOnly: await readOnly, available: listings.total };
 }
 
 // The address the worker signs into ATS accounts and reads their mail with.

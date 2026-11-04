@@ -89,7 +89,7 @@ os hunt sites                 # each site's latest run and its learning and fixi
 
 `facts delete KEY` shows the stored value and asks for confirmation; `--yes`
 skips the prompt. It records the deletion through the API. A stored row under a
-computed key is ignored, so deleting it changes nothing a form gets; with no
+record or computed key is ignored, so deleting it changes nothing a form gets; with no
 stored row, `facts delete` names what to change instead. Unknown keys are
 reported without sending a delete request.
 
@@ -269,7 +269,7 @@ Values are rendered from facts at fill time: pay requirements follow the
 requirements are $83,200 USD (or 83200 numeric). Graduation uses `Fall 2027`
 when a term is requested, `December 2027` otherwise, and whichever rendering a
 dropdown offers. An office choice bound to `preferences.location_strategy`
-follows the §9 tiers. Completed co-op rotations come from the career record,
+follows the §9 tiers. Completed co-op rotations are computed from the career record,
 never a stored fact: each May 1, August 1, and November 1 that passed while a
 co-op entry ran (through the end of its last month, or today while current, and
 never past graduation) completes one, counted once across entries. A prior
@@ -280,9 +280,9 @@ expiration stays manual without a date.
 Facts are the single source the apply run fills from. `os hunt facts review`
 shows each unverified fact beside what the archived answers said to similar
 questions, so a contradiction such as a second graduation date is settled once,
-on the fact. `os hunt facts set` refuses a computed key — one the career
-record, other facts, or the posting decides — before connecting, and names what
-to change instead.
+on the fact. `os hunt facts set` refuses a record or computed key — one the
+career record, other facts, or the posting decides — before connecting, and
+names what to change instead.
 
 ## From the Hunt page
 

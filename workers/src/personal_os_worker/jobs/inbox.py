@@ -30,8 +30,8 @@ from personal_os_worker.jobs.facts.catalog import CATALOG, entry
 from personal_os_worker.jobs.facts.commands import VALUE_TYPES, display, parse_value
 from personal_os_worker.jobs.facts.derived import (
     career_facts,
-    computed_refusal,
     derive,
+    read_only_refusal,
     stored_values,
 )
 
@@ -46,7 +46,7 @@ class Quit(Exception):
 def fact_view(
     facts: list[dict[str, Any]], career: dict[str, Any] | None, today: date
 ) -> dict[str, Any]:
-    """What the system reads for each key: computed facts win over a stored row."""
+    """What the system reads for each key: read-only facts win over a stored row."""
     values = {**career_facts(career, today), **stored_values(facts)}
     return {**values, **derive(values, today)}
 
@@ -129,7 +129,7 @@ def new_fact(
     api: WorkerApi, key: str, *, last_answer: str | None, ask: Ask
 ) -> bool:
     """Create the fact a binding needs, from the catalog where it can; False if abandoned."""
-    refusal = computed_refusal(key)
+    refusal = read_only_refusal(key)
     if refusal is not None:
         console.print(f"  {refusal}", style="yellow")
         return False
@@ -241,7 +241,7 @@ def review_question(
             console.print("  a fact key is dotted lowercase words", style="yellow")
             counts["skipped"] += 1
             return
-        if key not in values and computed_refusal(key) is None and not new_fact(
+        if key not in values and read_only_refusal(key) is None and not new_fact(
             api, key, last_answer=answers[0]["answer_text"] if answers else None, ask=ask
         ):
             counts["skipped"] += 1
@@ -272,7 +272,7 @@ def print_waiting_facts(facts: list[dict[str, Any]]) -> None:
     contradicted = [item for item in facts if item.get("reason") == "contradicted"]
     for item in missing:
         name = item.get("key") or item.get("missing_fact") or "a fact"
-        refusal = computed_refusal(str(name))
+        refusal = read_only_refusal(str(name))
         hint = refusal if refusal is not None else "'os hunt facts set' gives it"
         console.print(
             f"missing fact: {name} (asked by {item.get('question') or 'a question'!r}); {hint}"
