@@ -20,7 +20,7 @@ from psycopg_pool import AsyncConnectionPool
 
 from personal_os_backend.auth import CurrentPrincipal
 from personal_os_backend.config import Settings, StoreBase
-from personal_os_backend.jobs_dispositions import QuestionsMixin, QuestionsStore
+from personal_os_backend.jobs_dispositions import QuestionInUse, QuestionsMixin, QuestionsStore
 from personal_os_backend.jobs_inbox import Inbox, InboxMixin, InboxStore, ProseGap
 from personal_os_backend.jobs_patterns import (
     Pattern,
@@ -63,6 +63,7 @@ __all__ = [
     "Prose",
     "ProseGap",
     "Question",
+    "QuestionInUse",
     "QuestionUpdate",
     "_model_refusal",
     "active_patterns",
@@ -116,6 +117,19 @@ async def update_question(
     if question is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Question not found")
     return question
+
+
+@router.delete("/questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_question(question_id: UUID, principal: CurrentPrincipal, store: Store) -> Response:
+    try:
+        deleted = await store.delete_question(principal.user_id, question_id)
+    except QuestionInUse as error:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "A pattern still answers this question; retire it first"
+        ) from error
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Question not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/patterns", response_model=list[Pattern])

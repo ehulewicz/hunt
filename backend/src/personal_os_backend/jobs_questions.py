@@ -25,6 +25,9 @@ NOT_QUESTIONS = frozenset({"yes", "no", "search", "page number", "zoom level", "
 SECTION_HEADING = re.compile(r"(?:[a-z0-9+#]+ ){0,3}questions")
 # An unlabeled control's fingerprint, `tag|type|name|label|role`, standing in for a label.
 FINGERPRINT = re.compile(r"^[a-z][a-z0-9-]*\|[a-z-]*\|")
+# The worker's stand-in for a radio with no question, named after that control's
+# id, which a form can generate anew on every render.
+PLACEHOLDER = re.compile(r"^Unidentified question \(")
 
 
 def asks_a_question(label: str, kind: str | None = None) -> bool:
@@ -34,7 +37,8 @@ def asks_a_question(label: str, kind: str | None = None) -> bool:
     asks nothing the Inbox could bind.
     """
     key = normalize_answer_key(label)
-    if not key or kind == "file" or FINGERPRINT.match(label.strip()):
+    stripped = label.strip()
+    if not key or kind == "file" or FINGERPRINT.match(stripped) or PLACEHOLDER.match(stripped):
         return False
     return key not in NOT_QUESTIONS and not SECTION_HEADING.fullmatch(key)
 

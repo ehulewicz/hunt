@@ -157,7 +157,9 @@ on. `PUT /v1/jobs/facts/{key}` settles the `fact_gap` issues it answers, the one
 in `failure.issue_id` and any naming the key, even when the value is unchanged;
 a run that hits the gap again reopens it. An unbound question that active expressions already decide
 (they match it and name one fact, as the worker's resolver requires) is left
-out, and so is one recorded before the rule above that asks nothing. Accepting a binding (`PATCH /patterns/{id}` to `active`)
+out, and so is one recorded before the rule above that asks nothing. `DELETE /v1/jobs/questions/{id}`
+removes a question no live pattern answers (409 while one does), keeping its recorded
+answers unlinked; a run that meets the label again records it anew. Accepting a binding (`PATCH /patterns/{id}` to `active`)
 retires the question's previous binding and marks the question `pattern`, and
 rejecting or retiring one hands the question back. Runs never save long-form text as prose: `jobs_prose` holds old reference
 rows the fallback drafter reads, listed at `GET /v1/jobs/prose` and pruned at

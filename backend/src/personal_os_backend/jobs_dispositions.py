@@ -8,6 +8,7 @@ from uuid import UUID
 from personal_os_backend.config import StoreBase
 from personal_os_backend.jobs_changes import record_change
 from personal_os_backend.jobs_patterns import (
+    LIVE_STATUSES,
     PATTERN_COLUMNS,
     PATTERN_FROM,
     Pattern,
@@ -21,6 +22,10 @@ from personal_os_backend.jobs_questions import (
 )
 
 
+class QuestionInUse(Exception):
+    """A live pattern still answers the question, so deleting it would drop the pattern."""
+
+
 class QuestionsStore(Protocol):
     async def list_questions(
         self, user_id: UUID, disposition: Disposition | None
@@ -29,6 +34,8 @@ class QuestionsStore(Protocol):
     async def update_question(
         self, user_id: UUID, question_id: UUID, item: QuestionUpdate
     ) -> Question | None: ...
+
+    async def delete_question(self, user_id: UUID, question_id: UUID) -> bool: ...
 
 
 class QuestionsMixin(StoreBase):
@@ -97,3 +104,36 @@ class QuestionsMixin(StoreBase):
                     after={"disposition": item.disposition}, origin=item.origin,
                 )
         return Question.model_validate(row) if row else None
+
+    async def delete_question(self, user_id: UUID, question_id: UUID) -> bool:
+        """Delete a question nothing live answers. Its recorded answers stay, unlinked.
+
+        The row comes back if a run meets the label again. Raises `QuestionInUse`
+        while a live pattern answers it; False when it is not this user's.
+        """
+        async with (
+            self._pool.connection(timeout=self._timeout) as connection,
+            connection.transaction(),
+        ):
+            await connection.execute("set local role personal_os_api")
+            cursor = await connection.execute(
+                "select id from app.jobs_patterns where user_id = %s and question_id = %s "
+                "and status = any(%s) limit 1",
+                (user_id, question_id, list(LIVE_STATUSES)),
+            )
+            if await cursor.fetchone() is not None:
+                raise QuestionInUse
+            cursor = await connection.execute(
+                "delete from app.jobs_questions where id = %s and user_id = %s "
+                "returning sample_label, disposition",
+                (question_id, user_id),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return False
+            await record_change(
+                connection, user_id, subject="question", subject_id=str(question_id),
+                action="delete", origin="you", after=None,
+                before={"sample_label": row["sample_label"], "disposition": row["disposition"]},
+            )
+        return True

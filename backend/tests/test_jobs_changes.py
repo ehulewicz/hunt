@@ -15,6 +15,7 @@ from personal_os_backend.jobs_answers import (
     PatternCreate,
     PatternUpdate,
     PostgresAnswerStore,
+    QuestionInUse,
     QuestionUpdate,
 )
 from personal_os_backend.jobs_changes import (
@@ -486,6 +487,32 @@ async def test_prose_and_question_dispositions_are_changes_too() -> None:
     assert (question["subject"], question["subject_id"]) == ("question", str(question_id))
     assert (question["before"], question["after"]) == (
         {"disposition": "unbound"}, {"disposition": "long_form"})
+
+
+async def test_deleting_a_question_records_it_and_keeps_one_a_pattern_answers() -> None:
+    question_id = uuid4()
+    live: list[dict[str, Any]] = []
+
+    def answer(query: str, params: Any) -> list[dict[str, Any]]:
+        if "from app.jobs_patterns" in query:
+            return live
+        if "delete from app.jobs_questions" in query:
+            return [{"sample_label": "Company", "disposition": "one_off"}]
+        return []
+
+    connection = ScriptConnection(answer)
+    store = PostgresAnswerStore(ScriptPool(connection), 5)  # type: ignore[arg-type]
+    assert await store.delete_question(USER_ID, question_id) is True
+    change = connection.changes[0]
+    assert (change["subject"], change["subject_id"]) == ("question", str(question_id))
+    assert (change["action"], change["origin"], change["after"]) == ("delete", "you", None)
+    assert change["before"] == {"sample_label": "Company", "disposition": "one_off"}
+
+    live.append({"id": uuid4()})
+    connection.queries.clear()
+    with pytest.raises(QuestionInUse):
+        await store.delete_question(USER_ID, question_id)
+    assert not any("delete from app.jobs_questions" in query for query, _ in connection.queries)
 
 
 async def test_after_runs_inside_the_write_transaction() -> None:

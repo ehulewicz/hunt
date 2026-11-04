@@ -22,6 +22,7 @@ from personal_os_backend.jobs_answers import (
     PostgresAnswerStore,
     Prose,
     Question,
+    QuestionInUse,
     QuestionUpdate,
     _model_refusal,
     answered_by_expression,
@@ -35,6 +36,7 @@ from personal_os_backend.main import create_app
 USER_ID = UUID("c3c8d239-162d-4e5e-a2a1-4ac0d1b3695f")
 HEADERS = {"Authorization": "Bearer approved"}
 QUESTION_ID = uuid4()
+ANSWERED_QUESTION_ID = uuid4()
 NOW = datetime(2026, 10, 14, tzinfo=UTC)
 
 
@@ -59,6 +61,9 @@ def test_question_keys_ignore_case_spacing_and_harmless_punctuation() -> None:
         ("Resume/CV", "file", False),
         ("input|file|||", None, False),
         ("unlabeled", None, False),
+        ("Unidentified question (#vv0m19)", None, False),
+        ("Unidentified question (7)", None, False),
+        ("What is an unidentified question?", None, True),
         ("?!", None, False),
     ],
 )
@@ -165,6 +170,11 @@ class FakeAnswerStore:
         if question_id != QUESTION_ID:
             return None
         return question().model_copy(update={"disposition": item.disposition})
+
+    async def delete_question(self, user_id: UUID, question_id: UUID) -> bool:
+        if question_id == ANSWERED_QUESTION_ID:
+            raise QuestionInUse
+        return question_id == QUESTION_ID
 
     async def list_patterns(self, user_id: UUID, statuses: list[str]) -> list[Pattern]:
         return [item for item in self.patterns.values() if item.status in statuses]
@@ -295,6 +305,19 @@ async def test_inbox_questions_and_archive_are_readable(client: httpx.AsyncClien
         archive = await client.get("/v1/jobs/archive/answers", headers=HEADERS)
         assert archive.json()[0]["answer_text"] == "Yes"
         assert (await client.get("/v1/jobs/answers", headers=HEADERS)).status_code == 404
+
+
+async def test_deleting_a_question_refuses_one_a_pattern_still_answers(
+    client: httpx.AsyncClient,
+) -> None:
+    async with client:
+        path = "/v1/jobs/questions/{}"
+        deleted = await client.delete(path.format(QUESTION_ID), headers=HEADERS)
+        assert deleted.status_code == 204
+        missing = await client.delete(path.format(uuid4()), headers=HEADERS)
+        assert missing.status_code == 404
+        answered = await client.delete(path.format(ANSWERED_QUESTION_ID), headers=HEADERS)
+        assert answered.status_code == 409
 
 
 async def test_prose_reads_and_prunes_but_never_writes(client: httpx.AsyncClient) -> None:
