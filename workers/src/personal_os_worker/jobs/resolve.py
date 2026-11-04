@@ -57,6 +57,9 @@ def _type_of(value: Any) -> str:
     return "text"
 
 
+PASSWORD_QUESTION = re.compile(r"\bpass(?:word|code|phrase)\b", re.IGNORECASE)
+
+
 @dataclass(frozen=True, slots=True)
 class Knowledge:
     """What one run knows: fact values and types, active patterns, stored prose for reference.
@@ -309,6 +312,8 @@ class Resolver:
 
     def resolve(self, field_info: dict[str, Any]) -> AnswerResolution | None:
         question = str(field_info.get("label") or "").strip()
+        if PASSWORD_QUESTION.search(question):
+            return None  # no fact is a password, however a pattern reads the rest of the words
         pattern = self.decision(question)
         if (
             pattern is not None

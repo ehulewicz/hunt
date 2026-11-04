@@ -788,3 +788,19 @@ def test_a_page_error_reaches_the_fixer_only_after_a_press() -> None:
     with pytest.raises(StopIteration):
         session.escalate([page_error()])
     assert keys == ["format_error"]
+
+
+def test_a_question_asking_for_a_password_is_never_answered_from_a_fact() -> None:
+    from personal_os_worker.jobs.resolve import Resolver
+
+    known = Knowledge.build(
+        facts=[{"key": "contact.portfolio_url", "value": "https://devpost.com/me"}], career=None,
+        patterns=[{"id": "p", "kind": "expression", "expression": "portfolio",
+                   "fact_key": "contact.portfolio_url", "resolver_id": "expression:p",
+                   "status": "active"}],
+        prose=[], company="Acme", seed="s",
+    )
+    field = {"tag": "input", "type": "text", "options": []}
+    resolver = Resolver(known)
+    assert resolver.resolve(field | {"label": "Portfolio Link"}) is not None
+    assert resolver.resolve(field | {"label": "Portfolio, Video, or Website Password"}) is None
