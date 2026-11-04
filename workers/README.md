@@ -460,7 +460,8 @@ The Fall 2027 date warning stops nothing.
 | Moves on with no confirmation | Unconfirmed | 12 |
 
 Exit 13 is a closed posting and 14 a run with no other ending. A wall in front of
-the form holds once nothing is working on it. Every ending but a confirmation
+the form, or a posting the navigator cannot find, holds once nothing is working
+on it. Every ending but a confirmation
 stops the run as `abandoned`, so the listing stays on the board, with no schema
 change. A held run's tab closes and a retry refills it. A parked run keeps its
 tab, and a rerun reuses it. An unconfirmed one keeps its tab too and is never

@@ -220,6 +220,15 @@ def _click(page: Page, index: int) -> bool:
         return False
 
 
+def one_destination(addresses: list[str]) -> bool:
+    """Whether these go to one place: /jobs/ and /jobs do (Nintendo's home has both)."""
+    places = set()
+    for address in addresses:
+        parts = urlsplit(address)
+        places.add((parts.netloc, parts.path.rstrip("/"), parts.query))
+    return len(places) == 1
+
+
 def open_posting_link(page: Page, target: Target, *, start: str) -> bool:
     """Click the one link whose text is this role's title; False when none or several."""
     scored = [
@@ -233,8 +242,7 @@ def open_posting_link(page: Page, target: Target, *, start: str) -> bool:
     best = max(score for score, _item in scored)
     top = [item for score, item in scored if score == best]
     # Several links to one place (a card and its title) are one result.
-    destinations = {str(item.get("href") or item["text"]) for item in top}
-    if len(destinations) != 1:
+    if not one_destination([str(item.get("href") or item["text"]) for item in top]):
         return False
     return _click(page, int(top[0]["index"]))
 
@@ -246,8 +254,7 @@ def open_listing(page: Page, *, start: str) -> bool:
         if LISTING_TRANSITION.search(str(item["text"]))
         and _same_site(str(item.get("href") or ""), start)
     ]
-    destinations = {str(item.get("href") or item["text"]) for item in found}
-    if len(destinations) != 1:
+    if not one_destination([str(item.get("href") or item["text"]) for item in found]):
         return False
     return _click(page, int(found[0]["index"]))
 
@@ -380,6 +387,7 @@ def reach_posting(
     fixes: Any | None = None,
     run_id: str = "",
     cdp_url: str = "",
+    give_up: Callable[[], None] | None = None,
 ) -> Page:
     """The posting's tab: found by its site's route or the navigator, else by you.
 
@@ -389,7 +397,8 @@ def reach_posting(
     fixer, the failure goes to it while you look: a route it writes and keeps is
     tried on this tab, and opens the posting for you. A line typed at the terminal
     meanwhile is a direction for that fixer. A posting that is gone raises
-    `PostingClosed`, and the row leaves the board.
+    `PostingClosed`, and the row leaves the board. `give_up`, on a run nobody is
+    watching, is asked at each look and raises once waiting is pointless.
     """
     from personal_os_worker.jobs.browser import visible_actions
     from personal_os_worker.jobs.registry.routes import route_for
@@ -431,7 +440,7 @@ def reach_posting(
         console.print("  [dim]type a direction for the fixer and press Enter[/dim]")
     return _watch_for_posting(
         browser, page, target, fixes=fixes, key=key, cdp_url=cdp_url,
-        report_page_failure=report_page_failure, sleep=sleep,
+        report_page_failure=report_page_failure, sleep=sleep, give_up=give_up,
     )
 
 
@@ -453,6 +462,7 @@ def _watch_for_posting(
     cdp_url: str,
     report_page_failure: Callable[..., Any],
     sleep: Callable[[float], None],
+    give_up: Callable[[], None] | None = None,
 ) -> Page:
     """Wait for the posting in front, for a verdict that it is gone, and for your directions."""
     while True:
@@ -481,6 +491,8 @@ def _watch_for_posting(
         direction = typed_line()
         if direction and fixes is not None:
             console.print(f"  [dim]{fixes.guide(direction, key)}[/dim]")
+        if give_up is not None:
+            give_up()
         sleep(WATCH_SECONDS)
 
 

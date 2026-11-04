@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
@@ -47,6 +48,7 @@ def _reach_the_posting(
     fixes: FixQueue | None,
     link: RunLink | None,
     cdp_url: str,
+    give_up: Callable[[], None] | None = None,
 ) -> tuple[Page, str]:
     """Read the posting's text, refuse a closed one, and find it when this page is not it."""
     from personal_os_worker.jobs.browser import (
@@ -89,7 +91,7 @@ def _reach_the_posting(
         page = reach_posting(
             browser, page, Target(expected_title, expected_company),
             report_page_failure=report_page_failure, arrival_text=body,
-            fixes=fixes, run_id=run_id, cdp_url=cdp_url,
+            fixes=fixes, run_id=run_id, cdp_url=cdp_url, give_up=give_up,
         )
         if link is not None:
             link.tab(page)

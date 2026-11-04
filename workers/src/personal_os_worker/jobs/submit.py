@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -118,6 +119,28 @@ class ApplicationUnconfirmed(RunEnded):
     outcome = "unconfirmed"
 
 
+class StallClock:
+    """How long a run nobody is watching stands at a wall or a missing posting.
+
+    It waits while the fixer works, up to the limit per problem, then briefly.
+    """
+
+    def __init__(self, busy: Callable[[], str | None]) -> None:
+        self.busy = busy
+        self.on: str | None = None
+        self.since: float | None = None
+
+    def check(self, why: str) -> None:
+        """Raises `ApplicationHeld` with `why` once waiting no longer helps."""
+        busy, now = self.busy(), time.monotonic()
+        if self.since is None or busy != self.on:
+            self.on, self.since = busy, now
+            return
+        limit = FIXER_WAIT_SECONDS if busy is not None else WALL_WAIT_SECONDS
+        if now - self.since >= limit:
+            raise ApplicationHeld(why)
+
+
 def open_inbox(email: str) -> Inbox:
     return Inbox(email, read_secret(GMAIL_APP_PASSWORD))
 
@@ -173,8 +196,7 @@ class _Look:
 
 
 class SubmitMixin(_Base):
-    _stall_on: str | None = None
-    _stall_since: float | None = None
+    _stall: StallClock | None = None
 
     # ----- the press ---------------------------------------------------------
 
@@ -442,12 +464,6 @@ class SubmitMixin(_Base):
             return
         if captcha_challenge_present(self.page):
             raise ApplicationParked("an image puzzle is open; the tab is waiting for you")
-        busy = self._fixer_busy()
-        now = time.monotonic()
-        if self._stall_since is None or busy != self._stall_on:
-            self._stall_on, self._stall_since = busy, now
-            return
-        limit = FIXER_WAIT_SECONDS if busy is not None else WALL_WAIT_SECONDS
-        if now - self._stall_since >= limit:
-            walls = self.state.walls
-            raise ApplicationHeld(walls[-1].note if walls else "no form came up")
+        self._stall = self._stall or StallClock(self._fixer_busy)
+        walls = self.state.walls
+        self._stall.check(walls[-1].note if walls else "no form came up")

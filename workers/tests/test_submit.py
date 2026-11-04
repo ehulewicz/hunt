@@ -727,3 +727,38 @@ def test_otherwise_an_answer_the_worker_did_not_write_stays_yours() -> None:
     session, filled = prefilled_session(flag=False)
     assert session.correct_answer([GENDER], contradicted()) is False
     assert filled == []
+
+
+def test_a_watch_for_a_posting_gives_up_when_it_is_told_to(page: Any) -> None:
+    from personal_os_worker.jobs.navigate import Target, _watch_for_posting
+
+    page.set_content("<p>Careers home</p>")
+
+    def give_up() -> None:
+        raise ApplicationHeld("nothing is working on it")
+
+    with pytest.raises(ApplicationHeld):
+        _watch_for_posting(
+            Browser(page), page, Target("Engineer", "Acme"), fixes=None, key="k", cdp_url="",
+            report_page_failure=lambda *_a, **_k: None, sleep=lambda _s: None, give_up=give_up,
+        )
+
+
+def test_a_stall_waits_for_the_fixer_then_briefly(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(submit, "WALL_WAIT_SECONDS", 0.0)
+    busy = ["a", "a", None, None]
+    clock = submit.StallClock(lambda: busy.pop(0))
+    clock.check("gone")  # the fixer starts
+    clock.check("gone")  # and keeps working
+    clock.check("gone")  # it stops: the brief wait starts now
+    with pytest.raises(ApplicationHeld, match="gone"):
+        clock.check("gone")
+
+
+def test_two_spellings_of_one_address_are_one_destination() -> None:
+    from personal_os_worker.jobs.navigate import one_destination
+
+    assert one_destination(["/jobs/", "/jobs"]) is True
+    assert one_destination(["https://a.co/jobs/#top", "https://a.co/jobs"]) is True
+    assert one_destination(["/jobs", "/careers"]) is False
+    assert one_destination(["/jobs?team=1", "/jobs?team=2"]) is False

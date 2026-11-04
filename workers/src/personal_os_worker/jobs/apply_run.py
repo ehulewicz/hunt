@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from functools import partial
@@ -21,6 +22,7 @@ from personal_os_worker.jobs.account import AccountFlow
 from personal_os_worker.jobs.compose import LibraryText, library_texts
 from personal_os_worker.jobs.posting_page import PostingClosed, _reach_the_posting
 from personal_os_worker.jobs.resolve import Knowledge
+from personal_os_worker.jobs.submit import RunEnded, StallClock
 
 if TYPE_CHECKING:
     from playwright.sync_api import Page
@@ -133,6 +135,10 @@ def _run_application(posting_id: str, options: _ApplyOptions) -> str:
                 )
             except PostingClosed as closed:
                 result = _leave_closed(api, run=run, run_id=run_id, closed=closed, options=options)
+            except RunEnded as ended:
+                # Before the session: it could not reach the posting to fill it.
+                console.print(f"[yellow]{ended.outcome.capitalize()}:[/yellow] {ended.reason}")
+                result = _leave_unsubmitted(api, run_id, ended.outcome, page)
             return result
     except KeyboardInterrupt:
         result = "stopped"
@@ -329,7 +335,7 @@ def _fill_application(
     page, body = _reach_the_posting(
         api, browser, page, console_errors, run_id=run_id, ats=ats,
         expected_company=expected_company, expected_title=expected_title, fixes=fixes,
-        link=link, cdp_url=cdp_url,
+        link=link, cdp_url=cdp_url, give_up=_posting_give_up(fixes) if options.submit else None,
     )
     _announce(expected_company, expected_title, ats, reused, resume_pdf, options)
     linked = _linked(link, options.accept_letter, options.submit)
@@ -374,6 +380,12 @@ def _fill_application(
         page=page,
     )
     return result
+
+
+def _posting_give_up(fixes: FixQueue | None) -> Callable[[], None]:
+    """On a `--submit` run nobody will open a posting the navigator cannot find."""
+    clock = StallClock(fixes.busy if fixes is not None else lambda: None)
+    return lambda: clock.check("the navigator and the fixer could not find the posting")
 
 
 def _announce(
