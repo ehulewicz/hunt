@@ -104,13 +104,15 @@ class RepairsMixin(SessionBase):
         refill it through the pattern path.
 
         The model only named the fact. An answer you typed, one the engine
-        chose, and one a binding you accepted produced are reported instead.
+        chose, and one a binding you accepted produced are reported instead. On a
+        `--submit` run nobody is typing, so an answer the worker did not write is
+        one the site preselected, and it is corrected like the worker's own.
         """
         key = str(finding.fact_key or "")
         if key not in self.ctx.knowledge.facts:
             return False
         engine = self.state.tier_resolver.get(finding.question, "").startswith("engine:")
-        if finding.source not in WORKER_SOURCES or engine:
+        if (finding.source not in WORKER_SOURCES and not self.ctx.submit) or engine:
             echo(
                 "review",
                 finding.question,

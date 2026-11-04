@@ -681,3 +681,49 @@ def test_a_captcha_box_is_never_a_widget_for_the_fixer() -> None:
     control = {"role": "checkbox", "question": "I'm not a robot",
                "frame_url": "https://www.google.com/recaptcha/api2/anchor?k=1"}
     assert classify_unknown([control], set()) == []
+
+
+GENDER = {"label": "Gender", "tag": "select", "type": None, "name": "g",
+          "options": ["Decline to answer", "Female", "Male"], "filled": True}
+
+
+def prefilled_session(*, flag: bool) -> tuple[AutofillSession, list[str]]:
+    context = SimpleNamespace(
+        page=SimpleNamespace(url="https://x.applytojob.com/apply"), browser=None, link=None,
+        submit=flag,
+        knowledge=Knowledge.build(
+            facts=[{"key": "eeo.gender_identity", "value": "Male"}], career=None,
+            patterns=[{"id": "b", "kind": "binding", "question_key": "gender",
+                       "fact_key": "eeo.gender_identity", "resolver_id": "binding:g",
+                       "status": "active"}],
+            prose=[], company="Acme", seed="s",
+        ),
+    )
+    session = AutofillSession(cast(Any, context))
+    filled: list[str] = []
+
+    def apply_value(_fields: Any, _field: Any, value: str, **_: Any) -> str:
+        filled.append(value)
+        return value
+
+    session.apply_value = apply_value  # type: ignore[method-assign,assignment]
+    session.save_lesson = lambda *_a, **_k: None  # type: ignore[method-assign]
+    session.reconcile_follow_ups = lambda _fields: False  # type: ignore[method-assign]
+    return session, filled
+
+
+def contradicted() -> Finding:
+    return Finding("Gender", "wrong_answer", False, "fact says Male",
+                   fact_key="eeo.gender_identity", answer="Decline to answer", source="manual")
+
+
+def test_a_submit_run_corrects_what_the_site_preselected() -> None:
+    session, filled = prefilled_session(flag=True)
+    assert session.correct_answer([GENDER], contradicted()) is True
+    assert filled == ["Male"]
+
+
+def test_otherwise_an_answer_the_worker_did_not_write_stays_yours() -> None:
+    session, filled = prefilled_session(flag=False)
+    assert session.correct_answer([GENDER], contradicted()) is False
+    assert filled == []
