@@ -106,7 +106,8 @@ that is already part-filled; `--fresh` overrides it. `rendered_body_text` polls
 for the page's text instead of reading it once, because a board that fills its
 page from script answers `domcontentloaded` with an empty root — and that text
 is both what identifies the posting and the context its drafts are written
-from. It never accesses Postgres directly and never submits an application.
+from. It never accesses Postgres directly, and it submits an application only
+on a run you start with `--submit` (below).
 See `../docs/jobs-cli.md` for the deterministic mapping, contextual Claude, and
 failure-learning workflows.
 
@@ -298,7 +299,8 @@ page is guarded from before it loads. Your own tab is guarded only while the
 worker operates a field on it (`armed`): the script acts only while armed, and
 the route exists only for the operation, so your Submit works the moment the
 worker stops. Reaching the form (the Apply click, a gate, the account wall) is
-never armed, since "Apply now" reads as submitting. `commands.py` is
+never armed, since "Apply now" reads as submitting. The one press that is not
+guarded is `jobs/submit.py`'s, below. `commands.py` is
 `os hunt repair [--watch]`, for failures left by `--no-repair` runs, and
 `os hunt validate`. A validated strategy reaches
 live fills through the run context as a control preference that
@@ -427,6 +429,44 @@ first page is passed by the next step the same way. A gate nothing answers is
 left alone: the capture
 installs a click recorder, so the choice you make yourself is recorded as that
 question's answer and the Inbox can bind it.
+
+## Submitting: `--submit`
+
+`os hunt apply <row> --submit` has the run press Next and Submit itself, through
+`jobs/submit.py`, the only code that may. It is off by default, the device agent
+and the Hunt page never pass it, and it refuses `--dry-run`, `--no-claude` and
+`--remote`, since a run with no audit must not submit. It implies
+`--accept-letter`, and a letter with an open `[slot]` holds the application.
+
+On each step it waits for the fixer to settle, serving safe points (up to 15
+minutes a problem), audits again, saves what the page holds, and presses the one
+button that reads as Next or Submit; more than one, none, or a disabled one holds
+the application. `blocking` decides what stops the press: every finding except an
+optional short question with no fact (listed, never held), an optional widget
+with no question, and an error the page shows on a field that holds an answer,
+which waits for the press limit. A model that could not audit is never a pass.
+The Fall 2027 date warning stops nothing.
+
+| After the press | The run | Exit |
+|---|---|---|
+| A confirmation (`classify_application_page`) | Finishes as usual, recorded as applied | 0 |
+| The next step of the form | Fills it, audits, presses again | |
+| Validation errors | Audits again, presses again, three presses a step | 10 |
+| A mailed code | Reads it through `jobs/mail.py`, enters it, three tries | 10 |
+| An image puzzle | Parks; nothing ever touches one | 11 |
+| Nothing changes, after Next | Holds | 10 |
+| Nothing changes, after Submit | Unconfirmed | 12 |
+| Moves on with no confirmation | Unconfirmed | 12 |
+
+Exit 13 is a closed posting and 14 a run with no other ending. A wall in front of
+the form holds once nothing is working on it. Every ending but a confirmation
+stops the run as `abandoned`, so the listing stays on the board, with no schema
+change. A held run's tab closes and a retry refills it. A parked run keeps its
+tab, and a rerun reuses it. An unconfirmed one keeps its tab too and is never
+pressed again by itself: it may have gone in, so look, then `--done`.
+
+Answers from a `--submit` run go into answer history like ones you submitted, so
+replay treats them as accepted.
 
 ## The account wall
 
@@ -672,8 +712,16 @@ otherwise, or its fill never landed), and an empty follow-up it rules out gets
 N/A; an N/A you typed is yours. The audit looks, repairs, and looks again at most
 twice, budgeted at 25 operations a question and 150 a run, then outlines exactly
 the questions it lists — only what no lane could fix, each line naming its cause.
-You own Next and Submit; what you type is captured as `manual` and, once the
-application goes in, waits in the Inbox. A choice you make that a fact
+An error the form shows (`aria-invalid` and the message it names, a `role=alert`
+beside one control, a browser constraint) is read by
+`core/page_scripts/field_errors.js` and joins the audit in the page's own words:
+a format error for a field a fact filled, a draft error for long-form, otherwise
+a control error, so it takes those lanes and reaches the fixer. When the form
+newly shows one, the audit runs again.
+
+You own Next and Submit, unless the run was started with `--submit`; what you
+type is captured as `manual` and, once the application goes in, waits in the
+Inbox. A choice you make that a fact
 contradicts — the fact an active pattern names, else the one the worker filled
 it from — is said at once (`review`), outlined, and never saved, since it is
 most often a stray click: put it back, or set the fact if it is right. An answer

@@ -104,6 +104,25 @@ def visible_actions(page: Page, *, limit: int = 40) -> list[str]:
     return list(seen)[:limit]
 
 
+FIELD_ERRORS_SCRIPT = "\n() => {\n" + QUESTION_OF + page_scripts.load("field_errors")
+
+
+def field_errors(page: Page) -> list[dict[str, Any]]:
+    """The errors the form shows, each with its question and the page's own words.
+
+    A message about the form as a whole has an empty question. `native` marks
+    what the browser says about a control's constraints rather than what the
+    site chose to show.
+    """
+    errors: list[dict[str, Any]] = []
+    for frame in page.frames:
+        try:
+            errors += cast(list[dict[str, Any]], frame.evaluate(FIELD_ERRORS_SCRIPT))
+        except Error:
+            continue
+    return errors
+
+
 # Widgets `inspect_fields` cannot see: interactive by ARIA role or by being
 # editable, with no form input of their own. Site chrome (navigation, header,
 # footer), captchas, hidden elements, and a combobox's own popup are not.

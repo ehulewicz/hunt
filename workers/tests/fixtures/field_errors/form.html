@@ -1,0 +1,50 @@
+<!doctype html>
+<html><body>
+<form>
+  <div role="alert">Please correct the errors below.</div>
+
+  <div class="field">
+    <label for="email">Email</label>
+    <input id="email" name="email" value="not-an-email" aria-invalid="true" aria-describedby="email-help email-error">
+    <span id="email-help">We will never share this.</span>
+    <span id="email-error" class="error">Enter a valid email address</span>
+  </div>
+
+  <div class="field">
+    <label for="phone">Phone</label>
+    <input id="phone" name="phone" value="12" aria-invalid="true" aria-errormessage="phone-error">
+    <span id="phone-error">Phone number is too short</span>
+  </div>
+
+  <div class="field">
+    <label for="city">City</label>
+    <input id="city" name="city" value="Nowhere">
+    <div role="alert">We do not recognize that city</div>
+  </div>
+
+  <div class="field">
+    <label for="zip">Zip</label>
+    <input id="zip" name="zip" value="123" aria-invalid="true">
+  </div>
+
+  <div class="field">
+    <label for="age">Age</label>
+    <input id="age" name="age" type="number" min="18" value="3">
+  </div>
+
+  <div class="field">
+    <label for="fine">Fine</label>
+    <input id="fine" name="fine" value="ok" aria-invalid="false" aria-describedby="fine-help">
+    <span id="fine-help">Help text that is no error</span>
+  </div>
+
+  <div class="field" style="display:none">
+    <label for="ghost">Ghost</label>
+    <input id="ghost" name="ghost" aria-invalid="true">
+    <div role="alert">Hidden problem</div>
+  </div>
+
+  <div role="alert"></div>
+  <button type="button">Submit application</button>
+</form>
+</body></html>

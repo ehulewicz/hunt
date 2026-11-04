@@ -16,6 +16,7 @@ from personal_os_worker.jobs.audit import (
 )
 from personal_os_worker.jobs.browser import (
     cdp_target_id,
+    field_errors,
     inspect_fields,
     page_evidence,
     registrable_site,
@@ -23,6 +24,7 @@ from personal_os_worker.jobs.browser import (
 from personal_os_worker.jobs.fix.lane import Problem
 from personal_os_worker.jobs.fix.queue import State
 from personal_os_worker.jobs.options import normalize_answer_question
+from personal_os_worker.jobs.session.audit import error_field
 from personal_os_worker.jobs.session.base import SessionBase
 from personal_os_worker.jobs.session.context import (
     CODE_CAUSES,
@@ -161,6 +163,15 @@ class FixerMixin(SessionBase):
                 return "gone" if looks_like_application_form(fields) else "persists"
             return "gone" if is_posting(self.page, self.ctx.title) else "persists"
         field = find_field(fields, problem.question)
+        if problem.evidence.get("page_error"):
+            # The page's own error settles it: what the facts answer has no say here.
+            still = {
+                normalize_answer_question(_question_for(owner))
+                for error in field_errors(self.page)
+                if (owner := error_field(fields, error)) is not None
+            }
+            wanted = normalize_answer_question(problem.question)
+            return "persists" if wanted in still else "gone"
         if problem.cause == "unknown_control":
             if field is not None:
                 return "answered"

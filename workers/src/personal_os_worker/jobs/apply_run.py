@@ -45,6 +45,7 @@ class _ApplyOptions:
     referred: str | None
     remote: bool
     accept_letter: bool
+    submit: bool = False
 
 
 def apply_posting(
@@ -60,11 +61,13 @@ def apply_posting(
     referred: str | None = None,
     remote: bool = False,
     accept_letter: bool = False,
+    submit: bool = False,
 ) -> str:
     """Run one interactive apply session: "submitted", "skipped", or "stopped".
 
     `accept_letter` keeps the filled cover letter without a review; remote runs
-    never pass it.
+    never pass it. `submit` has this run press Next and Submit (`jobs/submit.py`),
+    and it may also end "held", "parked", or "unconfirmed".
 
     `referred` is None unless this application came through a referral: then it
     is the referrer's name, or "" when none was given. With this device's agent
@@ -76,7 +79,7 @@ def apply_posting(
         _ApplyOptions(
             dry_run=dry_run, no_claude=no_claude, repair=repair, fresh=fresh,
             explain=explain, step=step, ask_facts=ask_facts, referred=referred,
-            remote=remote, accept_letter=accept_letter,
+            remote=remote, accept_letter=accept_letter, submit=submit,
         ),
     )
 
@@ -329,7 +332,7 @@ def _fill_application(
         link=link, cdp_url=cdp_url,
     )
     _announce(expected_company, expected_title, ats, reused, resume_pdf, options)
-    linked = _linked(link, options.accept_letter)
+    linked = _linked(link, options.accept_letter, options.submit)
     session = AutofillSession(
         SessionContext(
             api=api,
@@ -358,6 +361,7 @@ def _fill_application(
             fixes=fixes,
             cdp_url=cdp_url,
             fact_ranker=api.rank_facts,
+            submit=options.submit,
             **linked,
         )
     )
@@ -396,7 +400,7 @@ def _announce(
     console.print(f"  [dim]resume  {resume_pdf}[/dim]")
 
 
-def _linked(link: RunLink | None, accept_letter: bool) -> dict[str, Any]:
+def _linked(link: RunLink | None, accept_letter: bool, submit: bool = False) -> dict[str, Any]:
     """The session's link, keys and letter editor, as this run is linked or not."""
     from personal_os_worker.jobs.cover_letter import review_letter
     from personal_os_worker.jobs.keys import Terminal
@@ -407,7 +411,10 @@ def _linked(link: RunLink | None, accept_letter: bool) -> dict[str, Any]:
         linked = {"link": link, "keys": LinkedKeys(link, Terminal())}
     # The letter review goes to the Hunt page when a run is linked, and
     # leaves the letter for the page otherwise.
-    linked["editor"] = partial(review_letter, link=link, accept=accept_letter)
+    # A `--submit` run waits on no page: an open [slot] empties the letter, which holds it.
+    linked["editor"] = partial(
+        review_letter, link=None if submit else link, accept=accept_letter
+    )
     return linked
 
 
@@ -415,6 +422,20 @@ def account_flow(knowledge: Knowledge, company: str) -> AccountFlow | None:
     """The account-wall flow, signing in as the contact.email fact; None without one."""
     email = str(knowledge.facts.get("contact.email") or "").strip()
     return AccountFlow(email=email, company=company) if email else None
+
+
+def _leave_unsubmitted(api: WorkerApi, run_id: str, ended: str, page: Any) -> str:
+    """A `--submit` run that did not go in: the listing stays on the board, as a dry run's does.
+
+    A held application refills on retry, so its tab goes. A parked one waits for
+    you in its tab, and an unconfirmed one is there to be looked at.
+    """
+    api.stop_autofill_run(run_id, status="abandoned")
+    if ended == "held":
+        with contextlib.suppress(Error):
+            if not page.is_closed():
+                page.close()
+    return ended
 
 
 def finalize_application_outcome(
@@ -430,6 +451,10 @@ def finalize_application_outcome(
         api.stop_autofill_run(run_id, status="abandoned")
         console.print("Dry run: no values were changed and nothing was submitted.")
         return "stopped"
+
+    for ended in ("held", "parked", "unconfirmed"):
+        if ended in outcome:
+            return _leave_unsubmitted(api, run_id, ended, page)
 
     saved = list(outcome["answers"])
     company = str(run["company_name"])

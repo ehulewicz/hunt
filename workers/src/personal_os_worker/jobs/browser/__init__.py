@@ -8,6 +8,7 @@ from __future__ import annotations
 from personal_os_worker.jobs.browser.capture import (
     UNKNOWN_CONTROLS_SCRIPT,
     VISIBLE_ACTIONS_SCRIPT,
+    field_errors,
     inspect_fields,
     inspect_unknown_controls,
     looks_like_application_form,
@@ -91,6 +92,7 @@ __all__ = [
     "cdp_target_id",
     "click_safe_transition",
     "failure_category",
+    "field_errors",
     "fresh_control",
     "has_submit_control",
     "highlight_unfilled",

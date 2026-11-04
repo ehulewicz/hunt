@@ -130,6 +130,8 @@ class SessionContext:
     # and tested in the background and kept at a safe point (`jobs/fix/`).
     fixes: FixQueue | None = None
     cdp_url: str = ""
+    # `os hunt apply --submit`: this run presses Next and Submit itself (`jobs/submit.py`).
+    submit: bool = False
 
 
 @dataclass
@@ -192,6 +194,8 @@ class SessionState:
     held: dict[tuple[str, str], str] = field(default_factory=dict)
     similar_prose: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     # Model calls by purpose made by the processes this run reloaded from.
+    # A press that may have sent the application: a run that ends now is unconfirmed.
+    submit_pressed: bool = False
 
 
 # Open causes stored as failure issues by the audit itself.

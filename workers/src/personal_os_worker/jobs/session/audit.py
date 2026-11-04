@@ -12,6 +12,7 @@ from personal_os_worker.core.config import console
 from personal_os_worker.jobs.answer_check import FilledAnswer
 from personal_os_worker.jobs.audit import (
     REPAIRABLE_CAUSES,
+    Cause,
     Finding,
     classify_empty,
     classify_unknown,
@@ -33,6 +34,7 @@ from personal_os_worker.jobs.autofill import (
 )
 from personal_os_worker.jobs.browser import (
     audit_filled_form,
+    field_errors,
     fresh_control,
     inspect_fields,
     inspect_unknown_controls,
@@ -54,6 +56,20 @@ from personal_os_worker.jobs.session.context import (
     echo,
 )
 from personal_os_worker.jobs.sites import failure_signature
+
+
+def error_field(
+    current: list[dict[str, Any]], error: dict[str, Any]
+) -> dict[str, Any] | None:
+    """The captured control a page's error is about: by name or id, else by its question."""
+    for attribute in ("name", "id"):
+        wanted = str(error.get(attribute) or "")
+        if wanted:
+            for item in current:
+                if str(item.get(attribute) or "") == wanted:
+                    return item
+    question = str(error.get("question") or "")
+    return find_field(current, question) if question else None
 
 
 class AuditMixin(SessionBase):
@@ -285,7 +301,46 @@ class AuditMixin(SessionBase):
         captured = {normalize_answer_question(_question_for(item)) for item in current}
         with contextlib.suppress(Error):
             findings += classify_unknown(inspect_unknown_controls(self.page), captured)
-        return order(findings + self.wrong_answers(current))
+        return order(self.page_error_findings(current, findings) + self.wrong_answers(current))
+
+    def page_error_findings(
+        self, current: list[dict[str, Any]], findings: list[Finding]
+    ) -> list[Finding]:
+        """The findings with what the page itself says is wrong added, in its words.
+
+        A question already found keeps its cause and gains the words. A field the
+        audit thought fine is a format error when a fact filled it, a draft error
+        when it is long-form, and otherwise a control error, so it takes the lane
+        any such finding takes. An error no captured field owns has nowhere to go.
+        """
+        try:
+            errors = field_errors(self.page)
+        except Error:
+            return findings
+        merged = {normalize_answer_question(item.question): item for item in findings}
+        for error in errors:
+            field = error_field(current, error)
+            if field is None:
+                continue
+            question = _question_for(field)
+            key = normalize_answer_question(question)
+            words = str(error["message"])
+            found = merged.get(key)
+            if found is not None:
+                if words not in found.note:
+                    merged[key] = replace(found, note=f"the page says {words!r}; {found.note}")
+                continue
+            fact = self.state.tier_fact.get(question)
+            cause: Cause = (
+                "draft_error" if is_long_form_field(field)
+                else "format_error" if fact is not None else "control_error"
+            )
+            merged[key] = Finding(
+                question, cause, field.get("required") is True, f"the page says {words!r}",
+                fact_key=fact, intended_value=self.state.tier_answers.get(question),
+                evidence={"page_error": words},
+            )
+        return list(merged.values())
 
     def _resolve_open(
         self,
@@ -316,8 +371,8 @@ class AuditMixin(SessionBase):
 
     def audit_and_repair(
         self, fields: list[dict[str, Any]], result: dict[str, Any]
-    ) -> None:
-        """Look, fix what has a path, look again, then report whatever is left.
+    ) -> list[Finding]:
+        """Look, fix what has a path, look again, then report and return whatever is left.
 
         The repairs are silent: each one echoes the line it changed, and only
         what no lane could fix is listed for you at the end.
@@ -339,14 +394,20 @@ class AuditMixin(SessionBase):
             self.ctx.link.gaps(gap_items(findings))
         self.escalate(findings)
         self.safe_point()
+        return findings
 
     def remediate(self, fields: list[dict[str, Any]], findings: list[Finding]) -> bool:
         """Run each finding's repair path; True when anything on the page changed."""
         acted = False
         prose = {item.question for item in findings if item.cause == "draft_error"}
+        rejected = {item.question for item in findings if (item.evidence or {}).get("page_error")}
         if prose:
             current = inspect_fields(self.page)
-            self.fill_long_form([item for item in current if _question_for(item) in prose])
+            # A box the page rejected counts as empty: only the composer's limits stop it.
+            self.fill_long_form([
+                dict(item, filled=False) if _question_for(item) in rejected else item
+                for item in current if _question_for(item) in prose
+            ])
             acted = any(item.get("filled") is True and _question_for(item) in prose
                         for item in inspect_fields(self.page))
         if self.ctx.repair:

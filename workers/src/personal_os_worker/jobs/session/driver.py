@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from playwright.sync_api import Error
+from rich.markup import escape
 
 from personal_os_worker.core.config import console
 from personal_os_worker.jobs import model
@@ -33,9 +34,16 @@ from personal_os_worker.jobs.session.learning import LearningMixin
 from personal_os_worker.jobs.session.repairs import RepairsMixin
 from personal_os_worker.jobs.session.reporting import ReportingMixin
 from personal_os_worker.jobs.session.writing import WritingMixin
+from personal_os_worker.jobs.submit import (
+    ApplicationHeld,
+    ApplicationUnconfirmed,
+    RunEnded,
+    SubmitMixin,
+)
 
 
 class AutofillSession(
+    SubmitMixin,
     ReportingMixin,
     DiscoveryMixin,
     FillMixin,
@@ -113,14 +121,21 @@ class AutofillSession(
                     self.audit_and_repair(fields, result)
                 self.report_review()
                 with self.timings.measure("user_review", step=self.state.step):
-                    transition = self.wait_and_advance(fields)
+                    transition = (
+                        self.press_forward(fields, result)
+                        if self.ctx.submit else self.wait_and_advance(fields)
+                    )
                 if transition == ApplicationPageState.SUBMITTED:
                     console.print("The page reports the application was submitted.")
                     submitted = True
                     break
                 self.state.step += 1
+        except RunEnded as ended:
+            return self._ended_run(ended)
         except BrowserClosedError:
             console.print("The browser or application tab was closed. Ending autofill.")
+            if self.ctx.submit:
+                return self._ended_run(self._closed_or_stopped("the tab was closed"))
         except SubmittedByUser:
             console.print("Marked as submitted.")
             final_url = self.final_url()
@@ -142,6 +157,8 @@ class AutofillSession(
                 "skipped": True,
             }
         except KeyboardInterrupt:
+            if self.ctx.submit:
+                return self._ended_run(self._closed_or_stopped("the run was stopped"))
             final_url = self.final_url()
             self.capture_final_snapshot()
             self.save_now()
@@ -155,6 +172,8 @@ class AutofillSession(
             if not is_browser_closed_error(self.page, error):
                 raise
             console.print("The browser or application tab was closed. Ending autofill.")
+            if self.ctx.submit:
+                return self._ended_run(self._closed_or_stopped("the tab was closed"))
         final_url = self.final_url()
         self.capture_final_snapshot()
         self.save_now()
@@ -162,6 +181,24 @@ class AutofillSession(
             "final_url": final_url,
             "answers": list(self.state.collected.values()),
             "submitted": submitted,
+        }
+
+    def _closed_or_stopped(self, what: str) -> RunEnded:
+        """A `--submit` run cut short keeps its listing; after a press it needs a look first."""
+        if self.state.submit_pressed:
+            return ApplicationUnconfirmed(f"{what} after Submit was pressed")
+        return ApplicationHeld(what)
+
+    def _ended_run(self, ended: RunEnded) -> dict[str, Any]:
+        """What a `--submit` run that did not go in hands back, and it says why."""
+        console.print(f"[yellow]{ended.outcome.capitalize()}:[/yellow] {escape(ended.reason)}")
+        final_url = self.final_url()
+        with contextlib.suppress(Error):
+            self.save_now()
+        return {
+            "final_url": final_url,
+            "answers": list(self.state.collected.values()),
+            ended.outcome: ended.reason,
         }
 
     def answers_so_far(self) -> list[dict[str, Any]]:

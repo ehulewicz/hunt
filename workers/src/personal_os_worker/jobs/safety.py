@@ -1,4 +1,9 @@
-"""What keeps the worker from ever submitting an application, in one protected place.
+"""What keeps the worker from submitting an application, in one protected place.
+
+The one exception is `jobs/submit.py`, on an `os hunt apply --submit` run you
+started yourself: it presses outside `armed`, and nothing else may. The fill
+path, repair and validation pages, and the fixer's probes stay guarded on that
+run as on any other.
 
 R23: a stray submit is the one irreversible mistake, so it is refused by
 mechanisms that do not depend on each other. The page script cancels every form

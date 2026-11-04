@@ -72,6 +72,7 @@ class DiscoveryMixin(SessionBase):
                     "Ashby Overview is open; standing by until you return to Application.",
                 )
                 self.sleep()
+                self.stalled()
                 continue
             if not self.state.form_seen:
                 reveal_application_form(self.page)
@@ -111,6 +112,7 @@ class DiscoveryMixin(SessionBase):
                     "form. Use the open browser to reach it; I am watching the page."
                 )
             self.sleep()
+            self.stalled()
 
     def _learned_form_route(self) -> bool:
         """Whether the site's learned route reached a form; tried before a wall."""

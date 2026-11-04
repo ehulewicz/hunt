@@ -15,6 +15,11 @@ turns each into a `Finding` naming the cause. The cause decides the repair:
 | `wall`          | the run cannot reach the form or its next page | navigation, then code |
 | `posting_not_found` | the page is not the posting, and no search found it | a route, in code |
 
+An error the form itself shows on a field the audit thought fine takes the lane
+of the cause it reads as: a `format_error` for a field filled from a fact, a
+`draft_error` for long-form, otherwise a `control_error`. The page's words go in
+the note, so they reach the fixer's prompt.
+
 A model only ever names a fact; what it names is saved as a pattern and the
 pattern pass fills the field (R67). A question a pattern answers that is still
 empty is a `control_error`: the value was right and did not stay.

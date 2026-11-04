@@ -117,6 +117,11 @@ def listing_for(
     return listing
 
 
+# How a `--submit` run ended, for a loop over the board; without the flag a run exits 0.
+SUBMIT_EXITS = {"submitted": 0, "held": 10, "parked": 11, "unconfirmed": 12,
+                "skipped": 13, "stopped": 14}
+
+
 def run_autofill(
     reference: str,
     *,
@@ -132,6 +137,7 @@ def run_autofill(
     title: str | None = None,
     remote: bool = False,
     accept_letter: bool = False,
+    submit: bool = False,
 ) -> int:
     config, token = connected()
     api = WorkerApi(config, token)
@@ -139,12 +145,12 @@ def run_autofill(
         listing = listing_for(api, reference, company=company, title=title)
     finally:
         api.close()
-    apply_posting(
+    result = apply_posting(
         str(listing["id"]), dry_run=dry_run, no_claude=no_claude, repair=repair,
         fresh=fresh, explain=explain, step=step, ask_facts=ask_facts, referred=referred,
-        remote=remote, accept_letter=accept_letter,
+        remote=remote, accept_letter=accept_letter, submit=submit,
     )
-    return 0
+    return SUBMIT_EXITS.get(result, 1) if submit else 0
 
 
 def run_autofill_top(
@@ -160,6 +166,7 @@ def run_autofill_top(
     ask_facts: bool = False,
     remote: bool = False,
     accept_letter: bool = False,
+    submit: bool = False,
 ) -> int:
     """Apply the first board row (or first of today), on the given ATS when one is named."""
     families = list(DEFAULT_TECHNICAL_FAMILIES)
@@ -181,12 +188,12 @@ def run_autofill_top(
     console.print(
         f"Applying row {listing.get('row')}: {listing.get('company_name')} — {listing.get('title')}"
     )
-    apply_posting(
+    result = apply_posting(
         str(listing["id"]), dry_run=dry_run, no_claude=no_claude, repair=repair,
         fresh=fresh, explain=explain, step=step, ask_facts=ask_facts, remote=remote,
-        accept_letter=accept_letter,
+        accept_letter=accept_letter, submit=submit,
     )
-    return 0
+    return SUBMIT_EXITS.get(result, 1) if submit else 0
 
 
 def run_mark_applied(

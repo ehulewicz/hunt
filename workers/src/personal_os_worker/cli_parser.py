@@ -357,6 +357,11 @@ def _add_apply_flags(autofill: argparse.ArgumentParser) -> None:
         help="Use the filled cover letter as is, without review, when no [slot] prompt is left",
     )
     autofill.add_argument(
+        "--submit",
+        action="store_true",
+        help="Press Next and Submit yourself once the audit passes (implies --accept-letter)",
+    )
+    autofill.add_argument(
         "--remote",
         action="store_true",
         help="Driven from the Hunt page through this device's agent (the agent passes this)",

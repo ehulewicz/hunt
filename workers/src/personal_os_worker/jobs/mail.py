@@ -59,6 +59,10 @@ NEVER_A_LINK = re.compile(
 )
 CODE = re.compile(r"\bcode\b(.{0,80})", re.IGNORECASE | re.DOTALL)
 DIGITS = re.compile(r"(?<!\d)\d{4,8}(?!\d)")
+# Greenhouse mails a code of letters and digits; a word of letters alone never counts.
+MIXED = re.compile(
+    r"(?<![A-Za-z0-9])(?=[A-Za-z]*\d)(?=\d*[A-Za-z])[A-Za-z0-9]{6,10}(?![A-Za-z0-9])"
+)
 URL = re.compile(r"https://[^\s<>\"')\]]+")
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 # A sender's clock may run a little behind the click that asked it to write.
@@ -172,11 +176,13 @@ def _text(message: EmailMessage) -> str:
 
 
 def verification_code(message: EmailMessage) -> str | None:
-    """A 4-8 digit code that follows the word "code" in the body."""
-    for found in CODE.finditer(_text(message)):
-        digits = DIGITS.search(found.group(1))
-        if digits:
-            return digits.group(0)
+    """A 4-8 digit code, or 6-10 mixed letters and digits, after the word "code" in the body."""
+    text = _text(message)
+    for pattern in (DIGITS, MIXED):
+        for found in CODE.finditer(text):
+            code = pattern.search(found.group(1))
+            if code:
+                return code.group(0)
     return None
 
 

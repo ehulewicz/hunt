@@ -263,13 +263,20 @@ def _dispatch_apply(args: argparse.Namespace) -> int:
     if args.done:
         if (args.dry_run or args.no_claude or args.ats or not args.repair
                 or args.fresh or args.explain or args.step or args.ask_facts
-                or args.remote or args.accept_letter or args.referred is not None):
+                or args.remote or args.accept_letter or args.submit
+                or args.referred is not None):
             raise RuntimeError("--done takes no other flags but --company and --title")
         if args.ref is None or args.ref == "today":
             raise RuntimeError("--done needs a listing row or id")
         return apply_commands.run_mark_applied(args.ref, company=args.company, title=args.title)
     if args.remote and args.step:
         raise RuntimeError("--step pauses at a terminal; a remote run has none")
+    if args.submit and (args.dry_run or args.no_claude or args.remote):
+        raise RuntimeError(
+            "--submit needs the audit, so it takes neither --dry-run nor --no-claude, "
+            "and the Hunt page never starts one (--remote)"
+        )
+    accept_letter = args.accept_letter or args.submit
     if args.ref is None or args.ref == "today":
         return apply_commands.run_autofill_top(
             today=args.ref == "today",
@@ -282,7 +289,8 @@ def _dispatch_apply(args: argparse.Namespace) -> int:
             step=args.step,
             ask_facts=args.ask_facts,
             remote=args.remote,
-            accept_letter=args.accept_letter,
+            accept_letter=accept_letter,
+            submit=args.submit,
         )
     if args.ats:
         raise RuntimeError("--ats picks the top row; do not give a row with it")
@@ -299,7 +307,8 @@ def _dispatch_apply(args: argparse.Namespace) -> int:
         company=args.company,
         title=args.title,
         remote=args.remote,
-        accept_letter=args.accept_letter,
+        accept_letter=accept_letter,
+        submit=args.submit,
     )
 
 

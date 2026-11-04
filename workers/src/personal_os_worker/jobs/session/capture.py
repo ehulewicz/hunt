@@ -19,6 +19,7 @@ from personal_os_worker.jobs.autofill import (
     is_sensitive_field,
 )
 from personal_os_worker.jobs.browser import (
+    field_errors,
     has_submit_control,
     highlight_unfilled,
     inspect_fields,
@@ -247,6 +248,7 @@ class CaptureMixin(SessionBase):
         submit_reported = False
         transition_since: float | None = None
         overview_active = False
+        errors_seen: set[str] = set()
         while True:
             self.page = self.ctx.browser.active_page(self.page)
             current = inspect_fields(self.page)
@@ -291,11 +293,29 @@ class CaptureMixin(SessionBase):
                 continue
             self.answer_remote_facts(current)
             self.record_snapshot(current)
+            self.answer_page_errors(fields, errors_seen)
             if has_submit_control(self.page) and not submit_reported:
                 console.print()
                 console.print("  [bold]Submit found[/bold] — press it in the browser when ready.")
                 submit_reported = True
             self.sleep()
+
+    def answer_page_errors(self, fields: list[dict[str, Any]], seen: set[str]) -> None:
+        """Put an error the form newly shows through the audit, once per error.
+
+        The browser's own complaints are left out: an empty required box shows
+        one the moment you clear it to retype.
+        """
+        try:
+            errors = {
+                f"{error['question']}|{error['message']}"
+                for error in field_errors(self.page) if not error["native"]
+            }
+        except (Error, AttributeError):
+            return
+        if errors - seen:
+            seen |= errors
+            self.audit_and_repair(fields, {})
 
     def capture_final_snapshot(self) -> None:
         """Best-effort final read before a clean terminal outcome."""

@@ -262,6 +262,13 @@ class FixQueue(BackgroundMixin, RecordingMixin, FixBase):
         with self._lock:
             return self._kept > 0 and self._pending == 0
 
+    def busy(self) -> str | None:
+        """The problem the fixer is on or will take next; None once nothing is left to do."""
+        with self._lock:
+            if self._pending == 0:
+                return None
+            return self._working or next(iter(self._queued), "queued")
+
     def has_kept(self) -> bool:
         with self._lock:
             return self._kept > 0
