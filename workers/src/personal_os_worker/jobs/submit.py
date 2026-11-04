@@ -12,6 +12,7 @@ page holds, press the one button there is, and read what the page did.
 | shows validation errors                 | audits again, presses again, three times |
 | asks for a mailed code                  | reads and enters it, three times         |
 | opens an image puzzle                   | parks: it never touches one              |
+| (before the press) has a captcha box    | parks, filled: the tick is yours         |
 | does not change, after Next             | holds                                    |
 | does not change, after Submit           | unconfirmed: it may have gone in         |
 | moves on with no confirmation           | unconfirmed: it may have gone in         |
@@ -87,6 +88,8 @@ _PRESSABLE = re.compile(
 )
 _PRESSABLE_FOR_CODE = re.compile(f"{_PRESSABLE.pattern}|{_VERIFY.pattern}", re.IGNORECASE)
 _PAGE_TEXT_LIMIT = 200
+_CAPTCHA_BOX_FRAME = re.compile(r"recaptcha/(?:api2|enterprise)/anchor|hcaptcha.*frame=checkbox")
+_CAPTCHA_BOX = "#recaptcha-anchor, #checkbox"
 
 
 class RunEnded(Exception):
@@ -213,6 +216,25 @@ class SubmitMixin(_Base):
         letter = self.state.cover_letter
         if letter is not None and not letter.strip():
             raise ApplicationHeld("the cover letter still has an open [slot]")
+        if self._captcha_box_open():
+            raise ApplicationParked(
+                "the form is filled and an \"I'm not a robot\" box is yours to tick"
+            )
+
+    def _captcha_box_open(self) -> bool:
+        """Whether a visible captcha box still waits for its tick; nothing here ever ticks it."""
+        for frame in self.page.frames:
+            if not _CAPTCHA_BOX_FRAME.search(frame.url) or "size=invisible" in frame.url:
+                continue
+            try:
+                checked = frame.locator(_CAPTCHA_BOX).first.get_attribute(
+                    "aria-checked", timeout=1_000
+                )
+                if checked != "true" and frame.frame_element().is_visible():
+                    return True
+            except Error:
+                continue
+        return False
 
     def _fixer_busy(self) -> str | None:
         return self.ctx.fixes.busy() if self.ctx.fixes is not None else None

@@ -454,6 +454,7 @@ The Fall 2027 date warning stops nothing.
 | Validation errors | Audits again, presses again, three presses a step | 10 |
 | A mailed code | Reads it through `jobs/mail.py`, enters it, three tries | 10 |
 | An image puzzle | Parks; nothing ever touches one | 11 |
+| An "I'm not a robot" box, before the press | Parks with the form filled; the tick is yours | 11 |
 | Nothing changes, after Next | Holds | 10 |
 | Nothing changes, after Submit | Unconfirmed | 12 |
 | Moves on with no confirmation | Unconfirmed | 12 |

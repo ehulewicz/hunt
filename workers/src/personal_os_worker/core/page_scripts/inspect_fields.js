@@ -187,13 +187,20 @@
           // wrapping label, which there holds just that option's text.
           const optionWrapping = ['radio', 'checkbox'].includes(element.type)
             ? wrapping?.textContent : null;
+          // A select inside its label would read its options as part of the question.
+          const asked = node => {
+            if (!node || element.tagName !== 'SELECT') return node?.textContent;
+            const copy = node.cloneNode(true);
+            copy.querySelectorAll('select').forEach(inner => inner.remove());
+            return copy.textContent;
+          };
           const baseLabel = (
               yesnoLabel?.textContent
-              || explicit?.textContent
+              || asked(explicit)
               || leverOptionLabel
               || optionWrapping
               || leverQuestionText
-              || wrapping?.textContent
+              || asked(wrapping)
               || element.getAttribute('aria-label')
               || referenced
               || localLabel?.textContent
@@ -204,6 +211,12 @@
           // A pair of native selects under one date label is otherwise
           // indistinguishable. Its empty first option supplies the missing
           // Month/Year part of the label, but is not itself a valid answer.
+          // A select nobody touched, on a first option that says no answer. Its value
+          // may be set (JazzHR's is), so an empty value alone does not catch it.
+          const resting = element.tagName === 'SELECT' && element.selectedIndex === 0
+            && !element.options[0].defaultSelected
+            && /^\W*(no answer|decline to answer|select( one)?|choose( one)?|please (select|choose)( one)?|none selected)\W*$/i
+              .test(element.options[0].textContent || '');
           const selectPart = element.tagName === 'SELECT'
             ? String(element.options[0]?.textContent || '').trim().replace(/\.{2,}$/, '')
             : '';
@@ -379,7 +392,7 @@
             fingerprint: [element.tagName, finalType,
               element.getAttribute('name'), label, element.getAttribute('role')
             ].join('|').toLowerCase(),
-            filled: yesnoContainer
+            filled: resting ? false : yesnoContainer
               ? Boolean(yesnoPressed)
               : element.type === 'file'
                 ? uploadShown(element)
@@ -393,7 +406,8 @@
                       || (isCombobox && (mirroredValue.length > 0 || chosenText.length > 0)),
             // The option a select or a typeahead shows, read for the follow-up below it.
             selected: element.tagName === 'SELECT'
-              ? (element.value ? (element.selectedOptions[0]?.textContent || '').trim() : null)
+              ? (element.value && !resting
+                ? (element.selectedOptions[0]?.textContent || '').trim() : null)
               : isCombobox ? (chosenText || mirroredValue || null) : null,
           };
         });

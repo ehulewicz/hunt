@@ -31,6 +31,7 @@ pathological control cannot spend a session.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -44,6 +45,9 @@ Cause = Literal[
 # Repaired on the page by the existing repair lane, which stores a candidate
 # rule that `os hunt validate` can promote.
 REPAIRABLE_CAUSES = frozenset({"format_error", "control_error"})
+
+
+CAPTCHA_FRAME = re.compile(r"recaptcha|hcaptcha|turnstile", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,7 +178,9 @@ def classify_unknown(
     """
     findings: dict[str, Finding] = {}
     for control in controls:
-        if control.get("filled") is True:
+        # A captcha's own box is yours to tick; no code ever operates it.
+        frame_url = str(control.get("frame_url") or "")
+        if control.get("filled") is True or CAPTCHA_FRAME.search(frame_url):
             continue
         role = str(control.get("role") or "control")
         text = str(control.get("question") or "").strip()

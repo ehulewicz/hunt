@@ -603,3 +603,81 @@ def test_a_long_question_the_model_rewords_still_gets_its_judgement() -> None:
         runner=lambda _argv: json.dumps(reply),
     )
     assert judged[asked].kind == "right"
+
+
+JAZZ = """
+  <form>
+    <label>Gender<select name="gender"><option value="d">Decline to answer</option>
+      <option value="f">Female</option><option value="m">Male</option></select></label>
+    <label for="c">Citizenship</label><select id="c" name="citizen">
+      <option value="x">-- No answer --</option><option value="y">Yes</option></select>
+    <label for="p">Picked</label><select id="p" name="picked">
+      <option value="a">Yes</option><option value="b" selected>No</option></select>
+    <label for="f">First real option</label><select id="f" name="first">
+      <option value="a">Yes</option><option value="b">No</option></select>
+    <label for="s">Site's choice</label><select id="s" name="site">
+      <option value="d" selected>Decline to answer</option><option value="m">Male</option></select>
+  </form>"""
+
+
+def named(tab: Any) -> dict[str, Any]:
+    from personal_os_worker.jobs.browser import inspect_fields
+
+    return {str(item["name"]): item for item in inspect_fields(tab)}
+
+
+def test_a_select_inside_its_label_is_asked_without_its_options(page: Any) -> None:
+    page.set_content(JAZZ)
+    assert named(page)["gender"]["label"] == "Gender"
+
+
+def test_a_select_resting_on_its_placeholder_holds_no_answer(page: Any) -> None:
+    page.set_content(JAZZ)
+    fields = named(page)
+    assert fields["gender"]["filled"] is False and fields["citizen"]["filled"] is False
+    assert fields["gender"]["selected"] is None
+    assert fields["picked"]["filled"] is True and fields["first"]["filled"] is True
+    assert fields["site"]["filled"] is True
+    page.select_option('select[name="citizen"]', "y")
+    assert named(page)["citizen"]["filled"] is True
+
+
+CAPTCHA = (
+    "<html><body><span id='recaptcha-anchor' role='checkbox' aria-checked='CHECKED'>"
+    "I'm not a robot</span></body></html>"
+)
+
+
+def with_captcha(tab: Any, *, checked: str = "false", invisible: bool = False) -> None:
+    size = "&size=invisible" if invisible else ""
+    url = "https://www.google.com/recaptcha/api2/anchor?k=1" + size
+    tab.route("**/recaptcha/**", lambda route: route.fulfill(
+        content_type="text/html", body=CAPTCHA.replace("CHECKED", checked)
+    ))
+    tab.set_content(form(CONFIRM, extra=f'<iframe src="{url}" width="300" height="80"></iframe>'))
+    tab.wait_for_timeout(200)
+
+
+def test_an_unticked_captcha_box_parks_the_filled_form_unpressed(page: Any) -> None:
+    with_captcha(page)
+    with pytest.raises(ApplicationParked, match="not a robot"):
+        session_on(page).press_forward([], {})
+    assert presses(page) == 0
+
+
+def test_a_ticked_captcha_box_lets_the_press_go(page: Any) -> None:
+    with_captcha(page, checked="true")
+    assert session_on(page).press_forward([], {}) == ApplicationPageState.SUBMITTED
+
+
+def test_an_invisible_captcha_stops_nothing(page: Any) -> None:
+    with_captcha(page, invisible=True)
+    assert session_on(page).press_forward([], {}) == ApplicationPageState.SUBMITTED
+
+
+def test_a_captcha_box_is_never_a_widget_for_the_fixer() -> None:
+    from personal_os_worker.jobs.audit import classify_unknown
+
+    control = {"role": "checkbox", "question": "I'm not a robot",
+               "frame_url": "https://www.google.com/recaptcha/api2/anchor?k=1"}
+    assert classify_unknown([control], set()) == []
