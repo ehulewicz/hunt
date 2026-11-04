@@ -302,7 +302,10 @@ class AccountFlow:
             self._pick_google_account(google)
         if self._on_google(google):
             self._back_from_google(run, google)
-        self._settle(page, None)
+            self._settle(page, None)
+            return
+        # Google let go of it: the site is signing in, so wait for it to leave the wall.
+        self._settle(page, seen)
 
     # ----- Google ---------------------------------------------------------------
 
@@ -351,7 +354,11 @@ class AccountFlow:
                         accepted = True
                 except Error:
                     pass
-            google.wait_for_timeout(POLL_MS)
+            try:
+                google.wait_for_timeout(POLL_MS)
+            except Error:
+                # A popup closes itself once the site has the sign-in: that is success.
+                return
 
     def _back_from_google(self, run: _Run, google: Page) -> None:
         """Close Google's popup, or step the tab back to the account page."""

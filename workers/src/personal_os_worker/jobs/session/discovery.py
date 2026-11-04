@@ -76,10 +76,11 @@ class DiscoveryMixin(SessionBase):
             if not self.state.form_seen:
                 reveal_application_form(self.page)
                 refreshed = inspect_fields(self.page)
-                if (
-                    classify_application_page(self.page, refreshed, self.state.navigation)
-                    == ApplicationPageState.FORM
-                ):
+                # The click may have changed the page: a sign-in it opened is no wall.
+                page_state = classify_application_page(
+                    self.page, refreshed, self.state.navigation
+                )
+                if page_state == ApplicationPageState.FORM:
                     self.state.form_seen = True
                     for item in refreshed:
                         item["ats"] = self.ctx.ats

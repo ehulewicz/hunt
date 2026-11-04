@@ -202,6 +202,45 @@ def test_google_signs_in(context) -> None:  # type: ignore[no-untyped-def]
     assert form_visible(page)
 
 
+POPUP_WALL = """
+<h1>Sign in</h1>
+<div id=wall>
+  <button onclick="window.open('https://accounts.google.com/o')">Sign in using Google</button>
+</div>
+<div id=form hidden><label for=first>First name</label><input id=first name=first></div>
+<script>window.addEventListener('message', () => setTimeout(() => {
+  document.getElementById('wall').remove();
+  document.querySelector('h1').remove();
+  document.getElementById('form').hidden = false;
+}, 700));</script>
+"""
+POPUP_CHOOSER = f"""
+<h1>Choose an account</h1>
+<div role="link" data-identifier="{EMAIL}" tabindex="0" onclick="
+  window.opener.postMessage('signed-in', '*');
+  setTimeout(() => window.close(), 400);
+"><div>Ethan</div><div>{EMAIL}</div></div>
+"""
+
+
+def test_google_popup_closing_itself_is_a_sign_in(context) -> None:  # type: ignore[no-untyped-def]
+    context.route("https://accounts.google.com/**", google_route(POPUP_CHOOSER))
+    context.route(f"{ATS}/**", google_route(POPUP_WALL))
+    page = open_wall(context, "popup")
+    asked: list[bool] = []
+
+    def password() -> str:
+        asked.append(True)
+        return PASSWORD
+
+    account, _ = flow(password=password)
+
+    result = finished(account.run(page))
+
+    assert result.outcome == AccountOutcome.SIGNED_IN, result.reason
+    assert asked == []
+
+
 def test_google_falls_through_to_password(context) -> None:  # type: ignore[no-untyped-def]
     context.route("https://accounts.google.com/**", google_route(CHALLENGE))
     page = open_wall(context, "google")

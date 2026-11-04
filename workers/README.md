@@ -442,6 +442,10 @@ sign-in page says to verify first, from the mail create sent, or after "Resend
 Account Verification" for an account made earlier), and reset. Sign-in counts
 only once the page has stayed off the wall for about two seconds, because a
 tenant redirecting from create to its sign-in page shows nothing in between.
+A Google popup closing itself is the site taking the sign-in, not a failure:
+the flow waits for the page to leave the wall. An Apply click that opens a
+sign-in ends the wait for a form at once and goes straight to this flow, so it
+is never reported as a wall.
 `jobs/mail.py` reads the verification or reset mail over IMAP, read-only
 (EXAMINE and `BODY.PEEK[]`), taking only mail that arrived after the click and
 names this tenant or company. Because a sender's name can be forged, the flow

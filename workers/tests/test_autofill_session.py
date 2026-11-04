@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -11,7 +12,12 @@ from playwright.sync_api import Error, sync_playwright
 from personal_os_worker.jobs.answer_check import Judgement
 from personal_os_worker.jobs.audit import Budget
 from personal_os_worker.jobs.autofill import normalize_question
-from personal_os_worker.jobs.browser import BrowserClosedError, VisibleBrowser, inspect_fields
+from personal_os_worker.jobs.browser import (
+    BrowserClosedError,
+    VisibleBrowser,
+    inspect_fields,
+    reveal_application_form,
+)
 from personal_os_worker.jobs.options import normalize_answer_question
 from personal_os_worker.jobs.page_state import ApplicationPageState, classify_application_page
 from personal_os_worker.jobs.registry.kinds import question_of
@@ -2254,6 +2260,64 @@ def test_account_page_runs_flow_then_fills(
     assert fields is not None
     assert {field.get("label") for field in fields} >= {"First Name", "Email"}
     assert account.calls == 1
+
+
+def test_a_sign_in_the_apply_click_opened_is_never_reported_as_a_wall(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    browser_page.set_content("<h1>Software Engineering Intern</h1><p>About the role</p>")
+    account = FakeAccount("signed_in", on_run=lambda page: page.set_content(SIGNED_IN_FORM))
+    session = account_session(browser_page, tmp_path, account)
+    failures: list[str] = []
+    session.report_page_failure = (  # type: ignore[method-assign]
+        lambda category, message, **_: failures.append(category)
+    )
+    patch_session(
+        monkeypatch, "reveal_application_form",
+        lambda page: page.set_content(SIGN_IN_WALL) or False,
+    )
+    bounded(session, 3)
+
+    assert session.wait_for_form() is not None
+    assert failures == []
+    assert account.calls == 1
+
+
+MODAL_AFTER_APPLY = """
+<h1>Software Engineering Intern</h1><button id=apply>Apply</button>
+<script>document.getElementById('apply').onclick = () => {
+  document.body.innerHTML = '<h1>Sign in</h1><button>Sign in using Google</button>';
+};</script>
+"""
+FORM_AFTER_APPLY = """
+<button>Sign in using Google</button><h1>Software Engineering Intern</h1>
+<button id=apply>Apply</button><div id=slot></div>
+<script>document.getElementById('apply').onclick = () => setTimeout(() => {
+  document.getElementById('slot').innerHTML = '<label>First Name<input name="first"></label>'
+    + '<label>Email<input name="email" type="email"></label>'
+    + '<label>Resume<input name="resume" type="file"></label>';
+}, 900);</script>
+"""
+
+
+def test_reveal_stops_waiting_once_the_apply_click_opens_a_sign_in(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(MODAL_AFTER_APPLY)
+    started = time.monotonic()
+
+    assert reveal_application_form(browser_page) is False
+    assert time.monotonic() - started < 5
+
+
+def test_reveal_still_waits_for_the_form_past_a_sign_in_already_on_the_page(
+    browser_page,  # type: ignore[no-untyped-def]
+) -> None:
+    browser_page.set_content(FORM_AFTER_APPLY)
+
+    assert reveal_application_form(browser_page, timeout_ms=5_000) is True
 
 
 def test_account_parked_reports_once(

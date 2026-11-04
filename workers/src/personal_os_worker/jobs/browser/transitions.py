@@ -115,6 +115,7 @@ def reveal_application_form(page: Page, *, timeout_ms: int = 15_000) -> bool:
     is given. Waiting longer never helps; the form has to be asked for.
     Returns whether controls are present once this has run.
     """
+    from personal_os_worker.jobs.account_inspect import inspect_account
     from personal_os_worker.jobs.browser.capture import (
         inspect_fields,
         looks_like_application_form,
@@ -122,6 +123,8 @@ def reveal_application_form(page: Page, *, timeout_ms: int = 15_000) -> bool:
     if looks_like_application_form(inspect_fields(page)):
         return True
     try:
+        # A Google button already here (a site header) says nothing about this click.
+        walled_before = inspect_account(page) is not None
         clicked = click_safe_transition(page, kind="apply")
     except Error:
         return False
@@ -133,6 +136,9 @@ def reveal_application_form(page: Page, *, timeout_ms: int = 15_000) -> bool:
         try:
             if looks_like_application_form(inspect_fields(page)):
                 return True
+            # The click opened a sign-in: no form comes until the account flow passes it.
+            if not walled_before and inspect_account(page) is not None:
+                return False
             page.wait_for_timeout(500)
         except Error:
             return False
