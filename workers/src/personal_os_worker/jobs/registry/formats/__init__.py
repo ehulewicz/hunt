@@ -91,6 +91,23 @@ def _rounded_down(value: Any) -> str | None:
         return None
     return str(math.floor(number))
 
+
+def _year_floor(key: str, value: Any, field: dict[str, Any]) -> str | None:
+    """A fractional experience total for a number input that cannot take a
+    half: step unset (HTML's default 1) or whole rounds the years down. `any`
+    or a fractional step keeps the half. Only the years fact floors — a
+    measured decimal like GPA keeps its value."""
+    if key != "experience.years_professional" or not _numeric(field):
+        return None
+    step = str(field.get("step") or "").strip()
+    if step:
+        try:
+            if float(step) % 1 != 0:
+                return None
+        except ValueError:
+            return None  # "any" or a non-number step takes decimals
+    return _rounded_down(value)
+
 def _multiple(field: dict[str, Any]) -> bool:
     if field.get("multiple") is True:
         return True
@@ -197,6 +214,9 @@ def _text_candidates(
     if value_type == "boolean":
         return [Rendering("Yes" if value else "No", "boolean_as_yes_no")]
     if value_type == "number":
+        floored = _year_floor(key, value, field)
+        if floored is not None:
+            return [Rendering(floored, "number_rounded_down")]
         return [Rendering(_number_text(value), "number_as_text")]
     if value_type == "list":
         items = [str(item) for item in value or [] if str(item).strip()]

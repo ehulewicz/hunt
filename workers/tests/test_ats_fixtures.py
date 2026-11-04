@@ -1846,3 +1846,11 @@ def test_a_yes_no_radio_keeps_the_question_it_answers(
     )
     planned = {fill.index for fill in plan.fills}
     assert [field["label"] for field in radios if field["index"] in planned] == ["No"]
+
+
+def test_inspect_fields_captures_step(browser_page) -> None:  # type: ignore[no-untyped-def]
+    browser_page.set_content(
+        '<input type="number" id="y"><input type="number" id="h" step="0.5">'
+    )
+    fields = inspect_fields(browser_page)
+    assert [field.get("step") for field in fields] == [None, "0.5"]

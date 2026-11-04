@@ -189,8 +189,9 @@ CATALOG = _entries(
     ),
     CatalogEntry(
         "experience.years_professional",
-        "Years of professional experience: experience and research entries, "
-        "overlaps counted once, in half years (two months past a half year rounds up)",
+        "Years of professional experience, also the answer for full-time, work "
+        "or industry experience: experience and research entries, overlaps "
+        "counted once, in half years (two months past a half year rounds up)",
         "number",
         "career",
     ),
@@ -311,12 +312,6 @@ CATALOG = _entries(
         "Still enrolled in your degree program through this posting's internship",
         "boolean",
         "derived",
-    ),
-    CatalogEntry(
-        "experience.years_full_time",
-        "Years of full-time experience: the same total as experience.years_professional",
-        "number",
-        "career",
     ),
     CatalogEntry(
         "experience.robotics_competitions",

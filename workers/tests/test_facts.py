@@ -449,7 +449,6 @@ def test_experience_totals_cover_experience_and_research_in_half_years(
 
     found = career_facts({"entries": LIVE_ENTRIES}, today)  # type: ignore[arg-type]
     assert found["experience.years_professional"] == years
-    assert found["experience.years_full_time"] == years
 
 
 def test_months_of_experience_unions_clips_and_skips() -> None:
@@ -677,7 +676,7 @@ def test_enrolled_through_the_internship_is_a_posting_fact() -> None:
     )
 
 
-def test_years_full_time_is_the_same_total_as_professional() -> None:
+def test_years_full_time_is_not_computed() -> None:
     record = {
         "entries": [
             {"section": "experience", "start_date": "2023-01-01",
@@ -695,11 +694,12 @@ def test_years_full_time_is_the_same_total_as_professional() -> None:
         ]
     }
     found = career_facts(record, date(2026, 11, 1))  # type: ignore[arg-type]
-    # Every experience kind counts, and full-time is the same total: 46 months.
+    # Every experience kind counts in the one total: 46 months; full-time
+    # questions get the same years_professional answer, not another fact.
     assert found["experience.years_professional"] == 4
-    assert found["experience.years_full_time"] == 4
+    assert "experience.years_full_time" not in found
     assert career_facts({"entries": []}, date(2026, 11, 1)).get(  # type: ignore[arg-type]
-        "experience.years_full_time"
+        "experience.years_professional"
     ) is None
 
 

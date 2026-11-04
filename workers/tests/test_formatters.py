@@ -550,3 +550,26 @@ def test_a_question_naming_terms_is_checked_against_the_graduation(
         "education.graduation_date", "2027-12-01", "date", question, options
     )
     assert found == (expected, "named_term_option")
+
+
+def test_years_professional_floors_only_where_the_control_cannot_take_a_half() -> None:
+    box = {"tag": "input", "type": "number"}
+    key = "experience.years_professional"
+    assert rendered(key, 3.5, "number", "Years", box) == ("3", "number_rounded_down")
+    assert rendered(key, 3.5, "number", "Years", {**box, "step": "1"}) == (
+        "3", "number_rounded_down"
+    )
+    assert rendered(key, 3.5, "number", "Years", {**box, "step": "0.5"}) == (
+        "3.5", "number_as_text"
+    )
+    assert rendered(key, 3.5, "number", "Years", {**box, "step": "any"}) == (
+        "3.5", "number_as_text"
+    )
+    # GPA keeps its value in a stepless number input, and free text keeps it too.
+    assert rendered("education.gpa", 3.78, "number", "GPA", box) == (
+        "3.78", "number_as_text"
+    )
+    assert rendered(key, 3.5, "number", "Years", {"tag": "input", "type": "text"}) == (
+        "3.5", "number_as_text"
+    )
+

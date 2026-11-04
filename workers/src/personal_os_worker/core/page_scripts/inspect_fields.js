@@ -346,6 +346,7 @@
             // -1 when the control declares no cap; a draft has to fit what it does.
             max_length: element.maxLength > 0 ? element.maxLength : null,
             placeholder: element.getAttribute('placeholder'),
+            step: element.getAttribute('step'),
             autocomplete: element.getAttribute('autocomplete'),
             section: educationEntry ? 'education' : null,
             options: yesnoContainer

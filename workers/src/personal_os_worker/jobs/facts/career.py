@@ -270,7 +270,6 @@ def career_facts(record: dict[str, Any] | None, today: date) -> dict[str, Any]:
     total = months_of_experience(entries, today, frozenset({"experience", "research"}))
     years = half_years(total) if total is not None else None
     values["experience.years_professional"] = years
-    values["experience.years_full_time"] = years
     rotations = completed_rotations(
         entries, today, _date(values.get("education.graduation_date"))
     )

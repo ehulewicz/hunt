@@ -246,8 +246,9 @@ CAREER_FACTS = (
     ),
     DerivedFact(
         "experience.years_professional",
-        "Years of experience in half years: experience and research entries, "
-        "overlaps counted once, two months past a half year rounding up",
+        "Years of experience in half years, also answering full-time, work and "
+        "industry experience: experience and research entries, overlaps counted "
+        "once, two months past a half year rounding up",
         ("career.experience", "career.research"),
     ),
     DerivedFact(
@@ -273,11 +274,6 @@ CAREER_FACTS = (
         ("career.experience", "career.research"),
     ),
     DerivedFact("skills.all", "Every skill on the resume, in order", ("career.skills",)),
-    DerivedFact(
-        "experience.years_full_time",
-        "Years of full-time experience, the same total as experience.years_professional",
-        ("career.experience", "career.research"),
-    ),
     DerivedFact(
         "experience.robotics_competitions",
         "Competition robotics teams, years and roles",
