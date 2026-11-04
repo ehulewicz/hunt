@@ -652,7 +652,11 @@ keep it on the device agent's `PATH`, and authenticate with `codex login`.
 Codex uses that login, its default model, stdin for the prompt, a disposable
 working directory, a read-only sandbox, disabled tools and user configuration,
 and no saved session. A schema call must return valid JSON in a completed turn;
-an empty, failed or malformed reply remains a model error. `--no-claude` disables
+plan updates, warnings and recoverable error items are metadata, not answers.
+A nonzero exit, terminal error, failed turn or unexpected tool or other item type
+remains a model error; item diagnostics name only the type code, never its content.
+An empty, failed or malformed reply
+remains a model error. `--no-claude` disables
 both providers. The runner meters both attempts and, through `model_errors.py`,
 interprets failure envelopes without
 logging their prompt, answer, or raw error payload: a failure names only its exit

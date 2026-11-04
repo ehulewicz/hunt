@@ -13,7 +13,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from personal_os_worker.jobs.model_errors import ModelError
+from personal_os_worker.jobs.model_errors import CODE, ModelError
 
 DISABLED_FEATURES = (
     "shell_tool", "unified_exec", "apps", "plugins", "memories", "multi_agent",
@@ -63,11 +63,16 @@ def checked_output(output: str, returncode: int, *, structured: bool) -> str:
             kind = event.get("type")
             if kind in ("turn.failed", "error"):
                 raise ModelError("Codex fallback failed; Claude usage limit reached")
-            if kind in ("item.started", "item.completed"):
+            if kind in ("item.started", "item.updated", "item.completed"):
                 item = event.get("item", {})
-                if item.get("type") not in ("agent_message", "reasoning"):
-                    raise ModelError("Codex fallback returned an unexpected item")
-                if kind == "item.completed" and item.get("type") == "agent_message":
+                item_type = item.get("type")
+                # Error *items* can be recoverable startup notices. Only a completed
+                # answer below can make the call succeed; terminal errors fail above.
+                if item_type not in ("agent_message", "reasoning", "todo_list", "warning", "error"):
+                    code = (item_type if isinstance(item_type, str) and CODE.fullmatch(item_type)
+                            else "unknown")
+                    raise ModelError(f"Codex fallback returned an unexpected item ({code})")
+                if kind == "item.completed" and item_type == "agent_message":
                     answer = item.get("text", "")
             if kind == "turn.completed":
                 completed = True

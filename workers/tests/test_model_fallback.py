@@ -177,3 +177,47 @@ def test_text_only_call_retains_the_result_envelope(monkeypatch: pytest.MonkeyPa
     output = json.loads(model.run(model.argv("x")))
     assert output["result"] == "plain text"
     assert "structured_output" not in output
+
+
+@pytest.mark.parametrize("kind", ["todo_list", "warning", "error"])
+@pytest.mark.parametrize("phase", ["item.started", "item.updated", "item.completed"])
+def test_progress_metadata_does_not_discard_a_completed_answer(
+    monkeypatch: pytest.MonkeyPatch, kind: str, phase: str,
+) -> None:
+    metadata = json.dumps({"type": phase, "item": {
+        "type": kind, "message": "PRIVATE progress", "items": []}})
+    monkeypatch.setattr(model.subprocess, "run", Cli(codex=metadata + "\n" + events()))
+    output = model.run(model.argv("x", schema=SCHEMA))
+    assert model.structured(output) == {"answer": "pong"}
+    assert "PRIVATE" not in output
+
+
+@pytest.mark.parametrize("kind, label", [
+    ("command_execution", "command_execution"),
+    ("mcp_tool_call", "mcp_tool_call"),
+    ("file_change", "file_change"),
+    ("new_cli_item", "new_cli_item"),
+    ("PRIVATE prompt echoed as a type", "unknown"),
+])
+@pytest.mark.parametrize("phase", ["item.started", "item.updated", "item.completed"])
+def test_rejected_item_names_its_type_without_leaking_its_payload(
+    monkeypatch: pytest.MonkeyPatch, kind: str, label: str, phase: str,
+) -> None:
+    item = json.dumps({"type": phase, "item": {"type": kind, "text": "PRIVATE payload"}})
+    monkeypatch.setattr(model.subprocess, "run", Cli(codex=item + "\n" + events()))
+    with pytest.raises(ModelError, match=f"unexpected item \\({label}\\)") as raised:
+        model.run(model.argv("x", schema=SCHEMA))
+    assert "PRIVATE" not in str(raised.value)
+
+
+@pytest.mark.parametrize("ending", ["", '{"type":"turn.completed"}',
+                                    '{"type":"turn.failed"}'])
+def test_error_notice_without_a_completed_answer_still_fails(
+    monkeypatch: pytest.MonkeyPatch, ending: str,
+) -> None:
+    error = json.dumps({"type": "item.completed", "item": {
+        "type": "error", "message": "PRIVATE failure"}})
+    monkeypatch.setattr(model.subprocess, "run", Cli(codex=error + "\n" + ending))
+    with pytest.raises(ModelError, match="Codex") as raised:
+        model.run(model.argv("x", schema=SCHEMA))
+    assert "PRIVATE" not in str(raised.value)
