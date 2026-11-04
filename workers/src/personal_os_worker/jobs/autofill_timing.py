@@ -60,7 +60,7 @@ class AutofillTimings:
         self.report("Model tokens this run: " + ", ".join(map(tokens, usage)))
 
     def record_usage(self, phase: str, step: int, sample: dict[str, Any]) -> None:
-        """Keep one Claude call's tokens and reported cost beside the phase timings."""
+        """Keep one model call's tokens and reported cost beside the phase timings."""
         self.samples.append({"kind": "claude_usage", "phase": phase, "step": step, **sample})
         tokens = f"{sample.get('input_tokens')} in / {sample.get('output_tokens')} out"
         cached = sample.get("cache_read_input_tokens")
@@ -68,4 +68,5 @@ class AutofillTimings:
             tokens += f" ({cached} cached)"
         cost = sample.get("cost_usd")
         priced = f", ${cost:.4f}" if isinstance(cost, float) else ""
-        self.report(f"Claude step {step + 1}: {phase} {tokens}{priced}")
+        provider = "Codex" if sample.get("model") == "codex" else "Claude"
+        self.report(f"{provider} step {step + 1}: {phase} {tokens}{priced}")

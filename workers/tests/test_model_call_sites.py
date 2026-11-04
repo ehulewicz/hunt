@@ -1,12 +1,11 @@
-"""Every `claude -p` call goes through `jobs/model.py`, and only the call sites
+"""Every model call goes through `jobs/model.py`, and only the call sites
 AGENTS.md names may ask it to run one.
 
 A module is a call site when it references the model's `run`: an attribute
 `.run` on a name bound to the `personal_os_worker.jobs.model` module (a
 `partial(model.run, purpose=...)` counts), or a direct
 `from personal_os_worker.jobs.model import run`. Building a `claude` argv by
-hand — a literal starting with `"claude"`, or one of the flags only
-`model.argv` may write — is forbidden everywhere else.
+hand is forbidden outside model.py and its model_codex.py adapter.
 """
 
 from __future__ import annotations
@@ -17,6 +16,7 @@ from pathlib import Path
 PACKAGE = Path(__file__).resolve().parents[1] / "src" / "personal_os_worker"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MODEL = Path("jobs/model.py")
+CODEX = Path("jobs/model_codex.py")
 
 # Every module besides model.py allowed to ask it to run a call, parked ones
 # included; AGENTS.md must name each one too.
@@ -33,6 +33,7 @@ CALL_SITES = {
 # Flags only `model.argv` may write into an argv.
 ARGV_PARTS = ("claude", "--json-schema", "--no-session-persistence",
               "--safe-mode", "--output-format")
+CODEX_ARGV_PARTS = ("codex", "--ephemeral", "--output-schema", "--ignore-user-config")
 
 
 def _model_names(tree: ast.AST) -> set[str]:
@@ -73,16 +74,16 @@ def _references_model_run(tree: ast.AST) -> bool:
     )
 
 
-def _starts_claude(tree: ast.AST) -> bool:
+def _starts_model(tree: ast.AST) -> bool:
     for node in ast.walk(tree):
         if isinstance(node, (ast.List, ast.Tuple)) and node.elts:
             first = node.elts[0]
-            if isinstance(first, ast.Constant) and first.value == "claude":
+            if isinstance(first, ast.Constant) and first.value in ("claude", "codex"):
                 return True
         elif (
             isinstance(node, ast.Constant)
             and isinstance(node.value, str)
-            and node.value in ARGV_PARTS[1:]
+            and node.value in (*ARGV_PARTS[1:], *CODEX_ARGV_PARTS[1:])
         ):
             return True
     return False
@@ -104,11 +105,12 @@ def test_only_the_named_call_sites_run_the_model() -> None:
     assert sites == CALL_SITES
 
 
-def test_only_model_builds_a_claude_argv() -> None:
+def test_only_model_runners_build_a_model_argv() -> None:
     offenders = [
-        str(relative) for relative, tree in _modules().items() if _starts_claude(tree)
+        str(relative) for relative, tree in _modules().items()
+        if relative != CODEX and _starts_model(tree)
     ]
-    assert not offenders, "claude argv parts outside jobs/model.py: " + ", ".join(offenders)
+    assert not offenders, "model argv parts outside the runners: " + ", ".join(offenders)
 
 
 def test_agents_md_names_every_call_site() -> None:
@@ -128,7 +130,8 @@ def test_the_checks_see_a_handbuilt_argv_and_an_aliased_run() -> None:
         'argv = ["claude", "-p", "--safe-mode"]\n'
     )
     assert _references_model_run(source) is True
-    assert _starts_claude(source) is True
+    assert _starts_model(source) is True
+    assert _starts_model(ast.parse('argv = ["codex", "exec"]')) is True
     clean = ast.parse("from personal_os_worker.jobs import model\nmodel.argv('x')\n")
     assert _references_model_run(clean) is False
-    assert _starts_claude(clean) is False
+    assert _starts_model(clean) is False

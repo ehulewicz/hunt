@@ -1,4 +1,4 @@
-"""Every test's model call is stubbed: none may reach the real `claude` CLI.
+"""Every test's model call is stubbed: none may reach the real model CLIs.
 
 `subprocess.run` and the asyncio subprocesses both go through
 `subprocess.Popen`, so guarding it catches every path — a runner left
@@ -35,14 +35,14 @@ def _program(args: Any) -> str:
 
 
 class GuardedPopen(subprocess.Popen):
-    """A Popen that refuses to launch `claude`: tests stub their runner."""
+    """A Popen that refuses to launch either model: tests stub their runner."""
 
     def __init__(self, args: Any, *args_: Any, **kwargs: Any) -> None:
-        if _program(args) == "claude":
+        if _program(args) in ("claude", "codex"):
             REACHED_CLAUDE.append(str(args))
             # Failed is a BaseException: an `except Exception` cannot swallow it.
             raise pytest.fail.Exception(
-                f"a test reached the real claude CLI: {args!r}"
+                f"a test reached the real {_program(args)} CLI: {args!r}"
             )
         super().__init__(args, *args_, **kwargs)
 
@@ -50,11 +50,12 @@ class GuardedPopen(subprocess.Popen):
 @pytest.fixture(autouse=True)
 def no_real_claude(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     REACHED_CLAUDE.clear()
+    monkeypatch.setattr(model, "_claude_retry_at", 0.0)
     monkeypatch.setattr(subprocess, "Popen", GuardedPopen)
     yield
     model.end_run()
     if REACHED_CLAUDE:
-        pytest.fail("a test reached the real claude CLI: stub its runner")
+        pytest.fail("a test reached a real model CLI: stub its runner")
 
 
 # ----- a git checkout and a fake API, shared by the fixer's tests ---------------

@@ -638,12 +638,23 @@ account page led to one, or the account flow gave up) is a `wall` finding,
 stored with what the page offered (`report_wall`) and sent to the page's gaps.
 Missing facts, unknown controls and unreadable questions left open are stored
 once a run as failure issues (`persist_open`), with page evidence for the ones
-only code can settle, so they outlive the run. A model outage
-(including a subscription usage limit) is reported once and stops further model
-calls for that run. An answer check that returns no judgement remains a
+only code can settle, so they outlive the run. A model outage that neither
+provider can settle is reported once and stops further model calls for that run.
+An answer check that returns no judgement remains a
 `model_error` on subsequent audits, so it cannot become a successful check by
-being omitted. Every `claude -p` call is built and run by `jobs/model.py`, which
-meters it and, through `model_errors.py`, interprets failure envelopes without
+being omitted. Every model call is built and run through `jobs/model.py`, which
+tries `claude -p` first. An explicit Claude usage or rate limit retries the same
+prompt and schema using `codex exec` (`jobs/model_codex.py`). For five minutes,
+subsequent calls in that worker process go straight to Codex; after that, the next
+call tries Claude again. Other Claude errors do not switch providers. Install a
+Codex CLI supporting `--ignore-user-config`, `--ephemeral` and `--output-schema`,
+keep it on the device agent's `PATH`, and authenticate with `codex login`.
+Codex uses that login, its default model, stdin for the prompt, a disposable
+working directory, a read-only sandbox, disabled tools and user configuration,
+and no saved session. A schema call must return valid JSON in a completed turn;
+an empty, failed or malformed reply remains a model error. `--no-claude` disables
+both providers. The runner meters both attempts and, through `model_errors.py`,
+interprets failure envelopes without
 logging their prompt, answer, or raw error payload: a failure names only its exit
 code and the envelope's codes (`subtype`, `api_error`, the HTTP status), or says
 no envelope came back. It also counts each call
@@ -654,7 +665,8 @@ slots). Every step the run stores carries its pattern plus code calls so far as
 Inbox's Learned tab shows per run; the run's closing lines print all four with
 their tokens. No lane is capped, only each problem: two pattern asks per
 question, one draft per question, one audit per answer, three code attempts per
-problem. A usage limit still stops every call.
+problem. Codex tokens use the same counters, with cache reads counted separately
+from fresh input; no dollar cost is invented when Codex reports none.
 Only learning (pattern and code) counts toward `os hunt sites` marking a site `met`;
 auditing and drafting run on every application.
 `jobs/answer_check.py` is the other half: it reads back the answers the page
