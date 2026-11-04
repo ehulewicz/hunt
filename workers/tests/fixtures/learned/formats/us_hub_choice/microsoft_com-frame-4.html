@@ -1,0 +1,71 @@
+<body>
+    <div id="body" role="main">
+        
+<script>
+    var INIT = "INI",
+        SUCCESS = "OK",
+        FAIL = "BAD",
+        CACHE = "CACHE",
+        NOOP = "NOOP";
+    var targetOrigin = "*";
+    var codeRes = {},
+        accountId = "",
+        graphResources = [];
+    var fragmentItems = location.hash.substr(1).split("&");
+    var TimeKey = "_timeOffSet_";
+    for (var i in fragmentItems) {
+        var fragment = fragmentItems[i].split("=");
+        if (fragment.length !== 2) {
+            continue;
+        }
+        codeRes[fragment[0]] = fragment[1];
+    }
+    if (codeRes.error || !codeRes.code || !codeRes.state) {
+    } else {
+            
+        window.addEventListener("message", handleCodeVerifierInit)
+            
+        postMessageToParent(codeRes.state, INIT);
+    }
+            
+    function handleCodeVerifierInit(e) {
+        try {
+            if (validateArgs(e)) {
+                var parentWreply = "?wreply=" + encodeURIComponent(e.origin);
+                var updateUrl = "https://amcdn.msftauth.net/me/callgraph" + parentWreply + window.location.hash;
+                window.location.replace(updateUrl);
+            }
+        }
+        catch (err) {}
+    }
+            
+    function postMessageToParent(state, status, payload) {
+        if (!payload) { payload={} };
+        window.parent.postMessage(
+            { accountId: window.accountId, state: state, status: status, payload: payload },
+            window.targetOrigin
+        );
+    }
+    function validateArgs(e){
+        if (e.origin &&
+        codeRes.state == e.data.state &&
+        e.data.accountId &&
+        e.data.qParams &&
+        e.data.graphResources &&
+        e.data.graphResources.length > 0) {
+            for (var i in e.data.graphResources) {
+                if(e.data.graphResources[i].resourceUrl.substring(0,33)!=="https://graph.microsoft.com/v1.0/"){
+                    return false
+                }
+            }
+            return true;
+        };
+        return false;
+    }
+</script>
+
+    </div>
+    
+
+
+<g0-textarea-recorder-host id="g0-textarea-recorder"></g0-textarea-recorder-host></body>

@@ -63,7 +63,10 @@ FORMAT = Format(
     name="us_hub_choice",
     fact_keys=("preferences.location_strategy",),
     render=hub_from_policy,
-    sites=("greenhouse.io",),
+    sites=(
+        "greenhouse.io",
+        "microsoft.com",
+    ),
     proven=False,
     examples=(
         # The first tier 1 city that is a hub, in the policy's order.
