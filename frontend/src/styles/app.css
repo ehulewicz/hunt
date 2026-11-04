@@ -169,6 +169,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 .library-entry { display: flex; flex-direction: column; gap: var(--ui-space-3); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-panel); padding: var(--ui-space-4); background: var(--ui-surface); }
 .library-entry-head { display: flex; align-items: baseline; gap: var(--ui-space-3); }
 .library-entry > p { margin: 0; font-size: 13px; }
+.library-entry .document-editor textarea { field-sizing: content; min-height: 6em; resize: none; }
 .human-badge { margin-left: auto; font-size: 11px; font-weight: 600; border-radius: var(--ui-radius-control); padding: 1px 8px; border: 1px solid var(--ui-border); }
 .human-high { color: var(--ui-success); background: var(--ui-success-soft); }
 .human-mid { color: var(--ui-warning); background: var(--ui-warning-soft); }
