@@ -109,7 +109,7 @@ PREAMBLE = r"""%-------------------------
 \newcommand{\resumeProjectHeading}[2]{
     \item
     \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
-      \small#1 & #2 \\
+      #1 & #2 \\
     \end{tabular*}\vspace{-7pt}
 }
 

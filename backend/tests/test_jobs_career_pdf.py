@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -57,9 +58,30 @@ def test_the_fixture_compiles_to_one_page() -> None:
         info = subprocess.run(
             ["pdfinfo", out.name], check=True, capture_output=True, text=True
         )
-    import re
-
     assert re.search(r"^Pages:\s+1$", info.stdout, re.MULTILINE)
+
+
+@NEEDS_TEX
+def test_every_entry_title_prints_at_one_size() -> None:
+    printed = printed_document(canonical())
+    entry = {"date": "June 2026", "bullets": ["Built it."]}
+    printed["projects"] = [
+        {**entry, "title": "Organized", "org": "Some Hackathon"},
+        {**entry, "title": "Solo"},
+    ]
+    with tempfile.TemporaryDirectory() as directory:
+        pdf = Path(directory) / "resume.pdf"
+        pdf.write_bytes(build_resume_pdf(printed))
+        boxes = subprocess.run(
+            ["pdftotext", "-bbox", str(pdf), "-"], check=True, capture_output=True, text=True
+        ).stdout
+
+    def height(word: str) -> float:
+        found = re.search(rf'yMin="([\d.]+)" xMax="[\d.]+" yMax="([\d.]+)">{word}<', boxes)
+        assert found is not None
+        return float(found.group(2)) - float(found.group(1))
+
+    assert height("Solo") == height("Organized")
 
 
 @NEEDS_TEX
@@ -111,8 +133,6 @@ def test_a_cover_letter_compiles_to_one_page() -> None:
         info = subprocess.run(
             ["pdfinfo", out.name], check=True, capture_output=True, text=True
         )
-    import re
-
     assert re.search(r"^Pages:\s+1$", info.stdout, re.MULTILINE)
 
 
