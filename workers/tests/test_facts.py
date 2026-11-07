@@ -365,7 +365,7 @@ CAREER = {
     "entries": [
         {"section": "experience", "title": "Middleware Engineer", "org": "Northwind",
          "employment_type": "coop", "start_date": "2025-05-01", "end_date": None},
-        {"section": "experience", "title": "Technical Co-founder", "org": "Northhealth AI",
+        {"section": "experience", "title": "Technical Co-founder", "org": "Northhealth",
          "employment_type": "founder", "start_date": "2025-10-01", "end_date": "2026-05-01"},
         {"section": "experience", "title": "Software Engineer", "org": "Example Public Schools",
          "employment_type": "contract", "start_date": "2023-05-01", "end_date": "2023-12-01"},
@@ -394,7 +394,7 @@ def test_career_facts_follow_the_resume() -> None:
     assert facts["employment.current_title"] == "Middleware Engineer"
     assert facts["employment.current_start_date"] == "2025-05-01"
     assert facts["employment.organizations"] == [
-        "Northwind", "Northhealth AI", "Example Public Schools",
+        "Northwind", "Northhealth", "Example Public Schools",
         "Example Nuclear Group", "Example Lab @ Example University",
     ]
     assert facts["skills.all"] == ["Python", "Java", "Git"]
@@ -422,7 +422,7 @@ def test_a_form_gets_the_entrys_employer_and_job_title_over_its_heading() -> Non
 LIVE_ENTRIES = [
     {"section": "experience", "org": "Northwind", "employment_type": "coop",
      "start_date": "2025-05-01", "end_date": None},
-    {"section": "experience", "org": "Northhealth AI", "employment_type": "founder",
+    {"section": "experience", "org": "Northhealth", "employment_type": "founder",
      "start_date": "2025-10-01", "end_date": "2026-05-01"},
     {"section": "experience", "org": "Example Public Schools", "employment_type": "contract",
      "start_date": "2023-05-01", "end_date": "2023-12-01"},
