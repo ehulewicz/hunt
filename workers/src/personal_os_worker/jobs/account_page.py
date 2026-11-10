@@ -21,6 +21,7 @@ from personal_os_worker.jobs.account_inspect import (
     CHECK_EMAIL_WORDS,
     CODE_WORDS,
     CREATE_WORDS,
+    EMAIL_STEP_WORDS,
     ERROR_LIKE,
     ERROR_WORDS,
     EXISTS_WORDS,
@@ -62,6 +63,7 @@ __all__ = [
     "CONTROL_WORDS",
     "CREATE_WORDS",
     "EMAIL_INPUTS",
+    "EMAIL_STEP_WORDS",
     "ERROR_LIKE",
     "ERROR_WORDS",
     "EXISTS_WORDS",
@@ -134,6 +136,7 @@ CONTROL_WORDS: dict[AccountControl, tuple[re.Pattern[str], re.Pattern[str] | Non
 }
 # What the account form's own button says on each view; a generic pass follows.
 SUBMIT_WORDS: dict[AccountView, re.Pattern[str]] = {
+    "email": EMAIL_STEP_WORDS,
     "sign_in": SIGN_IN_WORDS,
     "create": CREATE_WORDS,
     "forgot": re.compile(r"\b(?:send|submit|reset|continue|next|request)\b", re.I),

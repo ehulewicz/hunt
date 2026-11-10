@@ -472,12 +472,14 @@ replay treats them as accepted.
 
 ## The account wall
 
-`jobs/account_inspect.py` recognizes an ATS sign-in, create-account, forgot,
+`jobs/account_inspect.py` recognizes an ATS email-first step (iCIMS: an email
+box alone in its form, with Next or Continue), sign-in, create-account, forgot,
 new-password, code or check-your-email page — Workday's `data-automation-id`s
 first, wording elsewhere — and `jobs/account_page.py` clicks, fills and ticks
 it. `page_state` reports it as `ACCOUNT` only when no
 application form is on the page. `jobs/account.py` then runs a deterministic
-chain, each step at most once: Google (the `contact.email` tile in the
+chain, each step at most once: the email step (the email and its consent box,
+then Next), Google (the `contact.email` tile in the
 automation profile; any challenge falls through), sign in, create (a refused
 sign-in creates first, because Workday says "wrong email or password" when
 there is no account; "already exists" leads to the reset), verify (when the
@@ -497,8 +499,13 @@ nothing in it that Python and the browser would parse differently), and types
 nothing once the page has moved to another host; it never runs on Google's own
 pages, and it
 operates account controls only while `inspect_account` sees an account page. A
-captcha, a refused password, a mail timeout or a missing secret parks the run as
-an `account_wall` failure. There is no model call and nothing is stored.
+refused password, a mail timeout or a missing secret parks the run as an
+`account_wall` failure, and the flow does not run again in that session. So does
+an open captcha puzzle, in any frame, except that it is yours only while it is
+open: the flow never solves or clicks one, and goes on once you have cleared it.
+A visible checkbox widget counts as open for as long as it shows, so that sign-in
+is yours. An invisible hCaptcha shows no puzzle unless the site asks for one, so
+its badge alone stops nothing. There is no model call and nothing is stored.
 
 Two secrets live in GCP Secret Manager (project `example-gcp-project`) and are
 read through `gcloud` into memory by `core/secrets.py`: `jobs-ats-password`, the
@@ -802,7 +809,7 @@ pattern, value hash, whether the question wants prose, where it stopped, and the
 options the control offered)
 that the step sends to FastAPI; a dry run sends one not-attempted event per
 question. A choice is refused, and left to you, only while a captcha challenge
-is open (its image or puzzle frame showing); a checkbox widget or an
+is open in any frame (its image or puzzle frame showing); a checkbox widget or an
 invisible-mode badge waiting for you at Submit does not count (R64). Nothing
 solves a captcha. A text box whose suggestions are
 plain elements rather than ARIA options (Lever's location) is typed into and the

@@ -11,7 +11,9 @@ from playwright.sync_api import Error, Page
 from personal_os_worker.core.page_scripts import load
 from personal_os_worker.jobs.registry.strategies import captcha_challenge_present
 
-AccountView = Literal["sign_in", "create", "forgot", "new_password", "code", "check_email"]
+AccountView = Literal[
+    "email", "sign_in", "create", "forgot", "new_password", "code", "check_email"
+]
 AccountError = Literal["no_account", "wrong_password", "exists", "password_rule", "other"]
 
 SIGN_IN_WORDS = re.compile(r"\b(?:sign[ -]?in|log[ -]?in|signin|login)\b", re.IGNORECASE)
@@ -81,6 +83,9 @@ RESEND_WORDS = re.compile(
 NEW_PASSWORD_WORDS = re.compile(
     r"\b(?:new|reset|set|choose|create) (?:a |your )?(?:new )?password\b", re.IGNORECASE
 )
+# The way on from an email box that stands alone: iCIMS asks for the email first
+# and answers with a password page or a new profile.
+EMAIL_STEP_WORDS = re.compile(r"\b(?:next|continue)\b", re.IGNORECASE)
 # An email box that signs you up for alerts or news is not an account.
 NOT_AN_ACCOUNT = re.compile(
     r"\b(?:job )?alerts?\b|\bnewsletter\b|\bsubscribe\b|\btalent (?:community|network)\b"
@@ -121,7 +126,7 @@ class _Seen:
     google: int = 0
     captcha: int = 0
     controls: list[str] = field(default_factory=list)
-    scopes: list[dict[str, str]] = field(default_factory=list)
+    scopes: list[dict[str, Any]] = field(default_factory=list)
     alerts: list[str] = field(default_factory=list)
     headings: list[str] = field(default_factory=list)
     automation: set[str] = field(default_factory=set)
@@ -175,6 +180,16 @@ def _account_scope(seen: _Seen) -> AccountView | None:
     return None
 
 
+def _email_step(seen: _Seen) -> bool:
+    """An email box alone in its form with only a way on: a sign-in's first step."""
+    return any(
+        not scope.get("others")
+        and not NOT_AN_ACCOUNT.search(scope.get("text", ""))
+        and EMAIL_STEP_WORDS.search(scope.get("controls", ""))
+        for scope in seen.scopes
+    )
+
+
 def _view(seen: _Seen) -> AccountView | None:
     ids = seen.automation
     heading = " | ".join(seen.headings)
@@ -208,6 +223,8 @@ def _view(seen: _Seen) -> AccountView | None:
         return scoped
     if seen.google:
         return "sign_in"
+    if seen.emails and not seen.passwords and _email_step(seen):
+        return "email"
     return None
 
 

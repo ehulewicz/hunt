@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from enum import StrEnum
@@ -93,6 +93,8 @@ class AccountResult:
     outcome: AccountOutcome
     reason: str
     created: bool = False
+    # A puzzle stopped it: the flow can go on once you have cleared it.
+    captcha: bool = False
 
 
 class _Finished(Exception):
@@ -168,7 +170,8 @@ class AccountFlow:
                     f"{_host(run.start_url)}; nothing typed there",
                 )
             if seen.captcha:
-                return self._result(run, AccountOutcome.PARKED, "captcha on the account page")
+                parked = self._result(run, AccountOutcome.PARKED, "captcha on the account page")
+                return replace(parked, captcha=True)
             if seen.error == "password_rule":
                 return self._result(
                     run, AccountOutcome.PARKED, f"the site refused the password: {seen.error_text}"
@@ -185,6 +188,8 @@ class AccountFlow:
 
     def _next_step(self, run: _Run, seen: AccountPage) -> str | None:
         """The one step this page calls for, given what has been tried."""
+        if seen.view == "email":
+            return "email"
         if seen.google and seen.view in {"sign_in", "create"} and "google" not in run.done:
             return "google"
         if seen.view == "sign_in":
@@ -221,6 +226,12 @@ class AccountFlow:
         return f"{step.replace('_', ' ')} did not get past the account page{said}"
 
     # ----- steps ----------------------------------------------------------------
+
+    def _email(self, run: _Run, seen: AccountPage) -> None:
+        """The email alone first, with its consent: the next page says sign in or create."""
+        fill_credentials(run.page, email=self.email, password="")
+        tick_account_terms(run.page)
+        self._submit(run, seen, "email")
 
     def _sign_in(self, run: _Run, seen: AccountPage) -> None:
         password = self.password()

@@ -484,3 +484,128 @@ def test_verify_first_is_read_from_the_alert_not_the_standing_blurb(page) -> Non
     seen = inspect_account(page)
     assert seen is not None and seen.verify_first is True
     assert click_account_control(page, "resend") is True
+
+
+def test_icims_email_step_is_an_account_page(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(fixture("icims_email_step.html"))
+
+    seen = inspect_account(page)
+
+    assert seen is not None and seen.view == "email"
+    assert seen.captcha is False
+    state = classify_application_page(page, inspect_fields(page))
+    assert state == ApplicationPageState.ACCOUNT
+
+
+def test_email_step_ticks_its_consent_and_finds_next(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(fixture("icims_email_step.html"))
+    page.evaluate("document.querySelector('#enterEmailSubmitButton').disabled = false")
+
+    fill_credentials(page, email="e@x.com", password="")
+
+    assert tick_account_terms(page) == 1
+    assert page.input_value("#email") == "e@x.com"
+    assert page.is_checked("#accept_gdpr")
+    assert click_account_control(page, "submit") is True
+
+
+@pytest.mark.parametrize(
+    "form",
+    [
+        # Job alerts ask for an email and a way on too.
+        '<form><p>Get job alerts</p><input type="email" id="email"><button>Next</button></form>',
+        # An email among other boxes is a step of a form, not of a sign-in.
+        '<form><input type="text" id="first" aria-label="First name">'
+        '<input type="email" id="email"><button>Next</button></form>',
+        # A way on is what makes it a step.
+        '<form><input type="email" id="email"><button>Search</button></form>',
+    ],
+)
+def test_not_an_email_step(page, form: str) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(form)
+
+    assert inspect_account(page) is None
+
+
+def test_hcaptcha_badge_is_not_a_captcha(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(
+        fixture("icims_email_step.html").replace(
+            "</form>",
+            '</form><iframe style="display:none" '
+            'src="data:text/html,hcaptcha.html#frame=checkbox-invisible"></iframe>'
+            '<div style="visibility:hidden;opacity:0;position:absolute;top:-10000px">'
+            '<iframe title="hCaptcha challenge" width="300" height="150" '
+            'src="data:text/html,hcaptcha.html#frame=challenge"></iframe></div>',
+        )
+    )
+
+    seen = inspect_account(page)
+
+    assert seen is not None and seen.captcha is False
+
+
+def test_an_invisible_hcaptcha_frame_is_not_a_captcha_at_any_size(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(
+        fixture("icims_email_step.html").replace(
+            "</form>",
+            '</form><iframe width="300" height="70" '
+            'src="data:text/html,hcaptcha.html#frame=checkbox-invisible"></iframe>',
+        )
+    )
+
+    seen = inspect_account(page)
+
+    assert seen is not None and seen.captcha is False
+
+
+def test_open_puzzle_in_a_child_frame_is_a_captcha(page) -> None:  # type: ignore[no-untyped-def]
+    # iCIMS keeps its form, and so hCaptcha's puzzle, in a frame of its own.
+    puzzle = (
+        '<iframe title="hCaptcha challenge" width="400" height="500" '
+        'src="data:text/html,hcaptcha.html#frame=challenge"></iframe>'
+    )
+    inner = fixture("icims_email_step.html") + puzzle
+    page.set_content('<a href="/land">LAND</a><iframe id="ats" width="900" height="900"></iframe>')
+    page.evaluate("html => { document.querySelector('#ats').srcdoc = html; }", inner)
+    page.frames[-1].wait_for_load_state()
+    page.wait_for_function("document.querySelector('#ats').contentDocument.querySelector('form')")
+
+    seen = inspect_account(page)
+
+    assert seen is not None and seen.captcha is True
+
+
+def test_hcaptcha_checkbox_is_a_captcha(page) -> None:  # type: ignore[no-untyped-def]
+    page.set_content(
+        fixture("icims_email_step.html").replace(
+            "</form>",
+            '</form><iframe width="300" height="70" '
+            'src="data:text/html,hcaptcha.html#frame=checkbox"></iframe>',
+        )
+    )
+
+    seen = inspect_account(page)
+
+    assert seen is not None and seen.captcha is True
+
+
+def test_a_hidden_puzzle_frame_says_nothing_about_the_account(page) -> None:  # type: ignore[no-untyped-def]
+    # A frame's own document cannot see that its parent hides it.
+    page.route(
+        "https://newassets.hcaptcha.com/**",
+        lambda route: route.fulfill(
+            content_type="text/html", body='<div role="alert">Please try again.</div>'
+        ),
+    )
+    page.set_content(
+        fixture("icims_email_step.html").replace(
+            "</form>",
+            '</form><div style="visibility:hidden"><iframe title="hCaptcha challenge" '
+            'src="https://newassets.hcaptcha.com/static/hcaptcha.html#frame=challenge">'
+            "</iframe></div>",
+        )
+    )
+
+    seen = inspect_account(page)
+
+    assert seen is not None and seen.error is None and seen.captcha is False

@@ -42,10 +42,14 @@ CAPTCHA_SCRIPT = load("captcha_challenge")
 
 
 def captcha_challenge_present(page: Page) -> bool:
-    try:
-        return bool(page.evaluate(CAPTCHA_SCRIPT))
-    except Error:
-        return False
+    """Whether a challenge is open in any frame: iCIMS's opens inside its own."""
+    for frame in page.frames:
+        try:
+            if frame.evaluate(CAPTCHA_SCRIPT):
+                return True
+        except Error:
+            continue
+    return False
 
 
 @dataclass(frozen=True, slots=True)

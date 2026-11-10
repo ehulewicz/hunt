@@ -291,6 +291,7 @@ def test_captcha_parks(context) -> None:  # type: ignore[no-untyped-def]
 
     assert result.outcome == AccountOutcome.PARKED
     assert "captcha" in result.reason
+    assert result.captcha is True
     assert page.evaluate("window.clicks") == []
     assert page.input_value("#email") == ""
 
@@ -451,3 +452,65 @@ def test_unverified_account_resends_then_verifies(context) -> None:  # type: ign
     assert page.evaluate("localStorage.getItem('resent')") == "1"
     assert len(opened.inbox.waits) == 1
     assert form_visible(page)
+
+
+ICIMS = "https://careers-gdms.icims.com"
+ICIMS_LOGIN = f"{ICIMS}/jobs/75769/devops-engineer-intern/login"
+# What the capture leaves out: Next wakes once there is an email and the box is ticked.
+ICIMS_SCRIPT = """<script>
+function icimsDisableSaveAndSubmitButtons() {}
+const box = document.querySelector('#email');
+const agree = document.querySelector('#accept_gdpr');
+const next = document.querySelector('#enterEmailSubmitButton');
+const wake = () => { next.disabled = !(box.value && agree.checked); };
+box.addEventListener('input', wake);
+agree.addEventListener('change', wake);
+</script>"""
+ICIMS_PASSWORD = """<form method="post" action="/done?in_iframe=1">
+<h1>Welcome back</h1><input type="email" id="email" name="email" value="">
+<input type="password" id="password" name="password"><button type="submit">Sign In</button>
+</form>"""
+
+
+@pytest.fixture
+def icims(browser) -> Iterator[tuple[Any, list[dict[str, str]]]]:  # type: ignore[no-untyped-def]
+    """An iCIMS tenant: its email step in a frame, then its password page, then the form."""
+    step = (FIXTURES / "account" / "icims_email_step.html").read_text() + ICIMS_SCRIPT
+    posts: list[dict[str, str]] = []
+
+    def serve(route: Route) -> None:
+        request = route.request
+        if request.method == "POST":
+            posts.append({"url": request.url, "body": str(request.post_data or "")})
+        if "/done" in request.url:
+            body = '<input id="first" aria-label="First name"><p>Your profile</p>'
+        elif "step=email" in request.url:
+            body = ICIMS_PASSWORD
+        elif "in_iframe=1" in request.url:
+            body = step
+        else:
+            body = f'<a href="/land">LAND</a><iframe src="{ICIMS_LOGIN}?in_iframe=1"></iframe>'
+        route.fulfill(content_type="text/html", body=body)
+
+    opened = browser.new_context()
+    opened.route(f"{ICIMS}/**", serve)
+    yield opened, posts
+    opened.close()
+
+
+def test_email_step_then_password_signs_in(icims) -> None:  # type: ignore[no-untyped-def]
+    context, posts = icims
+    page = context.new_page()
+    page.goto(ICIMS_LOGIN)
+    page.wait_for_selector("iframe")
+    page.frames[-1].wait_for_selector("#enterEmailSubmitButton", state="attached")
+    account, _ = flow()
+
+    result = finished(account.run(page))
+
+    assert result.outcome == AccountOutcome.SIGNED_IN
+    assert "step=email" in posts[0]["url"]
+    assert EMAIL in posts[0]["body"] and 'name="accept_gdpr"' in posts[0]["body"]
+    assert PASSWORD in posts[1]["body"]
+    assert result.captcha is False
+    assert page.frames[-1].locator("#first").is_visible()

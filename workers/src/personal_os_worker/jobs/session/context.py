@@ -171,6 +171,7 @@ class SessionState:
     gate_pending: dict[str, Any] | None = None  # a gate left for you, watched for your click
     account_tried: set[str] = field(default_factory=set)  # account page URLs already tried
     account_parked: bool = False  # the account flow gave the wall to you; it stays yours
+    account_puzzle: bool = False  # a puzzle stopped the flow; it goes on once you clear it
     step: int = 0
     form_seen: bool = False
     form_site: str | None = None  # the registrable site the form was first seen on
@@ -193,7 +194,6 @@ class SessionState:
     # (question, fact) -> why a lesson waits in the Inbox: it is saved once a run.
     held: dict[tuple[str, str], str] = field(default_factory=dict)
     similar_prose: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
-    # Model calls by purpose made by the processes this run reloaded from.
     # A press that may have sent the application: a run that ends now is unconfirmed.
     submit_pressed: bool = False
     pressed_step: int | None = None  # the last step a `--submit` run pressed forward on

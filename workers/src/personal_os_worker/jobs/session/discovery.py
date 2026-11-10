@@ -15,6 +15,7 @@ from personal_os_worker.jobs.account import (
     AccountOutcome,
     AccountResult,
 )
+from personal_os_worker.jobs.account_inspect import inspect_account
 from personal_os_worker.jobs.autofill import (
     AnswerResolution,
     is_resume_field,
@@ -71,8 +72,8 @@ class DiscoveryMixin(SessionBase):
                     "overview-standby",
                     "Ashby Overview is open; standing by until you return to Application.",
                 )
-                self.sleep()
                 self.stalled()
+                self.sleep()
                 continue
             if not self.state.form_seen:
                 reveal_application_form(self.page)
@@ -111,8 +112,8 @@ class DiscoveryMixin(SessionBase):
                     "[yellow]Hit a wall:[/yellow] I could not safely reach the application "
                     "form. Use the open browser to reach it; I am watching the page."
                 )
-            self.sleep()
             self.stalled()
+            self.sleep()
 
     def _learned_form_route(self) -> bool:
         """Whether the site's learned route reached a form; tried before a wall."""
@@ -145,9 +146,17 @@ class DiscoveryMixin(SessionBase):
 
         A wall the flow could not pass is reported once and then left to you:
         the flow never runs again in this session, so it cannot type over what
-        you are doing in the browser.
+        you are doing in the browser. A puzzle is the one exception: it is yours
+        to clear, and only while one is open does the flow wait; it gets one poll
+        after the puzzle goes, for the page to answer, then goes on.
         """
         key = normalize_navigation_url(self.page.url)
+        if self.state.account_puzzle:
+            seen = inspect_account(self.page)
+            if seen is None or not seen.captcha:
+                self.state.account_puzzle = False
+                self.state.account_tried.discard(key)
+            return None
         if self.ctx.dry_run or self.state.account_parked or key in self.state.account_tried:
             return None
         # Google's own sign-in (a popup left open, a late redirect) is never an ATS wall.
@@ -164,6 +173,14 @@ class DiscoveryMixin(SessionBase):
         result = self.ctx.account.run(self.page)
         if result.outcome == AccountOutcome.SIGNED_IN:
             console.print(f"  [green]{result.reason}[/green]")
+            return result
+        if result.captcha:
+            self.state.account_puzzle = True
+            console.print(
+                "[yellow]Account wall:[/yellow] a captcha puzzle is open. "
+                "Clear it in the open browser and I carry on from there."
+            )
+            self.report_wall("account_wall", result.reason)
             return result
         self.state.account_parked = True
         console.print(

@@ -2342,6 +2342,78 @@ def test_account_parked_reports_once(
     assert "Account wall:" in capsys.readouterr().out
 
 
+PUZZLE = (
+    '<iframe id="puzzle" title="hCaptcha challenge" width="400" height="500" '
+    'src="data:text/html,hcaptcha.html#frame=challenge"></iframe>'
+)
+
+
+def puzzled_account(on_second_run: Any = None) -> FakeAccount:
+    """A flow a puzzle stops the first time, and that signs in the next."""
+    from personal_os_worker.jobs.account import AccountOutcome, AccountResult
+
+    account = FakeAccount("parked", "captcha on the account page")
+    account.result = AccountResult(
+        AccountOutcome.PARKED, "captcha on the account page", captcha=True
+    )
+
+    def on_run(page: Any) -> None:
+        if account.calls > 1:
+            account.result = AccountResult(AccountOutcome.SIGNED_IN, "signed in")
+            if on_second_run is not None:
+                on_second_run(page)
+
+    account.on_run = on_run
+    return account
+
+
+def test_account_flow_waits_while_a_puzzle_is_open(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    browser_page.set_content(SIGN_IN_WALL + PUZZLE)
+    account = puzzled_account()
+    session = account_session(browser_page, tmp_path, account)
+    failures: list[tuple[str, str]] = []
+    session.report_page_failure = (  # type: ignore[method-assign]
+        lambda category, message, **_: failures.append((category, message))
+    )
+    bounded(session, 3)
+
+    with pytest.raises(KeyboardInterrupt):
+        session.wait_for_form()
+
+    assert account.calls == 1
+    assert failures == [("account_wall", "captcha on the account page")]
+    assert "a captcha puzzle is open" in capsys.readouterr().out
+
+
+def test_account_flow_resumes_once_you_clear_the_puzzle(
+    browser_page,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
+    browser_page.set_content(SIGN_IN_WALL + PUZZLE)
+    account = puzzled_account(lambda page: page.set_content(SIGNED_IN_FORM))
+    session = account_session(browser_page, tmp_path, account)
+    session.report_page_failure = lambda *_, **__: []  # type: ignore[method-assign]
+    polls = iter(range(12))
+
+    def sleep() -> None:
+        poll = next(polls, None)
+        if poll is None:
+            raise KeyboardInterrupt
+        if poll == 1:  # you solved it
+            browser_page.evaluate("document.querySelector('#puzzle').remove()")
+
+    session.sleep = sleep  # type: ignore[method-assign]
+
+    fields = session.wait_for_form()
+
+    assert account.calls == 2
+    assert fields
+
+
 def test_account_flow_never_runs_on_a_dry_run(
     browser_page,  # type: ignore[no-untyped-def]
     tmp_path: Path,

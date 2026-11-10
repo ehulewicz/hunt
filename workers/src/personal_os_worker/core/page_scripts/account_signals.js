@@ -1,5 +1,15 @@
 
 () => {
+  // A captcha's own document knows nothing of the account, nor that its parent hides
+  // it; the frame holding it is what reports the captcha.
+  if (/(^|\.)(hcaptcha\.com|recaptcha\.net)$/.test(location.hostname)
+      || (/(^|\.)google\.com$/.test(location.hostname)
+        && location.pathname.startsWith('/recaptcha'))) {
+    return {
+      passwords: 0, emails: 0, codes: 0, google: 0, captcha: 0, text: '',
+      controls: [], scopes: [], alerts: [], headings: [], automation: [],
+    };
+  }
   const visible = element => {
     const box = element.getBoundingClientRect();
     if (box.width <= 0 || box.height <= 0) return false;
@@ -36,6 +46,11 @@
     return {
       controls: [...scope.querySelectorAll(CONTROLS)].filter(visible).map(words).join(' | '),
       text: words(scope).slice(0, 400),
+      // Any other box to fill makes this a step of a form, not of a sign-in.
+      others: [...scope.querySelectorAll('input, textarea, select')].filter(visible).filter(
+        other => other !== input && !['hidden', 'checkbox', 'radio', 'submit', 'button']
+          .includes(String(other.type || '').toLowerCase())
+      ).length,
     };
   });
   const alerts = all(
@@ -61,7 +76,7 @@
     ).length,
     captcha: all(
       'iframe[src*="recaptcha" i][src*="anchor" i]:not([src*="size=invisible" i]),'
-      + ' iframe[src*="hcaptcha" i][src*="frame=checkbox" i]'
+      + ' iframe[src*="hcaptcha" i][src*="frame=checkbox" i]:not([src*="checkbox-invisible" i])'
     ).length,
     text: String(document.body?.innerText || '').slice(0, 3000),
   };
