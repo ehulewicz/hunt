@@ -16,7 +16,10 @@ Commands are forwarded to that tab only when `ALLOWED` names them and their
 checks pass; everything else is refused and every message is audited. The lease
 ends, and the socket closes, on Stop or any live-view input from the Hunt page,
 the switch turning off, ten idle or 45 total minutes, the tab closing or leaving
-the lease host, or the driver releasing it.
+the lease host, or the driver releasing it. `upload_file` writes a driver's
+file into `files/`, the only place `DOM.setFileInputFiles` takes files from;
+`submit` hands the lease to the press (`press.py`), after which nothing more
+is forwarded.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ import contextlib
 import json
 import os
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path, PureWindowsPath
 from typing import Any
@@ -37,8 +40,10 @@ from personal_os_worker.device.cdp import Cdp, CdpError, EventHandler
 from personal_os_worker.device.drive_state import (
     APPLIED_OR_LATER,
     AuditLog,
+    DriveFiles,
     DriveSwitch,
     LockStore,
+    Scorecard,
     is_ats_host,
     is_confirmation,
     normalize_posting,
@@ -100,6 +105,7 @@ class Lease:
     tab_url: str = ""
     worlds: set[int] = field(default_factory=set)
     chooser_node: int | None = None
+    pressed: bool = False
     reason: str | None = None
     ended: asyncio.Event = field(default_factory=asyncio.Event)
     outbox: asyncio.Queue[dict[str, Any] | None] = field(default_factory=asyncio.Queue)
@@ -129,7 +135,9 @@ class DriveManager:
         self.switch = DriveSwitch(directory)
         self.locks = LockStore(directory)
         self.audit = AuditLog(directory)
-        self.files = directory / "files"
+        self.uploads = DriveFiles(directory)
+        self.files = self.uploads.root
+        self.scorecard = Scorecard(directory)
         self.connect = connect
         self.ensure_chrome = ensure_chrome
         self.busy = busy
@@ -145,7 +153,8 @@ class DriveManager:
     def status(self) -> dict[str, Any]:
         lease = self.lease
         return {"on": self.switch.on(),
-                "lease": lease.public() if lease is not None and lease.active else None}
+                "lease": lease.public() if lease is not None and lease.active else None,
+                "attempts": self.scorecard.recent()}
 
     async def set_switch(self, on: bool) -> None:
         self.switch.set(on)
@@ -231,12 +240,17 @@ class DriveManager:
         if self.lease is lease:
             self.lease = None
         self.audit.write(lease.listing_id, "ended", {}, reason)
-        task = asyncio.create_task(self._teardown(lease))
+        # A press owns its connection until it has read the outcome, then tears down itself.
+        return None if lease.pressed else self.spawn(self.teardown(lease))
+
+    def spawn(self, work: Coroutine[Any, Any, None]) -> asyncio.Task[None]:
+        """Run `work` beside the relay, held until it finishes."""
+        task = asyncio.create_task(work)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return task
 
-    async def _teardown(self, lease: Lease) -> None:
+    async def teardown(self, lease: Lease) -> None:
         cdp = lease.cdp
         if cdp is None:
             return
@@ -337,8 +351,15 @@ class DriveManager:
         elif kind == "release":
             self.audit.write(lease.listing_id, "release", {}, "forwarded")
             await self.end("released by the driver", lease)
+        elif lease.pressed:
+            self.audit.write(lease.listing_id, str(kind or message.get("method")), {},
+                             "refused: the press has begun")
+            lease.outbox.put_nowait({"id": message.get("id"), "type": "error",
+                                     "error": "the press has begun; commands are closed"})
         elif kind == "submit":
             await self.submit(lease, message)
+        elif kind == "upload_file":
+            lease.outbox.put_nowait(self.upload(lease, message))
         elif "method" in message:
             lease.outbox.put_nowait(await self.command(lease, message))
         else:
@@ -354,6 +375,20 @@ class DriveManager:
         self.audit.write(lease.listing_id, "submit",
                          {"experiment": message.get("experiment")}, "forwarded")
         await self.on_submit(lease, message)
+
+    def upload(self, lease: Lease, message: dict[str, Any]) -> dict[str, Any]:
+        """Write a driver's file into `files/`; its path is the only kind Chrome is handed."""
+        name, data = message.get("name"), message.get("data_b64")
+        summary = {"name": str(name)[:200], "data_length": len(str(data or ""))}
+        try:
+            if not isinstance(name, str) or not isinstance(data, str):
+                raise ValueError("send a name and data_b64")
+            path = self.uploads.write(name, data)
+        except (ValueError, OSError) as error:
+            self.audit.write(lease.listing_id, "upload_file", summary, f"refused: {error}")
+            return {"type": "error", "error": str(error)}
+        self.audit.write(lease.listing_id, "upload_file", summary, "written")
+        return {"type": "uploaded", "path": self.chrome_path(path.resolve())}
 
     async def command(self, lease: Lease, message: dict[str, Any]) -> dict[str, Any]:
         number = message.get("id")
@@ -389,6 +424,8 @@ class DriveManager:
         """Why this command is refused, or None and the parameters to forward."""
         if not lease.active:
             return "the lease has ended", params
+        if lease.pressed:
+            return "the press has begun; commands are closed", params
         if method not in ALLOWED:
             return f"not allowed: {method}", params
         if method == "Page.navigate":
@@ -417,9 +454,11 @@ class DriveManager:
         ):
             return "files go only to the node of the last file chooser", params
         root = self.files.resolve()
+        given = {self.chrome_path(path): path
+                 for path in (root.iterdir() if root.is_dir() else ()) if path.is_file()}
         paths: list[str] = []
         for name in params.get("files") or []:
-            path = (root / str(name)).resolve()
+            path = given.get(str(name)) or (root / str(name)).resolve()
             if path.parent != root or not path.is_file():
                 return "files come only from the agent's drive files", params
             paths.append(self.chrome_path(path))

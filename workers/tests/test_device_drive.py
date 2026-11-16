@@ -1,3 +1,4 @@
+import base64
 import json
 import time
 import warnings
@@ -86,6 +87,10 @@ def chrome() -> FakeCdp:
 
 @pytest.fixture
 def agent(tmp_path: Path, statuses: dict[str, str], chrome: FakeCdp) -> Agent:
+    return make_agent(tmp_path, statuses, chrome)
+
+
+def make_agent(tmp_path: Path, statuses: dict[str, str], chrome: FakeCdp) -> Agent:
     made = Agent(
         CONFIG, DEVICE,
         presence=FakePresence(),  # type: ignore[arg-type]
@@ -185,7 +190,9 @@ def test_the_switch_off_refuses_and_turning_it_off_ends_the_lease(
         assert status["lease"]["listing_id"] == "L1"
         client.post("/drive", json={"on": False}, headers=GOOD)
         assert ended(socket) == "the drive switch was turned off"
-    assert client.get("/drive", headers=GOOD).json() == {"on": False, "lease": None}
+    assert client.get("/drive", headers=GOOD).json() == {
+        "on": False, "lease": None, "attempts": []
+    }
 
 
 def test_a_lease_off_an_ats_host_or_on_a_locked_or_applied_listing_is_refused(
@@ -284,6 +291,51 @@ def test_files_go_only_to_the_choosers_node_from_the_drive_files(
     sent = chrome.last("DOM.setFileInputFiles")
     assert sent[1] == {"backendNodeId": 5,
                        "files": [str((agent.drive.files / "resume.pdf").resolve())]}
+
+
+def upload(socket: Any, name: str, data: bytes | str) -> dict[str, Any]:
+    encoded = data if isinstance(data, str) else base64.b64encode(data).decode()
+    socket.send_json({"type": "upload_file", "name": name, "data_b64": encoded})
+    return dict(socket.receive_json())
+
+
+def test_an_upload_is_written_by_the_agent_and_only_its_paths_reach_chrome(
+    client: TestClient, agent: Agent, chrome: FakeCdp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("personal_os_worker.device.drive_state.UPLOAD_BYTES", 64)
+    with client.websocket_connect("/drive", headers=GOOD) as socket:
+        lease(socket)
+        for name, data in (("cv.txt", b"x"), ("../cv.pdf", b"x"), (".cv.pdf", b"x"),
+                           ("cv.pdf", b""), ("cv.pdf", b"x" * 65), ("cv.pdf", "not base64!")):
+            assert upload(socket, name, data)["type"] == "error"
+        written = upload(socket, "Cover Letter.DOCX", b"PK\x03\x04")
+        path = (agent.drive.files / "Cover Letter.DOCX").resolve()
+        assert written == {"type": "uploaded", "path": str(path)}
+        assert path.read_bytes() == b"PK\x03\x04"
+        client.portal.call(chrome.on_event, "Page.fileChooserOpened",  # type: ignore[union-attr]
+                           {"frameId": "T1", "mode": "selectSingle", "backendNodeId": 5}, "S1")
+        socket.receive_json()
+        assert "error" in call(socket, 1, "DOM.setFileInputFiles", backendNodeId=5,
+                               files=["/tmp/other.pdf"])
+        assert "result" in call(socket, 2, "DOM.setFileInputFiles", backendNodeId=5,
+                                files=[written["path"]])
+    assert chrome.last("DOM.setFileInputFiles")[1] == {"backendNodeId": 5, "files": [str(path)]}
+    line = next(line for line in audit(agent) if line["what"] == "upload_file"
+                and line["outcome"] == "written")
+    assert line["params"] == {"name": "Cover Letter.DOCX", "data_length": 8}
+
+
+def test_the_drive_status_carries_the_last_20_attempts(
+    client: TestClient, agent: Agent
+) -> None:
+    for number in range(25):
+        agent.drive.scorecard.write(
+            listing_id=f"L{number}", url=LEVER, experiment=1, knobs={},
+            debugger_attached_at_press=True, input_kind="cdp", fill_seconds=1.0,
+            outcome="unconfirmed", screenshot=None,
+        )
+    attempts = client.get("/drive", headers=GOOD).json()["attempts"]
+    assert [row["listing_id"] for row in attempts] == [f"L{n}" for n in range(5, 25)]
 
 
 def test_the_audit_never_holds_typed_values(client: TestClient, agent: Agent) -> None:

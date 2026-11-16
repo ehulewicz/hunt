@@ -153,7 +153,8 @@ distro; `os device status` says what it is doing.
   <reference> --remote` (409 while a run is active; a reference is a board number,
   an id prefix, or a URL, never a flag); `WS /session` is the live session, one
   viewer at a time. `WS /drive` is the drive channel (`drive.py`, below), and
-  `GET`/`POST /drive` read and set its switch; `GET /status` carries `drive_on`.
+  `GET`/`POST /drive` read and set its switch and list the last 20 scorecard
+  attempts; `GET /status` carries `drive_on`.
   The agent never runs a command it was sent. It re-executes
   itself when its own source changes, between runs only; a run counts until its
   process is reaped, not just until it says it ended, so no run outlives the
@@ -180,8 +181,32 @@ distro; `os device status` says what it is doing.
   The lease ends, with `{"type": "ended", "reason"}` and the socket closed, on
   the driver's `release`, the Hunt page's Stop, any live-view pointer, wheel,
   key or text, the switch turning off, 10 idle or 45 total minutes, or the tab
-  closing or leaving the lease host. A `submit` message is refused until a
-  press route plugs into `DriveManager.on_submit`.
+  closing or leaving the lease host. `{"type": "upload_file", "name",
+  "data_b64"}` (a plain `.pdf` or `.docx` name, at most 10 MB) is written by the
+  agent into `drive/files/` and answered `{"type": "uploaded", "path"}` with the
+  path Windows Chrome opens (`chrome_file_path`); `DOM.setFileInputFiles` takes
+  only those paths or bare names of those files. A `submit` message goes to
+  the press route at `DriveManager.on_submit` (`press.py`); once it is
+  accepted, every later command, upload or submit is refused.
+- `press.py` is the press. `{"type": "submit", "experiment", "selector",
+  "knobs"}` is refused, and the lease goes on, unless the experiment has a
+  route, the listing is unlocked, and the selector names one node in the leased
+  tab whose accessible name or text matches `SUBMIT_CONTROL` and whose box is
+  in the viewport. Then the lock becomes `pending`, the driver's commands close,
+  and the route presses: experiment 1 (`cdp_click`) sends `DOM.disable` and
+  `Accessibility.disable`, waits 3–8 s, and makes one `motion.py` click through
+  `Input.dispatchMouseEvent`. Other experiments are refused as not implemented
+  yet; a route is one entry in `Press.routes`. A Stop, release or disconnect
+  before the click releases the lock and presses nothing. After it, the agent
+  reads the page once a second for up to 30 s through a fresh isolated world
+  (the target's URL, and the `press_outcome` page script's body text, frames
+  and `aria-invalid` fields), stopping at `submitted`, `captcha_rejected` or
+  `challenge_shown`, or at `validation` read twice. `OUTCOME_LOCKS` sets the
+  lock, a JPEG goes to `drive/shots/`, the scorecard line is written (the
+  driver's knobs plus the agent's own as `agent_*`), the driver gets
+  `{"type": "outcome", "outcome", "url", "screenshot"}` (base64 JPEG), and the
+  lease ends. The press keeps its browser connection until then, whatever ends
+  the lease.
 - `drive_state.py` is what the drive keeps in `state_dir()/drive/`. The switch
   (`switch.json`) is off by default; `os device drive on|off|status` sets it,
   through the agent when it runs, so off ends a lease at once. The per-listing

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from personal_os_worker.core import wording
-from personal_os_worker.device import drive_state, motion, osinput
+from personal_os_worker.device import drive_state, motion, osinput, press
 from personal_os_worker.device.drive_state import (
     OUTCOME_LOCKS,
     OUTCOMES,
@@ -109,5 +109,5 @@ def test_a_scorecard_refuses_an_unknown_outcome_or_input(
 def test_the_press_words_are_shared_and_the_device_never_imports_jobs() -> None:
     assert SUBMIT_CONTROL is wording.SUBMIT_CONTROL
     assert wording.CAPTCHA_REJECTED.search("There was an error verifying your application.")
-    for module in (drive_state, motion, osinput):
+    for module in (drive_state, motion, osinput, press):
         assert "personal_os_worker.jobs" not in Path(module.__file__ or "").read_text()

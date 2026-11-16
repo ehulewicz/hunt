@@ -15,6 +15,7 @@ page after it, and `OUTCOME_LOCKS` says what that leaves on the listing.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -64,6 +65,8 @@ FIELD_ERROR_WORDS = re.compile(
     re.IGNORECASE,
 )
 CHALLENGE_MIN_PX = 100
+UPLOAD_BYTES = 10 * 1024 * 1024
+UPLOAD_SUFFIXES = frozenset({".pdf", ".docx"})
 
 
 def drive_dir() -> Path:
@@ -299,3 +302,51 @@ class Scorecard:
         with self.path.open("a") as handle:
             handle.write(json.dumps(line, default=str) + "\n")
         return line
+
+    def recent(self, count: int = 20) -> list[dict[str, Any]]:
+        """The last `count` attempts, oldest first; an unreadable line is skipped."""
+        try:
+            lines = self.path.read_text().splitlines()[-count:]
+        except OSError:
+            return []
+        attempts: list[dict[str, Any]] = []
+        for raw in lines:
+            with suppress(ValueError):
+                value = json.loads(raw)
+                if isinstance(value, dict):
+                    attempts.append(value)
+        return attempts
+
+
+class DriveFiles:
+    """`files/`: the only files a driver's upload may hand Chrome, written by the agent."""
+
+    def __init__(self, directory: Path) -> None:
+        self.root = directory / "files"
+
+    def write(self, name: str, data_b64: str) -> Path:
+        """Store an upload; the message says why one is refused."""
+        if not name or name != Path(name).name or "\\" in name or name.startswith("."):
+            raise ValueError("an upload is a plain file name")
+        if Path(name).suffix.lower() not in UPLOAD_SUFFIXES:
+            raise ValueError("uploads are .pdf or .docx only")
+        if len(data_b64) > (UPLOAD_BYTES + 2) // 3 * 4 + 4:
+            raise ValueError("uploads are 10 MB at most")
+        try:
+            data = base64.b64decode(data_b64, validate=True)
+        except ValueError:
+            raise ValueError("data_b64 is not base64") from None
+        if not data or len(data) > UPLOAD_BYTES:
+            raise ValueError("uploads are 10 MB at most and not empty")
+        self.root.mkdir(parents=True, exist_ok=True)
+        path = self.root / name
+        handle, temporary = tempfile.mkstemp(dir=self.root, prefix=f".{name}.")
+        try:
+            with os.fdopen(handle, "wb") as file:
+                file.write(data)
+            os.replace(temporary, path)
+        except BaseException:
+            with suppress(OSError):
+                os.unlink(temporary)
+            raise
+        return path

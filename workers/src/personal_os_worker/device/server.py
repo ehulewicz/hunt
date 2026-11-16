@@ -53,6 +53,7 @@ from personal_os_worker.device.heartbeat import HEARTBEAT_SECONDS, Presence
 from personal_os_worker.device.identity import DeviceIdentity
 from personal_os_worker.device.link import socket_path
 from personal_os_worker.device.memory import MemoryWatch, gigabytes
+from personal_os_worker.device.press import Press
 from personal_os_worker.device.runs import RunBusy, RunManager
 from personal_os_worker.device.stream import CdpConnection, Stream, pack_frame
 from personal_os_worker.device.update import source_fingerprint
@@ -216,6 +217,8 @@ class Agent:
             busy=lambda: self.runs.busy(),
             application_status=application_status,
         )
+        if self.drive.on_submit is None:
+            self.drive.on_submit = Press(self.drive)
 
     def _chrome_stream(self, viewer: Viewer) -> Stream:
         async def connect(on_event: Any) -> CdpConnection:
