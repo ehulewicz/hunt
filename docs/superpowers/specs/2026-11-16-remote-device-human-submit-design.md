@@ -1,76 +1,150 @@
-# Spec: An outside driver applies through a device's real Chrome, and a person's click submits
+# Spec: Autonomous submission through a device's real Chrome
 
 ## Context and why
 
 On 2026-11-16 Grok (on the box) applied to Pivotal's Lever posting through
-EXAMPLEPC's Chrome, using the `WS /cdp` passthrough added in `10e84a0`. The
-fill was complete, but the press came back as **"There was an error verifying
-your application. Please try again."** Lever had cleared the form. Ethan then
-submitted the same form by hand, and it went in; the Lever confirmation email
-arrived at 3:59 PM ET.
+EXAMPLEPC's Chrome, using the `WS /cdp` passthrough added in `10e84a0`. The fill
+was complete, but the press came back as **"There was an error verifying your
+application. Please try again."** Lever had cleared the form.
+
+Ethan then submitted the same form himself, and it went in; the Lever
+confirmation email arrived at 3:59 PM ET. **The click that passed was a
+person's.** Whether it was a live-view click (CDP `Input`) or a physical click
+at the PC isn't recorded, so it proves only that this profile and IP can pass.
 
 The IP, profile and history were the same both times. What differed was how the
 browser was driven:
 
 - **Playwright `connect_over_cdp` enables `Runtime` in every frame**, the
-  hCaptcha frames included. Lever's invisible hCaptcha, which scores its token
-  server-side, can see a debugger.
+  hCaptcha frames included.
 - **The input was scripted.** Values were set with no pointer path, the resume
   went in as a script-built `DataTransfer` (an untrusted `change` event), and
   `scrollIntoView` ran just before the press.
-- **There was an incident.** A fill script that was still running reopened
-  `/apply` *after* Ethan's submission and began refilling. Nothing went in twice,
-  but nothing structural stopped it either.
+- **Chrome was running with `--remote-debugging-port`** and had a debugger
+  attached during the press.
 
-`/cdp` also hands any token holder on the tailnet the whole browser: every tab,
-every cookie, the Google session. That was fine for one supervised attempt, but
-too wide to keep.
+Any of these can lower Lever's invisible hCaptcha score. Nothing yet shows
+which one does.
 
-This spec makes an outside driver look like a person at the page level, gives
-the press to a person when it has to, and makes "already submitted" and "stop"
-binding on the device rather than on the driver's good behavior.
+There was also an incident. A fill script that was still running reopened
+`/apply` *after* Ethan's submission and began refilling. Nothing went in twice,
+but nothing structural stopped it either.
+
+**Goal: Ethan never presses Submit.** This spec is an iteration plan to find a
+route that submits on its own through EXAMPLEPC's real Chrome. It starts with
+cheap experiments and moves up to heavier ones, with a safe channel, binding
+locks and an honest scorecard around them.
 
 ## Goals
 
-1. **A narrow drive channel.** An outside driver (Grok on the box today) fills
-   one tab of a device's Chrome. The channel is page-level and allowlisted,
-   with no `Runtime.enable`, no frame-wide attach and no Playwright.
-2. **Human-shaped input.** Every value goes in through `Input` events, with
-   pointer paths, paced keys and wheel scrolling. The resume goes in through
-   the page's own file chooser.
-3. **The press.** The driver lets go first. Then one human-shaped click comes
-   from the agent; if that's refused, Ethan clicks Submit himself from the Hunt
-   page.
-4. **Captcha rejection is an outcome.** It parks, never retries, and says the
-   form was cleared.
-5. **The device enforces** a per-listing submitted lock and an instant stop.
-   Nothing the driver does can reopen or refill a submitted listing.
+1. **Fully autonomous submission** on Lever (invisible hCaptcha), then
+   Greenhouse and Ashby, through EXAMPLEPC's real Chrome and residential IP.
+2. **Experiments, not hope.** Each route is one experiment with a fixed change,
+   a measurement and a budget. The plan moves on when a budget is spent.
+3. **A failed attempt is a failure, never a handoff.** It's recorded with
+   diagnostics, and the next attempt uses the next route. At most Ethan gets a
+   failure notification.
+4. **The device enforces a per-listing submitted lock and an instant stop.**
+   Nothing a driver does can reopen, refill or resubmit a listing that may have
+   gone in.
 
 ## Non-goals (this spec)
 
-- **Changing `os hunt apply`'s own Playwright path.** The same finding probably
-  applies to it, but it gets its own spec once this channel proves out.
-- **Solving captchas.** An image puzzle or a checkbox is Ethan's, as everywhere
-  else.
-- **A model inside the agent.** The agent only mediates. The driver decides
-  what to type.
-- **New database entities or columns.** The lock uses the existing application
-  status plus device-local state.
+- **Changing `os hunt apply`'s own Playwright path.** The winning route gets
+  ported there afterwards.
+- **Paid captcha-solving services or third-party solver APIs.**
+- **New database entities or columns.**
 
 ## Anti-goals (a failure even if it "works")
 
-- **Any path that reaches another tab, cookies, storage, downloads or `Network`**,
-  or navigates off the listing's ATS host.
-- **A second press** of any kind on a listing that is locked, unconfirmed or
-  rejected-and-not-yet-refilled.
+- **A second press** on a listing that is locked or may have gone in.
+- **Asking Ethan to press Submit**, or parking a run for his click.
+- **Any channel that reaches other tabs, cookies, storage or `Network`**, or
+  navigates off the listing's ATS host.
 - **A driver that keeps acting after Stop**, after Ethan touches the live view,
   or after its lease ends.
-- **Typing secrets through the channel.** Account walls stay with `os hunt
-  apply`'s account flow.
+
+## Decided by the user
+
+- **Ethan never presses Submit.** Iterate until a route passes.
+- **A rejection is marked failed.** The next iteration tries a different
+  approach.
+- **The test bed is real, eligible listings** (below), one attempt each.
 
 ## Design
 
-### 1. `WS /drive` replaces `WS /cdp` (`device/drive.py`)
+### 1. The test bed: real listings, one attempt each
+
+Each attempt uses up its listing: Lever clears the form on rejection, and a
+retry risks a duplicate.
+
+- **Candidates.** Real eligible listings from `os hunt list --ats lever`, in
+  board order. Excluded:
+  - FAANG and Palantir;
+  - postings that require a PhD, or a master's/PhD being pursued now;
+  - closed postings (the Lever posting API returns 404); and
+  - listings with any application row.
+- **One attempt per listing, ever.**
+  - A rejected listing is marked `failed_captcha` in the run log and its
+    application notes, and isn't tried again by this plan.
+  - A listing whose outcome is unconfirmed is never pressed again.
+  - Ethan may later decide to apply to a burned listing by hand. That's his
+    call, outside this plan.
+- **Confirmation is triangulated.** The ATS confirmation URL or wording
+  (Lever: `/thanks`) is checked, and so is the professional Gmail for the ATS's
+  "Thank you for your application" mail within 10 minutes. Only then is it
+  `submitted` and marked applied (`mark-applied` / `--done` path).
+- **Scorecard.** Each attempt is one line in `state_dir()/drive/attempts.jsonl`:
+  - listing, ATS, experiment number and its knobs;
+  - whether a debugger was attached at the press;
+  - input kind (CDP or OS);
+  - fill duration;
+  - outcome: `submitted`, `captcha_rejected`, `challenge_shown`,
+    `validation`, or `unconfirmed`;
+  - whether the confirmation email arrived; and
+  - a screenshot path.
+
+### 2. The iteration plan
+
+Run in order. An experiment **passes** at 2 of 2 Lever submissions accepted
+(confirmation plus email). It **fails** at 2 rejections, or 3 attempts without
+2 passes, and the plan moves to the next experiment. Each experiment keeps every
+improvement before it.
+
+| # | Experiment | What changes | Cost |
+|---|---|---|---|
+| 1 | **Device click, driver gone** | Fill through `/drive` (§3) with human-shaped CDP input. At the press the driver detaches and the agent waits 3–8 s, then makes one human-shaped `Input.dispatchMouseEvent` click through the live-view session. No `Runtime`, no frame attach. | cheap: mostly built |
+| 2 | **OS click, no CDP at press** | As 1, but before the press the agent detaches **every** CDP session (including the live view's screencast), then clicks with OS-level input on Windows via `SendInput`, so the events are trusted from the OS. Screen coordinates come from the last `DOM.getBoxModel`, window bounds and DPI; the window is foreground and unminimized. | cheap–medium |
+| 3 | **Human timing and dwell** | Keeps 1 or 2, whichever did better. Fill time stretched to 4–8 min, real reading pauses, the pointer wandering over the description first, focus and blur on every field, the resume chosen through the page's own chooser (§3). | cheap |
+| 4 | **Whole fill by OS input** | No CDP input at all. Fields are found from one DOM/AX read (or screenshots) and filled by OS mouse and keyboard; the resume goes through the native Windows file dialog, typed path plus Enter. CDP is used for reading only, and nothing is attached during typing or the press. | medium |
+| 5 | **No debug port at the press** | Chrome itself stops advertising automation. Variant A: after the fill, close the debug port by restarting Chrome without `--remote-debugging-port` with session restore, so the filled form survives (verify), then press by OS input. Variant B: a second, normal Chrome profile with no debug port that the agent drives only by OS input and screenshots. Warm it first with ordinary browsing and a Google sign-in. | heavy |
+| 6 | **Visible challenge solving** | If any experiment gets a visible hCaptcha challenge instead of a silent rejection, the agent screenshots the challenge frame. A vision model (the driver) picks the tiles, and the agent clicks them by the same input route. Lives in its own module, kept out of `os hunt apply`. Overrides the account-wall spec's "never solve captchas" for this channel only. | medium; only when a challenge appears |
+
+**Cheap first.** 1 and 3 need no new Windows tooling. 2 needs one small
+`SendInput` helper in the agent (Python `ctypes`, no AutoHotkey or pyautogui
+dependency). 4 and 5 are larger. 6 runs only if challenges appear.
+
+**Measurement.**
+- **Accepted:** Lever's `/thanks` plus the confirmation email.
+- **Rejected:** the "There was an error verifying your application" banner
+  with the form cleared.
+- **Challenge:** a visible hCaptcha frame (`frame=challenge`, larger than
+  100×100 and visible).
+
+The scorecard line is written before the next attempt starts.
+
+**Failure notification only.** Each failed attempt sends Ethan one line ("Lever
+rejected attempt #n on <company> — experiment k; next: k+1"), through the
+heartbeat's `problem` text and Grok's chat. It never asks him to act.
+
+**Stopping the plan.**
+- **Success:** if an experiment passes, it becomes the default route, and the
+  plan widens to 2 Greenhouse and 2 Ashby postings with the same route.
+- **No route found:** if 1–5 all fail, the spec is revisited with the scorecard
+  before any more listings are spent.
+- **Budget:** at most 15 listings for the whole plan.
+
+### 3. `WS /drive` replaces `WS /cdp` (`device/drive.py`)
 
 `/cdp` is removed. `/drive` keeps its admission rules: a bearer token in the
 header only, any `Origin` refused, and the same `TokenVerifier`. It adds the
@@ -79,264 +153,164 @@ following.
 - **Lease.** The first message is `{"type": "lease", "listing_id", "url"}`.
   - The agent refuses the lease if:
     - the listing is locked (§5);
-    - a page run or another lease is active (one driver at a time; a driver
-      never shares a tab with `os hunt apply`);
-    - the device's drive switch is off (§4); or
-    - the URL's host isn't an ATS host (`jobs.lever.co`, `boards.greenhouse.io`,
-      `job-boards.greenhouse.io`, `jobs.ashbyhq.com`, …, reusing the ATS
-      detection in `jobs/`).
-  - The lease opens or reuses **one** tab for that URL and attaches to it
-    alone: `Target.attachToTarget {flatten: true}`, never `setAutoAttach`. Out-of-process
-    frames such as hCaptcha are never attached.
+    - a page run or another lease is active;
+    - the drive switch is off (§6); or
+    - the URL's host isn't an ATS host.
+  - It attaches to **one** tab only, with `Target.attachToTarget {flatten: true}`
+    and never `setAutoAttach`, so out-of-process frames like hCaptcha are never
+    attached.
   - It expires after 10 idle minutes or 45 minutes in total.
-- **Allowlist.** Every driver message is `{"id", "method", "params"}` and is
-  forwarded to that one page session **only** if its method is on this list.
-  Anything else is answered with an error and logged.
+- **Allowlist** (forwarded to that page session only; anything else is refused
+  and logged):
 
-  | Domain | Methods | Why |
-  |---|---|---|
-  | Page | `enable`, `navigate` (lease host only, lock checked), `reload` (lock checked), `getNavigationHistory`, `captureScreenshot`, `getLayoutMetrics`, `setInterceptFileChooserDialog`, `createIsolatedWorld` | load, see, and catch the file chooser |
-  | Input | `dispatchMouseEvent` (including `mouseWheel`), `dispatchKeyEvent`, `insertText` | every value and every scroll |
-  | DOM | `getDocument`, `querySelector`, `querySelectorAll`, `getBoxModel`, `getContentQuads`, `describeNode`, `getAttributes`, `getOuterHTML`, `setFileInputFiles` (chooser node only, §2) | find fields and read them |
-  | Accessibility | `getFullAXTree`, `queryAXTree` | labels, roles, values, required |
-  | Runtime | `evaluate` **only** with `contextId` from that lease's isolated world, `returnByValue`, read-only expressions | last-resort reads |
+  | Domain | Methods |
+  |---|---|
+  | Page | `enable`, `navigate` (lease host, lock checked), `reload` (lock checked), `getNavigationHistory`, `captureScreenshot`, `getLayoutMetrics`, `setInterceptFileChooserDialog`, `createIsolatedWorld` |
+  | Input | `dispatchMouseEvent` (including `mouseWheel`), `dispatchKeyEvent`, `insertText` |
+  | DOM | `getDocument`, `querySelector(All)`, `getBoxModel`, `getContentQuads`, `describeNode`, `getAttributes`, `getOuterHTML`, `setFileInputFiles` (chooser node only) |
+  | Accessibility | `getFullAXTree`, `queryAXTree` |
+  | Runtime | `evaluate` only in the lease's isolated world, read-only |
 
-  `Runtime.enable`, `Debugger.*`, `Network.*`, `Storage.*`, `Target.*`,
-  `Browser.*`, `Emulation.*` and `Fetch.*` are never forwarded. Only these events
-  reach the driver: `Page.loadEventFired`, `Page.frameNavigated` (main frame),
-  `Page.fileChooserOpened` and `Page.navigatedWithinDocument`.
-- **Reading fields without `Runtime`.** DOM and Accessibility are the primary
-  readers. The AX tree gives each control's accessible name (its label), role,
-  value, required and expanded states. `DOM.getBoxModel` gives the click point.
-  None of this runs script in the page, and neither domain shows up to page
-  JavaScript the way the `Runtime.enable` console serialization leak does.
-  - **Isolated world (the tradeoff).** Some reads are much easier in script,
-    such as the text of a custom combobox's open list. For those the driver may
-    evaluate in a `Page.createIsolatedWorld` context. That's invisible to page
-    scripts and doesn't enable `Runtime`, but it's still a debugger action.
-  - **Decision:** reads only, never to set a value or fire an event, and each
-    use is logged so we can see if it correlates with rejections.
+  `Runtime.enable`, `Debugger`, `Network`, `Storage`, `Target`, `Browser`,
+  `Emulation` and `Fetch` are never forwarded.
+- **Reading without `Runtime`.**
+  - DOM and Accessibility come first: AX names give labels, roles, values and
+    required states, and `getBoxModel` gives click points.
+  - Isolated-world `evaluate` is allowed for reads only and logged per use, so
+    the scorecard can show whether it correlates with rejections.
+- **The press is its own message.** `/drive` never forwards a click on a
+  control matching `SUBMIT_CONTROL`. The driver sends
+  `{"type": "submit", "experiment": k}`. The agent then:
+  1. sets the lock to `pending`;
+  2. closes the driver's session; and
+  3. presses by experiment *k*'s route.
+- **Human-shaped CDP input** (`device/drive_client.py`, shared by every
+  driver):
+  - **Pointer:** curved paths of 8–20 `mouseMoved` steps with jitter, a jittered
+    target inside the box, and a dwell before press.
+  - **Keys:** `keyDown`/`char`/`keyUp` per character, 40–140 ms apart, with
+    pauses.
+  - **Selects:** by keyboard.
+  - **Scrolling:** `mouseWheel` steps only.
+  - **Resume:** a real click on the page's Attach control with the chooser
+    intercepted, then `DOM.setFileInputFiles` on the chooser's node with a file
+    the agent wrote itself. That's the tradeoff for experiments 1–3; 4 and 5
+    use the native dialog.
 
-### 2. Human-shaped input (driver side, `device/drive_client.py`)
-
-A small client library ships in `workers/` so any driver (Grok, a test, later
-`os hunt`) gets the same hands.
-
-- **Pointer.** Before every click it moves along a curved path from the last
-  point: 8–20 `mouseMoved` steps over 150–450 ms with ±2 px jitter. The target
-  point is jittered inside the inner 60% of the box. Press and release are
-  50–120 ms apart, and there's a hover dwell of 80–250 ms.
-- **Keys.** Each character is `keyDown`/`char`/`keyUp` with the right `key`,
-  `code` and `windowsVirtualKeyCode`, 40–140 ms apart. It pauses 300–900 ms
-  every 8–20 characters and after punctuation. `insertText` is only for
-  characters with no key; long answers type at the same rate (a 600-character
-  essay takes about 1 minute). The client never sets `.value`.
-- **Selects.** It clicks to focus, then types the option's leading text or
-  uses arrows plus Enter. Custom comboboxes: click, type, then click the option
-  found by AX name.
-- **Scrolling.** Only `mouseWheel` in 80–120 px steps toward the target until
-  its box is in view, never `scrollIntoView`.
-- **Resume.** It turns on `Page.setInterceptFileChooserDialog`, then clicks
-  the page's own Attach button with a real pointer event. The page opens its
-  chooser with a genuine user activation, and the agent gets
-  `Page.fileChooserOpened {backendNodeId}`. The agent then calls
-  `DOM.setFileInputFiles` on that node with a file it wrote itself.
-  - **The file.** The agent fetches the listing's resume (the tailored PDF if
-    one exists, otherwise the published `/v1/public/resume.pdf`) into
-    `state_dir()/drive/` and passes the Windows path. The driver never sends a
-    path or bytes.
-  - **Tradeoff.** A bare `DOM.setFileInputFiles` with no click is simpler, but
-    the page then sees a `change` event with no preceding user gesture. A real
-    native dialog driven by OS input would need a desktop-automation dependency
-    on Windows.
-  - **Pick:** an intercepted chooser opened by a real click. The script-built
-    `DataTransfer` used on 11-16 is gone.
-
-### 3. The press
-
-`/drive` never forwards a click on a control whose AX name matches
-`SUBMIT_CONTROL` (`jobs/submit.py`). Pressing is its own message.
-
-1. **`{"type": "ready_to_submit"}`.**
-   - The agent records the listing as **pending** (§5).
-   - It closes the drive session, detaches from the tab (removing the driver's
-     `DOM`/`Accessibility` state), and waits 3–8 s.
-   - The driver's websocket is closed and can't be reopened for this listing.
-2. **Attempt (a): one agent click.**
-   - Through the live-view input path (`stream.py`'s page session, `Input`
-     only), the agent moves to and clicks the submit button once.
-   - Before attaching, it finds the box with `DOM.getBoxModel`, then detaches
-     `DOM`.
-   - It reads the outcome from `Page.frameNavigated`/`loadEventFired` and the
-     page text (one `captureScreenshot` plus an AX read after load):
-
-   | the page | the outcome |
-   |---|---|
-   | ATS confirmation (`/thanks`, "application received", …) | **submitted**: lock; mark applied with the URL |
-   | captcha rejection (§4 wording) | **rejected**: go to (b) |
-   | an image puzzle or checkbox | **parked**: (b), the tick is Ethan's |
-   | validation errors | **held**: lock released; the driver may lease again to fix them |
-   | anything else, or no change | **unconfirmed**: locked, never pressed again |
-
-3. **Fallback (b): a handoff to Ethan.**
-   - On rejected or parked, the run becomes `awaiting_submit`.
-   - Because Lever clears the form on rejection, the agent grants **one**
-     refill lease. A rejection proves nothing went in. The submit control stays
-     driver-forbidden.
-   - The Hunt page shows the tab with a banner: "Ready for your click: press
-     Submit in the form (Lever refused an automated press)." Ethan clicks Submit
-     in the live view or at the PC.
-   - The run watches for confirmation and locks on it. Ethan's existing
-     **Submitted** control also locks.
-   - **Notification.** The device heartbeat carries `awaiting_submit` in the
-     existing `problem` text slot, with no schema change. The Hunt devices panel
-     shows it, and the driver (Grok) tells Ethan in chat with the device link.
-     No Windows toast in v1.
-
-**Default:** (a) once, then (b). On a site where (a) has already been rejected
-in the last 7 days, the agent goes straight to (b), so Ethan never has to wait
-through a refill. That memory is a device-local `drive/rejections.json`, keyed
-by ATS host.
-
-### 4. Captcha rejection and the drive switch
+### 4. Outcomes and captcha rejection
 
 - **Wording.**
   - Captcha-rejection phrases live beside `SUBMIT_CONTROL` in `jobs/submit.py`
-    as `CAPTCHA_REJECTED`.
-  - Seeded with Lever's "There was an error verifying your application".
-  - Generic "verifying your application/submission", "captcha (verification)
-    failed", "please complete the captcha" and "bot/automated activity
-    detected" go in only once a real page shows them (captured with
-    `report_page_failure("captcha_rejected", …)`).
-  - `os hunt apply --submit` uses the same set, and its outcome table gains a
-    row: **captcha rejected → parks, never presses again; the ATS may have
-    cleared the form.**
-- **Drive switch.** `os device drive on|off`, plus a toggle on the Hunt devices
-  panel. It's stored in the device's config and **defaults off**. Off means
-  `/drive` refuses every lease and closes any open one at once. This is the
-  kill switch.
+    as `CAPTCHA_REJECTED`, seeded with Lever's "There was an error verifying
+    your application".
+  - Others are added from captured pages (`report_page_failure("captcha_rejected", …)`).
+  - `os hunt apply --submit` uses the same set.
+- **Outcomes after a press:**
+
+  | the page | the outcome |
+  |---|---|
+  | confirmation (plus email within 10 min) | **submitted**: lock; mark applied |
+  | captcha rejection | **failed** (`captcha_rejected`): lock as burned; scorecard; failure notice; never pressed again |
+  | visible challenge | experiment 6 if enabled, else **failed** (`challenge_shown`) |
+  | validation errors | **held**: lock released for one fix-and-press by the same route |
+  | anything else or no change | **unconfirmed**: locked; never pressed again; Gmail decides later |
+
+  Lever clears the form on rejection. Nothing refills a rejected listing.
 
 ### 5. Locks, stop and concurrency (agent side)
 
-- **Per-listing submitted lock** in `state_dir()/drive/locks.json`, keyed by
-  listing id and normalized posting URL.
-  - **States:** `pending` (the press is about to happen or happened with no
-    outcome yet), `submitted`, `unconfirmed`.
-  - **When it's set:** at `ready_to_submit`; when a confirmation URL or wording
-    appears in **any** tab (the agent already sees `Target.targetInfoChanged`);
-    and on Ethan's Submitted control.
-  - **Checks:** the agent refuses `Page.navigate`, `Page.reload` and every
-    `Input` event on a tab whose URL matches a locked listing. It also checks
-    the API's application status (`applied` or later = locked) at lease time.
-  - Only `held` (validation errors) and the single post-rejection refill
-    release it. Today's incident (a fill reopening `/apply` after a `/thanks`)
-    is refused at the first `navigate`.
+- **Per-listing lock** in `state_dir()/drive/locks.json`, keyed by listing id
+  and normalized posting URL.
+  - **States:** `pending`, `submitted`, `unconfirmed`, `burned`.
+  - **When it's set:** at the `submit` message; when a confirmation URL or
+    wording appears in **any** tab (`Target.targetInfoChanged`); on the Hunt
+    page's Submitted; and on rejection (`burned`).
+  - **Checks:** the agent refuses a lease, `Page.navigate`, `Page.reload` and
+    any `Input` on a tab whose URL matches a locked listing. It also refuses a
+    lease whose listing has an application at `applied` or later in the API.
+  - **Release:** only `held` (validation) releases it. Today's incident is
+    refused at the first `navigate`.
 - **Stop is enforced by the device.** These end the lease and close the
   websocket within one message:
-  - the Hunt page's Stop;
+  - Stop on the Hunt page;
   - `os device drive off`;
-  - any live-view pointer or key input from Ethan ("he touches it, the bot lets
-    go");
+  - any live-view input from Ethan;
   - lease expiry; and
-  - the tab closing or navigating off the lease host.
+  - the tab closing or leaving the lease host.
 
   The client also checks its own stop flag before each action, but correctness
   doesn't depend on it.
-- **One driver per device, no driver during a page run.** A page run started
-  while a lease is open ends the lease first.
+- **One driver per device; never during a page run.**
 
 ### 6. Security of the channel
 
 | `/cdp` today (`10e84a0`) | `/drive` |
 |---|---|
 | whole browser: all tabs, cookies, Google session | one tab per lease, allowlisted methods, ATS hosts only |
-| always on | off by default; per-device switch on the Hunt page |
-| no record | audit log: `state_dir()/drive/audit.jsonl` has time, lease, method, a param summary (lengths for `insertText`/keys, never values), and refusals. Rotated at 5 MB like `memory.log` |
+| always on | `os device drive on\|off` plus a Hunt-panel toggle, **default off**; off closes any lease at once |
+| no record | `state_dir()/drive/audit.jsonl`: time, lease, method, a param summary (lengths, never typed values), refusals; rotated at 5 MB |
 | token only | token only, no Origin, plus the lease's listing checked against the API |
 
-The token is still Ethan's Supabase JWT (about 1 hour). The box gets it the way
-the `os` CLI does today; no new credential is created.
+OS-level input (experiments 2, 4 and 5) is triggered only by a `submit` or
+fill message on an active lease. It's confined to the lease's Chrome window
+bounds, and nothing outside that window is ever clicked or typed into.
 
 ### 7. Docs (same change)
 
 - **`workers/README.md`:**
   - `drive.py` and `drive_client.py`.
-  - The allowlist, locks, switch and audit log.
+  - The allowlist, locks, switch, audit log and OS-input helper.
   - Remove `/cdp`.
-- **`docs/jobs-cli.md`:** `os device drive on|off`, and the
-  captcha-rejected outcome.
+- **`docs/jobs-cli.md`:** `os device drive on|off`, the captcha-rejected
+  outcome, and the attempts scorecard.
 
 ## Left to the builder
 
-- The exact jitter, curve and timing distributions within the stated ranges.
-- How the AX-to-field mapping reuses `jobs/` field kinds.
-- The Hunt page banner's component placement.
-- The live view keeps working during a lease: it shares the tab and its
-  `Page`/`Input` session. The builder makes sure the two don't fight over
-  `Emulation` overrides; the stream's override stays the only one.
+- The timing distributions within the stated ranges.
+- The AX-to-field mapping on top of `jobs/` field kinds.
+- DPI and window-coordinate math for `SendInput`.
+- Whether Chrome session restore keeps a filled Lever form (it decides whether
+  5A is viable before any listing is spent on it).
 
 ## Calls I made (check these)
 
-- **Remove `/cdp` rather than keep it behind the switch.** Its whole-browser
-  reach isn't needed once `/drive` exists.
-- **Default press: (a) once, then (b).** Per-host memory skips (a) after a
-  recent rejection. Tradeoff: a refused (a) on Lever costs one refill.
-- **Intercepted file chooser opened by a real click,** not a bare
-  `setFileInputFiles`.
-- **Isolated-world reads allowed but logged,** rather than DOM/AX only.
-- **The drive switch defaults off.**
-- **No schema change.** `awaiting_submit` rides in the heartbeat's `problem`
-  text; locks are device-local plus API status.
+- **The pass bar is 2 accepted Lever submissions per experiment,** with a
+  15-listing ceiling for the plan.
+- **Remove `/cdp`** rather than keep it behind the switch.
+- **`SendInput` through `ctypes`** rather than AutoHotkey or pyautogui: no new
+  dependency.
+- **Experiment 6 overrides "never solve captchas"** for this channel only.
+- **No schema change.** Failure notices ride in the heartbeat's `problem` text;
+  locks are device-local plus API status.
 
-## Open questions for Ethan
+## Open question for Ethan
 
-1. **Was your 11-16 Pivotal submit a click in the Hunt live view, or at the PC
-   itself?** A live-view click is also a CDP `Input` event. If that passed, (a)
-   with the driver detached is likely to pass too. If only a physical click
-   passes, (b) means "at the PC" and (a) should be off for Lever.
-2. **Should a captcha rejection on a site skip (a) for 7 days?** Or forever, or
-   never?
-3. **Is a chat message from Grok enough notice for `awaiting_submit`?** Or do
-   you also want a Windows toast on the device?
-4. **Can drivers fill long essays,** or must essays come from the answer
-   library and fact-backed drafts only, as `os hunt apply` does?
+1. **Long essays.** On listings with long essays, may the driver write grounded
+   drafts the way `os hunt apply` does today, or should the test bed skip
+   listings with essays until a route passes?
 
 ## Verification
 
 - **Gates:** `cd workers && uv run ruff check . && uv run mypy src/ && uv run
-  pytest -q`. The backend and frontend gates are as usual.
-- **Unit tests** (agent with fake Chrome, as in `test_device_server.py`):
-  - Refusals:
-    - a method off the allowlist;
-    - `Runtime.evaluate` outside the isolated world;
-    - `navigate` off-host;
-    - `navigate`/`Input` on a locked listing;
-    - a second lease;
-    - a lease during a page run;
-    - switch off;
-    - an Origin header.
-  - Stop: Stop, live-view input, switch off and expiry each close the lease
-    within one message.
-  - The press: outcomes from fixture pages (Lever `/thanks`, the Lever
-    rejection banner, validation errors, no change). Each yields the right
-    lock state and never a second press.
-  - The client: key events per character and pointer paths, against a recorder.
-  - The audit log never contains an `insertText` value.
-- **Manual, on EXAMPLEPC:**
-  1. Grok fills a Lever posting through `/drive` and the press goes in by (a),
-     or is refused and handed off by (b) with one refill.
-  2. Ethan's click confirms; the lock is set; a deliberate `navigate` to
-     `/apply` afterwards is refused.
-  3. A Greenhouse posting goes in by (a).
-  4. Pressing Stop on the Hunt page mid-fill frees the tab at once.
+  pytest -q`.
+- **Unit tests** (fake Chrome, as in `test_device_server.py`):
+  - Allowlist refusals.
+  - Lock refusals on `navigate`, `reload`, `Input` and lease.
+  - Stop paths closing within one message.
+  - Outcome classification on fixture pages (Lever `/thanks`, the rejection
+    banner, validation errors, no change).
+  - The audit log never holding typed values.
+  - `SendInput` coordinate mapping against recorded window bounds.
+- **Live:** the experiments themselves, each attempt one scorecard line plus
+  the Gmail check.
 
 ## Rollout
 
-1. Ship `/drive` with the switch off, and remove `/cdp`. The device updates on
-   its next run (fast-forward plus restart, as today).
-2. Ethan turns the switch on for EXAMPLEPC; Grok runs three Lever and two
-   Greenhouse applications with Ethan watching.
-3. Read the audit log and the outcomes. If (a) never passes on Lever, set Lever
-   to (b)-only.
-4. Then consider porting the press handoff and captcha-rejected outcome to
-   `os hunt apply --submit`.
+1. Ship `/drive` (switch off), remove `/cdp`, and add the scorecard. The device
+   updates on its next run.
+2. Ethan turns the switch on for EXAMPLEPC; Grok runs experiment 1 on the next
+   two eligible Lever listings.
+3. Advance through the table by the pass and fail rules, posting the scorecard
+   after each experiment.
+4. Port the winning route to `os hunt apply --submit`, then widen to Greenhouse
+   and Ashby.
