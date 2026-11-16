@@ -193,7 +193,43 @@ distro; `os device status` says what it is doing.
   `audit.jsonl` has one line per driver message: the time, the lease's listing,
   the method, a summary of its parameters (lengths for typed text and keys,
   never the values; the URL for `navigate`) and whether it was forwarded or why
-  it was refused; it rotates at 5 MB like `memory.log`.
+  it was refused; it rotates at 5 MB like `memory.log`. `classify_outcome`
+  reads what a press did from the page after it: a `CAPTCHA_REJECTED` phrase is
+  `captcha_rejected` before anything else, Lever's `/thanks` or "application
+  submitted" / "thank you for applying" is `submitted`, a visible hCaptcha
+  challenge frame (`frame=challenge`, over 100×100) is `challenge_shown`, field
+  errors on the URL that was pressed are `validation`, and anything else is
+  `unconfirmed`. `OUTCOME_LOCKS` maps them to `submitted`, `burned`, `burned`,
+  released (one fix-and-press) and `unconfirmed`. `Scorecard` appends one line
+  per press to `attempts.jsonl`: time, listing, URL, ATS host, experiment and
+  the driver's knobs, whether a debugger was attached at the press, input kind
+  (`cdp` or `os`), fill seconds from the lease start, outcome, whether the
+  confirmation mail came (null until checked) and a screenshot path; a line
+  that cannot be written raises.
+- `motion.py` is the human shape of every drive input, from a seedable RNG:
+  curved Bezier pointer paths of 8–20 eased steps over 150–450 ms with ±2 px
+  jitter, a target inside the inner 60% of the box, 80–250 ms of hover and a
+  50–120 ms press; 40–140 ms per key with 300–900 ms pauses after punctuation
+  and every 8–20 characters; and 80–120 px wheel steps.
+- `osinput.py` is trusted OS input on Windows for the press routes that keep
+  CDP off the tab. It plans a whole action as ops (focus, a move path, hover,
+  button down and up, Unicode characters, named keys such as Tab, Enter,
+  Escape, Backspace, arrows and Ctrl+A, wheel steps, waits) and runs the batch
+  in one `powershell.exe -NoProfile -NonInteractive -Command -`, with the runner
+  injectable. `osinput.ps1`, package data beside it, declares the `user32` calls
+  through `Add-Type` C#, makes the process per-monitor DPI aware (V2, else
+  system aware) so coordinates are physical pixels, and sends `SendInput`
+  absolute moves normalized over the virtual desktop. Its first op restores and
+  foregrounds the Chrome window (by HWND or a title substring, the ALT trick
+  only when Chrome is not already in front, verified with
+  `GetForegroundWindow`); every later op stops the batch if Chrome lost the
+  foreground or a point, or the cursor for a press or wheel step, is outside
+  its window. A CSS point maps to the screen through a viewport origin read in
+  the leased tab with `ORIGIN_EXPRESSION` in an isolated world:
+  `((screenX + border + x) * dpr, (screenY + outerHeight - innerHeight - border + y) * dpr)`
+  with `border = (outerWidth - innerWidth) / 2`. That holds at 100% browser
+  zoom with no device-metrics override, so an OS route closes the live-view
+  stream, which sets one, before it measures.
 - `stream.py` is the live view: a raw CDP connection (`cdp.py`) to the browser
   endpoint, separate from the run's Playwright, with the layout, text fit and
   input mapping in `pane.py`. It attaches only to the tab being shown,
@@ -496,6 +532,7 @@ The Fall 2027 date warning stops nothing.
 | Nothing changes, after Next | Holds | 10 |
 | Nothing changes, after Submit | Unconfirmed | 12 |
 | Moves on with no confirmation | Unconfirmed | 12 |
+| A captcha rejection (`CAPTCHA_REJECTED`), after Submit | Captcha rejected: a failure, never pressed or refilled again | 15 |
 
 Exit 13 is a closed posting and 14 a run with no other ending. A wall in front of
 the form, or a posting the navigator cannot find, holds once nothing is working
@@ -503,7 +540,11 @@ on it. Every ending but a confirmation
 stops the run as `abandoned`, so the listing stays on the board, with no schema
 change. A held run's tab closes and a retry refills it. A parked run keeps its
 tab, and a rerun reuses it. An unconfirmed one keeps its tab too and is never
-pressed again by itself: it may have gone in, so look, then `--done`.
+pressed again by itself: it may have gone in, so look, then `--done`. A
+captcha-rejected one keeps its tab and is never pressed again either: the ATS
+may have cleared the form. The press words, `SUBMIT_CONTROL` and
+`CAPTCHA_REJECTED`, live in `core/wording.py`, which the device's drive
+channel reads too.
 
 Answers from a `--submit` run go into answer history like ones you submitted, so
 replay treats them as accepted.

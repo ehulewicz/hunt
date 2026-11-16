@@ -69,7 +69,7 @@ def apply_posting(
 
     `accept_letter` keeps the filled cover letter without a review; remote runs
     never pass it. `submit` has this run press Next and Submit (`jobs/submit.py`),
-    and it may also end "held", "parked", or "unconfirmed".
+    and it may also end "held", "parked", "unconfirmed", or "captcha_rejected".
 
     `referred` is None unless this application came through a referral: then it
     is the referrer's name, or "" when none was given. With this device's agent
@@ -440,7 +440,7 @@ def _leave_unsubmitted(api: WorkerApi, run_id: str, ended: str, page: Any) -> st
     """A `--submit` run that did not go in: the listing stays on the board, as a dry run's does.
 
     A held application refills on retry, so its tab goes. A parked one waits for
-    you in its tab, and an unconfirmed one is there to be looked at.
+    you in its tab, and an unconfirmed or captcha-rejected one is there to be looked at.
     """
     api.stop_autofill_run(run_id, status="abandoned")
     if ended == "held":
@@ -464,7 +464,7 @@ def finalize_application_outcome(
         console.print("Dry run: no values were changed and nothing was submitted.")
         return "stopped"
 
-    for ended in ("held", "parked", "unconfirmed"):
+    for ended in ("held", "parked", "unconfirmed", "captcha_rejected"):
         if ended in outcome:
             return _leave_unsubmitted(api, run_id, ended, page)
 

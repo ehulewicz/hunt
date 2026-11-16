@@ -5,6 +5,7 @@ One module each under this package; this module re-exports their names.
 
 from __future__ import annotations
 
+from personal_os_worker.core.wording import SUBMIT_CONTROL
 from personal_os_worker.jobs.browser.capture import (
     UNKNOWN_CONTROLS_SCRIPT,
     VISIBLE_ACTIONS_SCRIPT,
@@ -57,7 +58,6 @@ from personal_os_worker.jobs.browser.tab import (
 from personal_os_worker.jobs.browser.transitions import (
     CLEAR_OUTLINES_SCRIPT,
     OUTLINE_SCRIPT,
-    SUBMIT_CONTROL,
     TRANSITION_ROLES,
     _distinct_destinations,
     click_safe_transition,

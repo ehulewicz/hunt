@@ -102,6 +102,12 @@ os device drive off  # turn it off; any open lease ends at once
 os device drive status
 ```
 
+A press through the drive is scored in `state_dir()/drive/attempts.jsonl`, one
+line per attempt with its experiment, input kind and outcome
+(`workers/README.md`). An `os hunt apply --submit` whose Submit the ATS's
+captcha refuses ("There was an error verifying your application") ends
+captcha-rejected, exit 15: a failure, never pressed or refilled again.
+
 Displayed listing titles are clickable when the terminal supports hyperlinks.
 A listing's `#` is assigned by the database over one canonical board. Every
 eligible open listing is numbered, whatever its role family, technical families

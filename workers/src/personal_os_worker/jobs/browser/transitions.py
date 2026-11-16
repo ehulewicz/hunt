@@ -10,6 +10,7 @@ from typing import Any, Literal
 from playwright.sync_api import Error, Page
 
 from personal_os_worker.core.page_scripts import load
+from personal_os_worker.core.wording import SUBMIT_CONTROL
 from personal_os_worker.jobs.registry.kinds import question_of
 from personal_os_worker.jobs.registry.strategies import (
     CONTROL_TIMEOUT_MS,
@@ -86,12 +87,6 @@ def click_safe_transition(page: Page, *, kind: str) -> str | None:
             candidate.click(timeout=5_000)
             return label or kind.title()
     return None
-
-
-SUBMIT_CONTROL = re.compile(
-    r"^\s*submit\s*$|\b(?:submit|send|complete|finish)\b.*\b(?:application|form)\b",
-    re.IGNORECASE,
-)
 
 
 def has_submit_control(page: Page) -> bool:

@@ -21,6 +21,7 @@ from personal_os_worker.jobs.session import AutofillSession
 from personal_os_worker.jobs.submit import (
     ApplicationHeld,
     ApplicationParked,
+    ApplicationRejected,
     ApplicationUnconfirmed,
     blocking,
 )
@@ -278,6 +279,23 @@ def test_a_page_that_moved_on_without_a_confirmation_is_never_pressed_again(page
     assert "Your profile" in page.locator("body").inner_text()
 
 
+# Lever's answer when its invisible hCaptcha refuses the press: a banner and a cleared form.
+LEVER_REJECTED = (
+    "document.getElementById('email').value='';"
+    "const b=document.createElement('div');b.className='error-message';"
+    "b.textContent='There was an error verifying your application. Please try again.';"
+    "document.body.prepend(b);"
+)
+
+
+def test_a_captcha_rejection_after_submit_is_a_failure_never_pressed_again(page: Any) -> None:
+    page.set_content(form(LEVER_REJECTED))
+    with pytest.raises(ApplicationRejected, match="error verifying your application") as ended:
+        session_on(page).press_forward([], {})
+    assert ended.value.outcome == "captcha_rejected"
+    assert page.evaluate("window.presses") == 1
+
+
 def test_the_same_fields_again_after_a_submit_press_are_unconfirmed(page: Any) -> None:
     page.set_content(form("history.pushState({}, '', location.href + '#after');"))
     with pytest.raises(ApplicationUnconfirmed):
@@ -465,7 +483,7 @@ def test_a_held_run_ends_abandoned_and_closes_its_tab() -> None:
     assert result == "held" and calls == [("r1", "abandoned"), ("close", "")]
 
 
-@pytest.mark.parametrize("kind", ["parked", "unconfirmed"])
+@pytest.mark.parametrize("kind", ["parked", "unconfirmed", "captcha_rejected"])
 def test_a_parked_or_unconfirmed_run_keeps_its_tab(kind: str) -> None:
     calls: list[tuple[str, str]] = []
     tab = SimpleNamespace(is_closed=lambda: False, close=lambda: calls.append(("close", "")))
@@ -480,7 +498,7 @@ def test_a_parked_or_unconfirmed_run_keeps_its_tab(kind: str) -> None:
 @pytest.mark.parametrize(
     ("result", "code"),
     [("submitted", 0), ("held", 10), ("parked", 11), ("unconfirmed", 12), ("skipped", 13),
-     ("stopped", 14)],
+     ("stopped", 14), ("captcha_rejected", 15)],
 )
 def test_each_ending_has_its_own_exit_code(
     monkeypatch: pytest.MonkeyPatch, result: str, code: int

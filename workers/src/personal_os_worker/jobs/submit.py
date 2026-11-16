@@ -16,11 +16,14 @@ page holds, press the one button there is, and read what the page did.
 | does not change, after Next             | holds                                    |
 | does not change, after Submit           | unconfirmed: it may have gone in         |
 | moves on with no confirmation           | unconfirmed: it may have gone in         |
+| says its captcha refused the Submit     | captcha rejected: never pressed again    |
 
 An unconfirmed application is never pressed again, by this run or by a loop that
-reads its exit code, so nothing goes in twice. The press is outside `armed`
-(`jobs/safety.py`) because the guards exist to cancel exactly this click. The
-fixer's files cannot import this module, and its probes stay guarded.
+reads its exit code, so nothing goes in twice. Neither is a captcha-rejected
+one (`CAPTCHA_REJECTED`): the ATS may have cleared the form, and nothing
+refills it. The press is outside `armed` (`jobs/safety.py`) because the guards
+exist to cancel exactly this click. The fixer's files cannot import this
+module, and its probes stay guarded.
 """
 
 from __future__ import annotations
@@ -37,12 +40,12 @@ from playwright.sync_api import Error, Locator
 
 from personal_os_worker.core.config import console
 from personal_os_worker.core.secrets import GMAIL_APP_PASSWORD, read_secret
+from personal_os_worker.core.wording import CAPTCHA_REJECTED, SUBMIT_CONTROL
 from personal_os_worker.jobs.account_inspect import CODE_WORDS
 from personal_os_worker.jobs.account_page import CODE_INPUTS, fill_code
 from personal_os_worker.jobs.audit import Finding
 from personal_os_worker.jobs.autofill import is_cover_letter_field, is_long_form_field
 from personal_os_worker.jobs.browser import field_errors, inspect_fields
-from personal_os_worker.jobs.browser.transitions import SUBMIT_CONTROL
 from personal_os_worker.jobs.mail import (
     Inbox,
     MailUnavailable,
@@ -117,6 +120,12 @@ class ApplicationUnconfirmed(RunEnded):
     """It may have gone in: look before anything presses again."""
 
     outcome = "unconfirmed"
+
+
+class ApplicationRejected(RunEnded):
+    """The ATS's captcha refused the press: a failure, never pressed or refilled again."""
+
+    outcome = "captcha_rejected"
 
 
 class StallClock:
@@ -361,6 +370,10 @@ class SubmitMixin(_Base):
             state = classify_application_page(self.page, current, self.state.navigation)
             if state == ApplicationPageState.SUBMITTED:
                 return state
+            if kind == "submit" and CAPTCHA_REJECTED.search(self._page_text()):
+                raise ApplicationRejected(
+                    f"the captcha refused the press; the form may be cleared: {self._page_says()}"
+                )
             if captcha_challenge_present(self.page):
                 raise ApplicationParked("an image puzzle is open; the tab is waiting for you")
             look = self._look(current)
@@ -404,12 +417,14 @@ class SubmitMixin(_Base):
             raise ApplicationUnconfirmed(said)
         raise ApplicationHeld(said)
 
-    def _page_says(self) -> str:
+    def _page_text(self) -> str:
         try:
-            text = self.page.locator("body").inner_text(timeout=2_000)
+            return " ".join(self.page.locator("body").inner_text(timeout=2_000).split())
         except Error:
-            return "(the page could not be read)"
-        return " ".join(text.split())[:_PAGE_TEXT_LIMIT]
+            return ""
+
+    def _page_says(self) -> str:
+        return self._page_text()[:_PAGE_TEXT_LIMIT] or "(the page could not be read)"
 
     def _errors_said(self) -> str:
         try:

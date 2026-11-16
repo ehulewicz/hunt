@@ -119,7 +119,7 @@ def listing_for(
 
 # How a `--submit` run ended, for a loop over the board; without the flag a run exits 0.
 SUBMIT_EXITS = {"submitted": 0, "held": 10, "parked": 11, "unconfirmed": 12,
-                "skipped": 13, "stopped": 14}
+                "skipped": 13, "stopped": 14, "captcha_rejected": 15}
 
 
 def run_autofill(
