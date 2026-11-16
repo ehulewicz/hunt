@@ -68,6 +68,12 @@ def tree(processes: dict[int, Process], roots: Iterable[int]) -> list[Process]:
     return sorted((processes[pid] for pid in seen), key=lambda process: process.rss, reverse=True)
 
 
+def rotate(path: Path, limit: int = LOG_LIMIT) -> None:
+    """Move a log past the limit aside to `<name>.1`, so the next line starts a new one."""
+    if path.exists() and path.stat().st_size > limit:
+        path.replace(path.with_name(path.name + ".1"))
+
+
 def gigabytes(size: int) -> str:
     return f"{size / 1024**3:.2f}G"
 
@@ -121,7 +127,6 @@ class MemoryWatch:
     def write(self, line: str) -> None:
         with suppress(OSError):
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            if self.path.exists() and self.path.stat().st_size > LOG_LIMIT:
-                self.path.replace(self.path.with_suffix(".log.1"))
+            rotate(self.path)
             with self.path.open("a") as handle:
                 handle.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {line}\n")

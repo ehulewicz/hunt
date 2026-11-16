@@ -8,11 +8,10 @@ browser request must also come from the page's origin. The agent never runs a
 command it was sent: it can start `os hunt apply <reference> --remote`, show a
 tab, pass input to it, and pass controls, a letter, and facts to a run.
 
-`/cdp` relays one websocket to Chrome's browser endpoint, so an agent of the
-user's own on the tailnet can drive this device's Chrome directly (Playwright
-`connect_over_cdp` with the token as a bearer header). It needs the token in
-its Authorization header and refuses any request with an Origin, so no web
-page can open it.
+`/drive` leases one tab to a driver of the user's own on the tailnet, with an
+allowlist of CDP methods and locks the device enforces (`drive.py`). It needs
+the token in its Authorization header and refuses any request with an Origin,
+so no web page can open it. `GET`/`POST /drive` read and set its switch.
 
 `/session` is one websocket. The page's first message is its token; then the
 agent sends JPEG frames (binary: a length, a JSON header, the image) and JSON
@@ -43,7 +42,13 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from personal_os_worker.core.config import CliConfig
 from personal_os_worker.core.tls import tls
-from personal_os_worker.device.cdp import browser_endpoint
+from personal_os_worker.device.drive import (
+    UNAUTHORIZED,
+    ApplicationStatus,
+    DriveManager,
+    serve_drive,
+)
+from personal_os_worker.device.drive_state import drive_dir
 from personal_os_worker.device.heartbeat import HEARTBEAT_SECONDS, Presence
 from personal_os_worker.device.identity import DeviceIdentity
 from personal_os_worker.device.link import socket_path
@@ -55,7 +60,7 @@ from personal_os_worker.device.update import source_fingerprint
 TOKEN_SECONDS = 60.0
 AUTH_SECONDS = 10.0
 # Close codes the page understands.
-UNAUTHORIZED, REPLACED, RESTARTING = 4401, 4000, 1012
+REPLACED, RESTARTING = 4000, 1012
 
 
 class TokenVerifier:
@@ -188,6 +193,9 @@ class Agent:
         stream_factory: StreamFactory | None = None,
         log_dir: Path | None = None,
         memory: MemoryWatch | None = None,
+        application_status: ApplicationStatus | None = None,
+        drive_directory: Path | None = None,
+        drive: DriveManager | None = None,
     ) -> None:
         self.config = config
         self.identity = identity
@@ -200,6 +208,13 @@ class Agent:
         self.stream: Stream | None = None
         self.runs = RunManager(
             publish=self.publish, update=update, on_tab=self.follow_tab, log_dir=log_dir
+        )
+        self.drive = drive or DriveManager(
+            drive_directory or drive_dir(),
+            connect=lambda on_event: CdpConnection.open(config.cdp_url, on_event),
+            ensure_chrome=ensure_chrome,
+            busy=lambda: self.runs.busy(),
+            application_status=application_status,
         )
 
     def _chrome_stream(self, viewer: Viewer) -> Stream:
@@ -218,6 +233,7 @@ class Agent:
             "local_changes": checkout.local_changes if checkout else None,
             "ready": self.presence.ready,
             "problem": self.presence.problem,
+            "drive_on": self.drive.switch.on(),
         }
 
     async def publish(self, message: dict[str, Any]) -> None:
@@ -287,6 +303,13 @@ class Agent:
     async def on_message(self, message: dict[str, Any]) -> None:
         kind = message.get("type")
         stream = self.stream
+        # The user's hands on the tab, or Stop, end a driver's lease before anything else.
+        if kind in {"pointer", "wheel", "key", "text"}:
+            await self.drive.viewer_input()
+        elif kind == "control" and message.get("action") == "stop":
+            await self.drive.stop()
+        elif kind == "control" and message.get("action") == "done":
+            self.drive.mark_submitted("Submitted on the Hunt page")
         if kind == "pointer" and stream is not None:
             await stream.pointer(message)
         elif kind == "wheel" and stream is not None:
@@ -347,8 +370,21 @@ def create_app(agent: Agent, *, background: bool = True) -> Starlette:
     async def session(websocket: WebSocket) -> None:
         await _serve_session(agent, websocket)
 
-    async def cdp(websocket: WebSocket) -> None:
-        await _relay_cdp(agent, websocket)
+    async def drive_socket(websocket: WebSocket) -> None:
+        await serve_drive(agent.drive, agent.verifier.verify, websocket)
+
+    async def drive_switch(request: Request) -> Response:
+        if not await authorized(request):
+            return JSONResponse({"detail": "Authentication required"}, 401)
+        if request.method == "POST":
+            try:
+                body = await request.json()
+            except ValueError:
+                body = None
+            if not isinstance(body, dict) or not isinstance(body.get("on"), bool):
+                return JSONResponse({"detail": 'Send {"on": true} or {"on": false}'}, 422)
+            await agent.drive.set_switch(body["on"])
+        return JSONResponse(agent.drive.status())
 
     @contextlib.asynccontextmanager
     async def lifespan(_: Starlette) -> AsyncIterator[None]:
@@ -364,7 +400,8 @@ def create_app(agent: Agent, *, background: bool = True) -> Starlette:
             Route("/status", status),
             Route("/runs", start_run, methods=["POST"]),
             WebSocketRoute("/session", session),
-            WebSocketRoute("/cdp", cdp),
+            Route("/drive", drive_switch, methods=["GET", "POST"]),
+            WebSocketRoute("/drive", drive_socket),
         ],
         lifespan=lifespan,
     )
@@ -399,48 +436,6 @@ async def _serve_session(agent: Agent, websocket: WebSocket) -> None:
         await agent.detach(viewer)
 
 
-async def _relay_cdp(agent: Agent, websocket: WebSocket) -> None:
-    """Pipe one client to Chrome's browser endpoint, both ways, until either leaves."""
-    from websockets.asyncio.client import connect
-
-    scheme, _, token = websocket.headers.get("authorization", "").partition(" ")
-    if (
-        "origin" in websocket.headers
-        or scheme.casefold() != "bearer"
-        or not await agent.verifier.verify(token.strip())
-    ):
-        await websocket.close(UNAUTHORIZED, "A bearer token and no Origin are required")
-        return
-    await asyncio.to_thread(agent.ensure_chrome)
-    endpoint = await browser_endpoint(agent.config.cdp_url)
-    await websocket.accept()
-    async with connect(endpoint, max_size=None, ping_interval=None, compression=None) as chrome:
-
-        async def upstream() -> None:
-            while True:
-                message = await websocket.receive()
-                if message["type"] == "websocket.disconnect":
-                    return
-                data = message.get("text")
-                await chrome.send(data if data is not None else message.get("bytes") or b"")
-
-        async def downstream() -> None:
-            async for data in chrome:
-                if isinstance(data, str):
-                    await websocket.send_text(data)
-                else:
-                    await websocket.send_bytes(data)
-
-        tasks = [asyncio.create_task(upstream()), asyncio.create_task(downstream())]
-        try:
-            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        finally:
-            for task in tasks:
-                task.cancel()
-            with contextlib.suppress(Exception):
-                await websocket.close()
-
-
 @contextlib.asynccontextmanager
 async def _background(agent: Agent) -> AsyncIterator[None]:
     """The run link's socket and the heartbeat, restart and memory tasks, while the app runs."""
@@ -468,6 +463,7 @@ async def _background(agent: Agent) -> AsyncIterator[None]:
         for task in tasks:
             task.cancel()
         server.close()
+        await agent.drive.end("the agent stopped")
         await agent.close_stream()
         path.unlink(missing_ok=True)
 

@@ -57,8 +57,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     device.add_argument(
         "action",
-        choices=["install", "serve", "status"],
-        help="install: set up once; serve: run the agent (the logon task does); status",
+        choices=["install", "serve", "status", "drive"],
+        help="install: set up once; serve: run the agent (the logon task does); status; "
+        "drive: the drive channel's switch",
+    )
+    device.add_argument(
+        "setting",
+        nargs="?",
+        choices=["on", "off", "status"],
+        default="status",
+        help="With drive: turn the drive channel on or off (off ends any lease), or show it",
     )
 
     commands.add_parser("login", help="Sign in with Google through Supabase")

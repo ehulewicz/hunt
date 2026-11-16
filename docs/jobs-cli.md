@@ -97,6 +97,9 @@ reported without sending a delete request.
 os device install    # once per machine: identity, tailscale serve, logon task, doctor
 os device status     # this device: address, commit, agent, and its run
 os device serve      # the agent itself; the logon task runs it
+os device drive on   # let a driver lease a tab through WS /drive (off by default)
+os device drive off  # turn it off; any open lease ends at once
+os device drive status
 ```
 
 Displayed listing titles are clickable when the terminal supports hyperlinks.

@@ -98,6 +98,8 @@ def _dispatch(args: argparse.Namespace) -> int:
             return devices.run_install()
         if args.action == "serve":
             return devices.run_serve()
+        if args.action == "drive":
+            return devices.run_drive(args.setting)
         return devices.run_status()
     if args.command == "login":
         return run_login()

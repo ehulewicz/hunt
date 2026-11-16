@@ -152,14 +152,48 @@ distro; `os device status` says what it is doing.
   open. `GET /status` is the device and its run; `POST /runs` starts `os hunt apply
   <reference> --remote` (409 while a run is active; a reference is a board number,
   an id prefix, or a URL, never a flag); `WS /session` is the live session, one
-  viewer at a time. `WS /cdp` relays one client to Chrome's browser endpoint so
-  another agent of the user's on the tailnet can drive this Chrome itself
-  (Playwright `connect_over_cdp("wss://<device>.ts.net/cdp", headers=...)`); it
-  takes the token only as a bearer header and refuses any request with an
-  Origin, so no web page can open it. The agent never runs a command it was sent. It re-executes
+  viewer at a time. `WS /drive` is the drive channel (`drive.py`, below), and
+  `GET`/`POST /drive` read and set its switch; `GET /status` carries `drive_on`.
+  The agent never runs a command it was sent. It re-executes
   itself when its own source changes, between runs only; a run counts until its
   process is reaped, not just until it says it ended, so no run outlives the
   agent's restart as a zombie.
+- `drive.py` is `WS /drive`, where a driver of the user's own on the tailnet
+  fills an application through this Chrome, one leased tab at a time. It takes
+  the token only as a bearer header, refuses any request with an Origin, and
+  needs the drive switch on. The first message is
+  `{"type": "lease", "listing_id", "url"}`; the lease is refused while the
+  switch is off, another lease or a page run is active, the URL is not on
+  `ATS_HOSTS` (Lever, Greenhouse, Ashby and their subdomains), the listing is
+  locked, or the API has its application at `applied` or later. The agent opens
+  its own browser connection, finds the posting's tab or opens one, and attaches
+  to it alone with `Target.attachToTarget {flatten: true}`, never
+  `setAutoAttach`, so out-of-process frames (hCaptcha) are never attached.
+  Commands `{"id", "method", "params"}` reach that tab only when `ALLOWED` names
+  them: Page reads, `navigate` (lease host only) and `reload`, Input, DOM reads,
+  Accessibility, `DOM.setFileInputFiles` (only on the last file chooser's node,
+  only with files in `drive/files/`), and `Runtime.evaluate` only in an
+  isolated world the lease created, by value. `Runtime.enable`, Network,
+  Storage, Target, Browser, Emulation and Fetch never pass. `navigate`, `reload`
+  and Input are refused on a tab whose URL matches a locked listing. Only the
+  tab's load, main-frame navigation and file-chooser events reach the driver.
+  The lease ends, with `{"type": "ended", "reason"}` and the socket closed, on
+  the driver's `release`, the Hunt page's Stop, any live-view pointer, wheel,
+  key or text, the switch turning off, 10 idle or 45 total minutes, or the tab
+  closing or leaving the lease host. A `submit` message is refused until a
+  press route plugs into `DriveManager.on_submit`.
+- `drive_state.py` is what the drive keeps in `state_dir()/drive/`. The switch
+  (`switch.json`) is off by default; `os device drive on|off|status` sets it,
+  through the agent when it runs, so off ends a lease at once. The per-listing
+  locks (`locks.json`: `pending`, `submitted`, `unconfirmed`, `burned`) are keyed
+  by listing id and by the posting URL without scheme, query, trailing slash,
+  `/apply` or `/thanks`; a lease's listing becomes `submitted` when any tab
+  reaches a confirmation URL (Lever's `/thanks`) or the Hunt page's Submitted
+  arrives during a lease. Both files are written whole and renamed into place.
+  `audit.jsonl` has one line per driver message: the time, the lease's listing,
+  the method, a summary of its parameters (lengths for typed text and keys,
+  never the values; the URL for `navigate`) and whether it was forwarded or why
+  it was refused; it rotates at 5 MB like `memory.log`.
 - `stream.py` is the live view: a raw CDP connection (`cdp.py`) to the browser
   endpoint, separate from the run's Playwright, with the layout, text fit and
   input mapping in `pane.py`. It attaches only to the tab being shown,

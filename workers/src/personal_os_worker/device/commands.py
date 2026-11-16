@@ -1,4 +1,4 @@
-"""`os device install | serve | status`."""
+"""`os device install | serve | status | drive on|off|status`."""
 
 from __future__ import annotations
 
@@ -8,10 +8,12 @@ import sys
 import httpx
 
 from personal_os_worker.core import service
+from personal_os_worker.core.api import WorkerApi
 from personal_os_worker.core.commands import connected
 from personal_os_worker.core.config import console, load_cli_config
 from personal_os_worker.core.service import state_dir
 from personal_os_worker.core.tls import tls
+from personal_os_worker.device.drive_state import DriveSwitch, drive_dir
 from personal_os_worker.device.heartbeat import Presence, doctor_checks, readiness
 from personal_os_worker.device.identity import (
     AGENT_PORT,
@@ -76,6 +78,7 @@ def run_serve() -> int:
     try:
         import uvicorn
 
+        from personal_os_worker.device.drive import api_application_status
         from personal_os_worker.device.memory import MemoryWatch
         from personal_os_worker.device.server import Agent, TokenVerifier, create_app, reexec
     except ImportError as error:
@@ -99,10 +102,11 @@ def run_serve() -> int:
     console.print(f"device agent: {update.note}")
     if update.pulled_from is not None:
         reexec()  # into the code just pulled
+    presence = Presence(config, identity, repo=repo)
     agent = Agent(
         config,
         identity,
-        presence=Presence(config, identity, repo=repo),
+        presence=presence,
         verifier=TokenVerifier(
             config.api_url,
             ensure_api=lambda: service.ensure_running(config.api_url, quiet=True),
@@ -111,6 +115,9 @@ def run_serve() -> int:
         ensure_chrome=lambda: service.ensure_chrome(config.cdp_url, quiet=True),
         log_dir=state_dir() / "runs",
         memory=MemoryWatch(state_dir() / "memory.log"),
+        application_status=api_application_status(
+            lambda: WorkerApi(config, presence.token())
+        ),
     )
     console.print(f"device agent: {identity.name} listening on 127.0.0.1:{AGENT_PORT}")
     uvicorn.run(
@@ -150,8 +157,38 @@ def run_status() -> int:
         "  agent     running, "
         + ("ready" if device.get("ready") else f"not ready: {device.get('problem')}")
     )
+    console.print(f"  drive     {'on' if device.get('drive_on') else 'off'}")
     run = status.get("run")
     if run:
         what = " — ".join(part for part in (run.get("company"), run.get("title")) if part)
         console.print(f"  run       {run.get('phase')} {what or run.get('reference') or ''}")
+    return 0
+
+
+def run_drive(setting: str) -> int:
+    """`os device drive on|off|status`: through the agent when it runs, so off ends a lease."""
+    if agent_running():
+        _, token = connected()
+        headers = {"Authorization": f"Bearer {token}"}
+        if setting == "status":
+            response = httpx.get(f"{AGENT_URL}/drive", headers=headers, timeout=30.0, verify=tls())
+        else:
+            response = httpx.post(
+                f"{AGENT_URL}/drive", json={"on": setting == "on"}, headers=headers,
+                timeout=30.0, verify=tls(),
+            )
+        response.raise_for_status()
+        status = response.json()
+    else:
+        switch = DriveSwitch(drive_dir())
+        if setting != "status":
+            switch.set(setting == "on")
+        status = {"on": switch.on(), "lease": None}
+    console.print(f"drive     {'[green]on[/green]' if status.get('on') else 'off'}")
+    lease = status.get("lease")
+    if lease:
+        console.print(
+            f"  lease   {lease.get('listing_id')} {lease.get('url')} since {lease.get('since')}",
+            markup=False,
+        )
     return 0

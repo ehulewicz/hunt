@@ -1,6 +1,5 @@
 import asyncio
 import sys
-import threading
 import time
 import warnings
 from pathlib import Path
@@ -160,37 +159,6 @@ def test_the_session_needs_the_token_first(client: TestClient) -> None:
         with pytest.raises(WebSocketDisconnect) as closed:
             socket.receive_json()
     assert closed.value.code == server.UNAUTHORIZED
-
-
-def test_the_cdp_relay_needs_a_bearer_token_and_no_origin(client: TestClient) -> None:
-    for headers in ({}, {"Authorization": "Bearer bad"}, {**GOOD, "origin": PAGE}):
-        with pytest.raises(WebSocketDisconnect), client.websocket_connect(
-            "/cdp", headers=headers
-        ):
-            pass
-
-
-def test_the_cdp_relay_pipes_both_ways_to_chrome(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from websockets.sync.server import serve
-
-    def echo(connection: Any) -> None:
-        for message in connection:
-            connection.send(f"chrome:{message}")
-
-    with serve(echo, "127.0.0.1", 0) as chrome:
-        port = chrome.socket.getsockname()[1]
-        threading.Thread(target=chrome.serve_forever, daemon=True).start()
-
-        async def endpoint(_: str) -> str:
-            return f"ws://127.0.0.1:{port}"
-
-        monkeypatch.setattr(server, "browser_endpoint", endpoint)
-        with client.websocket_connect("/cdp", headers=GOOD) as socket:
-            socket.send_text('{"id":1}')
-            assert socket.receive_text() == 'chrome:{"id":1}'
-        chrome.shutdown()
 
 
 def test_a_session_gets_the_device_the_tab_and_frames_and_sends_input(
