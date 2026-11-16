@@ -7,8 +7,11 @@ every route moves the same way and tests can fix the seed. The ranges:
   eased in and out, each step but the last jittered by up to 2 px; the target is
   jittered inside the inner 60% of the box; 80-250 ms of hover before the
   press and 50-120 ms between down and up.
-- **Keys:** 40-140 ms per character, and a 300-900 ms pause after punctuation
-  and every 8-20 characters.
+- **Keys:** about 110 WPM (~9 characters a second). Within a word each key
+  comes a Gaussian 88 ms (sd 22, clamped to 50-160 ms) after the last; a space
+  adds 20-70 ms, the key after punctuation waits a further 150-350 ms, and a
+  short 200-450 ms hesitation lands every 25-60 characters. That averages out
+  near 105 ms a key.
 - **Wheel:** steps of 80-120 px.
 """
 
@@ -24,9 +27,13 @@ JITTER_PX = 2.0
 INNER = 0.6
 DWELL_MS = (80, 250)
 PRESS_MS = (50, 120)
-KEY_MS = (40, 140)
-PAUSE_MS = (300, 900)
-PAUSE_EVERY = (8, 20)
+KEY_MEAN_MS = 88
+KEY_SD_MS = 22
+KEY_MS = (50, 160)
+SPACE_MS = (20, 70)
+PUNCT_MS = (150, 350)
+PAUSE_MS = (200, 450)
+PAUSE_EVERY = (25, 60)
 WHEEL_PX = (80, 120)
 PUNCTUATION = frozenset(".,;:!?")
 
@@ -115,18 +122,23 @@ class Motion:
         return self.between(PRESS_MS)
 
     def key_delays(self, text: str) -> list[int]:
-        """The wait before each character of `text`."""
+        """The wait before each character of `text`: about 110 WPM, bursty within words."""
         delays: list[int] = []
         until_pause = self.between(PAUSE_EVERY)
-        pause_next = False
+        previous = ""
         for char in text:
-            delay = self.between(KEY_MS)
-            if pause_next:
+            gap = self.rng.gauss(KEY_MEAN_MS, KEY_SD_MS)
+            delay = round(min(max(gap, KEY_MS[0]), KEY_MS[1]))
+            if char == " ":
+                delay += self.between(SPACE_MS)
+            if previous in PUNCTUATION:
+                delay += self.between(PUNCT_MS)
+            until_pause -= 1
+            if until_pause <= 0:
                 delay += self.between(PAUSE_MS)
                 until_pause = self.between(PAUSE_EVERY)
             delays.append(delay)
-            until_pause -= 1
-            pause_next = char in PUNCTUATION or until_pause <= 0
+            previous = char
         return delays
 
     def wheel(self, dy: float) -> list[int]:

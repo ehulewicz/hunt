@@ -62,15 +62,17 @@ def test_dwell_and_press_timings(seed: int) -> None:
     assert 80 <= motion.dwell_ms() <= 250 and 50 <= motion.press_ms() <= 120
 
 
-def test_keys_come_40_to_140_ms_apart_with_pauses_after_punctuation() -> None:
-    text = "Hi, there. " + "abcdefghijklmnopqrstuvwxyz" * 2
+def test_keys_type_at_about_110_wpm_with_pauses_after_punctuation() -> None:
+    text = "Hi, there. " + "the quick brown fox jumps over the lazy dog " * 6
     delays = Motion(3).key_delays(text)
     assert len(delays) == len(text)
-    assert all(40 <= delay <= 140 + 900 for delay in delays)
-    assert delays[text.index(",") + 1] >= 340 and delays[text.index(".") + 1] >= 340
-    # And a pause at least every 20 characters even with no punctuation.
-    tail = delays[12:]
-    assert all(any(delay >= 340 for delay in tail[i:i + 21]) for i in range(0, len(tail) - 21))
+    assert all(50 <= delay <= 160 + 70 + 350 + 450 for delay in delays)
+    assert delays[text.index(",") + 1] >= 200 and delays[text.index(".") + 1] >= 200
+    mean = sum(delays) / len(delays)
+    assert 90 <= mean <= 125  # ~110 WPM is ~105 ms a key
+    # Within-word keys are bursty: most come under 130 ms.
+    inner = [d for c, d in zip(text, delays, strict=True) if c.isalpha()]
+    assert sum(d < 130 for d in inner) / len(inner) > 0.8
 
 
 @pytest.mark.parametrize("dy", [0, 50, 333, -500])
@@ -175,7 +177,7 @@ def test_typing_is_a_unicode_event_per_character_with_enter_and_tab_as_keys() ->
     assert [op["op"] for op in ops] == ["wait", "text", "wait", "text", "wait", "key",
                                         "wait", "text", "wait", "key"]
     assert ops[1]["chunk"] == "é" and ops[5]["vk"] == 0x0D and ops[9]["vk"] == 0x09
-    assert ops[4]["ms"] >= 340  # the pause after the comma
+    assert ops[4]["ms"] >= 200  # the pause after the comma
 
 
 def test_named_keys() -> None:
