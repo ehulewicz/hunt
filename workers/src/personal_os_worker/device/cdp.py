@@ -36,6 +36,14 @@ def _read_failure(future: asyncio.Future[dict[str, Any]]) -> None:
         future.exception()
 
 
+async def browser_endpoint(cdp_url: str) -> str:
+    """The browser-level websocket Chrome publishes at `/json/version`."""
+    async with httpx.AsyncClient(timeout=5.0, verify=tls()) as client:
+        response = await client.get(f"{cdp_url.rstrip('/')}/json/version")
+        response.raise_for_status()
+        return str(response.json()["webSocketDebuggerUrl"])
+
+
 class CdpConnection:
     """One websocket to the browser endpoint, with flattened per-tab sessions."""
 
@@ -50,10 +58,7 @@ class CdpConnection:
     async def open(cls, cdp_url: str, on_event: EventHandler) -> CdpConnection:
         from websockets.asyncio.client import connect
 
-        async with httpx.AsyncClient(timeout=5.0, verify=tls()) as client:
-            response = await client.get(f"{cdp_url.rstrip('/')}/json/version")
-            response.raise_for_status()
-            endpoint = str(response.json()["webSocketDebuggerUrl"])
+        endpoint = await browser_endpoint(cdp_url)
         # Frames are large and already JPEG; Chrome is on loopback, so neither
         # compression nor a ping is worth its time.
         websocket = await connect(endpoint, max_size=None, ping_interval=None, compression=None)

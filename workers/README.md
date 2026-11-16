@@ -152,7 +152,11 @@ distro; `os device status` says what it is doing.
   open. `GET /status` is the device and its run; `POST /runs` starts `os hunt apply
   <reference> --remote` (409 while a run is active; a reference is a board number,
   an id prefix, or a URL, never a flag); `WS /session` is the live session, one
-  viewer at a time. The agent never runs a command it was sent. It re-executes
+  viewer at a time. `WS /cdp` relays one client to Chrome's browser endpoint so
+  another agent of the user's on the tailnet can drive this Chrome itself
+  (Playwright `connect_over_cdp("wss://<device>.ts.net/cdp", headers=...)`); it
+  takes the token only as a bearer header and refuses any request with an
+  Origin, so no web page can open it. The agent never runs a command it was sent. It re-executes
   itself when its own source changes, between runs only; a run counts until its
   process is reaped, not just until it says it ended, so no run outlives the
   agent's restart as a zombie.

@@ -8,6 +8,12 @@ browser request must also come from the page's origin. The agent never runs a
 command it was sent: it can start `os hunt apply <reference> --remote`, show a
 tab, pass input to it, and pass controls, a letter, and facts to a run.
 
+`/cdp` relays one websocket to Chrome's browser endpoint, so an agent of the
+user's own on the tailnet can drive this device's Chrome directly (Playwright
+`connect_over_cdp` with the token as a bearer header). It needs the token in
+its Authorization header and refuses any request with an Origin, so no web
+page can open it.
+
 `/session` is one websocket. The page's first message is its token; then the
 agent sends JPEG frames (binary: a length, a JSON header, the image) and JSON
 for tabs, the run, its log, a letter to edit, and gaps to fill, while the page
@@ -37,6 +43,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from personal_os_worker.core.config import CliConfig
 from personal_os_worker.core.tls import tls
+from personal_os_worker.device.cdp import browser_endpoint
 from personal_os_worker.device.heartbeat import HEARTBEAT_SECONDS, Presence
 from personal_os_worker.device.identity import DeviceIdentity
 from personal_os_worker.device.link import socket_path
@@ -340,6 +347,9 @@ def create_app(agent: Agent, *, background: bool = True) -> Starlette:
     async def session(websocket: WebSocket) -> None:
         await _serve_session(agent, websocket)
 
+    async def cdp(websocket: WebSocket) -> None:
+        await _relay_cdp(agent, websocket)
+
     @contextlib.asynccontextmanager
     async def lifespan(_: Starlette) -> AsyncIterator[None]:
         if not background:
@@ -354,6 +364,7 @@ def create_app(agent: Agent, *, background: bool = True) -> Starlette:
             Route("/status", status),
             Route("/runs", start_run, methods=["POST"]),
             WebSocketRoute("/session", session),
+            WebSocketRoute("/cdp", cdp),
         ],
         lifespan=lifespan,
     )
@@ -386,6 +397,48 @@ async def _serve_session(agent: Agent, websocket: WebSocket) -> None:
         pass
     finally:
         await agent.detach(viewer)
+
+
+async def _relay_cdp(agent: Agent, websocket: WebSocket) -> None:
+    """Pipe one client to Chrome's browser endpoint, both ways, until either leaves."""
+    from websockets.asyncio.client import connect
+
+    scheme, _, token = websocket.headers.get("authorization", "").partition(" ")
+    if (
+        "origin" in websocket.headers
+        or scheme.casefold() != "bearer"
+        or not await agent.verifier.verify(token.strip())
+    ):
+        await websocket.close(UNAUTHORIZED, "A bearer token and no Origin are required")
+        return
+    await asyncio.to_thread(agent.ensure_chrome)
+    endpoint = await browser_endpoint(agent.config.cdp_url)
+    await websocket.accept()
+    async with connect(endpoint, max_size=None, ping_interval=None, compression=None) as chrome:
+
+        async def upstream() -> None:
+            while True:
+                message = await websocket.receive()
+                if message["type"] == "websocket.disconnect":
+                    return
+                data = message.get("text")
+                await chrome.send(data if data is not None else message.get("bytes") or b"")
+
+        async def downstream() -> None:
+            async for data in chrome:
+                if isinstance(data, str):
+                    await websocket.send_text(data)
+                else:
+                    await websocket.send_bytes(data)
+
+        tasks = [asyncio.create_task(upstream()), asyncio.create_task(downstream())]
+        try:
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for task in tasks:
+                task.cancel()
+            with contextlib.suppress(Exception):
+                await websocket.close()
 
 
 @contextlib.asynccontextmanager
