@@ -177,7 +177,7 @@ def test_commands_and_a_second_submit_are_refused_once_the_press_begins(
 @pytest.mark.parametrize(
     ("message", "name", "html", "error"),
     [
-        ({"experiment": 2}, "Submit application", "", "not implemented yet"),
+        ({"experiment": 5}, "Submit application", "", "not implemented yet"),
         ({"experiment": True}, "Submit application", "", "not implemented yet"),
         ({"selector": "#none"}, "Submit application", "", "the selector matches nothing"),
         ({}, "Next", "<button>Next</button>", "the selector is not a submit control"),

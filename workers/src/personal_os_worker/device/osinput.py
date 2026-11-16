@@ -198,6 +198,17 @@ class Ran:
         return left <= x < right and top <= y < bottom
 
 
+def start_point(motion: Motion, ran: Ran, end: Point) -> Point:
+    """Where a path begins: the cursor if it is in the window, else a point near the end."""
+    if ran.inside(ran.cursor.x, ran.cursor.y):
+        return ran.cursor
+    left, top, right, bottom = ran.rect
+    rng = motion.rng
+    x = end.x + rng.choice((-1, 1)) * rng.uniform(60, 220)
+    y = end.y + rng.choice((-1, 1)) * rng.uniform(40, 160)
+    return Point(min(max(x, left + 1), right - 2), min(max(y, top + 1), bottom - 2))
+
+
 class OsInput:
     """Batches of OS input into one Chrome window; `runner` is injectable for tests."""
 
@@ -249,14 +260,7 @@ class OsInput:
         return self.run(hwnd, click_ops(self.motion, self._start(ran, end), end))
 
     def _start(self, ran: Ran, end: Point) -> Point:
-        """Where the path begins: the cursor if it is in the window, else a point near the end."""
-        if ran.inside(ran.cursor.x, ran.cursor.y):
-            return ran.cursor
-        left, top, right, bottom = ran.rect
-        rng = self.motion.rng
-        x = end.x + rng.choice((-1, 1)) * rng.uniform(60, 220)
-        y = end.y + rng.choice((-1, 1)) * rng.uniform(40, 160)
-        return Point(min(max(x, left + 1), right - 2), min(max(y, top + 1), bottom - 2))
+        return start_point(self.motion, ran, end)
 
     def type(self, window: Window, text: str) -> Ran:
         hwnd, _ran = self._window(window)

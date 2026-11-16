@@ -218,7 +218,9 @@ class Agent:
             application_status=application_status,
         )
         if self.drive.on_submit is None:
-            self.drive.on_submit = Press(self.drive)
+            pressing = Press(self.drive)
+            self.drive.on_submit, self.drive.on_os = pressing, pressing.os
+        self.drive.close_stream = self.close_stream
 
     def _chrome_stream(self, viewer: Viewer) -> Stream:
         async def connect(on_event: Any) -> CdpConnection:
@@ -263,6 +265,10 @@ class Agent:
                 "log": self.runs.history(),
             }
         )
+        if self.drive.cdp_off():
+            await viewer.send_json({"type": "stream", "state": "unavailable",
+                                    "message": "A driver is using OS input on this tab"})
+            return
         stream = self.stream_factory(viewer)
         # Registered before it opens, so a tab or input the page sends meanwhile reaches it.
         self.stream = stream

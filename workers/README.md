@@ -195,8 +195,16 @@ distro; `os device status` says what it is doing.
   in the viewport. Then the lock becomes `pending`, the driver's commands close,
   and the route presses: experiment 1 (`cdp_click`) sends `DOM.disable` and
   `Accessibility.disable`, waits 3–8 s, and makes one `motion.py` click through
-  `Input.dispatchMouseEvent`. Other experiments are refused as not implemented
-  yet; a route is one entry in `Press.routes`. A Stop, release or disconnect
+  `Input.dispatchMouseEvent`. Experiments 2 (`os_click`), 3 (`os_click_slow`,
+  whose slower fill is the driver's) and 4 (`os_fill`, filled with `os`
+  messages) press the same way through `drive_os.py`: the live view closes,
+  the viewport origin and the control's box are measured, every CDP session the
+  agent holds on the tab is detached and the drive's browser socket closed, a
+  3–8 s wait, the Chrome window is focused by the tab's title, and `OsInput`
+  moves along a human path and clicks; only then does a new session attach to
+  watch the outcome, and the scorecard says `debugger_attached_at_press: false`,
+  `input_kind: "os"`. Experiments 5 and 6 are refused as not implemented yet; a
+  route is one entry in `Press.routes`. A Stop, release or disconnect
   before the click releases the lock and presses nothing. After it, the agent
   reads the page once a second for up to 30 s through a fresh isolated world
   (the target's URL, and the `press_outcome` page script's body text, frames
@@ -255,6 +263,25 @@ distro; `os device status` says what it is doing.
   with `border = (outerWidth - innerWidth) / 2`. That holds at 100% browser
   zoom with no device-metrics override, so an OS route closes the live-view
   stream, which sets one, before it measures.
+- `drive_os.py` is OS input with no debugger on the leased tab. Before any, it
+  closes the live view, brings the tab to the front, reads the origin and the
+  tab's title once while attached, then detaches the page session and closes
+  the drive's browser socket. While detached, commands are refused, Chrome's
+  events are ignored and the Hunt page opens no stream. `{"type": "os", "ops"}`
+  (up to 50 of `click_at {x, y}` in CSS pixels, `type {text}`, `key {name}`,
+  `wheel {dy}`, `wait {ms}`) runs as one `OsInput` batch and is answered
+  `{"type": "os_done", "ok", "cursor" | "error"}`; it is refused when the switch
+  is off, the listing is locked, a point is outside the window, or the window
+  cannot be focused. The tab stays detached until `{"type": "attach"}`, answered
+  `{"type": "attached", "target"}`, opens a new connection and page session.
+- `drive_client.py` is `DriveClient`, the asyncio driver side of `WS /drive`:
+  `connect(url, token)` with the bearer header, `lease`, `cdp` (replies matched
+  by id), `evaluate` in a fresh isolated world, `find` a selector's box,
+  human-shaped `click`, `upload_file` and `upload` (intercept the chooser, a real
+  click, then the agent's path on the chooser's node), `os`, `attach`,
+  `submit` (returns the outcome) and `release`. `stop()` is checked before every
+  action, and an `ended` message raises `DriveEnded`; a refusal raises
+  `DriveError` and the lease goes on.
 - `stream.py` is the live view: a raw CDP connection (`cdp.py`) to the browser
   endpoint, separate from the run's Playwright, with the layout, text fit and
   input mapping in `pane.py`. It attaches only to the tab being shown,

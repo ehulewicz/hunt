@@ -19,8 +19,14 @@ Routes by experiment, in `ROUTES` order:
 - 1, `cdp_click`: `DOM.disable` and `Accessibility.disable`, a 3-8 s wait, then
   one human-shaped click through `Input.dispatchMouseEvent` on the page
   session, with the debugger attached.
+- 2, `os_click`; 3, `os_click_slow` (the slower fill is the driver's); 4,
+  `os_fill` (filled with `os` messages, `drive_os.py`): the live view closed,
+  the viewport origin and the control's box measured, every CDP session on the
+  tab detached and the drive's browser socket closed, a 3-8 s wait, the Chrome
+  window focused by its tab's title, then one human-shaped OS click through
+  `OsInput`. Only after it does a new session attach to watch the outcome.
 
-Any other experiment is refused as not implemented yet.
+Any other experiment (5 and 6 plug into `routes`) is refused as not implemented.
 """
 
 from __future__ import annotations
@@ -38,12 +44,14 @@ from personal_os_worker.core.page_scripts import load
 from personal_os_worker.core.wording import SUBMIT_CONTROL
 from personal_os_worker.device.cdp import CdpError
 from personal_os_worker.device.drive import DriveManager, Lease
+from personal_os_worker.device.drive_os import OsDrive
 from personal_os_worker.device.drive_state import (
     OUTCOME_LOCKS,
     classify_outcome,
     is_challenge_frame,
 )
 from personal_os_worker.device.motion import Box, Motion, Point
+from personal_os_worker.device.osinput import OsInput, move_op, start_point, wait_op
 
 WAIT_SECONDS = (3.0, 8.0)
 WATCH_POLLS = 30
@@ -88,12 +96,17 @@ class Press:
     """`DriveManager.on_submit`: checks the submit, locks the listing, then runs its route."""
 
     def __init__(
-        self, drive: DriveManager, *, motion: Motion | None = None, sleep: Sleep = asyncio.sleep
+        self, drive: DriveManager, *, motion: Motion | None = None, sleep: Sleep = asyncio.sleep,
+        os_input: OsInput | None = None,
     ) -> None:
         self.drive = drive
         self.motion = motion or Motion()
         self.sleep = sleep
-        self.routes: dict[int, Route] = {1: self.cdp_click}
+        self.os = OsDrive(drive, os_input or OsInput(motion=self.motion))
+        # Experiments 5 and 6 plug in here when they exist; until then they are refused.
+        self.routes: dict[int, Route] = {
+            1: self.cdp_click, 2: self.os_click, 3: self.os_click, 4: self.os_click,
+        }
 
     async def __call__(self, lease: Lease, message: dict[str, Any]) -> None:
         experiment = message.get("experiment")
@@ -200,6 +213,45 @@ class Press:
         attempt.agent_knobs["wait_s"] = round(wait, 1)
         await self.sleep(wait)
         await self.click(attempt)
+
+    async def os_click(self, attempt: Attempt) -> None:
+        """Experiments 2-4: measured, every CDP session gone, a wait, one OS click."""
+        lease = attempt.lease
+        origin = await self.os.prepare(lease)
+        box = await self.box(lease, attempt.control.node)
+        if not self.os.in_view(origin, box):
+            raise PressRefused("the submit control is not in view")
+        await self.os.detach(lease)
+        attempt.debugger_attached, attempt.input_kind = False, "os"
+        wait = self.motion.rng.uniform(*WAIT_SECONDS)
+        attempt.agent_knobs["wait_s"] = round(wait, 1)
+        await self.sleep(wait)
+        if not lease.active:
+            return
+        ran = await self.os.focus(lease)
+        x, y = origin.to_screen(self.motion.target(box))
+        if not ran.inside(x, y):
+            raise PressRefused(f"the point {x},{y} is outside the Chrome window {ran.rect}")
+        end = Point(float(x), float(y))
+        await self.os.run(lease, [move_op(self.motion, start_point(self.motion, ran, end), end),
+                                  wait_op(self.motion.dwell_ms())])
+        if not lease.active:
+            return
+        # From here the button may be down, so the outcome is read whatever happens.
+        attempt.clicked = True
+        try:
+            await self.os.run(lease, [{"op": "down"}, wait_op(self.motion.press_ms()),
+                                      {"op": "up"}])
+        finally:
+            with contextlib.suppress(Exception):
+                await self.os.attach(lease)
+
+    async def box(self, lease: Lease, node: int) -> Box:
+        """The control's box again, now the live view's override is cleared."""
+        if lease.cdp is None:
+            raise PressRefused("the lease has no tab")
+        model = (await lease.cdp.send("DOM.getBoxModel", {"nodeId": node}, lease.session))
+        return Box.from_quad([float(value) for value in model["model"]["border"]])
 
     async def click(self, attempt: Attempt) -> None:
         """One human-shaped left click on the control, abandoned if the lease ends first."""

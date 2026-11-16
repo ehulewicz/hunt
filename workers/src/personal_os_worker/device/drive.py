@@ -18,8 +18,9 @@ ends, and the socket closes, on Stop or any live-view input from the Hunt page,
 the switch turning off, ten idle or 45 total minutes, the tab closing or leaving
 the lease host, or the driver releasing it. `upload_file` writes a driver's
 file into `files/`, the only place `DOM.setFileInputFiles` takes files from;
-`submit` hands the lease to the press (`press.py`), after which nothing more
-is forwarded.
+`os` and `attach` go to OS input (`drive_os.py`), during which the tab holds
+no CDP session; `submit` hands the lease to the press (`press.py`), after which
+nothing more is forwarded.
 """
 
 from __future__ import annotations
@@ -90,6 +91,10 @@ def chrome_file_path(path: Path) -> str:
     return str(PureWindowsPath(f"\\\\wsl.localhost\\{distro}", *path.parts[1:]))
 
 
+async def _nothing() -> None:
+    return None
+
+
 @dataclass
 class Lease:
     listing_id: str
@@ -106,6 +111,10 @@ class Lease:
     worlds: set[int] = field(default_factory=set)
     chooser_node: int | None = None
     pressed: bool = False
+    # OS input (drive_os.py): no CDP session is held, the last origin and window title.
+    detached: bool = False
+    origin: Any = None
+    window: str = ""
     reason: str | None = None
     ended: asyncio.Event = field(default_factory=asyncio.Event)
     outbox: asyncio.Queue[dict[str, Any] | None] = field(default_factory=asyncio.Queue)
@@ -147,6 +156,9 @@ class DriveManager:
         self.lease: Lease | None = None
         # Where the press plugs in (phase 1b): it gets the lease and the driver's message.
         self.on_submit: Callable[[Lease, dict[str, Any]], Awaitable[None]] | None = None
+        # OS input's `os` and `attach` messages, and the live view's closer (drive_os.py).
+        self.on_os: Callable[[Lease, dict[str, Any]], Awaitable[dict[str, Any]]] | None = None
+        self.close_stream: Callable[[], Awaitable[None]] = _nothing
         self._granting = asyncio.Lock()
         self._tasks: set[asyncio.Task[None]] = set()
 
@@ -290,9 +302,14 @@ class DriveManager:
         if lease is not None and lease.active:
             self.locks.lock(lease.listing_id, lease.url, "submitted", note)
 
+    def cdp_off(self) -> bool:
+        """Whether the lease holds no CDP session for OS input, so none may open on Chrome."""
+        lease = self.lease
+        return lease is not None and lease.detached
+
     def on_event(self, method: str, params: dict[str, Any], session_id: str | None) -> None:
         lease = self.lease
-        if lease is None or not lease.active:
+        if lease is None or not lease.active or lease.detached:
             return
         if method == "Stream.closed":
             self._finish("Chrome closed the drive connection", lease)
@@ -360,6 +377,13 @@ class DriveManager:
             await self.submit(lease, message)
         elif kind == "upload_file":
             lease.outbox.put_nowait(self.upload(lease, message))
+        elif kind in {"os", "attach"}:
+            lease.last = self.clock()
+            if self.on_os is None:
+                self.audit.write(lease.listing_id, str(kind), {}, "refused: no OS input")
+                lease.outbox.put_nowait({"type": "error", "error": "OS input is not available"})
+            else:
+                lease.outbox.put_nowait(await self.on_os(lease, message))
         elif "method" in message:
             lease.outbox.put_nowait(await self.command(lease, message))
         else:
@@ -428,6 +452,8 @@ class DriveManager:
             return "the press has begun; commands are closed", params
         if method not in ALLOWED:
             return f"not allowed: {method}", params
+        if lease.detached:
+            return "the tab is detached for OS input; send attach first", params
         if method == "Page.navigate":
             url = str(params.get("url") or "")
             if url_host(url) != lease.host:
