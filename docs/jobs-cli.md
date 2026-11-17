@@ -108,6 +108,20 @@ line per attempt with its experiment, input kind and outcome
 captcha refuses ("There was an error verifying your application") ends
 captcha-rejected, exit 15: a failure, never pressed or refilled again.
 
+### Submit pressed by the device
+
+Experiment 1 passed on Lever, so it is now the default route there. When
+`os hunt apply --submit` is linked to this device's agent (`os device serve`),
+the drive switch is on, and the posting is on `jobs.lever.co`, the run does not
+click Submit itself. It prints "pressing Submit through the device
+(experiment 1)", disconnects Playwright from Chrome and hands the press to the
+agent. The agent presses with one human-shaped CDP click and scores it in
+`attempts.jsonl`. Submitted is recorded as applied. A captcha rejection exits
+15, a visible challenge holds, and anything else is unconfirmed. None of these
+is pressed again. With no agent, the switch off, or another ATS, Playwright
+presses as before. A listing the agent holds locked is not pressed at all
+(`workers/README.md`).
+
 Displayed listing titles are clickable when the terminal supports hyperlinks.
 A listing's `#` is assigned by the database over one canonical board. Every
 eligible open listing is numbered, whatever its role family, technical families

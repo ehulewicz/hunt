@@ -215,6 +215,24 @@ distro; `os device status` says what it is doing.
   `{"type": "outcome", "outcome", "url", "screenshot"}` (base64 JPEG), and the
   lease ends. The press keeps its browser connection until then, whatever ends
   the lease.
+- The device press for `os hunt apply --submit` (`jobs/device_submit.py`, and
+  `Press.for_link` here): when a `--submit` run is linked to the agent over the
+  link socket and its Submit is on a `DEVICE_PRESS_HOSTS` posting (only
+  `jobs.lever.co` for now) in the page's own document, the run sends
+  `press_ready`. The agent answers whether it would press (the switch on, no
+  lease, the listing unlocked) and any lock. A lock ends the run with nothing
+  pressed: captcha-rejected if `burned`, else unconfirmed. A yes makes the run
+  name the button (`#id`, or a `data-personal-os-press` mark), scroll it into
+  view, and stop Playwright entirely, so none of its sessions remains. It
+  prints "pressing Submit through the device (experiment 1)" and sends
+  `{"type": "press", "listing_id", "url", "target", "selector", "experiment": 1,
+  "fill_seconds"}`. The agent leases that tab on its own new connection and
+  presses by experiment 1 exactly as for a driver: the lock first, the scorecard
+  line after. Its `press_outcome` comes back within 180 s. Submitted finishes as
+  a confirmation does. `captcha_rejected` is exit 15, `challenge_shown` holds,
+  and anything else, a refusal, or no answer is unconfirmed. Whichever it is,
+  the run reconnects to the tab and never presses it again. A no, no answer,
+  another host, or no link leaves the press to Playwright as before.
 - `drive_state.py` is what the drive keeps in `state_dir()/drive/`. The switch
   (`switch.json`) is off by default; `os device drive on|off|status` sets it,
   through the agent when it runs, so off ends a lease at once. The per-listing
@@ -572,7 +590,8 @@ question's answer and the Inbox can bind it.
 ## Submitting: `--submit`
 
 `os hunt apply <row> --submit` has the run press Next and Submit itself, through
-`jobs/submit.py`, the only code that may. It is off by default, the device agent
+`jobs/submit.py`, the only code that may (on Lever it hands Submit to the
+agent, `jobs/device_submit.py`). It is off by default, the device agent
 and the Hunt page never pass it, and it refuses `--dry-run`, `--no-claude` and
 `--remote`, since a run with no audit must not submit. It implies
 `--accept-letter`, and a letter with an open `[slot]` holds the application.

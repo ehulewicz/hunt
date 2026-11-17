@@ -37,6 +37,9 @@ ATS_HOSTS = (
     "job-boards.greenhouse.io",
     "jobs.ashbyhq.com",
 )
+# The ATS hosts where `os hunt apply --submit` presses Submit through the agent
+# (experiment 1) instead of Playwright; Greenhouse and Ashby join once proven.
+DEVICE_PRESS_HOSTS = frozenset({"jobs.lever.co"})
 LOCK_STATES = frozenset({"pending", "submitted", "unconfirmed", "burned"})
 # A posting's own pages that are still that posting.
 POSTING_TAILS = ("/apply", "/thanks")

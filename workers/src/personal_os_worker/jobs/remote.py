@@ -17,6 +17,7 @@ import os
 import queue
 import re
 import threading
+import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import TracebackType
@@ -34,6 +35,8 @@ from personal_os_worker.jobs.keys import NoKeys, Terminal
 FACT_KEY = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
 PAGE_CONTROLS = frozenset({"save", "done", "skip"})
 LETTER_POLL_SECONDS = 0.5
+# The agent's answers to a request (`RunLink.request`), as the device press sends them.
+REPLIES = frozenset({"press_ready", "press_outcome"})
 
 
 class ConsoleTee(io.TextIOBase):
@@ -112,6 +115,7 @@ class RunLink:
         self._tab: str | None = None
         self._targets: dict[Any, str] = {}
         self._guide: Callable[[str, str | None], str] | None = None
+        self._replies: queue.Queue[dict[str, Any]] = queue.Queue()
         client.start(self._receive)
 
     @classmethod
@@ -148,6 +152,8 @@ class RunLink:
         elif kind == "fact":
             with self._lock:
                 self._facts.append(message)
+        elif kind in REPLIES:
+            self._replies.put(message)
         elif kind == "guide":
             answer = "The fixer is off in this run, so the direction was not sent."
             if self._guide is not None:
@@ -229,6 +235,28 @@ class RunLink:
                 continue
             path.write_text(text, encoding="utf-8")
             return True
+
+    def request(
+        self, message: dict[str, Any], reply: str, *, timeout: float
+    ) -> dict[str, Any] | None:
+        """Send `message` and wait for the agent's `reply`; None on a timeout or a lost link."""
+        while True:  # a late reply to an earlier request is not this one's
+            try:
+                self._replies.get_nowait()
+            except queue.Empty:
+                break
+        self._client.send(message)
+        deadline = time.monotonic() + timeout
+        while (left := deadline - time.monotonic()) > 0:
+            try:
+                answer = self._replies.get(timeout=min(left, LETTER_POLL_SECONDS))
+            except queue.Empty:
+                if self.closed:
+                    return None
+                continue
+            if answer.get("type") == reply:
+                return answer
+        return None
 
     def end(self, outcome: str) -> None:
         self._client.send({"type": "end", "outcome": outcome})

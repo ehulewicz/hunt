@@ -131,7 +131,7 @@ def _run_application(posting_id: str, options: _ApplyOptions) -> str:
                     api, browser, page, console_errors, reused=reused, run=run, run_id=run_id,
                     ats=ats, knowledge=knowledge, career=career, resume_json=resume_json,
                     resume_pdf=resume_pdf, library=library, fixes=fixes, link=link,
-                    cdp_url=config.cdp_url, options=options,
+                    cdp_url=config.cdp_url, options=options, listing_id=posting_id,
                 )
             except PostingClosed as closed:
                 result = _leave_closed(api, run=run, run_id=run_id, closed=closed, options=options)
@@ -325,6 +325,7 @@ def _fill_application(
     link: RunLink | None,
     cdp_url: str,
     options: _ApplyOptions,
+    listing_id: str = "",
 ) -> str:
     """Reach the posting, fill it in one session, and record how the run ended."""
     from personal_os_worker.jobs.facts.career import transcript_pdf_path
@@ -368,6 +369,7 @@ def _fill_application(
             cdp_url=cdp_url,
             fact_ranker=api.rank_facts,
             submit=options.submit,
+            listing_id=listing_id,
             **linked,
         )
     )
@@ -377,7 +379,8 @@ def _fill_application(
         run=run,
         run_id=run_id,
         outcome=outcome,
-        page=page,
+        # After the device pressed Submit the run reconnected, so its tab is a new object.
+        page=session.page if session.device_pressed else page,
     )
     return result
 

@@ -27,6 +27,14 @@ Routes by experiment, in `ROUTES` order:
   `OsInput`. Only after it does a new session attach to watch the outcome.
 
 Any other experiment (5 and 6 plug into `routes`) is refused as not implemented.
+
+A linked `os hunt apply --submit` run presses the same way with no `/drive`
+socket (`for_link`): `press_ready` asks whether the agent would press (the
+switch on, no lease, a `DEVICE_PRESS_HOSTS` posting, the listing unlocked);
+`press` names the run's tab and selector after the run has let go of Chrome.
+The agent leases that tab itself, on a fresh session, runs experiment 1 exactly
+as for a driver, and answers `{"type": "press_outcome", "outcome", "url",
+"error"}`.
 """
 
 from __future__ import annotations
@@ -46,9 +54,12 @@ from personal_os_worker.device.cdp import CdpError
 from personal_os_worker.device.drive import DriveManager, Lease
 from personal_os_worker.device.drive_os import OsDrive
 from personal_os_worker.device.drive_state import (
+    DEVICE_PRESS_HOSTS,
     OUTCOME_LOCKS,
     classify_outcome,
     is_challenge_frame,
+    normalize_posting,
+    url_host,
 )
 from personal_os_worker.device.motion import Box, Motion, Point
 from personal_os_worker.device.osinput import OsInput, move_op, start_point, wait_op
@@ -136,6 +147,72 @@ class Press:
         attempt = Attempt(lease, experiment, control,
                           knobs if isinstance(knobs, dict) else {}, lease.tab_url or lease.url)
         self.drive.spawn(self.run(attempt, route))
+
+    # ----- a linked apply run's press -----------------------------------------
+
+    def run_refusal(self, listing_id: str, url: str) -> str | None:
+        """Why a linked run's press is refused before anything attaches, or None."""
+        host = url_host(url)
+        if not self.drive.switch.on():
+            return "the drive switch is off"
+        if self.drive.lease is not None:
+            return "another lease is active"
+        if host not in DEVICE_PRESS_HOSTS:
+            return f"not a device press host: {host or url[:200]}"
+        lock = self.drive.locks.state_for(listing_id, url)
+        return f"the listing is locked ({lock})" if lock is not None else None
+
+    async def for_link(self, message: dict[str, Any]) -> dict[str, Any]:
+        """A linked run's `press_ready` or `press`, answered for the link."""
+        listing_id, url = str(message.get("listing_id") or ""), str(message.get("url") or "")
+        refusal = self.run_refusal(listing_id, url) if listing_id else "send the listing"
+        if message.get("type") == "press_ready":
+            # A lock stops any press, Playwright's too, whatever the switch says.
+            locked = self.drive.locks.state_for(listing_id, url) if listing_id else None
+            return {"type": "press_ready", "ok": refusal is None, "reason": refusal,
+                    "locked": locked}
+        target, selector = str(message.get("target") or ""), message.get("selector")
+        if refusal is None and message.get("experiment") != 1:
+            refusal = "a run presses by experiment 1 only"
+        if refusal is None and not target:
+            refusal = "send the run's tab"
+        if refusal is not None:
+            self.drive.audit.write(listing_id or None, "press", {"run": True},
+                                   f"refused: {refusal}")
+            return {"type": "press_outcome", "outcome": None, "url": url, "error": refusal}
+        now = self.drive.clock()
+        fill = message.get("fill_seconds")
+        lease = Lease(listing_id=listing_id, url=url, host=url_host(url),
+                      key=normalize_posting(url), last=now, target=target, tab_url=url,
+                      started=now - (float(fill) if isinstance(fill, int | float) else 0.0))
+        self.drive.lease = lease
+        try:
+            lease.cdp = await self.drive.connect(self.drive.on_event)
+            await lease.cdp.send("Target.setDiscoverTargets", {"discover": True})
+            attached = await lease.cdp.send("Target.attachToTarget",
+                                            {"targetId": target, "flatten": True})
+            lease.session = str(attached["sessionId"])
+        except Exception as error:
+            await self.drive.end("the run's tab could not be attached", lease)
+            return {"type": "press_outcome", "outcome": None, "url": url,
+                    "error": f"the run's tab could not be attached: {str(error)[:200]}"}
+        await self(lease, {"experiment": 1, "selector": selector,
+                           "knobs": {"via": "os hunt apply --submit"}})
+        if not lease.pressed:
+            await self.drive.end("the press was refused", lease)
+        return await self._link_outcome(lease)
+
+    @staticmethod
+    async def _link_outcome(lease: Lease) -> dict[str, Any]:
+        """The press's answer, read from the lease's outbox until the lease ends."""
+        reply: dict[str, Any] = {"type": "press_outcome", "outcome": None, "url": lease.url,
+                                 "error": "the press ended with no outcome"}
+        while (message := await lease.outbox.get()) is not None:
+            if message.get("type") == "outcome":
+                reply.update(outcome=message.get("outcome"), url=message.get("url"), error=None)
+            elif message.get("type") == "error" and reply["outcome"] is None:
+                reply["error"] = str(message.get("error") or reply["error"])
+        return reply
 
     async def resolve(self, lease: Lease, selector: str) -> Control:
         """The node `selector` names, if it is a submit control in view."""

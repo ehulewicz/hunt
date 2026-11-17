@@ -172,6 +172,24 @@ class VisibleBrowser:
         if self._playwright is not None:
             self._playwright.stop()
 
+    def let_go(self) -> None:
+        """Drop the connection to Chrome whole, tabs left open: no session of ours stays."""
+        playwright, self._playwright, self._browser = self._playwright, None, None
+        if playwright is not None:
+            playwright.stop()
+
+    def take_back(self, target: str, console_errors: list[str] | None = None) -> Page:
+        """Connect again and return the tab whose CDP target id is `target`."""
+        self.__enter__()
+        assert self._browser is not None
+        contexts = self._browser.contexts
+        for page in contexts[0].pages if contexts else []:
+            if cdp_target_id(page) == target:
+                if console_errors is not None:
+                    watch_console(page, console_errors)
+                return page
+        raise BrowserClosedError("The application tab was closed")
+
     def capture_application(self, url: str) -> dict[str, Any]:
         from personal_os_worker.jobs.browser.capture import inspect_fields
         from personal_os_worker.jobs.browser.transitions import reveal_application_form

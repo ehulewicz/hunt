@@ -221,6 +221,14 @@ class Agent:
             pressing = Press(self.drive)
             self.drive.on_submit, self.drive.on_os = pressing, pressing.os
         self.drive.close_stream = self.close_stream
+        self.runs.on_press = self.press_for_run
+
+    async def press_for_run(self, message: dict[str, Any]) -> dict[str, Any]:
+        """A linked `--submit` run's press goes to the drive's press, whichever it is now."""
+        pressing = self.drive.on_submit
+        if not isinstance(pressing, Press):
+            raise RuntimeError("this agent has no press route")
+        return await pressing.for_link(message)
 
     def _chrome_stream(self, viewer: Viewer) -> Stream:
         async def connect(on_event: Any) -> CdpConnection:

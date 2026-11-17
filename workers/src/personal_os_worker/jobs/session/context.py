@@ -132,6 +132,8 @@ class SessionContext:
     cdp_url: str = ""
     # `os hunt apply --submit`: this run presses Next and Submit itself (`jobs/submit.py`).
     submit: bool = False
+    # The listing's id, which names it to the agent's locks when the device presses Submit.
+    listing_id: str = ""
 
 
 @dataclass

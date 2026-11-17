@@ -136,6 +136,8 @@ class RunManager:
         self._on_tab = on_tab
         self._command = command
         self._log_dir = log_dir
+        # A linked `--submit` run's press through the device (`press.py`'s `for_link`).
+        self.on_press: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._process: asyncio.subprocess.Process | None = None
         self._tasks: set[asyncio.Task[None]] = set()
@@ -313,8 +315,24 @@ class RunManager:
                 question = message.get("question")
                 state.gaps = [item for item in state.gaps if item.get("question") != question]
             await self._publish(message)
+        elif kind in {"press_ready", "press"}:
+            # Beside the reader, so the run's log keeps arriving while the press runs.
+            task = asyncio.create_task(self._press(message))
+            self._tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
         elif kind == "end":
             await self._end(state, str(message.get("outcome") or "stopped"))
+
+    async def _press(self, message: dict[str, Any]) -> None:
+        reply_type = "press_ready" if message.get("type") == "press_ready" else "press_outcome"
+        try:
+            if self.on_press is None:
+                raise RuntimeError("this agent cannot press")
+            reply = await self.on_press(message)
+        except Exception as error:
+            reply = {"type": reply_type, "ok": False, "outcome": None,
+                     "error": str(error)[:300], "reason": str(error)[:300]}
+        await self._send(reply)
 
     async def note(self, text: str) -> None:
         """A line from the agent itself in the active run's log, in red."""

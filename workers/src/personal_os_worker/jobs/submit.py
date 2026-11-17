@@ -18,6 +18,11 @@ page holds, press the one button there is, and read what the page did.
 | moves on with no confirmation           | unconfirmed: it may have gone in         |
 | says its captcha refused the Submit     | captcha rejected: never pressed again    |
 
+On a `DEVICE_PRESS_HOSTS` posting in a run linked to this device's agent, with
+its drive switch on, the agent presses Submit instead (`jobs/device_submit.py`)
+and its outcome decides: submitted, captcha rejected, held on a challenge, and
+anything else unconfirmed. None of those is pressed again.
+
 An unconfirmed application is never pressed again, by this run or by a loop that
 reads its exit code, so nothing goes in twice. Neither is a captcha-rejected
 one (`CAPTCHA_REJECTED`): the ATS may have cleared the form, and nothing
@@ -46,6 +51,12 @@ from personal_os_worker.jobs.account_page import CODE_INPUTS, fill_code
 from personal_os_worker.jobs.audit import Finding
 from personal_os_worker.jobs.autofill import is_cover_letter_field, is_long_form_field
 from personal_os_worker.jobs.browser import field_errors, inspect_fields
+from personal_os_worker.jobs.device_submit import (
+    DeviceTarget,
+    ListingLocked,
+    device_target,
+    press_through_device,
+)
 from personal_os_worker.jobs.mail import (
     Inbox,
     MailUnavailable,
@@ -206,6 +217,8 @@ class _Look:
 
 class SubmitMixin(_Base):
     _stall: StallClock | None = None
+    # The agent pressed Submit: the run let go of Chrome, and `page` is the tab taken back.
+    device_pressed: bool = False
 
     # ----- the press ---------------------------------------------------------
 
@@ -224,6 +237,8 @@ class SubmitMixin(_Base):
             kind = self._press()
             presses += 1
             self.state.pressed_step = self.state.step
+            if kind == "device":
+                return ApplicationPageState.SUBMITTED
             answer = self._read_press(before, kind)
             answer = self._through_mailed_codes(answer, since)
             if isinstance(answer, ApplicationPageState):
@@ -317,17 +332,59 @@ class SubmitMixin(_Base):
         return button, name
 
     def _press(self, *, for_code: bool = False) -> str:
-        """Press the one button; "submit" when it may send the application, else "next"."""
+        """Press the one button; "submit" when it may send the application, else "next".
+
+        "device" when the agent pressed it and the application went in
+        (`jobs/device_submit.py`); any other outcome of its press ends the run.
+        """
         button, name = self.press_target(for_code=for_code)
         kind = "next" if _NEXT.search(name) else "submit"
         console.print(f"  [bold]pressing[/bold] {name}")
         if kind == "submit":
             self.state.submit_pressed = True
+            if not for_code:
+                try:
+                    pressed = device_target(
+                        self.ctx.link, str(getattr(self.ctx, "listing_id", "") or ""),
+                        self.page, button,
+                    )
+                except ListingLocked as locked:
+                    ending = ApplicationRejected if locked.state == "burned" else (
+                        ApplicationUnconfirmed)
+                    raise ending(f"{locked}; it is never pressed again") from locked
+                if pressed is not None:
+                    self._device_press(pressed)
+                    return "device"
         try:
             button.click(timeout=5_000)
         except Error as error:
             raise ApplicationHeld(f"could not press {name!r}: {str(error)[:200]}") from error
         return kind
+
+    def _device_press(self, pressed: DeviceTarget) -> None:
+        """The agent's press: it went in, or the run ends here, never to press it again."""
+        assert self.ctx.link is not None
+        fill = sum(float(item["elapsed_ms"]) for item in self.timings.samples) / 1000
+        self.device_pressed = True
+        page, answer = press_through_device(
+            self.ctx.link, self.ctx.browser, pressed, fill_seconds=fill,
+            console_errors=self.ctx.console_errors,
+        )
+        if page is not None:
+            self.page = page
+        reply = answer or {}
+        outcome = reply.get("outcome")
+        if outcome == "submitted":
+            return
+        if outcome == "captcha_rejected":
+            raise ApplicationRejected(
+                "the captcha refused the device's press; the form may be cleared"
+            )
+        if outcome == "challenge_shown":
+            raise ApplicationHeld("the device's press opened a captcha challenge; "
+                                  "it is never pressed again")
+        said = reply.get("error") or (f"the page read {outcome}" if outcome else "no answer")
+        raise ApplicationUnconfirmed(f"the device's press is unconfirmed: {said}")
 
     # ----- what the page did -------------------------------------------------
 
