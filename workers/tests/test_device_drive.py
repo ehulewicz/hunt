@@ -163,6 +163,8 @@ def test_a_lease_attaches_to_the_postings_tab_only(client: TestClient, chrome: F
     with client.websocket_connect("/drive", headers=GOOD) as socket:
         assert lease(socket) == {"type": "leased", "target": "T1"}
         assert ("Target.attachToTarget", {"targetId": "T1", "flatten": True}, None) in chrome.sent
+        # Brought to the front first, so the tab's input is not throttled in the background.
+        assert ("Target.activateTarget", {"targetId": "T1"}, None) in chrome.sent
         assert "Target.setAutoAttach" not in chrome.methods()
         socket.send_json({"type": "release"})
         assert ended(socket) == "released by the driver"

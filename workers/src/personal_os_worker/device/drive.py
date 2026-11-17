@@ -229,6 +229,8 @@ class DriveManager:
         else:
             created = await cdp.send("Target.createTarget", {"url": lease.url})
             lease.target, lease.tab_url = str(created["targetId"]), lease.url
+        # A background tab's input waits on throttled frames: bring the leased tab forward.
+        await cdp.send("Target.activateTarget", {"targetId": lease.target})
         attached = await cdp.send(
             "Target.attachToTarget", {"targetId": lease.target, "flatten": True}
         )

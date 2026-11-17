@@ -111,3 +111,17 @@ def test_the_press_words_are_shared_and_the_device_never_imports_jobs() -> None:
     assert wording.CAPTCHA_REJECTED.search("There was an error verifying your application.")
     for module in (drive_state, motion, osinput, press):
         assert "personal_os_worker.jobs" not in Path(module.__file__ or "").read_text()
+
+
+def test_greenhouse_and_ashby_confirmations_read_as_submitted() -> None:
+    gh = "https://job-boards.greenhouse.io/acme/jobs/123"
+    assert classify_outcome(gh + "/confirmation", "Thank you for applying.", gh) == "submitted"
+    ashby = "https://jobs.ashbyhq.com/acme/0b9c/application"
+    said = "Your application was successfully submitted. We'll contact you if there are next steps."
+    assert classify_outcome(ashby, said, ashby) == "submitted"
+
+
+def test_a_recaptcha_challenge_frame_counts() -> None:
+    src = "https://www.google.com/recaptcha/enterprise/bframe?hl=en&k=abc"
+    assert is_challenge_frame(src, 400, 580, True)
+    assert not is_challenge_frame(src.replace("bframe", "anchor"), 400, 580, True)

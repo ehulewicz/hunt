@@ -55,7 +55,7 @@ OUTCOME_LOCKS: dict[str, str | None] = {
     "validation": None, "unconfirmed": "unconfirmed",
 }
 CONFIRMED_WORDS = re.compile(
-    r"\bapplication\s+(?:submitted|received)\b"
+    r"\bapplication\s+(?:(?:was|has\s+been)\s+)?(?:successfully\s+)?(?:submitted|received)\b"
     r"|\bthanks?(?:\s+you)?\s+for\s+(?:applying|your\s+application)\b",
     re.IGNORECASE,
 )
@@ -100,16 +100,20 @@ def normalize_posting(url: str) -> str:
 
 
 def is_confirmation(url: str) -> bool:
-    """An ATS page that says the application went in (Lever: the posting's `/thanks`)."""
+    """An ATS confirmation page: Lever `/thanks` or Greenhouse `/confirmation`."""
     host = url_host(url)
     path = urlsplit(url).path.rstrip("/").lower()
-    return host.endswith("lever.co") and path.endswith("/thanks")
+    if host.endswith("lever.co"):
+        return path.endswith("/thanks")
+    return host.endswith("greenhouse.io") and path.endswith("/confirmation")
 
 
 def is_challenge_frame(src: str, width: float, height: float, visible: bool) -> bool:
-    """A visible hCaptcha challenge: its frame says `frame=challenge` and is over 100x100."""
-    return (visible and "hcaptcha" in src.lower() and "frame=challenge" in src
-            and width > CHALLENGE_MIN_PX and height > CHALLENGE_MIN_PX)
+    """A visible challenge over 100x100: hCaptcha's `frame=challenge` or reCAPTCHA's `bframe`."""
+    lowered = src.lower()
+    challenge = ("hcaptcha" in lowered and "frame=challenge" in src) or (
+        "recaptcha" in lowered and "/bframe" in lowered)
+    return visible and challenge and width > CHALLENGE_MIN_PX and height > CHALLENGE_MIN_PX
 
 
 def classify_outcome(
