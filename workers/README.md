@@ -282,6 +282,19 @@ distro; `os device status` says what it is doing.
   `submit` (returns the outcome) and `release`. `stop()` is checked before every
   action, and an `ended` message raises `DriveEnded`; a refusal raises
   `DriveError` and the lease goes on.
+- The drive client's fill safety: `scroll_into_view` wheels the element (80-120
+  px steps, 30-90 ms apart, at the last pointer position, up to 60) until it is
+  80 px inside the viewport and the smooth scroll settles; a selector `click`
+  scrolls, moves, and hit-tests (`hits`: the point lands on the element, inside
+  it, or on its label) up to four times before pressing. `type` keys on an
+  absolute schedule from `Motion.key_delays`, sending every key without waiting
+  for its reply (Enter for a newline, `Input.insertText` for non-ASCII), and
+  raises once at the end if any reply failed. `fill_text` clicks, confirms
+  focus, clears, types and reads back (`read_value`) up to three times.
+  `submit(..., expected=)` reads every field back first and refuses, naming
+  only the selectors, without pressing when one does not hold what was filled;
+  otherwise it scrolls the button into view and pauses 0.6-1.4 s before the
+  press.
 - `stream.py` is the live view: a raw CDP connection (`cdp.py`) to the browser
   endpoint, separate from the run's Playwright, with the layout, text fit and
   input mapping in `pane.py`. It attaches only to the tab being shown,
