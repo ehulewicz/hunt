@@ -70,4 +70,6 @@ cd ../workers && uv run ruff check . && uv run mypy src/ && uv run pytest -q
 cd ../frontend && npm ci && npm run verify
 ```
 
-`mypy` is limited to `src/` because the tests are not annotated. A real apply also needs the hosted database, a signed-in Chrome profile on the device, and `os device serve`. The tests do not.
+`mypy` is limited to `src/` because the tests are not annotated. The shrimp-tracking paper that the page can serve at `/research/tiny-object-tracking` is a placeholder here. The original file named its authors, so it is not in this snapshot.
+
+A real apply also needs the hosted database, a signed-in Chrome profile on the device, and `os device serve`. The tests do not.
