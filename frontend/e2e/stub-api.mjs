@@ -13,7 +13,7 @@ createServer((request, response) => {
     response.writeHead(200, {
       "Content-Type": "application/pdf",
       "Content-Disposition": 'inline; filename="Alex_Example.pdf"',
-      "Cache-Control": "public, max-age=60",
+      "Cache-Control": "no-cache",
     });
     response.end(PDF);
     return;

@@ -1,3 +1,4 @@
+import hashlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from uuid import UUID
@@ -136,8 +137,29 @@ async def test_the_public_resume_needs_no_auth(
             response.headers["content-disposition"]
             == 'inline; filename="Alex_Example.pdf"'
         )
-        assert response.headers["cache-control"] == "public, max-age=60"
+        assert response.headers["cache-control"] == "no-cache"
+        assert response.headers["etag"] == f'"{hashlib.sha256(b"%PDF-1.7-fake").hexdigest()}"'
         assert storage.downloaded == [USER_ID]
+
+
+async def test_the_public_resume_returns_304_when_the_etag_matches(
+    client: httpx.AsyncClient,
+) -> None:
+    async with client:
+        first = await client.get("/v1/public/resume.pdf")
+        etag = first.headers["etag"]
+        cached = await client.get("/v1/public/resume.pdf", headers={"If-None-Match": etag})
+        assert cached.status_code == 304
+        assert cached.content == b""
+        assert cached.headers["etag"] == etag
+        assert cached.headers["cache-control"] == "no-cache"
+        weak = await client.get("/v1/public/resume.pdf", headers={"If-None-Match": f"W/{etag}"})
+        assert weak.status_code == 304
+        fresh = await client.get(
+            "/v1/public/resume.pdf", headers={"If-None-Match": '"not-this-resume"'}
+        )
+        assert fresh.status_code == 200
+        assert fresh.content == b"%PDF-1.7-fake"
 
 
 async def test_the_public_resume_404s_until_one_is_stored(

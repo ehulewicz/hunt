@@ -8,7 +8,7 @@ test("resume serves the stored PDF without a session", async ({ request, page })
     .filter((header) => header.name.toLowerCase() === "content-disposition");
   expect(dispositions).toHaveLength(1);
   expect(dispositions[0].value).toBe('inline; filename="Alex_Example.pdf"');
-  expect(response.headers()["cache-control"]).toBe("public, max-age=60");
+  expect(response.headers()["cache-control"]).toBe("no-cache");
   const pdf = await response.body();
   expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
 
